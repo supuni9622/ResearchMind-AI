@@ -1,0 +1,51 @@
+services:
+
+  postgres:
+    image: postgres:17-alpine
+    container_name: researchmind-postgres
+
+    restart: unless-stopped
+
+    environment:
+      POSTGRES_USER: researchmind
+      POSTGRES_PASSWORD: researchmind
+      POSTGRES_DB: researchmind
+
+    ports:
+      - "5432:5432"
+
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  valkey:
+    image: valkey/valkey:8-alpine
+    container_name: researchmind-valkey
+
+    restart: unless-stopped
+
+    ports:
+      - "6379:6379"
+
+    volumes:
+      - valkey_data:/data
+
+  qdrant:
+    image: qdrant/qdrant:v1.15.2
+    container_name: researchmind-qdrant
+
+    restart: unless-stopped
+
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+
+    volumes:
+      - qdrant_data:/qdrant/storage
+
+volumes:
+
+  postgres_data:
+
+  valkey_data:
+
+  qdrant_data:

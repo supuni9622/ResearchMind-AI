@@ -1,41 +1,78 @@
-# Milestone 030 - Backend Foundation
+# Milestone 030 – Backend Foundation
 
 ## Goal
 
-Build a production-ready backend foundation for ResearchMind.
+Establish a production-ready backend foundation for ResearchMind.
 
 ---
 
 ## Completed
 
+### Backend
+
 - FastAPI application
-- Project settings
-- Docker Compose
+- Configuration management
+- Environment variables
+- Structured logging
+- Lifespan management
+
+### Infrastructure
+
 - PostgreSQL
 - Valkey
 - Qdrant
-- SQLAlchemy Engine
+- Docker Compose
+
+### Database Layer
+
+- SQLAlchemy Async Engine
 - Session Factory
-- Health endpoints
+- Dependency Injection
+
+### Health System
+
+- `/live`
+- `/ready`
+- `/health`
+
+---
+
+## Major Refactor
+
+Initially, infrastructure resources were created during module import.
+
+We refactored the application to use FastAPI Lifespan, allowing the application to own and manage all shared resources through `app.state`.
+
+This significantly improves startup, shutdown, testing, and maintainability.
+
+---
+
+## Concepts Learned
+
+- FastAPI Lifespan
+- SQLAlchemy Engine
+- Session vs Engine
+- Dependency Injection
+- Connection Pooling
 
 ---
 
 ## Architectural Decisions
 
-- Async SQLAlchemy
 - One Engine per application
 - One Session per request
-- Dependency Injection
-- Docker-first local development
+- Resource factories instead of global singletons
+- Application-owned infrastructure
+- Docker-first development
 
 ---
 
 ## Lessons Learned
 
-- Lifespan is preferred over import-time initialization.
-- Engine manages connections.
-- Session represents a unit of work.
-- Health checks should validate dependencies.
+- Global resources make lifecycle management difficult.
+- Lifespan provides a cleaner architecture.
+- Dependency Injection keeps business logic independent of infrastructure.
+- SQLAlchemy Engine and Session have distinct responsibilities.
 
 ---
 
@@ -51,4 +88,9 @@ Build a production-ready backend foundation for ResearchMind.
 
 ## Next Milestone
 
-Implement application lifecycle management using FastAPI Lifespan and move all infrastructure clients into application state.
+Continue backend foundation by implementing:
+
+- API versioning
+- Global exception handling
+- Request/response middleware
+- Testing foundation

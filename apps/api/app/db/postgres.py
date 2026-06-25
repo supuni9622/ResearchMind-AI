@@ -1,20 +1,19 @@
-#Database engine
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
+
 from app.core.settings import settings
 
-# What does Engine do?
 
-# 1. creates connections
-# 2. reuses connections
-# 3. manages the connection pool
-# 4. reconnects
-# 5. handles transactions
+def create_postgres_engine() -> AsyncEngine:
+    """
+    Create the application's PostgreSQL engine.
 
-# It's basically "The database manager."
+    The engine is created during the FastAPI lifespan startup
+    and disposed during shutdown.
+    """
 
-engine: AsyncEngine = create_async_engine(
-    settings.database_url.replace("psycopg", "asyncpg"),
-    echo=settings.environment == "development",
-    future=True,
-    pool_pre_ping=True,
-)
+    return create_async_engine(
+        settings.database_url.replace("psycopg", "asyncpg"),
+        echo=settings.environment == "development",
+        future=True,
+        pool_pre_ping=True,
+    )

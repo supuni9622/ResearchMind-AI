@@ -1,40 +1,51 @@
+from fastapi import Request
 from sqlalchemy import text
-from app.db.postgres import engine
-from app.db.qdrant import client as qdrant_client
-from app.db.valkey import client as valkey_client
 
 
-async def postgres_health() -> str:
+async def postgres_health(request: Request) -> str:
     try:
-        async with engine.begin() as conn:
+        async with request.app.state.postgres_engine.begin() as conn:
             await conn.execute(text("SELECT 1"))
         return "healthy"
     except Exception:
         return "unhealthy"
 
 
-async def valkey_health() -> str:
+async def valkey_health(request: Request) -> str:
     try:
-        await valkey_client.ping()
+        await request.app.state.valkey.ping()
         return "healthy"
     except Exception:
         return "unhealthy"
 
 
-async def qdrant_health() -> str:
+async def qdrant_health(request: Request) -> str:
     try:
-        await qdrant_client.get_collections()
+        await request.app.state.qdrant.get_collections()
         return "healthy"
     except Exception:
         return "unhealthy"
 
 
-async def get_health_status():
+async def get_health_status(request: Request):
+    postgres = await postgres_health(request)
+    valkey = await valkey_health(request)
+    qdrant = await qdrant_health(request)
+
+    overall = (
+        "healthy"
+        if all(
+            service == "healthy"
+            for service in (postgres, valkey, qdrant)
+        )
+        else "unhealthy"
+    )
+
     return {
-        "status": "healthy",
+        "status": overall,
         "services": {
-            "postgres": await postgres_health(),
-            "valkey": await valkey_health(),
-            "qdrant": await qdrant_health(),
+            "postgres": postgres,
+            "valkey": valkey,
+            "qdrant": qdrant,
         },
     }

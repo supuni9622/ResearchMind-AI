@@ -2,60 +2,127 @@
 
 ## Overview
 
-FastAPI provides a lifecycle mechanism called **Lifespan** for managing resources that should exist for the lifetime of the application.
+FastAPI provides a **Lifespan** mechanism for managing resources that should exist for the entire lifetime of an application.
 
-Examples:
+Instead of creating resources when Python imports a module, FastAPI allows us to explicitly initialize them during application startup and clean them up during shutdown.
 
-- Database connections
-- Redis / Valkey clients
-- Qdrant client
-- LangSmith
-- Background workers
+ResearchMind uses Lifespan to manage all infrastructure services.
 
 ---
 
-## Why It Exists
+## Why Does Lifespan Exist?
 
-Applications have two important events:
+Every application has a lifecycle:
 
-- Startup
-- Shutdown
+```
+Application Starts
+        │
+        ▼
+Initialize Resources
+        │
+        ▼
+Serve Requests
+        │
+        ▼
+Release Resources
+        │
+        ▼
+Application Stops
+```
 
-Resources should be created during startup and cleaned up during shutdown.
+Without Lifespan, resources are often created during module import, making startup, shutdown, testing, and dependency management more difficult.
 
 ---
 
-## ResearchMind Usage
+## How ResearchMind Uses Lifespan
 
-ResearchMind will initialize:
+During startup:
 
-- PostgreSQL
-- Valkey
-- Qdrant
+- Configure logging
+- Create PostgreSQL Engine
+- Create Valkey Client
+- Create Qdrant Client
+- Store them in `app.state`
 
-during startup.
+During shutdown:
+
+- Dispose PostgreSQL Engine
+- Close Valkey Client
+- Close Qdrant Client
 
 ---
 
-## Benefits
+## Why We Refactored
 
+### Before
+
+```
+Import Module
+
+↓
+
+Engine Created
+
+↓
+
+Redis Created
+
+↓
+
+Qdrant Created
+```
+
+Problems:
+
+- Resources created too early
+- Difficult to test
+- No centralized cleanup
+- Harder to control startup order
+
+---
+
+### After
+
+```
+FastAPI Starts
+
+↓
+
+lifespan()
+
+↓
+
+Initialize Resources
+
+↓
+
+Store in app.state
+
+↓
+
+Serve Requests
+
+↓
+
+Shutdown
+
+↓
+
+Dispose Resources
+```
+
+Benefits:
+
+- Predictable startup
 - Proper cleanup
-- Better testing
-- Centralized initialization
-- Predictable lifecycle
-
----
-
-## Common Mistakes
-
-- Creating clients during import
-- Forgetting cleanup
-- Opening duplicate connections
+- Easier testing
+- Production-ready lifecycle management
 
 ---
 
 ## Key Takeaways
 
 - Lifespan manages application resources.
-- Startup initializes services.
+- Startup creates shared infrastructure.
 - Shutdown releases resources.
+- Resource ownership belongs to the application.

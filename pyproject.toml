@@ -7,7 +7,9 @@ requires-python = ">=3.12,<3.13"
 
 dependencies = [
     "alembic>=1.18.4",
+    "asyncpg>=0.31.0",
     "fastapi>=0.138.0",
+    "greenlet>=3.5.2",
     "httpx>=0.28.1",
     "orjson>=3.11.9",
     "psycopg[binary]>=3.3.4",

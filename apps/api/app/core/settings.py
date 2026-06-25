@@ -1,35 +1,63 @@
-from functools import lru_cache
-from pathlib import Path
+#Contains configuration values.
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
-
-# Find the repository root:
-# settings.py -> core -> app -> api -> apps -> ResearchMind-AI
-BASE_DIR = Path(__file__).resolve().parents[4]
 
 
 class Settings(BaseSettings):
-    app_name: str = "ResearchMind"
-    app_version: str = "0.1.0"
-    environment: str = "development"
+    """
+    Environment-specific configuration.
 
-    api_host: str = "0.0.0.0"
-    api_port: int = 8000
-
-    database_url: str
-    valkey_url: str
-    qdrant_url: str
+    Values are loaded from the .env file.
+    """
 
     model_config = SettingsConfigDict(
-        env_file=BASE_DIR / ".env",
-        env_file_encoding="utf-8",
+        env_file=".env",
+        case_sensitive=False,
         extra="ignore",
     )
 
+    # ==========================================================================
+    # Environment
+    # ==========================================================================
 
-@lru_cache
-def get_settings() -> Settings:
-    return Settings()
+    environment: str = Field(default="development")
+
+    debug: bool = True
+
+    # ==========================================================================
+    # Database
+    # ==========================================================================
+
+    database_url: str
+
+    valkey_url: str
+
+    qdrant_url: str
+
+    # ==========================================================================
+    # Frontend
+    # ==========================================================================
+
+    frontend_url: str = "http://localhost:3000"
+
+    # ==========================================================================
+    # AI Services (Future)
+    # ==========================================================================
+
+    groq_api_key: str | None = None
+
+    openai_api_key: str | None = None
+
+    langsmith_api_key: str | None = None
+
+    # ==========================================================================
+    # AWS (Future)
+    # ==========================================================================
+
+    aws_region: str | None = None
+
+    s3_bucket_name: str | None = None
 
 
-settings = get_settings()
+settings = Settings()

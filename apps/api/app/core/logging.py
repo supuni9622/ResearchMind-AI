@@ -1,3 +1,12 @@
+# Responsibility is:
+
+# Configure structlog
+# Configure Python logging
+# Configure log formatting
+# Configure log levels
+
+# This file is application startup configuration. And does not log HTTP requests.
+
 import logging
 import sys
 import structlog

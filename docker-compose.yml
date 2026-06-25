@@ -30,7 +30,7 @@ services:
       - valkey_data:/data
 
   qdrant:
-    image: qdrant/qdrant:v1.15.2
+    image: qdrant/qdrant:v1.18.0
     container_name: researchmind-qdrant
 
     restart: unless-stopped

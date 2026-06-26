@@ -21,9 +21,7 @@ def get_session_factory(
 async def get_db(
     request: Request,
 ) -> AsyncGenerator[AsyncSession, None]:
-    session_factory = get_session_factory(
-        request.app.state.postgres_engine
-    )
+    session_factory = get_session_factory(request.app.state.postgres_engine)
 
     async with session_factory() as session:
         yield session

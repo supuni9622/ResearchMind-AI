@@ -34,10 +34,7 @@ async def get_health_status(request: Request):
 
     overall = (
         "healthy"
-        if all(
-            service == "healthy"
-            for service in (postgres, valkey, qdrant)
-        )
+        if all(service == "healthy" for service in (postgres, valkey, qdrant))
         else "unhealthy"
     )
 

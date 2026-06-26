@@ -1,4 +1,4 @@
-#Contains configuration values.
+# Contains configuration values.
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -29,11 +29,11 @@ class Settings(BaseSettings):
     # Database
     # ==========================================================================
 
-    database_url: str
+    database_url: str = ""
 
-    valkey_url: str
+    valkey_url: str = ""
 
-    qdrant_url: str
+    qdrant_url: str = ""
 
     # ==========================================================================
     # Frontend

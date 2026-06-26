@@ -1,4 +1,4 @@
-#Contains values that never change between environments.
+# Contains values that never change between environments.
 
 from pathlib import Path
 
@@ -8,9 +8,7 @@ from pathlib import Path
 
 APP_NAME = "ResearchMind AI"
 
-APP_DESCRIPTION = (
-    "Production-grade AI Research & Intelligence Platform"
-)
+APP_DESCRIPTION = "Production-grade AI Research & Intelligence Platform"
 
 APP_VERSION = "0.1.0"
 

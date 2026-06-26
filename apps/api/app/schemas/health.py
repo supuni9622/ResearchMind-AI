@@ -2,6 +2,7 @@
 
 from pydantic import BaseModel
 
+
 class LiveResponse(BaseModel):
     status: str
 

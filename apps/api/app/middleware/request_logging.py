@@ -6,7 +6,6 @@
 # This file is request pipeline logic.
 
 import structlog
-
 from starlette.middleware.base import BaseHTTPMiddleware
 
 logger = structlog.get_logger()

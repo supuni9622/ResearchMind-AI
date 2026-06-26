@@ -1,6 +1,8 @@
 from contextlib import asynccontextmanager
+
 import structlog
 from fastapi import FastAPI
+
 from app.core.logging import configure_logging
 from app.db.postgres import create_postgres_engine
 from app.db.qdrant import create_qdrant_client

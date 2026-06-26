@@ -25,6 +25,8 @@ dependencies = [
 
 [dependency-groups]
 dev = [
+    "asgi-lifespan>=2.1.0",
+    "httpx>=0.28.1",
     "mypy>=2.1.0",
     "pre-commit>=4.6.0",
     "pytest>=9.1.1",
@@ -37,5 +39,44 @@ dev = [
 line-length = 100
 target-version = "py312"
 
+[tool.ruff.lint]
+select = [
+    "E",
+    "W",
+    "F",
+    "I",
+    "B",
+    "UP",
+    "SIM",
+]
+
+ignore = ["UP046",]
+
 [tool.pytest.ini_options]
+testpaths = ["tests"]
+
+python_files = ["test_*.py"]
+
 asyncio_mode = "auto"
+
+addopts = [
+    "--strict-markers",
+    "--cov=apps",
+    "--cov-report=term-missing",
+]
+
+[tool.mypy]
+python_version = "3.12"
+
+warn_unused_configs = true
+warn_return_any = true
+warn_unused_ignores = true
+check_untyped_defs = true
+no_implicit_optional = true
+
+[tool.coverage.run]
+source = ["apps"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true

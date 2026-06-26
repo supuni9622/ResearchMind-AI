@@ -6,7 +6,6 @@ from app.core.settings import settings
 def create_postgres_engine() -> AsyncEngine:
     """
     Create the application's PostgreSQL engine.
-
     The engine is created during the FastAPI lifespan startup
     and disposed during shutdown.
     """

@@ -80,3 +80,14 @@ source = ["apps"]
 [tool.coverage.report]
 show_missing = true
 skip_covered = true
+
+[tool.uv]
+
+package = true
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["apps/api/app"]

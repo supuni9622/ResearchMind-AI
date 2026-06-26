@@ -29,6 +29,7 @@ dev = [
     "httpx>=0.28.1",
     "mypy>=2.1.0",
     "pre-commit>=4.6.0",
+    "pydantic>=2.13.4",
     "pytest>=9.1.1",
     "pytest-asyncio>=1.4.0",
     "pytest-cov>=7.1.0",
@@ -67,12 +68,14 @@ addopts = [
 
 [tool.mypy]
 python_version = "3.12"
+plugins = ["pydantic.mypy"]
 
 warn_unused_configs = true
 warn_return_any = true
 warn_unused_ignores = true
 check_untyped_defs = true
 no_implicit_optional = true
+exclude = "^alembic/"
 
 [tool.coverage.run]
 source = ["apps"]

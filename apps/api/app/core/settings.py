@@ -1,13 +1,15 @@
-# Contains configuration values.
+# Contains application configuration values.
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
     """
-    Environment-specific configuration.
+    Application configuration.
 
-    Values are loaded from the .env file.
+    Values are loaded from the local `.env` file during development
+    and from environment variables in production.
     """
 
     model_config = SettingsConfigDict(
@@ -28,9 +30,9 @@ class Settings(BaseSettings):
     # Database
     # ==========================================================================
 
-    database_url: str | None = None
-    valkey_url: str | None = None
-    qdrant_url: str | None = None
+    database_url: str = Field(...)
+    valkey_url: str = Field(...)
+    qdrant_url: str = Field(...)
 
     # ==========================================================================
     # Frontend
@@ -39,7 +41,7 @@ class Settings(BaseSettings):
     frontend_url: str = "http://localhost:3000"
 
     # ==========================================================================
-    # AI Services (Future)
+    # AI Services
     # ==========================================================================
 
     groq_api_key: str | None = None
@@ -57,7 +59,7 @@ class Settings(BaseSettings):
     # Security
     # ==========================================================================
 
-    secret_key: str | None = None
+    secret_key: str = Field(...)
     access_token_expire_minutes: int = 30
 
 

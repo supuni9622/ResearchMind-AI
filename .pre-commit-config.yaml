@@ -7,16 +7,14 @@ repos:
 
       - id: ruff-format
 
-  - repo: https://github.com/pre-commit/mirrors-mypy
-    rev: v1.18.2
-    hooks:
-      - id: mypy
-        additional_dependencies:
-          - pydantic
-          - pydantic-settings
-
   - repo: local
     hooks:
+      - id: mypy
+        name: mypy
+        entry: uv run mypy .
+        language: system
+        pass_filenames: false
+
       - id: pytest
         name: pytest
         entry: uv run pytest

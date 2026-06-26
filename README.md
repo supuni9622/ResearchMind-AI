@@ -327,6 +327,71 @@ uv run alembic current
 uv run alembic downgrade -1
 ```
 
+### Troubleshooting: table missing but Alembic says "head"
+
+If `alembic current` reports the migration as applied but queries fail with
+`relation "X" does not exist`, the `alembic_version` table was stamped without
+the migration actually running. Fix it by clearing the stamp and re-applying:
+
+```bash
+uv run alembic stamp base   # remove the false stamp
+uv run alembic upgrade head # run the migration for real
+```
+
+Verify tables exist:
+
+```bash
+psql postgresql://researchmind:researchmind@localhost:5432/researchmind -c "\dt"
+```
+
+---
+
+## Authentication (AWS Cognito)
+
+ResearchMind uses AWS Cognito Hosted UI for authentication. The API validates
+Cognito-issued JWTs on every protected request — it never handles passwords or
+sessions itself.
+
+See [`docs/architecture/identity-architecture.md`](docs/architecture/identity-architecture.md)
+for the full flow, implementation details, and AWS Console setup checklist.
+
+### Required `.env` values
+
+```env
+AWS_REGION=us-east-1
+COGNITO_USER_POOL_ID=<your-pool-id>
+COGNITO_APP_CLIENT_ID=<your-app-client-id>
+COGNITO_DOMAIN=https://<your-prefix>.auth.us-east-1.amazoncognito.com
+```
+
+`COGNITO_DOMAIN` is the Hosted UI domain — find it in the AWS Console under
+**User Pools → App integration → Domain**.
+
+### Testing auth without a frontend
+
+You can exercise the full auth flow using only a browser and curl:
+
+1. Open the Cognito login URL in your browser, log in, and copy the `?code=`
+   from the redirect URL bar (the page won't load — no frontend — but the code is there).
+
+2. Exchange the code:
+
+```bash
+curl -X POST http://localhost:8000/api/v1/auth/callback \
+  -H "Content-Type: application/json" \
+  -d '{"code": "PASTE_CODE_HERE", "redirect_uri": "http://localhost:3000/auth/callback"}'
+```
+
+3. Use the returned `id_token` (not `access_token`) as the Bearer token:
+
+```bash
+curl http://localhost:8000/api/v1/auth/me \
+  -H "Authorization: Bearer <id_token>"
+```
+
+Or paste the `id_token` into the **Authorize** button in Swagger at
+`http://localhost:8000/docs`.
+
 ---
 
 ## License

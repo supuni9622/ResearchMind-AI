@@ -8,6 +8,7 @@ requires-python = ">=3.12,<3.13"
 dependencies = [
     "alembic>=1.18.4",
     "asyncpg>=0.31.0",
+    "cryptography>=49.0.0",
     "fastapi>=0.138.0",
     "greenlet>=3.5.2",
     "httpx>=0.28.1",
@@ -15,6 +16,7 @@ dependencies = [
     "psycopg[binary]>=3.3.4",
     "pydantic>=2.13.4",
     "pydantic-settings>=2.14.2",
+    "pyjwt>=2.13.0",
     "python-multipart>=0.0.32",
     "qdrant-client>=1.18.0",
     "redis>=8.0.1",
@@ -51,7 +53,7 @@ select = [
     "SIM",
 ]
 
-ignore = ["UP046",]
+ignore = ["UP046","B008",]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -60,3 +60,13 @@ Detailed commands will be updated as each milestone is completed.
 - [ ] Running tests
 - [ ] Running workers
 - [ ] Running the full stack
+
+## Git Tag
+
+Once merged:
+```
+git tag v0.1.0-foundation
+git push origin v0.1.0-foundation
+```
+
+I recommend tagging every completed phase. It gives you clear checkpoints in your Git history and makes it easy to demonstrate the project's evolution.

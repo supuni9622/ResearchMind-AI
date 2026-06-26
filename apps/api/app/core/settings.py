@@ -1,6 +1,5 @@
 # Contains configuration values.
 
-from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -18,22 +17,20 @@ class Settings(BaseSettings):
     )
 
     # ==========================================================================
-    # Environment
+    # Application
     # ==========================================================================
 
-    environment: str = Field(default="development")
-
+    app_name: str = "ResearchMind AI"
+    environment: str = "development"
     debug: bool = True
 
     # ==========================================================================
     # Database
     # ==========================================================================
 
-    database_url: str = ""
-
-    valkey_url: str = ""
-
-    qdrant_url: str = ""
+    database_url: str | None = None
+    valkey_url: str | None = None
+    qdrant_url: str | None = None
 
     # ==========================================================================
     # Frontend
@@ -46,9 +43,7 @@ class Settings(BaseSettings):
     # ==========================================================================
 
     groq_api_key: str | None = None
-
     openai_api_key: str | None = None
-
     langsmith_api_key: str | None = None
 
     # ==========================================================================
@@ -56,8 +51,14 @@ class Settings(BaseSettings):
     # ==========================================================================
 
     aws_region: str | None = None
-
     s3_bucket_name: str | None = None
+
+    # ==========================================================================
+    # Security
+    # ==========================================================================
+
+    secret_key: str | None = None
+    access_token_expire_minutes: int = 30
 
 
 settings = Settings()

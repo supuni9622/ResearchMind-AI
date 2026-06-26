@@ -206,9 +206,7 @@ docker compose up -d
 ### Run the Backend
 
 ```bash
-uv run uvicorn app.main:app \
-    --reload \
-    --app-dir apps/api
+uv run uvicorn app.main:app --reload
 ```
 
 ---

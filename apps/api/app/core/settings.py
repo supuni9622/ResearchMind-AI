@@ -1,7 +1,11 @@
 # Contains application configuration values.
 
+import os
+
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+_ENV_FILE = ".env.test" if os.getenv("ENVIRONMENT") == "test" else ".env"
 
 
 class Settings(BaseSettings):
@@ -13,7 +17,7 @@ class Settings(BaseSettings):
     """
 
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=_ENV_FILE,
         case_sensitive=False,
         extra="ignore",
     )
@@ -63,4 +67,4 @@ class Settings(BaseSettings):
     access_token_expire_minutes: int = 30
 
 
-settings = Settings()
+settings = Settings()  # pyright: ignore[reportCallIssue]

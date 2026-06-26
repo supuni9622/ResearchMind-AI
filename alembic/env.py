@@ -4,9 +4,6 @@ import sys
 from logging.config import fileConfig
 from pathlib import Path
 
-import app.models
-
-# Import all ORM models so SQLAlchemy registers them with Base.metadata.
 from app.core.settings import settings
 from app.db.base import Base
 from sqlalchemy import pool
@@ -37,17 +34,8 @@ config.set_main_option(
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-print("=" * 60)
-print("app.models file:", app.models.__file__)
-print("Base:", Base)
-print("Metadata:", Base.metadata)
-print("Tables:", list(Base.metadata.tables.keys()))
-print("=" * 60)
-print("Imported models:", app.models)
-print("User class:", getattr(app.models, "User", None))
-print("Tables:", Base.metadata.tables)
-
 # SQLAlchemy metadata used for autogeneration.
+# All models are registered via the bottom import in app/db/base.py.
 target_metadata = Base.metadata
 
 

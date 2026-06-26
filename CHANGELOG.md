@@ -76,6 +76,23 @@ v0.2.0-authentication
 
 ---
 
+## Milestone 1.3 — Internal User Domain
+
+### Added
+
+- User SQLAlchemy model
+- User repository
+- User service
+- Repository pattern
+- Service layer
+- Integration test foundation
+
+### Improved
+
+- Consistent exception handling
+- Provider-independent user synchronization
+- Clean separation of persistence and business logic
+
 # v0.1.0-foundation
 
 Release Date

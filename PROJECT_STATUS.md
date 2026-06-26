@@ -1,23 +1,28 @@
-# Project Status
+# Phase 1 — Identity & User Platform
 
-## Current Version
+## Milestone 1.1 — Configuration
+- Status: ✅ Complete
 
-v0.1.0-foundation
+## Milestone 1.2 — Database Foundation
+- Status: ✅ Complete
 
----
+## Milestone 1.3 — Internal User Domain
+- Status: ✅ Complete
 
-## Completed
+### Completed
 
-### Phase 0 — Foundation
+- Internal User entity
+- SQLAlchemy ORM model
+- Alembic migration
+- User repository
+- User service
+- Repository pattern
+- Service layer
+- Application exception handling
+- Integration test foundation
 
-- ✅ Project Setup
-- ✅ Backend Foundation
-- ✅ Engineering Quality
+### Notes
 
----
-
-## Next
-
-Phase 1 — Identity Platform
-
-Milestone 1.1 — Configuration Platform
+- Authentication remains provider-agnostic.
+- ResearchMind owns its internal User entity.
+- AWS Cognito integration begins in Milestone 1.4.

@@ -133,3 +133,32 @@ Planned:
 # Long-Term Vision
 
 ResearchMind will evolve into a modular AI Intelligence Platform capable of integrating domain-specific MCP servers while remaining domain-agnostic at its core.
+
+---
+
+Phase 1 — Identity & User Platform
+
+1.1 Application Configuration ✅
+1.2 Database Migrations ✅
+
+1.3 Internal User Domain
+    - User entity
+    - User repository
+    - User service
+    - User synchronization model
+
+1.4 Authentication Integration
+    - Authentication abstraction
+    - AWS Cognito implementation
+    - JWT validation middleware
+    - Current user dependency
+
+1.5 Authorization
+    - Roles
+    - Permissions
+    - Resource ownership
+
+1.6 User Profile
+    - Preferences
+    - AI settings
+    - Profile management

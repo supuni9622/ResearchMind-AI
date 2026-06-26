@@ -1,13 +1,25 @@
 from __future__ import annotations
 
+import sys
 from logging.config import fileConfig
+from pathlib import Path
 
+import app.models
+
+# Import all ORM models so SQLAlchemy registers them with Base.metadata.
 from app.core.settings import settings
+from app.db.base import Base
 from sqlalchemy import pool
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from alembic import context
+
+ROOT = Path(__file__).resolve().parents[1]
+API_PATH = ROOT / "apps" / "api"
+
+if str(API_PATH) not in sys.path:
+    sys.path.insert(0, str(API_PATH))
 
 # -------------------------------------------------------------------------
 # Alembic Configuration
@@ -25,16 +37,18 @@ config.set_main_option(
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-# SQLAlchemy metadata.
-#
-# We don't have ORM models yet.
-# This will become:
-#
-#     from app.db.base import Base
-#     target_metadata = Base.metadata
-#
-# in Milestone 1.3.
-target_metadata = None
+print("=" * 60)
+print("app.models file:", app.models.__file__)
+print("Base:", Base)
+print("Metadata:", Base.metadata)
+print("Tables:", list(Base.metadata.tables.keys()))
+print("=" * 60)
+print("Imported models:", app.models)
+print("User class:", getattr(app.models, "User", None))
+print("Tables:", Base.metadata.tables)
+
+# SQLAlchemy metadata used for autogeneration.
+target_metadata = Base.metadata
 
 
 def run_migrations_offline() -> None:

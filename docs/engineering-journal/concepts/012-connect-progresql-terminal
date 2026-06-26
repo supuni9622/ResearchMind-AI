@@ -1,0 +1,52 @@
+Step 1 — Check the running containers
+```
+docker ps
+```
+
+You should see something like:
+```
+
+CONTAINER ID   IMAGE        NAME
+...
+postgres       researchmind-postgres
+```
+
+Step 2 — Connect to the PostgreSQL container
+
+If the container is named researchmind-postgres:
+```
+docker exec -it researchmind-postgres psql -U researchmind
+```
+
+Step 3 — Connect to your database
+
+Inside psql:
+```
+\l
+```
+to list databases.
+
+Then:
+```
+\c researchmind
+```
+
+
+Step 4 — Check the Alembic table
+```
+SELECT * FROM alembic_version;
+```
+Step 5 — Clean the migration state (if needed)
+
+If you see the old revision:
+
+f42c5064602a
+
+Since we're still at the beginning of the project, the cleanest fix is:
+```
+DROP TABLE alembic_version;
+```
+Then exit:
+```
+\q
+```

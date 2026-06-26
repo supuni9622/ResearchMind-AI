@@ -1,0 +1,115 @@
+# ADR-004: Identity Architecture
+
+**Status:** Accepted
+
+## Context
+
+ResearchMind requires authentication to identify users and secure access to AI features such as research sessions, document uploads, conversation history, reports, and personalized AI settings.
+
+A key architectural decision is whether to build and manage authentication internally or integrate with a dedicated identity provider.
+
+## Decision
+
+ResearchMind will **not implement its own authentication system**.
+
+Instead, authentication will be delegated to an external Identity Provider (IdP). The initial implementation will use **AWS Cognito**, while the application architecture will remain provider-agnostic to allow future migration to providers such as Clerk, Auth0, or Keycloak.
+
+ResearchMind will maintain its own **internal User domain model** that represents application-specific user information.
+
+Authentication and user management are treated as separate concerns.
+
+```
+Identity Provider
+(AWS Cognito)
+
+        │
+Authentication
+        │
+Verified JWT
+        │
+        ▼
+Authentication Middleware
+        │
+        ▼
+ResearchMind User
+        │
+ ┌──────┼───────────┬────────────┐
+ ▼      ▼           ▼            ▼
+Research Documents Memory Reports Preferences
+```
+
+## Responsibilities
+
+### Identity Provider
+
+Responsible for:
+
+* User authentication
+* Password management
+* Multi-factor authentication
+* OAuth/OpenID Connect
+* Social login
+* Token issuance
+* Account recovery
+* Email verification
+
+ResearchMind will never store or manage user passwords.
+
+### ResearchMind
+
+Responsible for:
+
+* Internal user records
+* User preferences
+* Research ownership
+* Document ownership
+* Conversation history
+* AI memory
+* Reports
+* Usage tracking
+* Application-specific permissions
+
+The internal User entity represents who the user is **inside ResearchMind**, independent of the authentication provider.
+
+## Authentication Flow
+
+1. User signs in using AWS Cognito.
+2. Cognito authenticates the user.
+3. Cognito issues a JWT.
+4. ResearchMind validates the JWT.
+5. The authenticated identity is mapped to an internal User record.
+6. All application data is associated with the internal User.
+
+## Authentication Abstraction
+
+ResearchMind will introduce an Authentication Service abstraction.
+
+```
+Authentication Provider
+          │
+          ▼
+Authentication Service
+          │
+          ▼
+Current Provider → AWS Cognito
+```
+
+The rest of the application will communicate only with the Authentication Service.
+
+This prevents vendor lock-in and allows future replacement of the identity provider with minimal impact on the application.
+
+## Benefits
+
+* Separation of concerns
+* No password management within ResearchMind
+* Reduced security risk
+* Standards-based authentication (JWT, OAuth2, OpenID Connect)
+* Flexibility to replace identity providers
+* Clear ownership of application data
+* Better focus on AI engineering rather than authentication infrastructure
+
+## Consequences
+
+ResearchMind depends on an external Identity Provider for authentication.
+
+However, application data, authorization, business rules, AI features, and user relationships remain fully owned by ResearchMind through the internal User domain model.

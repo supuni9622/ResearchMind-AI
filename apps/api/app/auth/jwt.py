@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 import jwt
+import structlog
 from jwt import (
     ExpiredSignatureError,
     InvalidAudienceError,
@@ -13,6 +14,8 @@ from jwt import (
 
 from app.auth.providers.base import AuthenticationProvider
 from app.exceptions.base import UnauthorizedException
+
+logger = structlog.get_logger()
 
 
 class JWTVerifier:
@@ -55,21 +58,25 @@ class JWTVerifier:
             )
 
         except ExpiredSignatureError as exc:
+            logger.warning("auth.token_expired")
             raise UnauthorizedException(
                 message="Authentication token has expired.",
             ) from exc
 
         except InvalidAudienceError as exc:
+            logger.warning("auth.token_invalid_audience")
             raise UnauthorizedException(
                 message="Invalid token audience.",
             ) from exc
 
         except InvalidIssuerError as exc:
+            logger.warning("auth.token_invalid_issuer")
             raise UnauthorizedException(
                 message="Invalid token issuer.",
             ) from exc
 
         except InvalidTokenError as exc:
+            logger.warning("auth.token_invalid", reason=str(exc))
             raise UnauthorizedException(
                 message="Invalid authentication token.",
             ) from exc
@@ -77,9 +84,12 @@ class JWTVerifier:
         token_use = claims.get("token_use")
 
         if token_use != "id":
+            logger.warning("auth.token_wrong_type", token_use=token_use)
             raise UnauthorizedException(
                 message="Invalid token type.",
             )
+
+        logger.debug("auth.token_verified", sub=claims.get("sub"))
 
         return self.provider.normalize_claims(
             claims,

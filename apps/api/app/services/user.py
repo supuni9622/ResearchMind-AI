@@ -3,11 +3,14 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, datetime
 
+import structlog
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.exceptions.base import ConflictException, NotFoundException
 from app.models.user import User
 from app.repositories import UserRepository
+
+logger = structlog.get_logger()
 
 
 class UserService:
@@ -59,6 +62,8 @@ class UserService:
         user = await self.repository.create(user)
 
         await self.session.commit()
+
+        logger.info("user.created", user_id=str(user.id), provider=auth_provider)
 
         return user
 
@@ -121,8 +126,10 @@ class UserService:
         )
 
         if user is not None:
+            logger.debug("user.synced", user_id=str(user.id), provider=auth_provider)
             return user
 
+        logger.info("user.first_login", provider=auth_provider, email=email)
         return await self.create_user(
             auth_provider=auth_provider,
             provider_user_id=provider_user_id,

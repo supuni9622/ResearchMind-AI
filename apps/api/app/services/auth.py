@@ -3,9 +3,12 @@ from __future__ import annotations
 import base64
 
 import httpx
+import structlog
 
 from app.core.settings import settings
 from app.exceptions.base import AppException
+
+logger = structlog.get_logger()
 
 
 class AuthService:
@@ -61,6 +64,8 @@ class AuthService:
             ).decode()
             headers["Authorization"] = f"Basic {credentials}"
 
+        logger.info("auth.code_exchange_started", redirect_uri=redirect_uri)
+
         async with httpx.AsyncClient() as client:
             response = await client.post(
                 token_url,
@@ -69,11 +74,14 @@ class AuthService:
             )
 
         if response.status_code != 200:
+            cognito_error = response.json().get("error")
+            logger.warning("auth.code_exchange_failed", cognito_error=cognito_error)
             raise AppException(
                 code="AUTH_CODE_EXCHANGE_FAILED",
                 message="Failed to exchange authorization code.",
                 status_code=401,
-                details={"cognito_error": response.json().get("error")},
+                details={"cognito_error": cognito_error},
             )
 
+        logger.info("auth.code_exchange_succeeded")
         return dict(response.json())

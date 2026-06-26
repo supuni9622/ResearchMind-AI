@@ -1,5 +1,4 @@
-import logging
-
+import structlog
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
@@ -7,7 +6,7 @@ from fastapi.responses import JSONResponse
 from app.exceptions.base import AppException
 from app.schemas.common import ErrorDetail, ErrorResponse
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger()
 
 
 def register_exception_handlers(app: FastAPI) -> None:
@@ -25,12 +24,9 @@ def register_exception_handlers(app: FastAPI) -> None:
         """
 
         logger.warning(
-            "Application exception",
-            extra={
-                "path": request.url.path,
-                "code": exc.code,
-                "error_message": exc.message,
-            },
+            "app.exception",
+            code=exc.code,
+            error_message=exc.message,
         )
 
         response = ErrorResponse(
@@ -79,12 +75,7 @@ def register_exception_handlers(app: FastAPI) -> None:
         Handle unexpected exceptions.
         """
 
-        logger.exception(
-            "Unhandled exception",
-            extra={
-                "path": request.url.path,
-            },
-        )
+        logger.exception("app.unhandled_exception")
 
         response = ErrorResponse(
             error=ErrorDetail(

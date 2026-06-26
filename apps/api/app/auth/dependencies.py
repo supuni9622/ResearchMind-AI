@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 
+import structlog
 from fastapi import Depends
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -53,5 +54,8 @@ async def get_current_user(
     )
 
     await service.update_last_login(user)
+
+    # Bind user_id to the request context so all downstream logs carry it.
+    structlog.contextvars.bind_contextvars(user_id=str(user.id))
 
     return user

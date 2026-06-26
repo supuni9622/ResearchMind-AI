@@ -6,14 +6,6 @@ The project follows a milestone-based development process.
 
 ---
 
-# v0.1.0-foundation
-
-Release Date
-
-2026-06-25
-
----
-
 ## Added
 
 ### Repository
@@ -63,3 +55,29 @@ Release Date
 Next release:
 
 v0.2.0-authentication
+
+## v0.1.0-foundation
+
+### Added
+
+- Ruff formatting and linting
+- MyPy type checking
+- Pytest testing framework
+- Coverage reporting
+- Pre-commit hooks
+- GitHub Actions CI
+- Initial testing infrastructure
+
+### Improved
+
+- Python package configuration
+- Developer workflow
+- Project quality standards
+
+---
+
+# v0.1.0-foundation
+
+Release Date
+
+2026-06-25

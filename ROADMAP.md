@@ -47,7 +47,7 @@ Completed:
 
 ## Milestone 0.3
 
-Engineering Quality
+✅ Engineering Quality
 
 Planned:
 

@@ -117,6 +117,14 @@ tools/
 - ⏳ Evaluation Framework
 - ⏳ Production Deployment
 
+Current Progress
+
+✅ Phase 0 — Completed
+
+Next:
+
+➡️ Phase 1 — Identity Platform
+
 ---
 
 ## 🚀 Quick Start

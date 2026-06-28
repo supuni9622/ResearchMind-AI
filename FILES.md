@@ -29,6 +29,7 @@ Every file and folder in the ResearchMind-AI monorepo.
 | `ROADMAP.md` | Feature and milestone roadmap |
 | `SECURITY.md` | (empty) |
 | `STRUCTURE.md` | High-level folder/file structure with layer descriptions |
+| `DEV_GUIDE.md` | Step-by-step local development guide — setup, Alembic issues, Docker rules, auth testing |
 | `test.txt` | Stray scratch file — can be deleted |
 
 ---
@@ -124,10 +125,10 @@ AI subsystem. Most subdirectories are scaffolded but empty — only `knowledge/u
 | `interfaces.py` | Abstract interfaces for the upload pipeline |
 | `models.py` | Upload-related data models |
 | `schemas.py` | Pydantic schemas for upload requests and responses |
-| `service.py` | `UploadService` — orchestrates validate → hash → S3 upload → DB write; structured logging on success and failure |
+| `service.py` | `UploadService` — orchestrates validate → hash → S3 upload → DB write; logs `document.uploaded` with duration, `document.upload_failed` with traceback |
 | `storage.py` | Upload-specific storage helpers |
 | `types.py` | Type aliases used across the upload module |
-| `validators.py` | `UploadValidator` — validates filename, content type, file size |
+| `validators.py` | `UploadValidator` — validates filename, content type, file size; logs `upload.validation_failed` with `reason` field for each rule |
 
 ##### `ai/quality/`
 
@@ -191,7 +192,7 @@ All files empty — planned shared AI types and interfaces.
 | `v1/admin.py` | (empty) |
 | `v1/auth.py` | `POST /auth/callback` (Cognito code exchange) and `GET /auth/me` |
 | `v1/chat.py` | (empty) |
-| `v1/documents.py` | (empty) |
+| `v1/documents.py` | `POST /documents/upload` — validates filename, measures file size, delegates to `UploadService` |
 | `v1/evaluation.py` | (empty) |
 | `v1/feedback.py` | (empty) |
 | `v1/health.py` | `GET /health` — checks PostgreSQL, Valkey, Qdrant connectivity |
@@ -215,10 +216,10 @@ All files empty — planned shared AI types and interfaces.
 | File | Description |
 |------|-------------|
 | `constants.py` | Static application constants |
-| `health.py` | Health check functions for PostgreSQL, Valkey, and Qdrant |
-| `lifespan.py` | FastAPI lifespan — configures logging, initializes DB engine, Valkey, Qdrant on startup; disposes on shutdown |
+| `health.py` | Health check functions for PostgreSQL, Valkey, Qdrant; logs `health.degraded` and per-service warnings |
+| `lifespan.py` | FastAPI lifespan — configures logging, runs migrations (`AUTO_MIGRATE`), initializes infrastructure, logs `app.starting` / `app.ready` / `app.shutdown_complete` |
 | `logging.py` | Structlog configuration — stdlib bridge via `ProcessorFormatter`, environment-aware renderer (ConsoleRenderer in dev, JSON in production), silences noisy loggers |
-| `settings.py` | Pydantic `Settings` — all env vars loaded from `.env` or environment |
+| `settings.py` | Pydantic `Settings` — all env vars; includes `auto_migrate` flag (default `false`) |
 | `setup.py` | App factory and setup helpers |
 
 ---
@@ -257,7 +258,7 @@ All files empty — planned shared AI types and interfaces.
 | `auth.py` | (empty) |
 | `base.py` | `AppException` base class + `NotFoundException`, `ValidationException`, `ConflictException`, `UnauthorizedException` |
 | `document.py` | (empty) |
-| `handlers.py` | Global FastAPI exception handlers — `AppException` → structured warning log, `RequestValidationError` → 422, unhandled → 500 with `logger.exception` |
+| `handlers.py` | Global FastAPI exception handlers — `AppException` → `app.exception` warning, `RequestValidationError` → `app.validation_error` warning with field errors, unhandled → `app.unhandled_exception` with traceback |
 | `health.py` | (empty) |
 | `research.py` | (empty) |
 
@@ -279,7 +280,7 @@ All files empty — planned shared AI types and interfaces.
 | `__init__.py` | Package exports (`SHA256Hasher`, `FileHasher`) |
 | `exceptions.py` | Hashing-specific exceptions |
 | `interfaces.py` | `FileHasher` abstract interface |
-| `sha256.py` | `SHA256Hasher` — async SHA-256 file hashing via `asyncio.to_thread` |
+| `sha256.py` | `SHA256Hasher` — async SHA-256 file hashing via `asyncio.to_thread`; logs `hasher.sha256_complete` with `bytes_read` and `duration_ms` |
 
 ##### `infrastructure/metrics/`
 
@@ -301,7 +302,7 @@ All files empty — planned shared AI types and interfaces.
 | `interfaces.py` | `DocumentStorage` abstract interface — upload, download, delete, exists, generate_presigned_url |
 | `key_generator.py` | `StorageKeyGenerator` — generates deterministic S3 object keys |
 | `models.py` | Storage-related data models |
-| `s3.py` | `S3StorageService` — AWS S3 implementation using boto3 via `asyncio.to_thread` |
+| `s3.py` | `S3StorageService` — AWS S3 implementation via `asyncio.to_thread`; logs each operation with key and `duration_ms`; logs failures with reason |
 
 ---
 
@@ -318,7 +319,7 @@ FastAPI application entry point — creates the app, registers middleware and ex
 | `__init__.py` | Package docstring |
 | `cors.py` | CORS middleware configuration — allows `frontend_url` origin |
 | `request_id.py` | Generates `X-Request-ID` UUID per request and sets it on `request.state` |
-| `request_logging.py` | Binds `request_id`, `method`, `path`, `client` to structlog contextvars; logs `http.request` and `http.response` with `duration_ms` |
+| `request_logging.py` | Generates `request_id` (fixing middleware ordering bug), binds `request_id`/`method`/`path`/`client` to contextvars; logs `http.request` with `user_agent`/`query` and `http.response` with `status`/`duration_ms` |
 | `request_timing.py` | Sets `X-Process-Time` response header |
 
 ---
@@ -370,8 +371,8 @@ Empty directory — placeholder.
 | File | Description |
 |------|-------------|
 | `__init__.py` | Package marker |
-| `auth.py` | `AuthService.exchange_code()` — POSTs to Cognito `/oauth2/token`, supports PKCE (`code_verifier`) and confidential clients (`client_secret` Basic auth) |
-| `user.py` | `UserService` — `sync_user` (upsert on login), `create_user`, `get_user_by_id`, `get_user_by_email`, `update_last_login`, `deactivate_user` |
+| `auth.py` | `AuthService.exchange_code()` — POSTs to Cognito `/oauth2/token`, supports PKCE and confidential clients; logs exchange start/success/failure |
+| `user.py` | `UserService` — `sync_user`, `create_user`, `get_user_by_id/email`, `update_last_login`, `deactivate_user`; logs all lifecycle events including `user.not_found` and `user.deactivated` |
 
 ---
 
@@ -431,6 +432,9 @@ All empty.
 | `1.knowledge_platform/1.3.doc_validation` | Document validation rules |
 | `1.knowledge_platform/1.4.doc_upload_flow.md` | End-to-end upload flow diagram and explanation |
 | `1.knowledge_platform/1.5.doc_upload_observability.md` | Upload observability: logging, metrics, tracing |
+| `1.knowledge_platform/1.6.doc_upload_final.md` | Upload feature final summary |
+| `1.knowledge_platform/1.7.doc_upload_archotecture.md` | Upload architecture deep-dive |
+| `1.knowledge_platform/1.8.doc_upload_implementation.md` | Upload implementation reference |
 
 ---
 
@@ -662,7 +666,9 @@ Empty — planned experimental code and prototypes.
 
 ## `scripts/`
 
-Empty — planned developer utility scripts.
+| File | Description |
+|------|-------------|
+| `dev.sh` | Dev startup script — runs `alembic upgrade head` then `uvicorn --reload`; prevents hot-reload from interrupting migrations |
 
 ---
 

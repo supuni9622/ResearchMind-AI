@@ -327,6 +327,24 @@ uv run alembic current
 uv run alembic downgrade -1
 ```
 
+### Generate the Migration for documents table
+```
+uv run alembic revision --autogenerate -m "create documents table"
+```
+
+### Apply the Migration
+```
+uv run alembic stamp base
+uv run alembic upgrade head
+```
+
+### Check that the table exists:
+```
+docker exec -it researchmind-postgres psql -U researchmind -d researchmind
+
+\d documents
+```
+
 ### Troubleshooting: table missing but Alembic says "head"
 
 If `alembic current` reports the migration as applied but queries fail with

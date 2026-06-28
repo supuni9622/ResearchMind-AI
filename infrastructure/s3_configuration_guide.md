@@ -462,3 +462,31 @@ Once the S3 infrastructure has been verified, proceed with **ResearchMind Milest
 4. Integrate S3 uploads into the FastAPI application.
 5. Replace local file storage with Amazon S3.
 6. Generate pre-signed URLs for secure document access.
+
+Freeze the S3 Key Convention
+
+We'll standardize on:
+
+documents/
+    {owner_id}/
+        {document_id}/
+            original.{extension}
+
+Example:
+
+documents/
+    58d6f45b-8f1f-46c8-9b44-d5cbfe86b6cf/
+        a39cbf27-37a4-4c17-b84f-357ffb1a4b1d/
+            original.pdf
+
+Future milestones may create siblings:
+
+documents/
+    owner/
+        document/
+            original.pdf
+            processed.json
+            chunks.json
+            metadata.json
+
+We never overwrite the original upload.

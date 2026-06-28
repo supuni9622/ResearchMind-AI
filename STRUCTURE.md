@@ -28,12 +28,55 @@ ResearchMind-AI/
 ├── apps/                        # Deployable applications
 │   ├── api/                     # FastAPI backend
 │   │   └── app/
+│   │       ├── ai/              # AI subsystem
+│   │       │   ├── config/
+│   │       │   │   └── settings.py          # AI-specific configuration
+│   │       │   ├── guardrails/
+│   │       │   │   ├── policies.py          # Content policy definitions
+│   │       │   │   └── scanners.py          # Input/output scanners
+│   │       │   ├── knowledge/               # RAG knowledge pipeline (planned)
+│   │       │   │   ├── cache/               # Semantic caching
+│   │       │   │   ├── chunking/            # Document chunking strategies
+│   │       │   │   ├── documents/           # Document processing
+│   │       │   │   ├── embeddings/          # Embedding generation
+│   │       │   │   ├── reranking/           # Result reranking
+│   │       │   │   ├── retrieval/           # Vector retrieval
+│   │       │   │   ├── upload/              # Document upload handling
+│   │       │   │   └── vectorstores/        # Vector store abstractions
+│   │       │   ├── quality/                 # Evaluation and quality (planned)
+│   │       │   │   ├── benchmarks/          # Performance benchmarks
+│   │       │   │   ├── evaluation/          # LLM evaluation framework
+│   │       │   │   ├── experiments/         # Experiment tracking
+│   │       │   │   ├── regression/          # Regression test suite
+│   │       │   │   ├── telemetry/           # Metrics and telemetry
+│   │       │   │   └── tracing/             # LangSmith / OTEL tracing
+│   │       │   ├── registry/                # Model and provider registries
+│   │       │   │   ├── embeddings.py        # Embedding model registry
+│   │       │   │   ├── evaluators.py        # Evaluator registry
+│   │       │   │   ├── mcp.py               # MCP server registry
+│   │       │   │   ├── models.py            # LLM model registry
+│   │       │   │   ├── prompts.py           # Prompt template registry
+│   │       │   │   ├── providers.py         # LLM provider registry
+│   │       │   │   └── rerankers.py         # Reranker registry
+│   │       │   ├── runtime/                 # Inference runtime (planned)
+│   │       │   │   ├── prompts/             # Runtime prompt management
+│   │       │   │   ├── providers/           # Runtime provider adapters
+│   │       │   │   ├── registry/            # Runtime model registry
+│   │       │   │   ├── routing/             # Request routing logic
+│   │       │   │   ├── streaming/           # Streaming response handling
+│   │       │   │   └── structured_output/   # Structured output parsing
+│   │       │   └── shared/                  # Shared AI types and interfaces
+│   │       │       ├── exceptions.py        # AI-specific exceptions
+│   │       │       ├── interfaces.py        # Abstract AI interfaces
+│   │       │       ├── models.py            # Shared AI data models
+│   │       │       └── types.py             # Shared type definitions
+│   │       │
 │   │       ├── api/             # Route layer
 │   │       │   ├── deps.py              # Shared route dependencies
 │   │       │   └── v1/                  # API version 1
 │   │       │       ├── api.py           # Router aggregator
 │   │       │       ├── admin.py         # Admin endpoints
-│   │       │       ├── auth.py          # Authentication endpoints
+│   │       │       ├── auth.py          # Auth endpoints (callback, me)
 │   │       │       ├── chat.py          # Chat endpoints
 │   │       │       ├── documents.py     # Document management endpoints
 │   │       │       ├── evaluation.py    # Evaluation endpoints
@@ -41,11 +84,18 @@ ResearchMind-AI/
 │   │       │       ├── health.py        # Health check endpoints
 │   │       │       └── reports.py       # Report endpoints
 │   │       │
+│   │       ├── auth/            # Authentication layer
+│   │       │   ├── dependencies.py      # get_current_user FastAPI dependency
+│   │       │   ├── jwt.py               # JWT verification via JWKS
+│   │       │   └── providers/           # Identity provider adapters
+│   │       │       ├── base.py          # AuthenticationProvider abstract base
+│   │       │       └── cognito.py       # AWS Cognito implementation
+│   │       │
 │   │       ├── core/            # App-level configuration and startup
 │   │       │   ├── constants.py         # Static application constants
 │   │       │   ├── health.py            # Health check logic
 │   │       │   ├── lifespan.py          # FastAPI lifespan (startup/shutdown)
-│   │       │   ├── logging.py           # Logging configuration
+│   │       │   ├── logging.py           # Structured logging (structlog + stdlib bridge)
 │   │       │   ├── settings.py          # Pydantic settings (env-driven)
 │   │       │   └── setup.py             # App factory / setup helpers
 │   │       │
@@ -65,7 +115,7 @@ ResearchMind-AI/
 │   │       │
 │   │       ├── exceptions/      # Exception hierarchy and handlers
 │   │       │   ├── auth.py              # Auth-specific exceptions
-│   │       │   ├── base.py              # Base exception class
+│   │       │   ├── base.py              # Base AppException class
 │   │       │   ├── document.py          # Document exceptions
 │   │       │   ├── handlers.py          # Global exception handlers (FastAPI)
 │   │       │   ├── health.py            # Health check exceptions
@@ -75,15 +125,18 @@ ResearchMind-AI/
 │   │       │   ├── cors.py              # CORS configuration
 │   │       │   ├── register.py          # Middleware registration helper
 │   │       │   ├── request_id.py        # Injects X-Request-ID header
-│   │       │   ├── request_logging.py   # Structured request logging
-│   │       │   └── request_timing.py    # Request duration tracking
+│   │       │   ├── request_logging.py   # Structured request/response logging with correlation
+│   │       │   └── request_timing.py    # Request duration (X-Process-Time header)
 │   │       │
 │   │       ├── models/          # SQLAlchemy ORM models
 │   │       │   ├── __init__.py          # Exports all models (required for Alembic)
 │   │       │   └── user.py              # User model
 │   │       │
-│   │       ├── routers/         # Additional routers (placeholder)
+│   │       ├── repositories/    # Data access layer
+│   │       │   └── user.py              # UserRepository (CRUD operations)
+│   │       │
 │   │       ├── schemas/         # Pydantic request/response schemas
+│   │       │   ├── auth.py              # Auth schemas (CallbackRequest, TokenResponse)
 │   │       │   ├── chat.py              # Chat schemas
 │   │       │   ├── common.py            # Shared/generic schemas
 │   │       │   ├── document.py          # Document schemas
@@ -91,7 +144,10 @@ ResearchMind-AI/
 │   │       │   ├── health.py            # Health response schemas
 │   │       │   └── report.py            # Report schemas
 │   │       │
-│   │       ├── services/        # Business logic layer (planned)
+│   │       ├── services/        # Business logic layer
+│   │       │   ├── auth.py              # OAuth code exchange with Cognito
+│   │       │   └── user.py              # User sync, creation, and lifecycle
+│   │       │
 │   │       └── main.py          # FastAPI app entry point
 │   │
 │   ├── web/                     # Frontend app (planned)
@@ -127,13 +183,21 @@ ResearchMind-AI/
 │   │
 │   ├── architecture/            # System design and architecture docs
 │   │   ├── agent-architecture.md
+│   │   ├── ai-architecture.md
 │   │   ├── backend-architecture.md
 │   │   ├── coding-standards.md
 │   │   ├── database-design.md
 │   │   ├── db-sessions.md
+│   │   ├── decision-boundaries.md
 │   │   ├── decision-history.md
+│   │   ├── engineering-principles.md
+│   │   ├── evaluation-strategy.md
 │   │   ├── frontend-architecture.md
+│   │   ├── identity-architecture.md  # Auth flow, Cognito setup, testing guide
 │   │   ├── mcp-architecture.md
+│   │   ├── observability-strategy.md
+│   │   ├── project-constitution.md
+│   │   ├── quality-strategy.md
 │   │   ├── repository-structure.md
 │   │   ├── scalability.md
 │   │   ├── security.md

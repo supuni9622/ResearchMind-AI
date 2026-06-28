@@ -24,7 +24,11 @@ def _run_migrations() -> None:
 async def lifespan(app: FastAPI):
     configure_logging()
 
-    logger.info("Starting ResearchMind")
+    logger.info(
+        "app.starting",
+        environment=settings.environment,
+        debug=settings.debug,
+    )
 
     if settings.auto_migrate:
         logger.info("db.migrations_starting")
@@ -35,14 +39,19 @@ async def lifespan(app: FastAPI):
     app.state.valkey = create_valkey_client()
     app.state.qdrant = create_qdrant_client()
 
-    logger.info("Infrastructure initialized")
+    logger.info(
+        "app.ready",
+        database_url=settings.database_url.split("@")[-1],  # host/db only, no credentials
+        valkey_url=settings.valkey_url,
+        qdrant_url=settings.qdrant_url,
+    )
 
     yield
 
-    logger.info("Shutting down ResearchMind")
+    logger.info("app.shutting_down")
 
     await app.state.postgres_engine.dispose()
     await app.state.valkey.aclose()
     await app.state.qdrant.close()
 
-    logger.info("Infrastructure shutdown complete")
+    logger.info("app.shutdown_complete")

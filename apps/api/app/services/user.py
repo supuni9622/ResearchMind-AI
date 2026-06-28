@@ -78,9 +78,8 @@ class UserService:
         user = await self.repository.get_by_id(user_id)
 
         if user is None:
-            raise NotFoundException(
-                message="User not found.",
-            )
+            logger.warning("user.not_found", lookup="id", user_id=str(user_id))
+            raise NotFoundException(message="User not found.")
 
         return user
 
@@ -95,9 +94,8 @@ class UserService:
         user = await self.repository.get_by_email(email)
 
         if user is None:
-            raise NotFoundException(
-                message="User not found.",
-            )
+            logger.warning("user.not_found", lookup="email", email=email)
+            raise NotFoundException(message="User not found.")
 
         return user
 
@@ -154,6 +152,8 @@ class UserService:
 
         await self.session.commit()
 
+        logger.debug("user.last_login_updated", user_id=str(user.id))
+
         return user
 
     async def deactivate_user(
@@ -169,5 +169,7 @@ class UserService:
         user = await self.repository.update(user)
 
         await self.session.commit()
+
+        logger.info("user.deactivated", user_id=str(user.id))
 
         return user

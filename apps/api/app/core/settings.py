@@ -29,6 +29,7 @@ class Settings(BaseSettings):
     app_name: str = "ResearchMind AI"
     environment: str = "development"
     debug: bool = True
+    auto_migrate: bool = False
 
     # ==========================================================================
     # Database

@@ -217,13 +217,20 @@ docker exec researchmind-postgres \
 uv run alembic upgrade head
 ```
 
+### fix alembic issues
+```
+uv run alembic stamp base && uv run alembic upgrade head 2>&1
+```
+
 ---
 
 ### 9. Start the Backend
 
 ```bash
-uv run uvicorn app.main:app --reload
+./scripts/dev.sh
 ```
+
+This runs migrations first, then starts the server with hot-reload. Running migrations inside `uvicorn --reload` directly causes hot-reload to interrupt the migration mid-run — always use this script for local development.
 
 ---
 
@@ -361,6 +368,23 @@ Verify tables exist:
 ```bash
 psql postgresql://researchmind:researchmind@localhost:5432/researchmind -c "\dt"
 ```
+
+---
+
+## Docker Data Persistence
+
+PostgreSQL, Valkey, and Qdrant all use **named Docker volumes** so data survives container restarts.
+
+| Command | Effect on data |
+|---------|---------------|
+| `docker compose stop` | Containers stop — **data preserved** |
+| `docker compose start` | Containers resume — **data intact** |
+| `docker compose down` | Containers removed — **data preserved** (volumes kept) |
+| `docker compose down -v` | Containers + volumes removed — **all data wiped** |
+
+Only use `docker compose down -v` when you want a completely clean slate (e.g. resetting a corrupted DB).
+
+**Migrations run automatically on startup.** The API calls `alembic upgrade head` during the lifespan startup sequence, so even after a full `down -v`, just run `docker compose up -d` and start the backend — tables will be recreated automatically.
 
 ---
 

@@ -45,6 +45,10 @@ class UploadService:
         size_bytes: int,
         file: BinaryIO,
     ) -> Document:
+        """
+        Upload a document to S3 and persist its metadata.
+        """
+
         UploadValidator.validate(
             filename=filename,
             content_type=content_type,
@@ -52,6 +56,8 @@ class UploadService:
         )
 
         start = time.perf_counter()
+
+        storage_key: str | None = None
 
         try:
             checksum = await self._hasher.hash_file(file)
@@ -90,7 +96,10 @@ class UploadService:
 
             await self._session.refresh(document)
 
-            duration_ms = round((time.perf_counter() - start) * 1000, 2)
+            duration_ms = round(
+                (time.perf_counter() - start) * 1000,
+                2,
+            )
 
             logger.info(
                 "document.uploaded",
@@ -115,12 +124,15 @@ class UploadService:
 
             await self._session.rollback()
 
-            try:
-                await self._storage.delete(key=storage_key)
-            except Exception:
-                logger.warning(
-                    "upload.storage_cleanup_failed",
-                    storage_key=storage_key,
-                )
+            if storage_key is not None:
+                try:
+                    await self._storage.delete(
+                        key=storage_key,
+                    )
+                except Exception:
+                    logger.warning(
+                        "upload.storage_cleanup_failed",
+                        storage_key=storage_key,
+                    )
 
             raise

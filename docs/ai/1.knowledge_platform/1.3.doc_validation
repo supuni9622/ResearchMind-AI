@@ -1,0 +1,11 @@
+We'll implement the SHA-256 checksum utility.
+
+This will become a shared infrastructure component rather than an upload-specific helper because we'll reuse checksums throughout the platform for:
+
+Duplicate detection
+Integrity verification
+Idempotent processing
+Evaluation datasets
+Cache keys
+
+From this point onward, every uploaded document will have a stable content fingerprint that the rest of the AI pipeline can rely on.

@@ -57,11 +57,17 @@ class Settings(BaseSettings):
     # ==========================================================================
 
     aws_region: str | None = None
-    s3_bucket_name: str | None = None
     cognito_user_pool_id: str | None = None
     cognito_app_client_id: str | None = None
     cognito_domain: str | None = None
     cognito_client_secret: str | None = None
+
+    # AWS S3
+    aws_s3_bucket: str
+    aws_access_key_id: str | None = None
+    aws_secret_access_key: str | None = None
+    aws_session_token: str | None = None
+    aws_s3_endpoint_url: str | None = None
 
     # ==========================================================================
     # Security

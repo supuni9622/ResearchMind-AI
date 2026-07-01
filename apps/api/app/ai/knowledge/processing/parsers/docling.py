@@ -14,7 +14,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from docling.document_converter import DocumentConverter
+from docling.datamodel.base_models import InputFormat
+from docling.datamodel.pipeline_options import PdfPipelineOptions
+from docling.document_converter import DocumentConverter, PdfFormatOption
 
 from app.ai.knowledge.processing.enums import (
     DocumentFormat,
@@ -35,7 +37,12 @@ class DoclingParser(BaseDocumentParser):
     """
 
     def __init__(self) -> None:
-        self._converter = DocumentConverter()
+        pipeline_options = PdfPipelineOptions(do_ocr=False)
+        self._converter = DocumentConverter(
+            format_options={
+                InputFormat.PDF: PdfFormatOption(pipeline_options=pipeline_options),
+            }
+        )
 
     @property
     def parser_name(self) -> str:

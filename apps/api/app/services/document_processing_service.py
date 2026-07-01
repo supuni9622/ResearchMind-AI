@@ -24,12 +24,16 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
+import structlog
+
 from app.ai.knowledge.processing.interfaces import ParseRequest
 from app.ai.knowledge.processing.models import ProcessingResult
 from app.ai.knowledge.processing.service import ProcessingService
 from app.models.document import Document
 from app.models.enums import DocumentProcessingStatus
 from app.repositories.document import DocumentRepository
+
+logger = structlog.get_logger()
 
 
 class DocumentProcessingService:
@@ -54,9 +58,18 @@ class DocumentProcessingService:
         Process a document and update its processing lifecycle.
         """
 
-        document.processing_status = DocumentProcessingStatus.PROCESSING
+        log = logger.bind(
+            document_id=str(document.id),
+            owner_id=str(document.owner_id),
+            filename=document.filename,
+            document_format=request.document_format.value,
+        )
 
+        log.info("document_processing.started")
+
+        document.processing_status = DocumentProcessingStatus.PROCESSING
         await self._document_repository.update(document)
+        log.debug("document_processing.status_updated", status=DocumentProcessingStatus.PROCESSING)
 
         try:
             result = await self._processing_service.process(
@@ -70,6 +83,13 @@ class DocumentProcessingService:
 
             await self._document_repository.update(document)
 
+            processed_at = document.processed_at
+            log.info(
+                "document_processing.completed",
+                status=DocumentProcessingStatus.COMPLETED,
+                processed_at=processed_at.isoformat() if processed_at is not None else None,
+            )
+
             return result
 
         except Exception as exc:
@@ -77,5 +97,12 @@ class DocumentProcessingService:
             document.processing_error = str(exc)
 
             await self._document_repository.update(document)
+
+            log.exception(
+                "document_processing.failed",
+                status=DocumentProcessingStatus.FAILED,
+                exc_type=type(exc).__name__,
+                error=str(exc),
+            )
 
             raise

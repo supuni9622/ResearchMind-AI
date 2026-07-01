@@ -12,9 +12,13 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 
+import structlog
+
 from app.ai.knowledge.processing.enums import DocumentFormat
 from app.ai.knowledge.processing.exceptions import ParserNotFoundError
 from app.ai.knowledge.processing.interfaces import DocumentParser
+
+logger = structlog.get_logger()
 
 
 class ParserRegistry:
@@ -43,7 +47,21 @@ class ParserRegistry:
         """
 
         for document_format in parser.supported_formats:
+            previous = self._parsers.get(document_format)
+            if previous is not None and previous is not parser:
+                logger.warning(
+                    "registry.parser_replaced",
+                    document_format=document_format.value,
+                    previous_parser=previous.parser_name,
+                    new_parser=parser.parser_name,
+                )
             self._parsers[document_format] = parser
+
+        logger.debug(
+            "registry.parser_registered",
+            parser=parser.parser_name,
+            formats=[f.value for f in parser.supported_formats],
+        )
 
     def get_parser(
         self,
@@ -60,6 +78,11 @@ class ParserRegistry:
         parser = self._parsers.get(document_format)
 
         if parser is None:
+            logger.warning(
+                "registry.parser_not_found",
+                document_format=document_format.value,
+                registered_formats=[f.value for f in self._parsers],
+            )
             raise ParserNotFoundError(
                 f"No parser registered for document format '{document_format.value}'."
             )

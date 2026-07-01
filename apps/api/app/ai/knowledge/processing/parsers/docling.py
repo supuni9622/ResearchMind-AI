@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import structlog
 from docling.datamodel.base_models import InputFormat
 from docling.datamodel.pipeline_options import PdfPipelineOptions
 from docling.document_converter import DocumentConverter, PdfFormatOption
@@ -22,6 +23,7 @@ from app.ai.knowledge.processing.enums import (
     DocumentFormat,
     ParserType,
 )
+from app.ai.knowledge.processing.exceptions import DocumentParsingError
 from app.ai.knowledge.processing.interfaces import ParseRequest
 from app.ai.knowledge.processing.models import (
     DocumentMetadata,
@@ -29,6 +31,8 @@ from app.ai.knowledge.processing.models import (
     ProcessedDocument,
 )
 from app.ai.knowledge.processing.parsers.base import BaseDocumentParser
+
+logger = structlog.get_logger()
 
 
 class DoclingParser(BaseDocumentParser):
@@ -65,20 +69,48 @@ class DoclingParser(BaseDocumentParser):
         Parse a document into the canonical ResearchMind model.
         """
 
-        conversion_result = self._converter.convert(str(request.file_path))
+        log = logger.bind(
+            document_id=str(request.document_id),
+            document_format=request.document_format.value,
+            file_path=str(request.file_path),
+            parser=self.parser_name,
+        )
+
+        log.debug("parser.docling.parse.started")
+
+        try:
+            conversion_result = self._converter.convert(str(request.file_path))
+        except Exception as exc:
+            log.exception(
+                "parser.docling.conversion_failed",
+                exc_type=type(exc).__name__,
+            )
+            raise DocumentParsingError(
+                f"Docling failed to convert '{request.file_path}': {exc}"
+            ) from exc
 
         document = conversion_result.document
 
-        markdown = document.export_to_markdown()
+        try:
+            markdown = document.export_to_markdown()
+            raw_text = document.export_to_text()
+        except Exception as exc:
+            log.exception(
+                "parser.docling.export_failed",
+                exc_type=type(exc).__name__,
+            )
+            raise DocumentParsingError(
+                f"Docling failed to export '{request.file_path}': {exc}"
+            ) from exc
 
-        raw_text = document.export_to_text()
+        metadata = self._build_metadata(source=request.file_path)
+        statistics = self._build_statistics(raw_text=raw_text)
 
-        metadata = self._build_metadata(
-            source=request.file_path,
-        )
-
-        statistics = self._build_statistics(
-            raw_text=raw_text,
+        log.info(
+            "parser.docling.parse.completed",
+            char_count=statistics.character_count,
+            word_count=statistics.word_count,
+            line_count=statistics.line_count,
         )
 
         return ProcessedDocument(

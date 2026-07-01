@@ -1,7 +1,9 @@
 from pathlib import Path
+from unittest.mock import AsyncMock
 from uuid import uuid4
 
 import pytest
+from app.ai.knowledge.processing.artifact_builder import ArtifactBuilder
 from app.ai.knowledge.processing.enums import (
     DocumentFormat,
     ProcessingStatus,
@@ -32,8 +34,13 @@ async def test_processing_service_processes_pdf():
         ]
     )
 
+    writer = AsyncMock()
+    writer.write = AsyncMock(return_value=None)
+
     service = ProcessingService(
         parser_registry=registry,
+        artifact_builder=ArtifactBuilder(),
+        artifact_writer=writer,
     )
 
     request = ParseRequest(
@@ -42,7 +49,7 @@ async def test_processing_service_processes_pdf():
         document_format=DocumentFormat.PDF,
     )
 
-    result = await service.process(request)
+    result = await service.process(owner_id="test-owner", request=request)
 
     assert result.status == ProcessingStatus.COMPLETED
     assert result.document is not None

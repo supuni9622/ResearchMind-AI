@@ -13,8 +13,10 @@ from __future__ import annotations
 
 import uuid
 from pathlib import Path
+from unittest.mock import AsyncMock
 
 import pytest
+from app.ai.knowledge.processing.artifact_builder import ArtifactBuilder
 from app.ai.knowledge.processing.enums import DocumentFormat, ParserType, ProcessingStatus
 from app.ai.knowledge.processing.exceptions import ParserNotFoundError
 from app.ai.knowledge.processing.interfaces import DocumentParser, ParseRequest
@@ -31,6 +33,8 @@ from app.ai.knowledge.processing.service import ProcessingService
 # ---------------------------------------------------------------------------
 # Test doubles
 # ---------------------------------------------------------------------------
+
+_OWNER_ID = "test-owner"
 
 
 def _make_request(
@@ -50,8 +54,20 @@ def _make_document(blocks: list | None = None) -> ProcessedDocument:
         metadata=DocumentMetadata(),
         statistics=DocumentStatistics(),
         raw_text="sample text",
-        markdown="",
+        markdown="# Sample",
         blocks=blocks or [],
+    )
+
+
+def _make_service(parser: DocumentParser, *extra_parsers: DocumentParser) -> ProcessingService:
+    """Build a ProcessingService with a no-op artifact writer."""
+    registry = ParserRegistry(parsers=[parser, *extra_parsers])
+    writer = AsyncMock()
+    writer.write = AsyncMock(return_value=None)
+    return ProcessingService(
+        parser_registry=registry,
+        artifact_builder=ArtifactBuilder(),
+        artifact_writer=writer,
     )
 
 
@@ -105,8 +121,7 @@ class TestProcessingServiceHappyPath:
 
     @pytest.fixture()
     def service(self, parser: FakeParser) -> ProcessingService:
-        registry = ParserRegistry(parsers=[parser])
-        return ProcessingService(parser_registry=registry)
+        return _make_service(parser)
 
     async def test_returns_completed_status(
         self,
@@ -114,7 +129,7 @@ class TestProcessingServiceHappyPath:
         document: ProcessedDocument,
     ) -> None:
         request = _make_request(DocumentFormat.PDF)
-        result = await service.process(request)
+        result = await service.process(owner_id=_OWNER_ID, request=request)
         assert result.status == ProcessingStatus.COMPLETED
 
     async def test_result_document_matches_parser_output(
@@ -124,7 +139,7 @@ class TestProcessingServiceHappyPath:
         parser: FakeParser,
     ) -> None:
         request = _make_request(DocumentFormat.PDF)
-        result = await service.process(request)
+        result = await service.process(owner_id=_OWNER_ID, request=request)
         assert result.document is document
 
     async def test_parser_called_exactly_once(
@@ -132,7 +147,7 @@ class TestProcessingServiceHappyPath:
         service: ProcessingService,
         parser: FakeParser,
     ) -> None:
-        await service.process(_make_request(DocumentFormat.PDF))
+        await service.process(owner_id=_OWNER_ID, request=_make_request(DocumentFormat.PDF))
         assert parser.call_count == 1
 
     async def test_parser_receives_original_request(
@@ -141,21 +156,25 @@ class TestProcessingServiceHappyPath:
         parser: FakeParser,
     ) -> None:
         request = _make_request(DocumentFormat.PDF)
-        await service.process(request)
+        await service.process(owner_id=_OWNER_ID, request=request)
         assert parser.last_request is request
 
     async def test_result_error_is_none(
         self,
         service: ProcessingService,
     ) -> None:
-        result = await service.process(_make_request(DocumentFormat.PDF))
+        result = await service.process(
+            owner_id=_OWNER_ID, request=_make_request(DocumentFormat.PDF)
+        )
         assert result.error is None
 
     async def test_result_is_processing_result_instance(
         self,
         service: ProcessingService,
     ) -> None:
-        result = await service.process(_make_request(DocumentFormat.PDF))
+        result = await service.process(
+            owner_id=_OWNER_ID, request=_make_request(DocumentFormat.PDF)
+        )
         assert isinstance(result, ProcessingResult)
 
 
@@ -168,17 +187,17 @@ class TestParserErrorPropagation:
     async def test_exception_from_parser_propagates(self) -> None:
         error = RuntimeError("parser blew up")
         parser = FakeParser({DocumentFormat.PDF}, raises=error)
-        service = ProcessingService(parser_registry=ParserRegistry(parsers=[parser]))
+        service = _make_service(parser)
 
         with pytest.raises(RuntimeError, match="parser blew up"):
-            await service.process(_make_request(DocumentFormat.PDF))
+            await service.process(owner_id=_OWNER_ID, request=_make_request(DocumentFormat.PDF))
 
     async def test_value_error_propagates(self) -> None:
         parser = FakeParser({DocumentFormat.DOCX}, raises=ValueError("bad file"))
-        service = ProcessingService(parser_registry=ParserRegistry(parsers=[parser]))
+        service = _make_service(parser)
 
         with pytest.raises(ValueError, match="bad file"):
-            await service.process(_make_request(DocumentFormat.DOCX))
+            await service.process(owner_id=_OWNER_ID, request=_make_request(DocumentFormat.DOCX))
 
 
 # ---------------------------------------------------------------------------
@@ -188,17 +207,23 @@ class TestParserErrorPropagation:
 
 class TestRegistryErrors:
     async def test_parser_not_found_propagates(self) -> None:
-        service = ProcessingService(parser_registry=ParserRegistry())
+        writer = AsyncMock()
+        writer.write = AsyncMock(return_value=None)
+        service = ProcessingService(
+            parser_registry=ParserRegistry(),
+            artifact_builder=ArtifactBuilder(),
+            artifact_writer=writer,
+        )
 
         with pytest.raises(ParserNotFoundError):
-            await service.process(_make_request(DocumentFormat.PDF))
+            await service.process(owner_id=_OWNER_ID, request=_make_request(DocumentFormat.PDF))
 
     async def test_wrong_format_raises_parser_not_found(self) -> None:
         parser = FakeParser({DocumentFormat.PDF}, result=_make_document())
-        service = ProcessingService(parser_registry=ParserRegistry(parsers=[parser]))
+        service = _make_service(parser)
 
         with pytest.raises(ParserNotFoundError):
-            await service.process(_make_request(DocumentFormat.DOCX))
+            await service.process(owner_id=_OWNER_ID, request=_make_request(DocumentFormat.DOCX))
 
 
 # ---------------------------------------------------------------------------
@@ -215,16 +240,16 @@ class TestFormatRouting:
             metadata=DocumentMetadata(),
             statistics=DocumentStatistics(),
             raw_text="text",
-            markdown="",
+            markdown="text",
             blocks=[],
         )
         pdf_parser = FakeParser({DocumentFormat.PDF}, result=pdf_doc)
         txt_parser = FakeParser({DocumentFormat.TEXT}, result=txt_doc)
+        service = _make_service(pdf_parser, txt_parser)
 
-        registry = ParserRegistry(parsers=[pdf_parser, txt_parser])
-        service = ProcessingService(parser_registry=registry)
-
-        result = await service.process(_make_request(DocumentFormat.PDF))
+        result = await service.process(
+            owner_id=_OWNER_ID, request=_make_request(DocumentFormat.PDF)
+        )
         assert result.document is pdf_doc
         assert pdf_parser.call_count == 1
         assert txt_parser.call_count == 0
@@ -236,16 +261,16 @@ class TestFormatRouting:
             metadata=DocumentMetadata(),
             statistics=DocumentStatistics(),
             raw_text="text",
-            markdown="",
+            markdown="text",
             blocks=[],
         )
         pdf_parser = FakeParser({DocumentFormat.PDF}, result=_make_document())
         txt_parser = FakeParser({DocumentFormat.TEXT}, result=txt_doc)
+        service = _make_service(pdf_parser, txt_parser)
 
-        registry = ParserRegistry(parsers=[pdf_parser, txt_parser])
-        service = ProcessingService(parser_registry=registry)
-
-        result = await service.process(_make_request(DocumentFormat.TEXT))
+        result = await service.process(
+            owner_id=_OWNER_ID, request=_make_request(DocumentFormat.TEXT)
+        )
         assert result.document is txt_doc
         assert txt_parser.call_count == 1
         assert pdf_parser.call_count == 0
@@ -263,11 +288,10 @@ class TestFormatRouting:
         )
         pdf_parser = FakeParser({DocumentFormat.PDF}, result=pdf_doc)
         txt_parser = FakeParser({DocumentFormat.TEXT}, result=txt_doc)
-        registry = ParserRegistry(parsers=[pdf_parser, txt_parser])
-        service = ProcessingService(parser_registry=registry)
+        service = _make_service(pdf_parser, txt_parser)
 
-        r1 = await service.process(_make_request(DocumentFormat.PDF))
-        r2 = await service.process(_make_request(DocumentFormat.TEXT))
+        r1 = await service.process(owner_id=_OWNER_ID, request=_make_request(DocumentFormat.PDF))
+        r2 = await service.process(owner_id=_OWNER_ID, request=_make_request(DocumentFormat.TEXT))
 
         assert r1.document is pdf_doc
         assert r2.document is txt_doc

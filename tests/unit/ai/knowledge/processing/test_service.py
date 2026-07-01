@@ -1,0 +1,273 @@
+"""
+Unit tests for ProcessingService.
+
+Covers:
+- Happy path: correct parser resolved, parse() called, returns COMPLETED result
+- Parser errors propagate out of process()
+- ParserNotFoundError from registry propagates unchanged
+- Document returned in result matches what the parser produced
+- Service delegates to the registry rather than importing parsers directly
+"""
+
+from __future__ import annotations
+
+import uuid
+from pathlib import Path
+
+import pytest
+from app.ai.knowledge.processing.enums import DocumentFormat, ParserType, ProcessingStatus
+from app.ai.knowledge.processing.exceptions import ParserNotFoundError
+from app.ai.knowledge.processing.interfaces import DocumentParser, ParseRequest
+from app.ai.knowledge.processing.models import (
+    DocumentMetadata,
+    DocumentStatistics,
+    ParagraphBlock,
+    ProcessedDocument,
+    ProcessingResult,
+)
+from app.ai.knowledge.processing.registry import ParserRegistry
+from app.ai.knowledge.processing.service import ProcessingService
+
+# ---------------------------------------------------------------------------
+# Test doubles
+# ---------------------------------------------------------------------------
+
+
+def _make_request(
+    document_format: DocumentFormat = DocumentFormat.PDF,
+) -> ParseRequest:
+    return ParseRequest(
+        document_id=uuid.uuid4(),
+        file_path=Path("/tmp/test.pdf"),
+        document_format=document_format,
+    )
+
+
+def _make_document(blocks: list | None = None) -> ProcessedDocument:
+    return ProcessedDocument(
+        format=DocumentFormat.PDF,
+        parser=ParserType.DOCLING,
+        metadata=DocumentMetadata(),
+        statistics=DocumentStatistics(),
+        raw_text="sample text",
+        markdown="",
+        blocks=blocks or [],
+    )
+
+
+class FakeParser(DocumentParser):
+    """Configurable fake that either returns a document or raises."""
+
+    def __init__(
+        self,
+        formats: set[DocumentFormat],
+        *,
+        result: ProcessedDocument | None = None,
+        raises: Exception | None = None,
+    ) -> None:
+        self._formats = formats
+        self._result = result
+        self._raises = raises
+        self.call_count = 0
+        self.last_request: ParseRequest | None = None
+
+    @property
+    def parser_name(self) -> str:
+        return "fake-parser"
+
+    @property
+    def supported_formats(self) -> set[DocumentFormat]:
+        return self._formats
+
+    async def parse(self, request: ParseRequest) -> ProcessedDocument:
+        self.call_count += 1
+        self.last_request = request
+        if self._raises is not None:
+            raise self._raises
+        if self._result is None:  # pragma: no cover
+            raise RuntimeError("FakeParser: no result configured")
+        return self._result
+
+
+# ---------------------------------------------------------------------------
+# Happy path
+# ---------------------------------------------------------------------------
+
+
+class TestProcessingServiceHappyPath:
+    @pytest.fixture()
+    def document(self) -> ProcessedDocument:
+        return _make_document(blocks=[ParagraphBlock(id="p1", text="Hello")])
+
+    @pytest.fixture()
+    def parser(self, document: ProcessedDocument) -> FakeParser:
+        return FakeParser({DocumentFormat.PDF}, result=document)
+
+    @pytest.fixture()
+    def service(self, parser: FakeParser) -> ProcessingService:
+        registry = ParserRegistry(parsers=[parser])
+        return ProcessingService(parser_registry=registry)
+
+    async def test_returns_completed_status(
+        self,
+        service: ProcessingService,
+        document: ProcessedDocument,
+    ) -> None:
+        request = _make_request(DocumentFormat.PDF)
+        result = await service.process(request)
+        assert result.status == ProcessingStatus.COMPLETED
+
+    async def test_result_document_matches_parser_output(
+        self,
+        service: ProcessingService,
+        document: ProcessedDocument,
+        parser: FakeParser,
+    ) -> None:
+        request = _make_request(DocumentFormat.PDF)
+        result = await service.process(request)
+        assert result.document is document
+
+    async def test_parser_called_exactly_once(
+        self,
+        service: ProcessingService,
+        parser: FakeParser,
+    ) -> None:
+        await service.process(_make_request(DocumentFormat.PDF))
+        assert parser.call_count == 1
+
+    async def test_parser_receives_original_request(
+        self,
+        service: ProcessingService,
+        parser: FakeParser,
+    ) -> None:
+        request = _make_request(DocumentFormat.PDF)
+        await service.process(request)
+        assert parser.last_request is request
+
+    async def test_result_error_is_none(
+        self,
+        service: ProcessingService,
+    ) -> None:
+        result = await service.process(_make_request(DocumentFormat.PDF))
+        assert result.error is None
+
+    async def test_result_is_processing_result_instance(
+        self,
+        service: ProcessingService,
+    ) -> None:
+        result = await service.process(_make_request(DocumentFormat.PDF))
+        assert isinstance(result, ProcessingResult)
+
+
+# ---------------------------------------------------------------------------
+# Parser error propagation
+# ---------------------------------------------------------------------------
+
+
+class TestParserErrorPropagation:
+    async def test_exception_from_parser_propagates(self) -> None:
+        error = RuntimeError("parser blew up")
+        parser = FakeParser({DocumentFormat.PDF}, raises=error)
+        service = ProcessingService(parser_registry=ParserRegistry(parsers=[parser]))
+
+        with pytest.raises(RuntimeError, match="parser blew up"):
+            await service.process(_make_request(DocumentFormat.PDF))
+
+    async def test_value_error_propagates(self) -> None:
+        parser = FakeParser({DocumentFormat.DOCX}, raises=ValueError("bad file"))
+        service = ProcessingService(parser_registry=ParserRegistry(parsers=[parser]))
+
+        with pytest.raises(ValueError, match="bad file"):
+            await service.process(_make_request(DocumentFormat.DOCX))
+
+
+# ---------------------------------------------------------------------------
+# Registry errors surface from service
+# ---------------------------------------------------------------------------
+
+
+class TestRegistryErrors:
+    async def test_parser_not_found_propagates(self) -> None:
+        service = ProcessingService(parser_registry=ParserRegistry())
+
+        with pytest.raises(ParserNotFoundError):
+            await service.process(_make_request(DocumentFormat.PDF))
+
+    async def test_wrong_format_raises_parser_not_found(self) -> None:
+        parser = FakeParser({DocumentFormat.PDF}, result=_make_document())
+        service = ProcessingService(parser_registry=ParserRegistry(parsers=[parser]))
+
+        with pytest.raises(ParserNotFoundError):
+            await service.process(_make_request(DocumentFormat.DOCX))
+
+
+# ---------------------------------------------------------------------------
+# Format routing: correct parser selected per format
+# ---------------------------------------------------------------------------
+
+
+class TestFormatRouting:
+    async def test_pdf_request_routes_to_pdf_parser(self) -> None:
+        pdf_doc = _make_document()
+        txt_doc = ProcessedDocument(
+            format=DocumentFormat.TEXT,
+            parser=ParserType.DOCLING,
+            metadata=DocumentMetadata(),
+            statistics=DocumentStatistics(),
+            raw_text="text",
+            markdown="",
+            blocks=[],
+        )
+        pdf_parser = FakeParser({DocumentFormat.PDF}, result=pdf_doc)
+        txt_parser = FakeParser({DocumentFormat.TEXT}, result=txt_doc)
+
+        registry = ParserRegistry(parsers=[pdf_parser, txt_parser])
+        service = ProcessingService(parser_registry=registry)
+
+        result = await service.process(_make_request(DocumentFormat.PDF))
+        assert result.document is pdf_doc
+        assert pdf_parser.call_count == 1
+        assert txt_parser.call_count == 0
+
+    async def test_text_request_routes_to_text_parser(self) -> None:
+        txt_doc = ProcessedDocument(
+            format=DocumentFormat.TEXT,
+            parser=ParserType.DOCLING,
+            metadata=DocumentMetadata(),
+            statistics=DocumentStatistics(),
+            raw_text="text",
+            markdown="",
+            blocks=[],
+        )
+        pdf_parser = FakeParser({DocumentFormat.PDF}, result=_make_document())
+        txt_parser = FakeParser({DocumentFormat.TEXT}, result=txt_doc)
+
+        registry = ParserRegistry(parsers=[pdf_parser, txt_parser])
+        service = ProcessingService(parser_registry=registry)
+
+        result = await service.process(_make_request(DocumentFormat.TEXT))
+        assert result.document is txt_doc
+        assert txt_parser.call_count == 1
+        assert pdf_parser.call_count == 0
+
+    async def test_sequential_requests_each_resolve_correctly(self) -> None:
+        pdf_doc = _make_document()
+        txt_doc = ProcessedDocument(
+            format=DocumentFormat.TEXT,
+            parser=ParserType.DOCLING,
+            metadata=DocumentMetadata(),
+            statistics=DocumentStatistics(),
+            raw_text="",
+            markdown="",
+            blocks=[],
+        )
+        pdf_parser = FakeParser({DocumentFormat.PDF}, result=pdf_doc)
+        txt_parser = FakeParser({DocumentFormat.TEXT}, result=txt_doc)
+        registry = ParserRegistry(parsers=[pdf_parser, txt_parser])
+        service = ProcessingService(parser_registry=registry)
+
+        r1 = await service.process(_make_request(DocumentFormat.PDF))
+        r2 = await service.process(_make_request(DocumentFormat.TEXT))
+
+        assert r1.document is pdf_doc
+        assert r2.document is txt_doc

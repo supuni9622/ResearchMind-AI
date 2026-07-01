@@ -1,0 +1,257 @@
+"""
+Canonical document models for the Knowledge Platform.
+
+Every parser implementation (Docling, Unstructured, Textract, etc.)
+must produce this representation.
+
+This module defines the parser-independent document model consumed by:
+
+- Chunking
+- Embeddings
+- Retrieval
+- Citation Engine
+- Research Agents
+- Evaluation
+"""
+
+from __future__ import annotations
+
+from typing import Annotated, Any, Literal
+
+from pydantic import BaseModel, ConfigDict, Field
+
+from app.ai.knowledge.processing.enums import (
+    DocumentFormat,
+    ParserType,
+    ProcessingStatus,
+)
+
+# ============================================================================
+# Document Metadata
+# ============================================================================
+
+
+class DocumentMetadata(BaseModel):
+    """
+    Metadata extracted from a document.
+    """
+
+    model_config = ConfigDict(extra="allow")
+
+    title: str | None = None
+
+    author: str | None = None
+
+    language: str | None = None
+
+    source: str | None = None
+
+    created_at: str | None = None
+
+    modified_at: str | None = None
+
+    additional_metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+# ============================================================================
+# Document Statistics
+# ============================================================================
+
+
+class DocumentStatistics(BaseModel):
+    """
+    Statistics describing a processed document.
+    """
+
+    page_count: int = 0
+
+    heading_count: int = 0
+
+    paragraph_count: int = 0
+
+    table_count: int = 0
+
+    figure_count: int = 0
+
+    code_block_count: int = 0
+
+    list_count: int = 0
+
+    reference_count: int = 0
+
+    character_count: int = 0
+
+    word_count: int = 0
+
+    line_count: int = 0
+
+
+# ============================================================================
+# Base Block
+# ============================================================================
+
+
+class DocumentBlock(BaseModel):
+    """
+    Base class for every document block.
+
+    Every processed document is represented as an ordered list of blocks.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str = Field(description="Unique block identifier.")
+
+    block_type: str
+
+    page: int | None = Field(default=None, description="1-based page number.")
+
+    text: str = Field(default="", description="Normalized text representation.")
+
+
+# ============================================================================
+# Block Types
+# ============================================================================
+
+
+class HeadingBlock(DocumentBlock):
+    block_type: Literal["heading"] = "heading"
+
+    level: int
+
+    title: str
+
+
+class ParagraphBlock(DocumentBlock):
+    block_type: Literal["paragraph"] = "paragraph"
+
+
+class TableBlock(DocumentBlock):
+    block_type: Literal["table"] = "table"
+
+    caption: str | None = None
+
+    markdown: str
+
+
+class FigureBlock(DocumentBlock):
+    block_type: Literal["figure"] = "figure"
+
+    caption: str | None = None
+
+
+class CodeBlock(DocumentBlock):
+    block_type: Literal["code"] = "code"
+
+    language: str | None = None
+
+
+class ListBlock(DocumentBlock):
+    block_type: Literal["list"] = "list"
+
+    ordered: bool = False
+
+    items: list[str] = Field(default_factory=list)
+
+
+class ReferenceBlock(DocumentBlock):
+    block_type: Literal["reference"] = "reference"
+
+    authors: list[str] = Field(default_factory=list)
+
+    title: str | None = None
+
+    year: int | None = None
+
+    doi: str | None = None
+
+
+# ============================================================================
+# Discriminated Union
+# ============================================================================
+
+
+DocumentBlockType = Annotated[
+    (
+        HeadingBlock
+        | ParagraphBlock
+        | TableBlock
+        | FigureBlock
+        | CodeBlock
+        | ListBlock
+        | ReferenceBlock
+    ),
+    Field(discriminator="block_type"),
+]
+
+
+# ============================================================================
+# Processed Document
+# ============================================================================
+
+
+class ProcessedDocument(BaseModel):
+    """
+    Canonical parser-independent document representation.
+
+    This is the only document model used throughout the AI pipeline.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    format: DocumentFormat
+
+    parser: ParserType
+
+    metadata: DocumentMetadata
+
+    statistics: DocumentStatistics
+
+    raw_text: str
+
+    blocks: list[DocumentBlockType] = Field(default_factory=list)
+
+    @property
+    def headings(self) -> list[HeadingBlock]:
+        return [block for block in self.blocks if isinstance(block, HeadingBlock)]
+
+    @property
+    def paragraphs(self) -> list[ParagraphBlock]:
+        return [block for block in self.blocks if isinstance(block, ParagraphBlock)]
+
+    @property
+    def tables(self) -> list[TableBlock]:
+        return [block for block in self.blocks if isinstance(block, TableBlock)]
+
+    @property
+    def figures(self) -> list[FigureBlock]:
+        return [block for block in self.blocks if isinstance(block, FigureBlock)]
+
+    @property
+    def code_blocks(self) -> list[CodeBlock]:
+        return [block for block in self.blocks if isinstance(block, CodeBlock)]
+
+    @property
+    def lists(self) -> list[ListBlock]:
+        return [block for block in self.blocks if isinstance(block, ListBlock)]
+
+    @property
+    def references(self) -> list[ReferenceBlock]:
+        return [block for block in self.blocks if isinstance(block, ReferenceBlock)]
+
+
+# ============================================================================
+# Processing Result
+# ============================================================================
+
+
+class ProcessingResult(BaseModel):
+    """
+    Result returned by the processing pipeline.
+    """
+
+    status: ProcessingStatus
+
+    document: ProcessedDocument | None = None
+
+    error: str | None = None

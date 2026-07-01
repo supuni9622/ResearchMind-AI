@@ -6,7 +6,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict
 
-from app.models.enums import DocumentStatus
+from app.models.enums import DocumentUploadStatus
 
 
 class DocumentUploadResponse(BaseModel):
@@ -24,7 +24,7 @@ class DocumentUploadResponse(BaseModel):
 
     size_bytes: int
 
-    status: DocumentStatus
+    status: DocumentUploadStatus
 
     storage_key: str
 
@@ -46,7 +46,7 @@ class DocumentResponse(BaseModel):
 
     size_bytes: int
 
-    status: DocumentStatus
+    status: DocumentUploadStatus
 
     storage_key: str
 

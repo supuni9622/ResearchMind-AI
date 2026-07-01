@@ -12,7 +12,7 @@ from app.infrastructure.hashing.interfaces import FileHasher
 from app.infrastructure.storage.interfaces import DocumentStorage
 from app.infrastructure.storage.key_generator import StorageKeyGenerator
 from app.models.document import Document
-from app.models.enums import DocumentStatus
+from app.models.enums import DocumentUploadStatus
 from app.repositories.document import DocumentRepository
 
 logger = structlog.get_logger()
@@ -87,7 +87,7 @@ class UploadService:
                 content_type=content_type,
                 size_bytes=size_bytes,
                 checksum=checksum,
-                status=DocumentStatus.UPLOADED,
+                status=DocumentUploadStatus.COMPLETED,
             )
 
             await self._repository.create(document)

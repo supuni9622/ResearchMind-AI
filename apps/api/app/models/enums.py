@@ -1,11 +1,21 @@
 from enum import StrEnum
 
 
-class DocumentStatus(StrEnum):
+class DocumentUploadStatus(StrEnum):
     """Lifecycle status of an uploaded document."""
 
-    UPLOADED = "uploaded"
-    PROCESSING = "processing"
-    READY = "ready"
+    PENDING = "pending"
+    UPLOADING = "uploading"
+    COMPLETED = "completed"
     FAILED = "failed"
-    DELETED = "deleted"
+
+
+class DocumentProcessingStatus(StrEnum):
+    """
+    AI document processing lifecycle.
+    """
+
+    PENDING = "pending"
+    PROCESSING = "processing"
+    COMPLETED = "completed"
+    FAILED = "failed"

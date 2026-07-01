@@ -1,14 +1,15 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
 
-from sqlalchemy import BigInteger, Enum, ForeignKey, String
+from sqlalchemy import BigInteger, DateTime, Enum, ForeignKey, String, Text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
 from app.db.mixins import TimestampMixin
-from app.models.enums import DocumentStatus
+from app.models.enums import DocumentProcessingStatus, DocumentUploadStatus
 
 
 class Document(TimestampMixin, Base):
@@ -62,11 +63,30 @@ class Document(TimestampMixin, Base):
         index=True,
     )
 
-    status: Mapped[DocumentStatus] = mapped_column(
+    upload_status: Mapped[DocumentUploadStatus] = mapped_column(
         Enum(
-            DocumentStatus,
-            name="document_status",
+            DocumentUploadStatus,
+            name="document_upload_status",
         ),
-        default=DocumentStatus.UPLOADED,
+        default=DocumentUploadStatus.COMPLETED,
         nullable=False,
+    )
+
+    processing_status: Mapped[DocumentProcessingStatus] = mapped_column(
+        Enum(
+            DocumentProcessingStatus,
+            name="document_processing_status",
+        ),
+        default=DocumentProcessingStatus.PENDING,
+        nullable=False,
+    )
+
+    processed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+
+    processing_error: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
     )

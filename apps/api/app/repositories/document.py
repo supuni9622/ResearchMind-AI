@@ -85,16 +85,27 @@ class DocumentRepository:
     ) -> Document | None:
         """
         Retrieve a document owned by owner_id with the given checksum.
+
+        Historical data may contain more than one document with the
+        same (owner_id, checksum) pair, since this was not always
+        enforced as unique. The most recently created match is
+        returned rather than raising, so duplicate detection stays
+        resilient to that pre-existing state.
         """
 
-        statement = select(Document).where(
-            Document.owner_id == owner_id,
-            Document.checksum == sha256,
+        statement = (
+            select(Document)
+            .where(
+                Document.owner_id == owner_id,
+                Document.checksum == sha256,
+            )
+            .order_by(Document.created_at.desc())
+            .limit(1)
         )
 
         result = await self.session.execute(statement)
 
-        return result.scalar_one_or_none()
+        return result.scalars().first()
 
     # S3 operations
     async def get_by_storage_key(

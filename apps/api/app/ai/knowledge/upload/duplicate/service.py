@@ -1,56 +1,48 @@
 """
 Duplicate detection service.
+
+Determines whether a document already exists for a user based on its
+SHA256 checksum.
+
+Hash computation is intentionally outside this service and delegated to
+the application's FileHasher implementation.
 """
 
 from __future__ import annotations
 
-from typing import BinaryIO
 from uuid import UUID
 
 from app.ai.knowledge.upload.duplicate.models import (
-    DuplicateCheckRequest,
     DuplicateCheckResult,
-)
-from app.ai.knowledge.upload.duplicate.providers.sha256 import (
-    SHA256DuplicateProvider,
 )
 from app.repositories.document import DocumentRepository
 
 
 class DuplicateDetectionService:
     """
-    Performs exact duplicate detection using SHA256.
+    Performs exact duplicate detection using SHA256 checksums.
     """
 
     def __init__(
         self,
-        *,
-        provider: SHA256DuplicateProvider,
         repository: DocumentRepository,
     ) -> None:
-        self._provider = provider
         self._repository = repository
 
     async def check(
         self,
         *,
         owner_id: UUID,
-        file: BinaryIO,
+        sha256: str,
     ) -> DuplicateCheckResult:
         """
-        Determine whether the uploaded file already exists.
+        Determine whether a document with the supplied checksum already
+        exists for the owner.
         """
 
-        sha256 = await self._provider.compute_hash(file)
-
-        request = DuplicateCheckRequest(
+        document = await self._repository.find_by_owner_and_hash(
             owner_id=owner_id,
             sha256=sha256,
-        )
-
-        document = await self._repository.find_by_owner_and_hash(
-            owner_id=request.owner_id,
-            sha256=request.sha256,
         )
 
         if document is None:
@@ -60,5 +52,5 @@ class DuplicateDetectionService:
 
         return DuplicateCheckResult(
             is_duplicate=True,
-            existing_document_id=document.id,
+            document=document,
         )

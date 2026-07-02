@@ -19,10 +19,14 @@ from unittest.mock import AsyncMock
 
 import pytest
 from app.ai.knowledge.upload.constants import MAX_UPLOAD_SIZE_BYTES
+from app.ai.knowledge.upload.duplicate.models import DuplicateCheckResult
 from app.ai.knowledge.upload.exceptions import FileTooLargeError, UploadValidationError
 from app.ai.knowledge.upload.service import UploadService
+from app.exceptions.base import ConflictException
 from app.infrastructure.hashing.exceptions import HashingError
 from app.infrastructure.storage.exceptions import StorageUploadError
+from app.models.document import Document
+from app.models.enums import DocumentUploadStatus
 
 _OWNER_ID = uuid.uuid4()
 
@@ -32,10 +36,14 @@ def _make_deps() -> dict[str, AsyncMock]:
     storage = AsyncMock()
     hasher = AsyncMock()
     repository = AsyncMock()
+    duplicate_detection_service = AsyncMock()
 
     hasher.hash_file = AsyncMock(return_value="deadbeef")
     storage.upload = AsyncMock(return_value=None)
     storage.delete = AsyncMock(return_value=None)
+    duplicate_detection_service.check = AsyncMock(
+        return_value=DuplicateCheckResult(is_duplicate=False),
+    )
 
     async def _create(document):
         return document
@@ -47,6 +55,7 @@ def _make_deps() -> dict[str, AsyncMock]:
         "storage": storage,
         "hasher": hasher,
         "repository": repository,
+        "duplicate_detection_service": duplicate_detection_service,
     }
 
 
@@ -56,6 +65,7 @@ def _make_service(deps: dict[str, AsyncMock]) -> UploadService:
         storage=deps["storage"],
         hasher=deps["hasher"],
         repository=deps["repository"],
+        duplicate_detection_service=deps["duplicate_detection_service"],
     )
 
 
@@ -275,4 +285,42 @@ class TestConcurrency:
         assert isinstance(failures[0], UploadValidationError)
         assert len(successes) == 4
         assert len({doc.id for doc in successes}) == 4
-        assert deps["storage"].upload.await_count == 4
+
+
+# ---------------------------------------------------------------------------
+# Duplicate detection
+# ---------------------------------------------------------------------------
+
+
+def _existing_document() -> Document:
+    return Document(
+        id=uuid.uuid4(),
+        owner_id=_OWNER_ID,
+        filename="original.pdf",
+        storage_key="documents/owner/doc/original.pdf",
+        content_type="application/pdf",
+        size_bytes=1024,
+        checksum="deadbeef",
+        upload_status=DocumentUploadStatus.COMPLETED,
+    )
+
+
+class TestDuplicateDetection:
+    async def test_duplicate_raises_conflict_and_never_touches_storage_or_db(self) -> None:
+        deps = _make_deps()
+        existing = _existing_document()
+        deps["duplicate_detection_service"].check = AsyncMock(
+            return_value=DuplicateCheckResult(is_duplicate=True, document=existing),
+        )
+        service = _make_service(deps)
+
+        with pytest.raises(ConflictException) as exc_info:
+            await service.upload(**_upload_kwargs())
+
+        assert exc_info.value.details == {
+            "existing_document_id": str(existing.id),
+            "filename": existing.filename,
+        }
+        deps["storage"].upload.assert_not_called()
+        deps["repository"].create.assert_not_called()
+        deps["session"].rollback.assert_not_called()

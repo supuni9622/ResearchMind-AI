@@ -54,11 +54,13 @@ class ConflictException(AppException):
     def __init__(
         self,
         message: str = "Resource already exists.",
+        details: dict | None = None,
     ):
         super().__init__(
             message=message,
             code="CONFLICT",
             status_code=status.HTTP_409_CONFLICT,
+            details=details,
         )
 
 

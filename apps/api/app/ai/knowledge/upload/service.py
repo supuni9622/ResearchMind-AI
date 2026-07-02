@@ -7,7 +7,10 @@ from typing import BinaryIO
 import structlog
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.ai.knowledge.upload.duplicate.exceptions import DuplicateDetectionError
+from app.ai.knowledge.upload.duplicate.service import DuplicateDetectionService
 from app.ai.knowledge.upload.validators import UploadValidator
+from app.exceptions.base import ConflictException
 from app.infrastructure.hashing.interfaces import FileHasher
 from app.infrastructure.storage.interfaces import DocumentStorage
 from app.infrastructure.storage.key_generator import StorageKeyGenerator
@@ -29,11 +32,13 @@ class UploadService:
         session: AsyncSession,
         storage: DocumentStorage,
         hasher: FileHasher,
+        duplicate_detection_service: DuplicateDetectionService,
         repository: DocumentRepository,
     ) -> None:
         self._session = session
         self._storage = storage
         self._hasher = hasher
+        self._duplicate_detection_service = duplicate_detection_service
         self._repository = repository
 
     async def upload(
@@ -64,8 +69,37 @@ class UploadService:
         try:
             checksum = await self._hasher.hash_file(file)
 
-            # Future enhancement:
-            # existing = await self._repository.get_by_checksum(checksum)
+            duplicate = await self._duplicate_detection_service.check(
+                owner_id=owner_id,
+                sha256=checksum,
+            )
+
+            if duplicate.is_duplicate:
+                existing_document = duplicate.document
+
+                if existing_document is None:
+                    raise DuplicateDetectionError(
+                        "Duplicate detected but no document was returned.",
+                    )
+
+                logger.info(
+                    "document.duplicate_detected",
+                    owner_id=str(owner_id),
+                    filename=filename,
+                    checksum=checksum,
+                    existing_document_id=str(existing_document.id),
+                )
+
+                raise ConflictException(
+                    message=(
+                        "A document with identical content already exists: "
+                        f"{existing_document.filename}"
+                    ),
+                    details={
+                        "existing_document_id": str(existing_document.id),
+                        "filename": existing_document.filename,
+                    },
+                )
 
             document_id = uuid.uuid4()
 
@@ -122,6 +156,11 @@ class UploadService:
             )
 
             return document
+
+        except ConflictException:
+            # Expected outcome, not a failure: nothing was written yet,
+            # so there is nothing to roll back or clean up.
+            raise
 
         except Exception as exc:
             logger.exception(

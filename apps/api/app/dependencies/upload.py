@@ -36,6 +36,9 @@ from app.ai.knowledge.processing.statistics.service import (
 from app.ai.knowledge.processing.temporary_file_manager import (
     TemporaryFileManager,
 )
+from app.ai.knowledge.upload.duplicate.service import (
+    DuplicateDetectionService,
+)
 from app.ai.knowledge.upload.service import UploadService
 from app.core.settings import settings
 from app.db.session import get_db
@@ -170,6 +173,20 @@ def get_document_repository(
     return DocumentRepository(session)
 
 
+def get_duplicate_detection_service(
+    repository: DocumentRepository = Depends(
+        get_document_repository,
+    ),
+) -> DuplicateDetectionService:
+    """
+    Create the duplicate detection service.
+    """
+
+    return DuplicateDetectionService(
+        repository=repository,
+    )
+
+
 def get_document_storage() -> DocumentStorage:
     """
     Return the configured document storage service.
@@ -237,6 +254,9 @@ def get_upload_service(
     hasher: FileHasher = Depends(
         get_file_hasher,
     ),
+    duplicate_detection_service: DuplicateDetectionService = Depends(
+        get_duplicate_detection_service,
+    ),
 ) -> UploadService:
     """
     Create the upload service.
@@ -247,4 +267,5 @@ def get_upload_service(
         repository=repository,
         storage=storage,
         hasher=hasher,
+        duplicate_detection_service=duplicate_detection_service,
     )

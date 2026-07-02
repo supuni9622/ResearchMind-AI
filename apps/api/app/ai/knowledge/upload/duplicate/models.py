@@ -11,6 +11,8 @@ from uuid import UUID
 
 from pydantic import BaseModel
 
+from app.models.document import Document
+
 
 class DuplicateCheckRequest(BaseModel):
     """
@@ -29,4 +31,8 @@ class DuplicateCheckResult(BaseModel):
 
     is_duplicate: bool
 
-    existing_document_id: UUID | None = None
+    document: Document | None = None
+
+    model_config = {
+        "arbitrary_types_allowed": True,
+    }

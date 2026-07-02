@@ -20,7 +20,8 @@ ResearchMind-AI/
 │
 ├── alembic/                     # Database migration framework
 │   ├── versions/
-│   │   └── 43dc35ceb875_debug.py  # Initial migration: creates users table + updated_at trigger
+│   │   ├── 43dc35ceb875_debug.py              # Initial migration: creates users table + updated_at trigger
+│   │   └── a97b3b8eee9f_create_documents_table.py  # Creates documents table with processing lifecycle columns
 │   ├── env.py                   # Alembic runtime config (async engine, model imports)
 │   ├── script.py.mako           # Migration file template
 │   └── README                   # Alembic usage notes
@@ -34,22 +35,46 @@ ResearchMind-AI/
 │   │       │   ├── guardrails/
 │   │       │   │   ├── policies.py          # Content policy definitions
 │   │       │   │   └── scanners.py          # Input/output scanners
-│   │       │   ├── knowledge/               # RAG knowledge pipeline (planned)
-│   │       │   │   ├── cache/               # Semantic caching
-│   │       │   │   ├── chunking/            # Document chunking strategies
-│   │       │   │   ├── documents/           # Document processing
-│   │       │   │   ├── embeddings/          # Embedding generation
-│   │       │   │   ├── reranking/           # Result reranking
-│   │       │   │   ├── retrieval/           # Vector retrieval
+│   │       │   ├── knowledge/               # RAG knowledge pipeline
+│   │       │   │   ├── cache/               # Semantic caching (planned)
+│   │       │   │   ├── chunking/            # Document chunking strategies (planned)
+│   │       │   │   ├── embeddings/          # Embedding generation (planned)
+│   │       │   │   ├── processing/          # Document processing pipeline
+│   │       │   │   │   ├── adapters/
+│   │       │   │   │   │   └── docling.py          # Docling adapter (alternative entry point)
+│   │       │   │   │   ├── parsers/
+│   │       │   │   │   │   ├── base.py             # BaseDocumentParser abstract class
+│   │       │   │   │   │   └── docling.py          # Docling-backed parser implementation
+│   │       │   │   │   ├── artifact_builder.py     # Builds ProcessingArtifacts from ProcessedDocument
+│   │       │   │   │   ├── artifact_writer.py      # Persists artifacts to storage (S3)
+│   │       │   │   │   ├── artifacts.py            # ProcessingArtifact / ProcessingArtifacts models
+│   │       │   │   │   ├── enums.py                # DocumentFormat, ParserType, ProcessingStatus, ProcessingStage
+│   │       │   │   │   ├── exceptions.py           # ProcessingError hierarchy
+│   │       │   │   │   ├── interfaces.py           # DocumentParser ABC, ParseRequest
+│   │       │   │   │   ├── models.py               # ProcessedDocument, block types, ProcessingResult
+│   │       │   │   │   ├── registry.py             # ParserRegistry — format → parser resolution
+│   │       │   │   │   └── service.py              # ProcessingService — orchestrates the full pipeline
+│   │       │   │   ├── reranking/           # Result reranking (planned)
+│   │       │   │   ├── retrieval/           # Vector retrieval (planned)
 │   │       │   │   ├── upload/              # Document upload handling
-│   │       │   │   └── vectorstores/        # Vector store abstractions
+│   │       │   │   │   ├── constants.py     # Upload limits and allowed MIME types
+│   │       │   │   │   ├── enums.py         # Upload-specific enums
+│   │       │   │   │   ├── exceptions.py    # Upload exceptions
+│   │       │   │   │   ├── interfaces.py    # Upload abstract interfaces
+│   │       │   │   │   ├── models.py        # Upload domain models
+│   │       │   │   │   ├── schemas.py       # Upload Pydantic schemas
+│   │       │   │   │   ├── service.py       # UploadService orchestration
+│   │       │   │   │   ├── storage.py       # Storage operations for uploads
+│   │       │   │   │   ├── types.py         # Upload type aliases
+│   │       │   │   │   └── validators.py    # File validation logic
+│   │       │   │   └── vectorstores/        # Vector store abstractions (planned)
 │   │       │   ├── quality/                 # Evaluation and quality (planned)
-│   │       │   │   ├── benchmarks/          # Performance benchmarks
-│   │       │   │   ├── evaluation/          # LLM evaluation framework
-│   │       │   │   ├── experiments/         # Experiment tracking
-│   │       │   │   ├── regression/          # Regression test suite
-│   │       │   │   ├── telemetry/           # Metrics and telemetry
-│   │       │   │   └── tracing/             # LangSmith / OTEL tracing
+│   │       │   │   ├── benchmarks/
+│   │       │   │   ├── evaluation/
+│   │       │   │   ├── experiments/
+│   │       │   │   ├── regression/
+│   │       │   │   ├── telemetry/
+│   │       │   │   └── tracing/
 │   │       │   ├── registry/                # Model and provider registries
 │   │       │   │   ├── embeddings.py        # Embedding model registry
 │   │       │   │   ├── evaluators.py        # Evaluator registry
@@ -59,12 +84,12 @@ ResearchMind-AI/
 │   │       │   │   ├── providers.py         # LLM provider registry
 │   │       │   │   └── rerankers.py         # Reranker registry
 │   │       │   ├── runtime/                 # Inference runtime (planned)
-│   │       │   │   ├── prompts/             # Runtime prompt management
-│   │       │   │   ├── providers/           # Runtime provider adapters
-│   │       │   │   ├── registry/            # Runtime model registry
-│   │       │   │   ├── routing/             # Request routing logic
-│   │       │   │   ├── streaming/           # Streaming response handling
-│   │       │   │   └── structured_output/   # Structured output parsing
+│   │       │   │   ├── prompts/
+│   │       │   │   ├── providers/
+│   │       │   │   ├── registry/
+│   │       │   │   ├── routing/
+│   │       │   │   ├── streaming/
+│   │       │   │   └── structured_output/
 │   │       │   └── shared/                  # Shared AI types and interfaces
 │   │       │       ├── exceptions.py        # AI-specific exceptions
 │   │       │       ├── interfaces.py        # Abstract AI interfaces
@@ -94,7 +119,7 @@ ResearchMind-AI/
 │   │       ├── core/            # App-level configuration and startup
 │   │       │   ├── constants.py         # Static application constants
 │   │       │   ├── health.py            # Health check logic
-│   │       │   ├── lifespan.py          # FastAPI lifespan (startup/shutdown)
+│   │       │   ├── lifespan.py          # FastAPI lifespan (startup/shutdown, auto-migrate)
 │   │       │   ├── logging.py           # Structured logging (structlog + stdlib bridge)
 │   │       │   ├── settings.py          # Pydantic settings (env-driven)
 │   │       │   └── setup.py             # App factory / setup helpers
@@ -111,6 +136,7 @@ ResearchMind-AI/
 │   │       │   ├── cache.py             # Cache dependency
 │   │       │   ├── database.py          # DB session dependency
 │   │       │   ├── settings.py          # Settings dependency
+│   │       │   ├── upload.py            # Upload service dependency
 │   │       │   └── vector_store.py      # Vector store dependency
 │   │       │
 │   │       ├── exceptions/      # Exception hierarchy and handlers
@@ -121,6 +147,26 @@ ResearchMind-AI/
 │   │       │   ├── health.py            # Health check exceptions
 │   │       │   └── research.py          # Research exceptions
 │   │       │
+│   │       ├── infrastructure/  # Infrastructure adapters
+│   │       │   ├── aws/
+│   │       │   │   └── session.py       # Boto3 session factory
+│   │       │   ├── hashing/
+│   │       │   │   ├── exceptions.py    # Hashing exceptions
+│   │       │   │   ├── interfaces.py    # FileHasher abstract interface
+│   │       │   │   └── sha256.py        # SHA-256 file hasher implementation
+│   │       │   ├── metrics/
+│   │       │   │   ├── interfaces.py    # MetricsCollector abstract interface
+│   │       │   │   ├── models.py        # Metrics data models
+│   │       │   │   ├── noop.py          # No-op metrics collector
+│   │       │   │   └── upload.py        # Upload-specific metrics
+│   │       │   └── storage/
+│   │       │       ├── exceptions.py    # Storage exceptions
+│   │       │       ├── factory.py       # Storage provider factory
+│   │       │       ├── interfaces.py    # DocumentStorage abstract interface
+│   │       │       ├── key_generator.py # S3 key generation logic
+│   │       │       ├── models.py        # Storage data models
+│   │       │       └── s3.py            # S3 storage implementation
+│   │       │
 │   │       ├── middleware/      # HTTP middleware
 │   │       │   ├── cors.py              # CORS configuration
 │   │       │   ├── register.py          # Middleware registration helper
@@ -130,9 +176,12 @@ ResearchMind-AI/
 │   │       │
 │   │       ├── models/          # SQLAlchemy ORM models
 │   │       │   ├── __init__.py          # Exports all models (required for Alembic)
+│   │       │   ├── document.py          # Document model (upload + processing lifecycle columns)
+│   │       │   ├── enums.py             # DocumentUploadStatus, DocumentProcessingStatus
 │   │       │   └── user.py              # User model
 │   │       │
 │   │       ├── repositories/    # Data access layer
+│   │       │   ├── document.py          # DocumentRepository (CRUD operations)
 │   │       │   └── user.py              # UserRepository (CRUD operations)
 │   │       │
 │   │       ├── schemas/         # Pydantic request/response schemas
@@ -145,12 +194,44 @@ ResearchMind-AI/
 │   │       │   └── report.py            # Report schemas
 │   │       │
 │   │       ├── services/        # Business logic layer
-│   │       │   ├── auth.py              # OAuth code exchange with Cognito
-│   │       │   └── user.py              # User sync, creation, and lifecycle
+│   │       │   ├── auth.py                        # OAuth code exchange with Cognito
+│   │       │   ├── document_processing_service.py # Orchestrates processing lifecycle + status updates
+│   │       │   └── user.py                        # User sync, creation, and lifecycle
 │   │       │
 │   │       └── main.py          # FastAPI app entry point
 │   │
-│   ├── web/                     # Frontend app (planned)
+│   ├── web/                     # Next.js 15 frontend (App Router)
+│   │   ├── src/
+│   │   │   ├── app/
+│   │   │   │   ├── (app)/                   # Auth-gated route group
+│   │   │   │   │   ├── dashboard/
+│   │   │   │   │   │   └── page.tsx         # Dashboard page
+│   │   │   │   │   ├── documents/
+│   │   │   │   │   │   └── page.tsx         # Document upload page (drag-and-drop)
+│   │   │   │   │   ├── research/
+│   │   │   │   │   │   └── page.tsx         # Research chat interface
+│   │   │   │   │   └── layout.tsx           # AppShell — auth guard, redirects unauthenticated users
+│   │   │   │   ├── auth/
+│   │   │   │   │   └── callback/
+│   │   │   │   │       └── page.tsx         # Cognito OAuth callback — exchanges code for token
+│   │   │   │   ├── layout.tsx               # Root layout — fonts, AuthProvider
+│   │   │   │   └── page.tsx                 # Landing / sign-in page
+│   │   │   ├── components/
+│   │   │   │   ├── auth/
+│   │   │   │   │   └── login-button.tsx     # Cognito hosted UI redirect button
+│   │   │   │   └── layout/
+│   │   │   │       └── sidebar.tsx          # App sidebar navigation
+│   │   │   ├── hooks/
+│   │   │   │   └── use-auth.tsx             # AuthContext — token storage, profile fetch, isUnauthorized state
+│   │   │   └── lib/
+│   │   │       ├── api.ts                   # Typed API client (UserProfile, Document)
+│   │   │       └── auth.ts                  # Cognito URL builders, token storage (sessionStorage)
+│   │   ├── .env.local                       # Cognito client ID, domain, redirect URI, API URL
+│   │   ├── next.config.ts                   # Next.js configuration
+│   │   ├── package.json                     # Next.js 15, React 19, Tailwind 3, TypeScript
+│   │   ├── tailwind.config.ts               # Custom palette: ink, stone, sage, amber scales
+│   │   └── README.md                        # Setup instructions and auth flow diagram
+│   │
 │   └── worker/                  # Background worker app (planned)
 │
 ├── benchmarks/                  # Performance benchmarks (planned)
@@ -193,7 +274,7 @@ ResearchMind-AI/
 │   │   ├── engineering-principles.md
 │   │   ├── evaluation-strategy.md
 │   │   ├── frontend-architecture.md
-│   │   ├── identity-architecture.md  # Auth flow, Cognito setup, testing guide
+│   │   ├── identity-architecture.md
 │   │   ├── mcp-architecture.md
 │   │   ├── observability-strategy.md
 │   │   ├── project-constitution.md
@@ -213,7 +294,7 @@ ResearchMind-AI/
 │   │   └── ResearchMind.drawio.xml
 │   │
 │   ├── engineering-journal/     # Developer learning notes and milestone write-ups
-│   │   ├── concepts/            # Deep-dives on specific concepts
+│   │   ├── concepts/
 │   │   │   ├── 001-fastapi-lifespan.md
 │   │   │   ├── 002-sqlalchemy-engine.md
 │   │   │   ├── 003-session-vs-engine.md
@@ -226,7 +307,7 @@ ResearchMind-AI/
 │   │   │   ├── 010-global-exception-handling.md
 │   │   │   ├── 011-pydantic-response-models.md
 │   │   │   └── 012-connect-progresql-terminal
-│   │   └── milestones/          # Milestone retrospectives
+│   │   └── milestones/
 │   │       ├── 030-backend-foundation.md
 │   │       └── 0.31-engineering-quality.md
 │   │
@@ -310,39 +391,67 @@ ResearchMind-AI/
 │   ├── monitoring/              # Monitoring stack config
 │   └── scripts/                 # Infrastructure automation scripts
 │
-├── scripts/                     # Developer utility scripts (planned)
+├── scripts/                     # Developer utility scripts
+│   └── dev.sh                   # Runs migrations then starts uvicorn dev server
 │
 ├── services/                    # Internal service modules (planned)
-│   ├── cache/                   # Caching service
-│   ├── evaluation/              # Evaluation pipeline
-│   ├── ingestion/               # Document ingestion
-│   ├── mcp/                     # MCP server integrations
-│   ├── memory/                  # Agent memory service
-│   ├── observability/           # Tracing and metrics
-│   ├── providers/               # LLM provider abstractions
-│   ├── reporting/               # Report generation service
-│   └── retrieval/               # Vector retrieval service
+│   ├── cache/
+│   ├── evaluation/
+│   ├── ingestion/
+│   ├── mcp/
+│   ├── memory/
+│   ├── observability/
+│   ├── providers/
+│   ├── reporting/
+│   └── retrieval/
 │
 ├── shared/                      # Code shared across apps and services (planned)
-│   ├── config/                  # Shared configuration
-│   ├── constants/               # Shared constants
-│   ├── exceptions/              # Shared exception types
-│   ├── interfaces/              # Shared abstract interfaces
-│   ├── prompts/                 # Shared prompt templates
-│   ├── schemas/                 # Shared Pydantic schemas
-│   └── utils/                   # Shared utility functions
+│   ├── config/
+│   ├── constants/
+│   ├── exceptions/
+│   ├── interfaces/
+│   ├── prompts/
+│   ├── schemas/
+│   └── utils/
 │
 ├── tests/                       # Test suite
 │   ├── api/
-│   │   └── test_health.py       # Health endpoint tests
-│   ├── e2e/                     # End-to-end tests (planned)
-│   ├── evaluation/              # Evaluation tests (planned)
-│   ├── integration/             # Integration tests (planned)
-│   ├── performance/             # Performance tests (planned)
-│   ├── security/                # Security tests (planned)
+│   │   └── test_health.py                   # Health endpoint smoke tests
+│   ├── e2e/                                 # End-to-end tests (planned)
+│   ├── evaluation/                          # LLM evaluation tests (planned)
+│   │   ├── test_faithfulness.py
+│   │   ├── test_groundedness.py
+│   │   ├── test_reranking.py
+│   │   └── test_retrieval_precision.py
+│   ├── integration/                         # Integration tests
+│   │   ├── ai/knowledge/processing/
+│   │   │   └── test_processing_service.py   # Full DoclingParser → ProcessingService pipeline
+│   │   ├── test_document_repository.py
+│   │   ├── test_document_service.py
+│   │   ├── test_memory.py
+│   │   ├── test_retriever.py
+│   │   ├── test_user_repository.py
+│   │   ├── test_user_service.py
+│   │   └── test_vector_store.py
+│   ├── performance/                         # Performance tests (planned)
+│   │   ├── test_embedding_speed.py
+│   │   ├── test_latency.py
+│   │   └── test_qdrant_speed.py
+│   ├── security/                            # Security tests (planned)
+│   │   ├── test_jailbreaks.py
+│   │   └── test_prompt_injection.py
 │   ├── unit/
-│   │   └── test_settings.py     # Settings unit tests
-│   └── conftest.py              # Shared pytest fixtures
+│   │   ├── ai/knowledge/processing/
+│   │   │   ├── test_docling_parser.py       # DoclingParser parse() with real PDF fixture
+│   │   │   ├── test_models.py               # ProcessedDocument, block types, discriminated union
+│   │   │   ├── test_registry.py             # ParserRegistry registration, lookup, deduplication
+│   │   │   └── test_service.py              # ProcessingService orchestration with FakeParser
+│   │   ├── test_prompt_builder.py
+│   │   ├── test_settings.py
+│   │   └── test_utils.py
+│   ├── conftest.py                          # Shared pytest fixtures
+│   └── fixtures/
+│       └── sample.pdf                       # PDF fixture for parser integration tests
 │
 ├── tools/                       # Developer tooling (planned)
 │
@@ -350,7 +459,7 @@ ResearchMind-AI/
 ├── .env                         # Local environment variables (gitignored)
 ├── .env.example                 # Environment variable template
 ├── .gitignore
-├── .pre-commit-config.yaml      # Pre-commit hooks (ruff, mypy, etc.)
+├── .pre-commit-config.yaml      # Pre-commit hooks (ruff, mypy, pytest)
 ├── .python-version              # Pinned Python version (for pyenv/uv)
 ├── .vscode/
 │   ├── extensions.json          # Recommended VS Code extensions
@@ -375,10 +484,15 @@ ResearchMind-AI/
 | Layer | Location | Purpose |
 |---|---|---|
 | API app | `apps/api/` | FastAPI server — routes, middleware, models, schemas |
+| Frontend | `apps/web/` | Next.js 15 App Router — Cognito auth, dashboard, documents, research |
+| Processing pipeline | `apps/api/app/ai/knowledge/processing/` | Docling parser, artifact builder/writer, registry, service |
+| Upload pipeline | `apps/api/app/ai/knowledge/upload/` | File validation, S3 upload, checksum hashing |
+| Infrastructure | `apps/api/app/infrastructure/` | S3 storage, SHA-256 hashing, metrics adapters |
+| Application services | `apps/api/app/services/` | Auth, user lifecycle, document processing orchestration |
 | Agents | `agents/` | Autonomous AI agents (planned) |
-| Services | `services/` | Internal service modules — retrieval, ingestion, etc. |
-| Shared | `shared/` | Cross-cutting code shared by apps and services |
-| Infrastructure | `infrastructure/` | IaC, Docker, deployment configs |
+| Services | `services/` | Internal service modules — retrieval, ingestion, etc. (planned) |
+| Shared | `shared/` | Cross-cutting code shared by apps and services (planned) |
+| Infrastructure IaC | `infrastructure/` | Docker, deployment configs |
 | Migrations | `alembic/` | PostgreSQL schema migrations via Alembic |
 | Tests | `tests/` | Unit, integration, e2e, evaluation, performance |
 | Docs | `docs/` | All project documentation |

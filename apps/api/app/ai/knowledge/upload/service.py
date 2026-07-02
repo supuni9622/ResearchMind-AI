@@ -87,7 +87,7 @@ class UploadService:
                 content_type=content_type,
                 size_bytes=size_bytes,
                 checksum=checksum,
-                status=DocumentUploadStatus.COMPLETED,
+                upload_status=DocumentUploadStatus.COMPLETED,
             )
 
             await self._repository.create(document)

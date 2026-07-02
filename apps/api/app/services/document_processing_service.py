@@ -25,6 +25,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 import structlog
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.knowledge.processing.interfaces import ParseRequest
 from app.ai.knowledge.processing.models import ProcessingResult
@@ -34,6 +35,9 @@ from app.models.enums import DocumentProcessingStatus
 from app.repositories.document import DocumentRepository
 
 logger = structlog.get_logger()
+
+# Keeps a single runaway error message from bloating the documents table.
+MAX_PROCESSING_ERROR_LENGTH = 2000
 
 
 class DocumentProcessingService:
@@ -45,9 +49,11 @@ class DocumentProcessingService:
         self,
         processing_service: ProcessingService,
         document_repository: DocumentRepository,
+        session: AsyncSession,
     ) -> None:
         self._processing_service = processing_service
         self._document_repository = document_repository
+        self._session = session
 
     async def process(
         self,
@@ -68,7 +74,18 @@ class DocumentProcessingService:
         log.info("document_processing.started")
 
         document.processing_status = DocumentProcessingStatus.PROCESSING
-        await self._document_repository.update(document)
+
+        try:
+            await self._document_repository.update(document)
+            await self._session.commit()
+        except Exception:
+            log.exception(
+                "document_processing.status_update_failed",
+                status=DocumentProcessingStatus.PROCESSING,
+            )
+            await self._session.rollback()
+            raise
+
         log.debug("document_processing.status_updated", status=DocumentProcessingStatus.PROCESSING)
 
         try:
@@ -82,6 +99,7 @@ class DocumentProcessingService:
             document.processing_error = None
 
             await self._document_repository.update(document)
+            await self._session.commit()
 
             processed_at = document.processed_at
             log.info(
@@ -93,11 +111,6 @@ class DocumentProcessingService:
             return result
 
         except Exception as exc:
-            document.processing_status = DocumentProcessingStatus.FAILED
-            document.processing_error = str(exc)
-
-            await self._document_repository.update(document)
-
             log.exception(
                 "document_processing.failed",
                 status=DocumentProcessingStatus.FAILED,
@@ -105,4 +118,16 @@ class DocumentProcessingService:
                 error=str(exc),
             )
 
+            document.processing_status = DocumentProcessingStatus.FAILED
+            document.processing_error = str(exc)[:MAX_PROCESSING_ERROR_LENGTH]
+
+            try:
+                await self._document_repository.update(document)
+                await self._session.commit()
+            except Exception:
+                log.exception("document_processing.failed_status_persist_failed")
+                await self._session.rollback()
+
+            # Always surface the original processing failure, even if we
+            # could not persist the FAILED status above.
             raise

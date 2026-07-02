@@ -130,6 +130,7 @@ def get_document_processing_service(
     repository: DocumentRepository = Depends(
         get_document_repository,
     ),
+    session: AsyncSession = Depends(get_db),
 ) -> DocumentProcessingService:
     """
     Create the application document processing service.
@@ -138,6 +139,7 @@ def get_document_processing_service(
     return DocumentProcessingService(
         processing_service=processing_service,
         document_repository=repository,
+        session=session,
     )
 
 

@@ -57,7 +57,9 @@ class UploadService:
 
         start = time.perf_counter()
 
+        stage = "hashing"
         storage_key: str | None = None
+        uploaded_to_storage = False
 
         try:
             checksum = await self._hasher.hash_file(file)
@@ -66,6 +68,8 @@ class UploadService:
             # existing = await self._repository.get_by_checksum(checksum)
 
             document_id = uuid.uuid4()
+
+            stage = "storage_upload"
 
             storage_key = StorageKeyGenerator.generate_document_key(
                 owner_id=owner_id,
@@ -78,6 +82,10 @@ class UploadService:
                 file=file,
                 content_type=content_type,
             )
+
+            uploaded_to_storage = True
+
+            stage = "persistence"
 
             document = Document(
                 id=document_id,
@@ -115,24 +123,32 @@ class UploadService:
 
             return document
 
-        except Exception:
+        except Exception as exc:
             logger.exception(
                 "document.upload_failed",
                 owner_id=str(owner_id),
                 filename=filename,
+                stage=stage,
+                exc_type=type(exc).__name__,
             )
 
             await self._session.rollback()
 
-            if storage_key is not None:
+            if uploaded_to_storage and storage_key is not None:
                 try:
                     await self._storage.delete(
                         key=storage_key,
+                    )
+                    logger.info(
+                        "upload.storage_cleanup_succeeded",
+                        storage_key=storage_key,
+                        stage=stage,
                     )
                 except Exception:
                     logger.warning(
                         "upload.storage_cleanup_failed",
                         storage_key=storage_key,
+                        stage=stage,
                     )
 
             raise

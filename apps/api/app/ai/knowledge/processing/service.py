@@ -139,17 +139,26 @@ class ProcessingService:
             word_count=document.statistics.word_count,
         )
 
-        artifacts = self._artifact_builder.build(
-            document,
-        )
+        try:
+            artifacts = self._artifact_builder.build(
+                document,
+            )
 
-        log.debug("processing.artifacts_built")
+            log.debug("processing.artifacts_built")
 
-        await self._artifact_writer.write(
-            owner_id=owner_id,
-            document_id=str(request.document_id),
-            artifacts=artifacts,
-        )
+            await self._artifact_writer.write(
+                owner_id=owner_id,
+                document_id=str(request.document_id),
+                artifacts=artifacts,
+            )
+
+        except Exception as exc:
+            log.exception(
+                "processing.artifact_persistence_failed",
+                parser=parser.parser_name,
+                exc_type=type(exc).__name__,
+            )
+            raise
 
         log.info("processing.completed")
 

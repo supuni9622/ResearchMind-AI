@@ -1,14 +1,22 @@
-from collections.abc import AsyncGenerator, Generator
+import os
 
-import pytest
-import pytest_asyncio
-from app.core.settings import settings
-from app.db.base import Base
-from app.db.session import get_session_factory
-from app.main import app
-from fastapi.testclient import TestClient
-from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engine
-from sqlalchemy.pool import NullPool
+# Must run before any `app.*` import: Settings picks .env vs .env.test based
+# on this variable at import time. Without it, running plain `pytest` loads
+# the dev .env and the test_engine fixture below will create_all/drop_all
+# against the real dev database instead of researchmind_test.
+os.environ.setdefault("ENVIRONMENT", "test")
+
+from collections.abc import AsyncGenerator, Generator  # noqa: E402
+
+import pytest  # noqa: E402
+import pytest_asyncio  # noqa: E402
+from app.core.settings import settings  # noqa: E402
+from app.db.base import Base  # noqa: E402
+from app.db.session import get_session_factory  # noqa: E402
+from app.main import app  # noqa: E402
+from fastapi.testclient import TestClient  # noqa: E402
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engine  # noqa: E402
+from sqlalchemy.pool import NullPool  # noqa: E402
 
 
 @pytest.fixture(scope="session")

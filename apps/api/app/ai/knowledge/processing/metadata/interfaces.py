@@ -11,6 +11,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from pathlib import Path
 
+from app.ai.knowledge.processing.enums import DocumentFormat
 from app.ai.knowledge.processing.metadata.models import MetadataUpdate
 from app.ai.knowledge.processing.models import ProcessedDocument
 
@@ -26,6 +27,23 @@ class MetadataProvider(ABC):
         """
         Human-readable provider name.
         """
+
+    @property
+    @abstractmethod
+    def supported_formats(self) -> set[DocumentFormat]:
+        """
+        Document formats this provider knows how to enrich.
+        """
+
+    def supports(
+        self,
+        document_format: DocumentFormat,
+    ) -> bool:
+        """
+        Returns whether the provider supports the supplied format.
+        """
+
+        return document_format in self.supported_formats
 
     @abstractmethod
     async def enrich(

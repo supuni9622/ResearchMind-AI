@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from langdetect import DetectorFactory, LangDetectException, detect_langs
 
+from app.ai.knowledge.processing.enums import DocumentFormat
 from app.ai.knowledge.processing.metadata.base import BaseMetadataProvider
 from app.ai.knowledge.processing.metadata.models import (
     LanguageMetadata,
@@ -30,6 +31,11 @@ class LanguageMetadataProvider(BaseMetadataProvider):
     @property
     def provider_name(self) -> str:
         return "Language Detection"
+
+    @property
+    def supported_formats(self) -> set[DocumentFormat]:
+        # Operates on extracted text, so it applies to every format.
+        return set(DocumentFormat)
 
     async def enrich(
         self,

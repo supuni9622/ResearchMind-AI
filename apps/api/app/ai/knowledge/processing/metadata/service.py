@@ -49,6 +49,14 @@ class MetadataEnrichmentService:
         enriched_document = document.model_copy(deep=True)
 
         for provider in self._registry:
+            if not provider.supports(enriched_document.format):
+                logger.debug(
+                    "metadata.provider_skipped",
+                    provider=provider.provider_name,
+                    document_format=enriched_document.format.value,
+                )
+                continue
+
             logger.debug(
                 "metadata.provider_started",
                 provider=provider.provider_name,

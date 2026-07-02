@@ -15,6 +15,7 @@ from pathlib import Path
 
 from pypdf import PdfReader
 
+from app.ai.knowledge.processing.enums import DocumentFormat
 from app.ai.knowledge.processing.metadata.base import BaseMetadataProvider
 from app.ai.knowledge.processing.metadata.models import (
     MetadataUpdate,
@@ -31,6 +32,10 @@ class PDFMetadataProvider(BaseMetadataProvider):
     @property
     def provider_name(self) -> str:
         return "PDF Metadata"
+
+    @property
+    def supported_formats(self) -> set[DocumentFormat]:
+        return {DocumentFormat.PDF}
 
     async def enrich(
         self,

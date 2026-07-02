@@ -104,7 +104,7 @@ class DoclingParser(BaseDocumentParser):
             ) from exc
 
         metadata = self._build_metadata(
-            source=request.file_path,
+            source=request.storage_key,
             filename=request.filename,
         )
         statistics = self._build_statistics(raw_text=raw_text)
@@ -129,7 +129,7 @@ class DoclingParser(BaseDocumentParser):
     def _build_metadata(
         self,
         *,
-        source: Path | None,
+        source: str | None,
         filename: str,
     ) -> DocumentMetadata:
         """

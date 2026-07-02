@@ -56,6 +56,7 @@ export const api = {
     me: () => request<UserProfile>('/api/v1/auth/me'),
   },
   documents: {
+    list: () => request<Document[]>('/api/v1/documents'),
     upload: async (file: File): Promise<Document> => {
       const token = getStoredToken();
       const form = new FormData();

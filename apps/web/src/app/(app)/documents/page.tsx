@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { api, type Document } from '@/lib/api';
 
 function formatBytes(n: number): string {
@@ -26,9 +26,32 @@ const STATUS_STYLES: Record<string, string> = {
 
 export default function DocumentsPage() {
   const [documents, setDocuments] = useState<Document[]>([]);
+  const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    api.documents
+      .list()
+      .then((docs) => {
+        if (!cancelled) setDocuments(docs);
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : 'Failed to load documents');
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const handleFiles = useCallback(async (files: FileList | null) => {
     if (!files || files.length === 0) return;
@@ -126,7 +149,11 @@ export default function DocumentsPage() {
         </div>
       )}
 
-      {documents.length === 0 ? (
+      {loading ? (
+        <div className="text-center py-16 border border-dashed border-ink-600 rounded-xl">
+          <p className="text-stone-600 text-sm">Loading documents…</p>
+        </div>
+      ) : documents.length === 0 ? (
         <div className="text-center py-16 border border-dashed border-ink-600 rounded-xl">
           <p className="text-stone-600 text-sm">
             No documents yet — upload your first file above.

@@ -58,6 +58,13 @@ def _make_storage() -> AsyncMock:
     return storage
 
 
+def _make_metadata_service() -> AsyncMock:
+    """Build a pass-through metadata service: returns the document unchanged."""
+    metadata_service = AsyncMock()
+    metadata_service.enrich = AsyncMock(side_effect=lambda *, document, file_path: document)
+    return metadata_service
+
+
 def _make_document(blocks: list | None = None) -> ProcessedDocument:
     return ProcessedDocument(
         format=DocumentFormat.PDF,
@@ -79,6 +86,7 @@ def _make_service(parser: DocumentParser, *extra_parsers: DocumentParser) -> Pro
         storage=_make_storage(),
         temporary_file_manager=TemporaryFileManager(),
         parser_registry=registry,
+        metadata_service=_make_metadata_service(),
         artifact_builder=ArtifactBuilder(),
         artifact_writer=writer,
     )
@@ -231,6 +239,7 @@ class TestRegistryErrors:
             storage=_make_storage(),
             temporary_file_manager=TemporaryFileManager(),
             parser_registry=ParserRegistry(),
+            metadata_service=_make_metadata_service(),
             artifact_builder=ArtifactBuilder(),
             artifact_writer=writer,
         )

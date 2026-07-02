@@ -11,6 +11,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.knowledge.processing.artifact_builder import ArtifactBuilder
 from app.ai.knowledge.processing.artifact_writer import ArtifactWriter
+from app.ai.knowledge.processing.metadata.providers.language import (
+    LanguageMetadataProvider,
+)
+from app.ai.knowledge.processing.metadata.providers.pdf import (
+    PDFMetadataProvider,
+)
+from app.ai.knowledge.processing.metadata.registry import MetadataRegistry
+from app.ai.knowledge.processing.metadata.service import (
+    MetadataEnrichmentService,
+)
 from app.ai.knowledge.processing.parsers import DoclingParser
 from app.ai.knowledge.processing.registry import ParserRegistry
 from app.ai.knowledge.processing.service import ProcessingService
@@ -64,6 +74,38 @@ def _get_parser_registry() -> ParserRegistry:
 
 
 @lru_cache
+def _get_metadata_registry() -> MetadataRegistry:
+    """
+    Create the metadata provider registry.
+
+    Provider implementations are stateless and safe to reuse.
+    """
+
+    registry = MetadataRegistry()
+
+    registry.register(
+        PDFMetadataProvider(),
+    )
+
+    registry.register(
+        LanguageMetadataProvider(),
+    )
+
+    return registry
+
+
+@lru_cache
+def _get_metadata_service() -> MetadataEnrichmentService:
+    """
+    Create the metadata enrichment service.
+    """
+
+    return MetadataEnrichmentService(
+        registry=_get_metadata_registry(),
+    )
+
+
+@lru_cache
 def _get_artifact_builder() -> ArtifactBuilder:
     """
     Create the artifact builder.
@@ -108,7 +150,9 @@ def get_file_hasher() -> FileHasher:
 
 
 def get_processing_service(
-    storage: DocumentStorage = Depends(get_document_storage),
+    storage: DocumentStorage = Depends(
+        get_document_storage,
+    ),
 ) -> ProcessingService:
     """
     Create the document processing service.
@@ -118,6 +162,7 @@ def get_processing_service(
         storage=storage,
         temporary_file_manager=_get_temporary_file_manager(),
         parser_registry=_get_parser_registry(),
+        metadata_service=_get_metadata_service(),
         artifact_builder=_get_artifact_builder(),
         artifact_writer=ArtifactWriter(storage),
     )

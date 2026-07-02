@@ -80,6 +80,13 @@ def _default_writer() -> AsyncMock:
     return writer
 
 
+def _default_metadata_service() -> AsyncMock:
+    """Pass-through metadata service: returns the document unchanged."""
+    metadata_service = AsyncMock()
+    metadata_service.enrich = AsyncMock(side_effect=lambda *, document, file_path: document)
+    return metadata_service
+
+
 def _make_service(
     *,
     storage: AsyncMock | None = None,
@@ -94,6 +101,7 @@ def _make_service(
         storage=storage,
         temporary_file_manager=TemporaryFileManager(),
         parser_registry=ParserRegistry(parsers=[parser]),
+        metadata_service=_default_metadata_service(),
         artifact_builder=ArtifactBuilder(),
         artifact_writer=writer,
     )

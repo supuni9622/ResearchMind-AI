@@ -9,6 +9,16 @@ from app.ai.knowledge.processing.enums import (
     ProcessingStatus,
 )
 from app.ai.knowledge.processing.interfaces import ParseRequest
+from app.ai.knowledge.processing.metadata.providers.language import (
+    LanguageMetadataProvider,
+)
+from app.ai.knowledge.processing.metadata.providers.pdf import (
+    PDFMetadataProvider,
+)
+from app.ai.knowledge.processing.metadata.registry import MetadataRegistry
+from app.ai.knowledge.processing.metadata.service import (
+    MetadataEnrichmentService,
+)
 from app.ai.knowledge.processing.parsers.docling import DoclingParser
 from app.ai.knowledge.processing.registry import ParserRegistry
 from app.ai.knowledge.processing.service import ProcessingService
@@ -45,10 +55,20 @@ async def test_processing_service_processes_pdf():
         return_value=Path("tests/fixtures/sample.pdf").read_bytes(),
     )
 
+    metadata_service = MetadataEnrichmentService(
+        registry=MetadataRegistry(
+            providers=[
+                PDFMetadataProvider(),
+                LanguageMetadataProvider(),
+            ],
+        ),
+    )
+
     service = ProcessingService(
         storage=storage,
         temporary_file_manager=TemporaryFileManager(),
         parser_registry=registry,
+        metadata_service=metadata_service,
         artifact_builder=ArtifactBuilder(),
         artifact_writer=writer,
     )
@@ -75,4 +95,6 @@ async def test_processing_service_processes_pdf():
     assert document.statistics.character_count > 0
     assert document.statistics.word_count > 0
 
-    assert document.metadata.title == "sample"
+    # The PDF metadata provider overrides Docling's filename-derived title
+    # with the document's actual embedded PDF title.
+    assert document.metadata.title == "Buzza MCP ChatGPT Integration - AI Engineering - Confluence"

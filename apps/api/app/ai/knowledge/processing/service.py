@@ -10,6 +10,7 @@ Responsibilities:
 - Create a temporary processing file
 - Resolve parser
 - Parse document
+- Enrich metadata
 - Build processing artifacts
 - Persist processing artifacts
 - Return the canonical processed document
@@ -30,6 +31,9 @@ from app.ai.knowledge.processing.exceptions import (
     ProcessingError,
 )
 from app.ai.knowledge.processing.interfaces import ParseRequest
+from app.ai.knowledge.processing.metadata.service import (
+    MetadataEnrichmentService,
+)
 from app.ai.knowledge.processing.models import (
     ProcessedDocument,
     ProcessingResult,
@@ -54,12 +58,14 @@ class ProcessingService:
         storage: DocumentStorage,
         temporary_file_manager: TemporaryFileManager,
         parser_registry: ParserRegistry,
+        metadata_service: MetadataEnrichmentService,
         artifact_builder: ArtifactBuilder,
         artifact_writer: ArtifactWriter,
     ) -> None:
         self._storage = storage
         self._temporary_file_manager = temporary_file_manager
         self._parser_registry = parser_registry
+        self._metadata_service = metadata_service
         self._artifact_builder = artifact_builder
         self._artifact_writer = artifact_writer
 
@@ -119,6 +125,19 @@ class ProcessingService:
 
                 document: ProcessedDocument = await parser.parse(
                     parser_request,
+                )
+
+                log.debug(
+                    "processing.metadata_enrichment_started",
+                )
+
+                document = await self._metadata_service.enrich(
+                    document=document,
+                    file_path=temp_path,
+                )
+
+                log.debug(
+                    "processing.metadata_enrichment_completed",
                 )
 
         except ProcessingError:

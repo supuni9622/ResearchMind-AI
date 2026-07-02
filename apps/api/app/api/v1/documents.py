@@ -15,11 +15,13 @@ from app.ai.knowledge.upload.service import UploadService
 from app.auth.dependencies import get_current_user
 from app.dependencies import (
     get_document_processing_service,
+    get_document_repository,
     get_upload_service,
 )
 from app.exceptions.base import ValidationException
 from app.models.user import User
-from app.schemas.document import DocumentUploadResponse
+from app.repositories.document import DocumentRepository
+from app.schemas.document import DocumentResponse, DocumentUploadResponse
 from app.services.document_processing_service import (
     DocumentProcessingService,
 )
@@ -30,6 +32,27 @@ router = APIRouter(
     prefix="/documents",
     tags=["Documents"],
 )
+
+
+@router.get(
+    "",
+    response_model=list[DocumentResponse],
+    summary="List the current user's documents",
+)
+async def list_documents(
+    current_user: User = Depends(get_current_user),
+    repository: DocumentRepository = Depends(get_document_repository),
+) -> list[DocumentResponse]:
+    """
+    List documents owned by the authenticated user.
+
+    Newest first. Scoped to `current_user.id` — a user can never see
+    another user's documents.
+    """
+
+    documents = await repository.list_by_owner(current_user.id)
+
+    return [DocumentResponse.model_validate(document) for document in documents]
 
 
 @router.post(

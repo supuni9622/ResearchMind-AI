@@ -87,6 +87,13 @@ def _default_metadata_service() -> AsyncMock:
     return metadata_service
 
 
+def _default_statistics_service() -> AsyncMock:
+    """Pass-through statistics service: returns the document unchanged."""
+    statistics_service = AsyncMock()
+    statistics_service.enrich = AsyncMock(side_effect=lambda *, document, file_path: document)
+    return statistics_service
+
+
 def _make_service(
     *,
     storage: AsyncMock | None = None,
@@ -102,6 +109,7 @@ def _make_service(
         temporary_file_manager=TemporaryFileManager(),
         parser_registry=ParserRegistry(parsers=[parser]),
         metadata_service=_default_metadata_service(),
+        statistics_service=_default_statistics_service(),
         artifact_builder=ArtifactBuilder(),
         artifact_writer=writer,
     )

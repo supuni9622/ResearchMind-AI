@@ -76,6 +76,26 @@ class DocumentRepository:
 
         return result.scalar_one_or_none()
 
+    # Duplicate detection
+    async def find_by_owner_and_hash(
+        self,
+        *,
+        owner_id: uuid.UUID,
+        sha256: str,
+    ) -> Document | None:
+        """
+        Retrieve a document owned by owner_id with the given checksum.
+        """
+
+        statement = select(Document).where(
+            Document.owner_id == owner_id,
+            Document.checksum == sha256,
+        )
+
+        result = await self.session.execute(statement)
+
+        return result.scalar_one_or_none()
+
     # S3 operations
     async def get_by_storage_key(
         self,

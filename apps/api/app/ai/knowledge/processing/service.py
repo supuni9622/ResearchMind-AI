@@ -39,6 +39,9 @@ from app.ai.knowledge.processing.models import (
     ProcessingResult,
 )
 from app.ai.knowledge.processing.registry import ParserRegistry
+from app.ai.knowledge.processing.statistics.service import (
+    StatisticsEnrichmentService,
+)
 from app.ai.knowledge.processing.temporary_file_manager import (
     TemporaryFileManager,
 )
@@ -59,6 +62,7 @@ class ProcessingService:
         temporary_file_manager: TemporaryFileManager,
         parser_registry: ParserRegistry,
         metadata_service: MetadataEnrichmentService,
+        statistics_service: StatisticsEnrichmentService,
         artifact_builder: ArtifactBuilder,
         artifact_writer: ArtifactWriter,
     ) -> None:
@@ -66,6 +70,7 @@ class ProcessingService:
         self._temporary_file_manager = temporary_file_manager
         self._parser_registry = parser_registry
         self._metadata_service = metadata_service
+        self._statistics_service = statistics_service
         self._artifact_builder = artifact_builder
         self._artifact_writer = artifact_writer
 
@@ -138,6 +143,18 @@ class ProcessingService:
 
                 log.debug(
                     "processing.metadata_enrichment_completed",
+                )
+                log.debug(
+                    "processing.statistics_enrichment_started",
+                )
+
+                document = await self._statistics_service.enrich(
+                    document=document,
+                    file_path=temp_path,
+                )
+
+                log.debug(
+                    "processing.statistics_enrichment_completed",
                 )
 
         except ProcessingError:

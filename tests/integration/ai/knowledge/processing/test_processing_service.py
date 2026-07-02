@@ -22,6 +22,15 @@ from app.ai.knowledge.processing.metadata.service import (
 from app.ai.knowledge.processing.parsers.docling import DoclingParser
 from app.ai.knowledge.processing.registry import ParserRegistry
 from app.ai.knowledge.processing.service import ProcessingService
+from app.ai.knowledge.processing.statistics.providers.pdf import (
+    PDFStatisticsProvider,
+)
+from app.ai.knowledge.processing.statistics.registry import (
+    StatisticsRegistry,
+)
+from app.ai.knowledge.processing.statistics.service import (
+    StatisticsEnrichmentService,
+)
 from app.ai.knowledge.processing.temporary_file_manager import (
     TemporaryFileManager,
 )
@@ -64,11 +73,20 @@ async def test_processing_service_processes_pdf():
         ),
     )
 
+    statistics_service = StatisticsEnrichmentService(
+        registry=StatisticsRegistry(
+            providers=[
+                PDFStatisticsProvider(),
+            ],
+        ),
+    )
+
     service = ProcessingService(
         storage=storage,
         temporary_file_manager=TemporaryFileManager(),
         parser_registry=registry,
         metadata_service=metadata_service,
+        statistics_service=statistics_service,
         artifact_builder=ArtifactBuilder(),
         artifact_writer=writer,
     )

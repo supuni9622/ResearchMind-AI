@@ -65,6 +65,13 @@ def _make_metadata_service() -> AsyncMock:
     return metadata_service
 
 
+def _make_statistics_service() -> AsyncMock:
+    """Build a pass-through statistics service: returns the document unchanged."""
+    statistics_service = AsyncMock()
+    statistics_service.enrich = AsyncMock(side_effect=lambda *, document, file_path: document)
+    return statistics_service
+
+
 def _make_document(blocks: list | None = None) -> ProcessedDocument:
     return ProcessedDocument(
         format=DocumentFormat.PDF,
@@ -87,6 +94,7 @@ def _make_service(parser: DocumentParser, *extra_parsers: DocumentParser) -> Pro
         temporary_file_manager=TemporaryFileManager(),
         parser_registry=registry,
         metadata_service=_make_metadata_service(),
+        statistics_service=_make_statistics_service(),
         artifact_builder=ArtifactBuilder(),
         artifact_writer=writer,
     )
@@ -240,6 +248,7 @@ class TestRegistryErrors:
             temporary_file_manager=TemporaryFileManager(),
             parser_registry=ParserRegistry(),
             metadata_service=_make_metadata_service(),
+            statistics_service=_make_statistics_service(),
             artifact_builder=ArtifactBuilder(),
             artifact_writer=writer,
         )

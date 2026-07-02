@@ -24,6 +24,15 @@ from app.ai.knowledge.processing.metadata.service import (
 from app.ai.knowledge.processing.parsers import DoclingParser
 from app.ai.knowledge.processing.registry import ParserRegistry
 from app.ai.knowledge.processing.service import ProcessingService
+from app.ai.knowledge.processing.statistics.providers.pdf import (
+    PDFStatisticsProvider,
+)
+from app.ai.knowledge.processing.statistics.registry import (
+    StatisticsRegistry,
+)
+from app.ai.knowledge.processing.statistics.service import (
+    StatisticsEnrichmentService,
+)
 from app.ai.knowledge.processing.temporary_file_manager import (
     TemporaryFileManager,
 )
@@ -106,6 +115,34 @@ def _get_metadata_service() -> MetadataEnrichmentService:
 
 
 @lru_cache
+def _get_statistics_registry() -> StatisticsRegistry:
+    """
+    Create the statistics provider registry.
+
+    Provider implementations are stateless and safe to reuse.
+    """
+
+    registry = StatisticsRegistry()
+
+    registry.register(
+        PDFStatisticsProvider(),
+    )
+
+    return registry
+
+
+@lru_cache
+def _get_statistics_service() -> StatisticsEnrichmentService:
+    """
+    Create the statistics enrichment service.
+    """
+
+    return StatisticsEnrichmentService(
+        registry=_get_statistics_registry(),
+    )
+
+
+@lru_cache
 def _get_artifact_builder() -> ArtifactBuilder:
     """
     Create the artifact builder.
@@ -163,6 +200,7 @@ def get_processing_service(
         temporary_file_manager=_get_temporary_file_manager(),
         parser_registry=_get_parser_registry(),
         metadata_service=_get_metadata_service(),
+        statistics_service=_get_statistics_service(),
         artifact_builder=_get_artifact_builder(),
         artifact_writer=ArtifactWriter(storage),
     )

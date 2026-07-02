@@ -1,3 +1,5 @@
+import { extractErrorMessage } from './errors';
+
 const COGNITO_DOMAIN =
   process.env.NEXT_PUBLIC_COGNITO_DOMAIN ??
   'https://us-east-19chs0pt6p.auth.us-east-1.amazoncognito.com';
@@ -43,9 +45,7 @@ export async function exchangeCode(code: string): Promise<TokenResponse> {
 
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    throw new Error(
-      (body as { detail?: string }).detail ?? `Authentication failed (${res.status})`
-    );
+    throw new Error(extractErrorMessage(body, `Authentication failed (${res.status})`));
   }
 
   return res.json() as Promise<TokenResponse>;

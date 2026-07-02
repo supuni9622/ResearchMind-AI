@@ -1,4 +1,5 @@
 import { getStoredToken } from './auth';
+import { extractErrorMessage } from './errors';
 
 const BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000';
 
@@ -16,8 +17,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    const msg =
-      (body as { detail?: string }).detail ?? `${res.status} ${res.statusText}`;
+    const msg = extractErrorMessage(body, `${res.status} ${res.statusText}`);
     const err = new Error(msg) as Error & { status: number };
     err.status = res.status;
     throw err;
@@ -37,14 +37,16 @@ export interface UserProfile {
   verified: boolean;
 }
 
-export type DocumentStatus = 'uploaded' | 'processing' | 'ready' | 'failed' | 'deleted';
+export type DocumentUploadStatus = 'pending' | 'uploading' | 'completed' | 'failed';
+export type DocumentProcessingStatus = 'pending' | 'processing' | 'completed' | 'failed';
 
 export interface Document {
   id: string;
   filename: string;
   content_type: string;
   size_bytes: number;
-  status: DocumentStatus;
+  upload_status: DocumentUploadStatus;
+  processing_status: DocumentProcessingStatus;
   storage_key: string;
   created_at: string;
 }
@@ -58,14 +60,23 @@ export const api = {
       const token = getStoredToken();
       const form = new FormData();
       form.append('file', file);
-      const res = await fetch(`${BASE}/api/v1/documents/upload`, {
-        method: 'POST',
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-        body: form,
-      });
+
+      let res: Response;
+      try {
+        res = await fetch(`${BASE}/api/v1/documents/upload`, {
+          method: 'POST',
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+          body: form,
+        });
+      } catch {
+        // fetch() itself threw: the connection never completed (server down,
+        // crashed mid-response, or a dev-server hot-reload killed it).
+        throw new Error('Could not reach the server. Is the backend running?');
+      }
+
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
-        throw new Error((body as { detail?: string }).detail ?? 'Upload failed');
+        throw new Error(extractErrorMessage(body, `Upload failed (${res.status})`));
       }
       return res.json() as Promise<Document>;
     },

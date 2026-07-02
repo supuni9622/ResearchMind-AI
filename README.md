@@ -232,6 +232,10 @@ uv run alembic stamp base && uv run alembic upgrade head 2>&1
 
 This runs migrations first, then starts the server with hot-reload. Running migrations inside `uvicorn --reload` directly causes hot-reload to interrupt the migration mid-run — always use this script for local development.
 
+`dev.sh` also runs `alembic check` before starting the server, so it will fail fast if your models have drifted from the last migration.
+
+**From now on: whenever you change a model, run `uv run alembic revision --autogenerate -m "..."`, read the generated file, then `./scripts/dev.sh` as usual.**
+
 ---
 
 ### Open

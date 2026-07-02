@@ -18,11 +18,10 @@ function formatDate(iso: string): string {
 }
 
 const STATUS_STYLES: Record<string, string> = {
-  uploaded: 'bg-ink-700 text-stone-400',
+  pending: 'bg-ink-700 text-stone-400',
   processing: 'bg-amber-500/20 text-amber-400',
-  ready: 'bg-sage-800/60 text-sage-400',
+  completed: 'bg-sage-800/60 text-sage-400',
   failed: 'bg-red-900/30 text-red-400',
-  deleted: 'bg-ink-700 text-stone-600',
 };
 
 export default function DocumentsPage() {
@@ -178,10 +177,10 @@ export default function DocumentsPage() {
 
               <span
                 className={`font-mono text-[10px] px-2 py-0.5 rounded-full flex-shrink-0 w-24 text-center ${
-                  STATUS_STYLES[doc.status] ?? 'bg-ink-700 text-stone-500'
+                  STATUS_STYLES[doc.processing_status] ?? 'bg-ink-700 text-stone-500'
                 }`}
               >
-                {doc.status}
+                {doc.processing_status}
               </span>
 
               <span className="font-mono text-stone-600 text-[11px] flex-shrink-0 w-28 text-right">

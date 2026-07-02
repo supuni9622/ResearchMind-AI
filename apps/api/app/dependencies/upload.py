@@ -1,5 +1,5 @@
 """
-Dependency providers for the document upload workflow.
+Dependency providers for the document upload and processing workflow.
 """
 
 from __future__ import annotations
@@ -9,12 +9,23 @@ from functools import lru_cache
 from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.ai.knowledge.processing.artifact_builder import ArtifactBuilder
+from app.ai.knowledge.processing.artifact_writer import ArtifactWriter
+from app.ai.knowledge.processing.parsers import DoclingParser
+from app.ai.knowledge.processing.registry import ParserRegistry
+from app.ai.knowledge.processing.service import ProcessingService
+from app.ai.knowledge.processing.temporary_file_manager import (
+    TemporaryFileManager,
+)
 from app.ai.knowledge.upload.service import UploadService
 from app.core.settings import settings
 from app.db.session import get_db
 from app.infrastructure.hashing import FileHasher, SHA256Hasher
 from app.infrastructure.storage import DocumentStorage, create_storage
 from app.repositories.document import DocumentRepository
+from app.services.document_processing_service import (
+    DocumentProcessingService,
+)
 
 
 def _get_storage() -> DocumentStorage:
@@ -32,11 +43,42 @@ def _get_storage() -> DocumentStorage:
 def _get_hasher() -> FileHasher:
     """
     Create the configured file hasher.
-
-    The hasher is stateless and safe to reuse.
     """
 
     return SHA256Hasher()
+
+
+@lru_cache
+def _get_parser_registry() -> ParserRegistry:
+    """
+    Create the parser registry.
+
+    Parser implementations are stateless and safe to reuse.
+    """
+
+    return ParserRegistry(
+        parsers=[
+            DoclingParser(),
+        ],
+    )
+
+
+@lru_cache
+def _get_artifact_builder() -> ArtifactBuilder:
+    """
+    Create the artifact builder.
+    """
+
+    return ArtifactBuilder()
+
+
+@lru_cache
+def _get_temporary_file_manager() -> TemporaryFileManager:
+    """
+    Create the temporary file manager.
+    """
+
+    return TemporaryFileManager()
 
 
 def get_document_repository(
@@ -65,6 +107,40 @@ def get_file_hasher() -> FileHasher:
     return _get_hasher()
 
 
+def get_processing_service(
+    storage: DocumentStorage = Depends(get_document_storage),
+) -> ProcessingService:
+    """
+    Create the document processing service.
+    """
+
+    return ProcessingService(
+        storage=storage,
+        temporary_file_manager=_get_temporary_file_manager(),
+        parser_registry=_get_parser_registry(),
+        artifact_builder=_get_artifact_builder(),
+        artifact_writer=ArtifactWriter(storage),
+    )
+
+
+def get_document_processing_service(
+    processing_service: ProcessingService = Depends(
+        get_processing_service,
+    ),
+    repository: DocumentRepository = Depends(
+        get_document_repository,
+    ),
+) -> DocumentProcessingService:
+    """
+    Create the application document processing service.
+    """
+
+    return DocumentProcessingService(
+        processing_service=processing_service,
+        document_repository=repository,
+    )
+
+
 def get_upload_service(
     session: AsyncSession = Depends(get_db),
     repository: DocumentRepository = Depends(
@@ -78,7 +154,7 @@ def get_upload_service(
     ),
 ) -> UploadService:
     """
-    Create the UploadService.
+    Create the upload service.
     """
 
     return UploadService(

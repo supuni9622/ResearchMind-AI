@@ -20,14 +20,25 @@ from app.ai.knowledge.processing.models import ProcessedDocument
 
 class ParseRequest(BaseModel):
     """
-    Request passed to every parser implementation.
+    Canonical request passed through the document processing pipeline.
+
+    The ProcessingService uses the storage information to download the
+    document and prepare a temporary file before invoking a parser.
+
+    Parsers consume the temporary file via ``file_path``.
     """
 
     document_id: UUID
 
-    file_path: Path
+    storage_key: str
+
+    filename: str
+
+    content_type: str
 
     document_format: DocumentFormat
+
+    file_path: Path | None = None
 
 
 class DocumentParser(ABC):
@@ -49,10 +60,14 @@ class DocumentParser(ABC):
         Formats supported by this parser.
         """
 
-    def supports(self, document_format: DocumentFormat) -> bool:
+    def supports(
+        self,
+        document_format: DocumentFormat,
+    ) -> bool:
         """
         Returns whether the parser supports the supplied format.
         """
+
         return document_format in self.supported_formats
 
     @abstractmethod
@@ -62,4 +77,7 @@ class DocumentParser(ABC):
     ) -> ProcessedDocument:
         """
         Parse a document into the canonical ProcessedDocument model.
+
+        The ProcessingService guarantees that ``request.file_path`` has
+        been populated before invoking the parser.
         """

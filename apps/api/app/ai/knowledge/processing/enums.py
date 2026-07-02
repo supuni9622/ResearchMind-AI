@@ -9,6 +9,8 @@ representation suitable for chunking, embeddings, retrieval, and
 future AI workflows.
 """
 
+from __future__ import annotations
+
 from enum import StrEnum
 
 
@@ -48,6 +50,29 @@ class DocumentFormat(StrEnum):
     DOCX = "docx"
     MARKDOWN = "markdown"
     TEXT = "text"
+
+    @classmethod
+    def from_content_type(cls, content_type: str) -> DocumentFormat:
+        """
+        Resolve a document format from a MIME content type.
+
+        Raises:
+            ValueError: If the content type has no known format mapping.
+        """
+
+        mapping = {
+            "application/pdf": cls.PDF,
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document": cls.DOCX,
+            "text/markdown": cls.MARKDOWN,
+            "text/plain": cls.TEXT,
+        }
+
+        try:
+            return mapping[content_type]
+        except KeyError:
+            raise ValueError(
+                f"Unsupported content type: {content_type}",
+            ) from None
 
 
 class ProcessingStage(StrEnum):

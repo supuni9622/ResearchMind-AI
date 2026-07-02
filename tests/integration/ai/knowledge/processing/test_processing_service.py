@@ -12,6 +12,9 @@ from app.ai.knowledge.processing.interfaces import ParseRequest
 from app.ai.knowledge.processing.parsers.docling import DoclingParser
 from app.ai.knowledge.processing.registry import ParserRegistry
 from app.ai.knowledge.processing.service import ProcessingService
+from app.ai.knowledge.processing.temporary_file_manager import (
+    TemporaryFileManager,
+)
 
 
 @pytest.mark.asyncio
@@ -37,7 +40,14 @@ async def test_processing_service_processes_pdf():
     writer = AsyncMock()
     writer.write = AsyncMock(return_value=None)
 
+    storage = AsyncMock()
+    storage.download = AsyncMock(
+        return_value=Path("tests/fixtures/sample.pdf").read_bytes(),
+    )
+
     service = ProcessingService(
+        storage=storage,
+        temporary_file_manager=TemporaryFileManager(),
         parser_registry=registry,
         artifact_builder=ArtifactBuilder(),
         artifact_writer=writer,
@@ -45,7 +55,9 @@ async def test_processing_service_processes_pdf():
 
     request = ParseRequest(
         document_id=uuid4(),
-        file_path=Path("tests/fixtures/sample.pdf"),
+        storage_key="tests/fixtures/sample.pdf",
+        filename="sample.pdf",
+        content_type="application/pdf",
         document_format=DocumentFormat.PDF,
     )
 

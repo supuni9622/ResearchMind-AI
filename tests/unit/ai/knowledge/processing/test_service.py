@@ -12,7 +12,6 @@ Covers:
 from __future__ import annotations
 
 import uuid
-from pathlib import Path
 from unittest.mock import AsyncMock
 
 import pytest
@@ -29,6 +28,9 @@ from app.ai.knowledge.processing.models import (
 )
 from app.ai.knowledge.processing.registry import ParserRegistry
 from app.ai.knowledge.processing.service import ProcessingService
+from app.ai.knowledge.processing.temporary_file_manager import (
+    TemporaryFileManager,
+)
 
 # ---------------------------------------------------------------------------
 # Test doubles
@@ -42,9 +44,18 @@ def _make_request(
 ) -> ParseRequest:
     return ParseRequest(
         document_id=uuid.uuid4(),
-        file_path=Path("/tmp/test.pdf"),
+        storage_key="test-storage-key",
+        filename="test.pdf",
+        content_type="application/pdf",
         document_format=document_format,
     )
+
+
+def _make_storage() -> AsyncMock:
+    """Build a fake storage that returns dummy document bytes."""
+    storage = AsyncMock()
+    storage.download = AsyncMock(return_value=b"fake document bytes")
+    return storage
 
 
 def _make_document(blocks: list | None = None) -> ProcessedDocument:
@@ -65,6 +76,8 @@ def _make_service(parser: DocumentParser, *extra_parsers: DocumentParser) -> Pro
     writer = AsyncMock()
     writer.write = AsyncMock(return_value=None)
     return ProcessingService(
+        storage=_make_storage(),
+        temporary_file_manager=TemporaryFileManager(),
         parser_registry=registry,
         artifact_builder=ArtifactBuilder(),
         artifact_writer=writer,
@@ -157,7 +170,12 @@ class TestProcessingServiceHappyPath:
     ) -> None:
         request = _make_request(DocumentFormat.PDF)
         await service.process(owner_id=_OWNER_ID, request=request)
-        assert parser.last_request is request
+
+        assert parser.last_request is not None
+        assert parser.last_request.document_id == request.document_id
+        assert parser.last_request.storage_key == request.storage_key
+        assert parser.last_request.filename == request.filename
+        assert parser.last_request.file_path is not None
 
     async def test_result_error_is_none(
         self,
@@ -210,6 +228,8 @@ class TestRegistryErrors:
         writer = AsyncMock()
         writer.write = AsyncMock(return_value=None)
         service = ProcessingService(
+            storage=_make_storage(),
+            temporary_file_manager=TemporaryFileManager(),
             parser_registry=ParserRegistry(),
             artifact_builder=ArtifactBuilder(),
             artifact_writer=writer,

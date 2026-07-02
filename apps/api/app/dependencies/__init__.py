@@ -3,6 +3,7 @@ Application dependency providers.
 """
 
 from app.dependencies.upload import (
+    get_document_processing_service,
     get_document_repository,
     get_document_storage,
     get_file_hasher,
@@ -10,6 +11,7 @@ from app.dependencies.upload import (
 )
 
 __all__ = [
+    "get_document_processing_service",
     "get_document_repository",
     "get_document_storage",
     "get_file_hasher",

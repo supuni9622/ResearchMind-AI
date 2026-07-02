@@ -19,6 +19,9 @@ async def test_docling_parser_pdf():
 
     request = ParseRequest(
         document_id=uuid4(),
+        storage_key="tests/fixtures/sample.pdf",
+        filename="sample.pdf",
+        content_type="application/pdf",
         file_path=pdf,
         document_format=DocumentFormat.PDF,
     )

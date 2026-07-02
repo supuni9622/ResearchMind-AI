@@ -103,7 +103,10 @@ class DoclingParser(BaseDocumentParser):
                 f"Docling failed to export '{request.file_path}': {exc}"
             ) from exc
 
-        metadata = self._build_metadata(source=request.file_path)
+        metadata = self._build_metadata(
+            source=request.file_path,
+            filename=request.filename,
+        )
         statistics = self._build_statistics(raw_text=raw_text)
 
         log.info(
@@ -126,16 +129,21 @@ class DoclingParser(BaseDocumentParser):
     def _build_metadata(
         self,
         *,
-        source: Path,
+        source: Path | None,
+        filename: str,
     ) -> DocumentMetadata:
         """
         Build the canonical metadata.
+
+        The title is derived from the original filename rather than
+        ``source``, since ``source`` is a temporary file path with a
+        generated name.
 
         Rich metadata extraction will be added in a future milestone.
         """
 
         return DocumentMetadata(
-            title=source.stem,
+            title=Path(filename).stem,
             source=str(source),
         )
 

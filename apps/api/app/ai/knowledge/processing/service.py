@@ -6,14 +6,16 @@ pipeline.
 
 Responsibilities:
 
+- Download document from storage
+- Create a temporary processing file
 - Resolve parser
 - Parse document
 - Build processing artifacts
 - Persist processing artifacts
 - Return the canonical processed document
 
-Infrastructure concerns (storage) are delegated to the ArtifactWriter.
-Parsing concerns are delegated to parser implementations.
+Database operations, queues, workers, and document lifecycle
+management are intentionally outside this service.
 """
 
 from __future__ import annotations
@@ -23,42 +25,40 @@ import structlog
 from app.ai.knowledge.processing.artifact_builder import ArtifactBuilder
 from app.ai.knowledge.processing.artifact_writer import ArtifactWriter
 from app.ai.knowledge.processing.enums import ProcessingStatus
-from app.ai.knowledge.processing.exceptions import ParserNotFoundError, ProcessingError
+from app.ai.knowledge.processing.exceptions import (
+    ParserNotFoundError,
+    ProcessingError,
+)
 from app.ai.knowledge.processing.interfaces import ParseRequest
 from app.ai.knowledge.processing.models import (
     ProcessedDocument,
     ProcessingResult,
 )
 from app.ai.knowledge.processing.registry import ParserRegistry
+from app.ai.knowledge.processing.temporary_file_manager import (
+    TemporaryFileManager,
+)
+from app.infrastructure.storage.interfaces import DocumentStorage
 
 logger = structlog.get_logger()
 
 
 class ProcessingService:
     """
-    Orchestrates document processing.
-
-    Responsibilities:
-
-    - Resolve parser
-    - Execute parser
-    - Build and persist artifacts
-    - Return canonical document
-
-    Responsibilities intentionally excluded:
-
-    - S3 download
-    - Database
-    - Queue
-    - Worker
+    Orchestrates the document processing pipeline.
     """
 
     def __init__(
         self,
+        *,
+        storage: DocumentStorage,
+        temporary_file_manager: TemporaryFileManager,
         parser_registry: ParserRegistry,
         artifact_builder: ArtifactBuilder,
         artifact_writer: ArtifactWriter,
     ) -> None:
+        self._storage = storage
+        self._temporary_file_manager = temporary_file_manager
         self._parser_registry = parser_registry
         self._artifact_builder = artifact_builder
         self._artifact_writer = artifact_writer
@@ -70,31 +70,21 @@ class ProcessingService:
         request: ParseRequest,
     ) -> ProcessingResult:
         """
-        Process a document through the full pipeline.
-
-        Flow:
-
-            Parser
-                ↓
-            ProcessedDocument
-                ↓
-            ArtifactBuilder
-                ↓
-            ArtifactWriter
-                ↓
-            ProcessingResult
+        Process a document through the complete processing pipeline.
         """
 
         log = logger.bind(
             document_id=str(request.document_id),
-            document_format=request.document_format.value,
             owner_id=owner_id,
+            document_format=request.document_format.value,
         )
 
         log.info("processing.started")
 
         try:
-            parser = self._parser_registry.get_parser(request.document_format)
+            parser = self._parser_registry.get_parser(
+                request.document_format,
+            )
         except ParserNotFoundError:
             log.warning(
                 "processing.parser_not_found",
@@ -102,12 +92,38 @@ class ProcessingService:
             )
             raise
 
-        log.debug("processing.parser_resolved", parser=parser.parser_name)
+        log.debug(
+            "processing.parser_resolved",
+            parser=parser.parser_name,
+        )
 
         try:
-            document: ProcessedDocument = await parser.parse(request)
+            document_bytes = await self._storage.download(
+                key=request.storage_key,
+            )
+
+            log.debug(
+                "processing.document_downloaded",
+                bytes=len(document_bytes),
+            )
+
+            async with self._temporary_file_manager.create(
+                content=document_bytes,
+                filename=request.filename,
+            ) as temp_path:
+                parser_request = request.model_copy(
+                    update={
+                        "file_path": temp_path,
+                    }
+                )
+
+                document: ProcessedDocument = await parser.parse(
+                    parser_request,
+                )
+
         except ProcessingError:
             raise
+
         except Exception as exc:
             log.exception(
                 "processing.parse_failed",
@@ -119,26 +135,21 @@ class ProcessingService:
         log.debug(
             "processing.parse_completed",
             parser=parser.parser_name,
-            char_count=document.statistics.character_count,
+            character_count=document.statistics.character_count,
             word_count=document.statistics.word_count,
         )
 
-        log.debug("processing.artifacts.building")
-        artifacts = self._artifact_builder.build(document)
+        artifacts = self._artifact_builder.build(
+            document,
+        )
 
-        log.debug("processing.artifacts.writing")
-        try:
-            await self._artifact_writer.write(
-                owner_id=owner_id,
-                document_id=str(request.document_id),
-                artifacts=artifacts,
-            )
-        except Exception as exc:
-            log.exception(
-                "processing.artifacts.write_failed",
-                exc_type=type(exc).__name__,
-            )
-            raise
+        log.debug("processing.artifacts_built")
+
+        await self._artifact_writer.write(
+            owner_id=owner_id,
+            document_id=str(request.document_id),
+            artifacts=artifacts,
+        )
 
         log.info("processing.completed")
 

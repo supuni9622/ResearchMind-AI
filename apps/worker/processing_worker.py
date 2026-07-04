@@ -19,6 +19,7 @@ from __future__ import annotations
 import asyncio
 
 import structlog
+from app.core.settings import settings
 from app.infrastructure.queue.interfaces import ProcessingQueue
 from app.services.queued_document_processing_service import (
     QueuedDocumentProcessingService,
@@ -82,6 +83,26 @@ class ProcessingWorker:
                     document_id=str(message.job.document_id),
                 )
 
-                await self._queue.reject(
-                    message,
-                )
+                job = message.job
+
+                job.attempt += 1
+
+                if job.attempt <= settings.queue_max_attempts:
+                    logger.warning(
+                        "processing_worker.retrying",
+                        document_id=str(job.document_id),
+                        attempt=job.attempt,
+                    )
+
+                    await self._queue.retry(job)
+
+                    await self._queue.acknowledge(message)
+
+                else:
+                    logger.error(
+                        "processing_worker.max_attempts_exceeded",
+                        document_id=str(job.document_id),
+                        attempts=job.attempt,
+                    )
+
+                    await self._queue.reject(message)

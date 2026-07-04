@@ -129,3 +129,9 @@ class SQSQueue(ProcessingQueue):
 
         except (ClientError, BotoCoreError) as exc:
             raise QueueRejectError("Failed to reject processing job.") from exc
+
+    async def retry(
+        self,
+        job: ProcessingJob,
+    ) -> None:
+        await self.enqueue(job)

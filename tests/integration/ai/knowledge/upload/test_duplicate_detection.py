@@ -78,6 +78,9 @@ class InMemoryProcessingQueue(ProcessingQueue):
     async def reject(self, message: QueueMessage) -> None:
         pass
 
+    async def retry(self, job: ProcessingJob) -> None:
+        await self.enqueue(job)
+
 
 async def _make_owner(session) -> uuid.UUID:
     user = User(

@@ -124,3 +124,9 @@ class ValkeyQueue(ProcessingQueue):
 
         except Exception as exc:
             raise QueueConnectionError("Unable to connect to Valkey.") from exc
+
+    async def retry(
+        self,
+        job: ProcessingJob,
+    ) -> None:
+        await self.enqueue(job)

@@ -64,3 +64,12 @@ class ProcessingQueue(ABC):
         delay it for retry, or move it to a dead-letter queue,
         depending on their capabilities.
         """
+
+    @abstractmethod
+    async def retry(
+        self,
+        job: ProcessingJob,
+    ) -> None:
+        """
+        Requeue a processing job for another attempt.
+        """

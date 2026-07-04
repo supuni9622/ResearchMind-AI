@@ -9,9 +9,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.knowledge.upload.duplicate.exceptions import DuplicateDetectionError
 from app.ai.knowledge.upload.duplicate.service import DuplicateDetectionService
+from app.ai.knowledge.upload.processing_job_builder import (
+    ProcessingJobBuilder,
+)
 from app.ai.knowledge.upload.validators import UploadValidator
 from app.exceptions.base import ConflictException
 from app.infrastructure.hashing.interfaces import FileHasher
+from app.infrastructure.queue.interfaces import ProcessingQueue
 from app.infrastructure.storage.interfaces import DocumentStorage
 from app.infrastructure.storage.key_generator import StorageKeyGenerator
 from app.models.document import Document
@@ -33,12 +37,14 @@ class UploadService:
         storage: DocumentStorage,
         hasher: FileHasher,
         duplicate_detection_service: DuplicateDetectionService,
+        processing_queue: ProcessingQueue,
         repository: DocumentRepository,
     ) -> None:
         self._session = session
         self._storage = storage
         self._hasher = hasher
         self._duplicate_detection_service = duplicate_detection_service
+        self._processing_queue = processing_queue
         self._repository = repository
 
     async def upload(
@@ -137,6 +143,20 @@ class UploadService:
             await self._session.commit()
 
             await self._session.refresh(document)
+
+            job = ProcessingJobBuilder.build(
+                document,
+            )
+
+            await self._processing_queue.enqueue(
+                job,
+            )
+
+            logger.info(
+                "document.processing_enqueued",
+                document_id=str(document.id),
+                owner_id=str(owner_id),
+            )
 
             duration_ms = round(
                 (time.perf_counter() - start) * 1000,

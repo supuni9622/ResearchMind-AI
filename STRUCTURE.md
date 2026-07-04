@@ -5,6 +5,9 @@ Complete folder and file structure of the ResearchMind-AI monorepo.
 ```
 ResearchMind-AI/
 │
+├── .claude/
+│   └── settings.local.json      # Local Claude Code permission/tooling settings
+│
 ├── .github/
 │   ├── ISSUE_TEMPLATE/          # GitHub issue templates
 │   └── workflows/
@@ -20,8 +23,9 @@ ResearchMind-AI/
 │
 ├── alembic/                     # Database migration framework
 │   ├── versions/
-│   │   ├── 43dc35ceb875_debug.py              # Initial migration: creates users table + updated_at trigger
-│   │   └── a97b3b8eee9f_create_documents_table.py  # Creates documents table with processing lifecycle columns
+│   │   ├── 43dc35ceb875_debug.py                          # Initial migration: creates users table + updated_at trigger
+│   │   ├── a97b3b8eee9f_create_documents_table.py          # Creates documents table with processing lifecycle columns
+│   │   └── 1b6e40f3a754_split_document_status_into_upload_.py  # Splits status into upload_status + processing_status
 │   ├── env.py                   # Alembic runtime config (async engine, model imports)
 │   ├── script.py.mako           # Migration file template
 │   └── README                   # Alembic usage notes
@@ -45,6 +49,23 @@ ResearchMind-AI/
 │   │       │   │   │   ├── parsers/
 │   │       │   │   │   │   ├── base.py             # BaseDocumentParser abstract class
 │   │       │   │   │   │   └── docling.py          # Docling-backed parser implementation
+│   │       │   │   │   ├── metadata/               # Metadata enrichment pipeline
+│   │       │   │   │   │   ├── providers/
+│   │       │   │   │   │   │   ├── language.py     # Language detection provider (langdetect)
+│   │       │   │   │   │   │   └── pdf.py          # PDF embedded-metadata provider (pypdf)
+│   │       │   │   │   │   ├── base.py             # BaseMetadataProvider abstract class
+│   │       │   │   │   │   ├── interfaces.py       # MetadataProvider ABC
+│   │       │   │   │   │   ├── models.py           # MetadataUpdate model
+│   │       │   │   │   │   ├── registry.py         # Metadata provider registry
+│   │       │   │   │   │   └── service.py          # MetadataEnrichmentService — coordinates providers
+│   │       │   │   │   ├── statistics/             # Statistics enrichment pipeline
+│   │       │   │   │   │   ├── providers/
+│   │       │   │   │   │   │   └── pdf.py          # PDF statistics provider (page count)
+│   │       │   │   │   │   ├── base.py             # BaseStatisticsProvider abstract class
+│   │       │   │   │   │   ├── interfaces.py       # StatisticsProvider ABC
+│   │       │   │   │   │   ├── models.py           # DocumentStatistics model
+│   │       │   │   │   │   ├── registry.py         # Statistics provider registry
+│   │       │   │   │   │   └── service.py          # StatisticsEnrichmentService — coordinates providers
 │   │       │   │   │   ├── artifact_builder.py     # Builds ProcessingArtifacts from ProcessedDocument
 │   │       │   │   │   ├── artifact_writer.py      # Persists artifacts to storage (S3)
 │   │       │   │   │   ├── artifacts.py            # ProcessingArtifact / ProcessingArtifacts models
@@ -53,10 +74,16 @@ ResearchMind-AI/
 │   │       │   │   │   ├── interfaces.py           # DocumentParser ABC, ParseRequest
 │   │       │   │   │   ├── models.py               # ProcessedDocument, block types, ProcessingResult
 │   │       │   │   │   ├── registry.py             # ParserRegistry — format → parser resolution
-│   │       │   │   │   └── service.py              # ProcessingService — orchestrates the full pipeline
+│   │       │   │   │   ├── service.py              # ProcessingService — orchestrates the full pipeline
+│   │       │   │   │   └── temporary_file_manager.py  # Temp file lifecycle for downloaded documents
 │   │       │   │   ├── reranking/           # Result reranking (planned)
 │   │       │   │   ├── retrieval/           # Vector retrieval (planned)
 │   │       │   │   ├── upload/              # Document upload handling
+│   │       │   │   │   ├── duplicate/
+│   │       │   │   │   │   ├── exceptions.py       # DuplicateDetectionError hierarchy
+│   │       │   │   │   │   ├── interfaces.py       # DuplicateDetector ABC
+│   │       │   │   │   │   ├── models.py           # Duplicate check request/response models
+│   │       │   │   │   │   └── service.py          # DuplicateDetectionService — checksum-based lookup
 │   │       │   │   │   ├── constants.py     # Upload limits and allowed MIME types
 │   │       │   │   │   ├── enums.py         # Upload-specific enums
 │   │       │   │   │   ├── exceptions.py    # Upload exceptions
@@ -159,6 +186,14 @@ ResearchMind-AI/
 │   │       │   │   ├── models.py        # Metrics data models
 │   │       │   │   ├── noop.py          # No-op metrics collector
 │   │       │   │   └── upload.py        # Upload-specific metrics
+│   │       │   ├── queue/               # Async queue abstraction (planned, ADR-011)
+│   │       │   │   ├── providers/
+│   │       │   │   │   ├── sqs.py       # SQS queue provider (empty — planned)
+│   │       │   │   │   └── valkey.py    # Valkey-backed queue provider (empty — planned)
+│   │       │   │   ├── exceptions.py    # (empty — planned)
+│   │       │   │   ├── factory.py       # (empty — planned)
+│   │       │   │   ├── interfaces.py    # (empty — planned)
+│   │       │   │   └── models.py        # (empty — planned)
 │   │       │   └── storage/
 │   │       │       ├── exceptions.py    # Storage exceptions
 │   │       │       ├── factory.py       # Storage provider factory
@@ -176,8 +211,8 @@ ResearchMind-AI/
 │   │       │
 │   │       ├── models/          # SQLAlchemy ORM models
 │   │       │   ├── __init__.py          # Exports all models (required for Alembic)
-│   │       │   ├── document.py          # Document model (upload + processing lifecycle columns)
-│   │       │   ├── enums.py             # DocumentUploadStatus, DocumentProcessingStatus
+│   │       │   ├── document.py          # Document model — upload_status + processing_status lifecycle columns
+│   │       │   ├── enums.py             # DocumentUploadStatus, DocumentProcessingStatus (split lifecycle)
 │   │       │   └── user.py              # User model
 │   │       │
 │   │       ├── repositories/    # Data access layer
@@ -214,6 +249,7 @@ ResearchMind-AI/
 │   │   │   │   ├── auth/
 │   │   │   │   │   └── callback/
 │   │   │   │   │       └── page.tsx         # Cognito OAuth callback — exchanges code for token
+│   │   │   │   ├── globals.css              # Global styles
 │   │   │   │   ├── layout.tsx               # Root layout — fonts, AuthProvider
 │   │   │   │   └── page.tsx                 # Landing / sign-in page
 │   │   │   ├── components/
@@ -225,11 +261,16 @@ ResearchMind-AI/
 │   │   │   │   └── use-auth.tsx             # AuthContext — token storage, profile fetch, isUnauthorized state
 │   │   │   └── lib/
 │   │   │       ├── api.ts                   # Typed API client (UserProfile, Document)
-│   │   │       └── auth.ts                  # Cognito URL builders, token storage (sessionStorage)
+│   │   │       ├── auth.ts                  # Cognito URL builders, token storage (sessionStorage)
+│   │   │       └── errors.ts                # extractErrorMessage — maps ErrorResponse body to a display string
 │   │   ├── .env.local                       # Cognito client ID, domain, redirect URI, API URL
+│   │   ├── .env.local.example               # Template for .env.local
+│   │   ├── eslint.config.mjs                # ESLint configuration
 │   │   ├── next.config.ts                   # Next.js configuration
 │   │   ├── package.json                     # Next.js 15, React 19, Tailwind 3, TypeScript
+│   │   ├── postcss.config.mjs               # PostCSS configuration (Tailwind)
 │   │   ├── tailwind.config.ts               # Custom palette: ink, stone, sage, amber scales
+│   │   ├── tsconfig.json                    # TypeScript configuration
 │   │   └── README.md                        # Setup instructions and auth flow diagram
 │   │
 │   └── worker/                  # Background worker app (planned)
@@ -251,7 +292,21 @@ ResearchMind-AI/
 │   │   ├── ADR-006-settings-vs-constants.md
 │   │   ├── ADR-007-middleware-registration.md
 │   │   ├── ADR-008-typed-api-schemas.md
-│   │   └── ADR-009-identity-architecture
+│   │   ├── ADR-009-identity-architecture
+│   │   ├── ADR-010-document-processing-strategy.md
+│   │   └── ADR-011-queue-abstraction.md
+│   │
+│   ├── ai/                      # AI feature specs (knowledge platform)
+│   │   └── 1.knowledge_platform/
+│   │       ├── 1.1.doc_upload.md
+│   │       ├── 1.2.doc_storage.md
+│   │       ├── 1.3.doc_validation
+│   │       ├── 1.4.doc_upload_flow.md
+│   │       ├── 1.5.doc_upload_observability.md
+│   │       ├── 1.6.doc_upload_final.md
+│   │       ├── 1.7.doc_upload_archotecture.md
+│   │       ├── 1.8.doc_upload_implementation.md
+│   │       └── 2.2.doc_processing.md
 │   │
 │   ├── api/                     # API reference docs
 │   │   ├── authentication.md
@@ -309,7 +364,8 @@ ResearchMind-AI/
 │   │   │   └── 012-connect-progresql-terminal
 │   │   └── milestones/
 │   │       ├── 030-backend-foundation.md
-│   │       └── 0.31-engineering-quality.md
+│   │       ├── 0.31-engineering-quality.md
+│   │       └── 2026-07-02-processing-platform-summary.md  # Document Processing Platform milestone retrospective
 │   │
 │   ├── evaluation/              # Evaluation strategy and metrics
 │   │   ├── benchmarks.md
@@ -328,7 +384,8 @@ ResearchMind-AI/
 │   │
 │   ├── handoff/                 # Context handoff documents between sessions
 │   │   ├── chat-handoff1.md
-│   │   └── chat-handoff2.md
+│   │   ├── chat-handoff2.md
+│   │   └── CHATGPT_HANDOFF_PHASE_2_2.md     # Master context/handoff doc for Phase 2.2 (document processing)
 │   │
 │   ├── monitoring/              # Observability setup docs
 │   │   ├── dashboards.md
@@ -342,6 +399,16 @@ ResearchMind-AI/
 │   │   ├── features.md
 │   │   ├── getting-started.md
 │   │   └── release-notes.md
+│   │
+│   ├── project/                 # Numbered project reference set (constitution, state, roadmap, decisions)
+│   │   ├── 00-project-constitution.md
+│   │   ├── 01-current-state.md
+│   │   ├── 02-roadmap.md
+│   │   ├── 03-frozen-decisions.md
+│   │   ├── 04-folder-structure.md
+│   │   ├── 05-tech-stack.md
+│   │   ├── 06-chatgpt-collaboration.md
+│   │   └── 07-engineering-journal.md
 │   │
 │   ├── reference/               # External references and resources
 │   │   ├── awesome-resources.md
@@ -378,17 +445,19 @@ ResearchMind-AI/
 │   │   └── research-workflow.md
 │   │
 │   ├── index.md                 # Docs home / navigation index
+│   ├── phase2_roadmap.md        # Frozen Phase 2 roadmap (Upload Platform → Document Processing)
 │   ├── project-constitution.md  # Project principles and goals
-│   └── project-handbook.md      # Working agreements and practices
+│   ├── project-handbook.md      # Working agreements and practices
+│   └── s3_configuration_guide.md  # Guide for configuring AWS S3 for document storage
 │
 ├── examples/                    # Usage examples and notebooks (planned)
 ├── experiments/                 # Experimental code and prototypes (planned)
 │
-├── infrastructure/              # Infrastructure-as-code
+├── infrastructure/              # Infrastructure-as-code (planned, currently empty)
 │   ├── database/                # DB provisioning scripts
-│   ├── deployment/              # Deployment manifests (k8s, etc.)
+│   ├── deployment/               # Deployment manifests (k8s, etc.)
 │   ├── docker/                  # Dockerfile definitions
-│   ├── monitoring/              # Monitoring stack config
+│   ├── monitoring/               # Monitoring stack config
 │   └── scripts/                 # Infrastructure automation scripts
 │
 ├── scripts/                     # Developer utility scripts
@@ -426,6 +495,8 @@ ResearchMind-AI/
 │   ├── integration/                         # Integration tests
 │   │   ├── ai/knowledge/processing/
 │   │   │   └── test_processing_service.py   # Full DoclingParser → ProcessingService pipeline
+│   │   ├── ai/knowledge/upload/
+│   │   │   └── test_duplicate_detection.py  # Real UploadService + DuplicateDetectionService against Postgres
 │   │   ├── test_document_repository.py
 │   │   ├── test_document_service.py
 │   │   ├── test_memory.py
@@ -442,10 +513,21 @@ ResearchMind-AI/
 │   │   └── test_prompt_injection.py
 │   ├── unit/
 │   │   ├── ai/knowledge/processing/
+│   │   │   ├── metadata/
+│   │   │   │   └── test_service.py          # MetadataEnrichmentService — regression coverage (PDF provider vs. non-PDF formats)
 │   │   │   ├── test_docling_parser.py       # DoclingParser parse() with real PDF fixture
 │   │   │   ├── test_models.py               # ProcessedDocument, block types, discriminated union
 │   │   │   ├── test_registry.py             # ParserRegistry registration, lookup, deduplication
-│   │   │   └── test_service.py              # ProcessingService orchestration with FakeParser
+│   │   │   ├── test_service.py              # ProcessingService orchestration with FakeParser
+│   │   │   ├── test_service_resilience.py   # Storage/parser failure propagation with pipeline-stage logging
+│   │   │   └── test_temporary_file_manager.py  # TemporaryFileManager lifecycle
+│   │   ├── ai/knowledge/upload/
+│   │   │   ├── test_service.py              # UploadService — validation-before-I/O, size boundaries
+│   │   │   └── test_validators.py           # UploadValidator — invalid file rejection rules
+│   │   ├── infrastructure/storage/
+│   │   │   └── test_s3_storage.py           # S3StorageService — boto3 ClientError → typed StorageError mapping
+│   │   ├── services/
+│   │   │   └── test_document_processing_service.py  # DocumentProcessingService lifecycle persistence
 │   │   ├── test_prompt_builder.py
 │   │   ├── test_settings.py
 │   │   └── test_utils.py
@@ -468,14 +550,18 @@ ResearchMind-AI/
 ├── CHANGELOG.md                 # Version changelog
 ├── CODE_OF_CONDUCT.md
 ├── CONTRIBUTING.md
+├── DEV_GUIDE.md                 # Step-by-step local development guide
 ├── docker-compose.yml           # Local dev stack (PostgreSQL, Valkey, Qdrant)
+├── FILES.md                     # Complete file and folder map
 ├── LICENSE
 ├── PROJECT_STATUS.md            # Current project status and progress
 ├── pyproject.toml               # Python project config, deps, and tool settings
 ├── README.md                    # Project overview and quickstart
 ├── ROADMAP.md                   # Feature and milestone roadmap
 ├── SECURITY.md                  # Security policy
+├── setup_commands.md            # Makefile-style shortcut commands (docker compose up/down)
 ├── STRUCTURE.md                 # This file
+├── test.txt                     # Stray scratch file — can be deleted
 └── uv.lock                      # Locked dependency versions (uv)
 ```
 
@@ -485,14 +571,14 @@ ResearchMind-AI/
 |---|---|---|
 | API app | `apps/api/` | FastAPI server — routes, middleware, models, schemas |
 | Frontend | `apps/web/` | Next.js 15 App Router — Cognito auth, dashboard, documents, research |
-| Processing pipeline | `apps/api/app/ai/knowledge/processing/` | Docling parser, artifact builder/writer, registry, service |
-| Upload pipeline | `apps/api/app/ai/knowledge/upload/` | File validation, S3 upload, checksum hashing |
-| Infrastructure | `apps/api/app/infrastructure/` | S3 storage, SHA-256 hashing, metrics adapters |
+| Processing pipeline | `apps/api/app/ai/knowledge/processing/` | Docling parser, metadata/statistics enrichment, artifact builder/writer, registry, service |
+| Upload pipeline | `apps/api/app/ai/knowledge/upload/` | File validation, duplicate detection, S3 upload, checksum hashing |
+| Infrastructure | `apps/api/app/infrastructure/` | S3 storage, SHA-256 hashing, metrics adapters, queue abstraction (planned) |
 | Application services | `apps/api/app/services/` | Auth, user lifecycle, document processing orchestration |
 | Agents | `agents/` | Autonomous AI agents (planned) |
 | Services | `services/` | Internal service modules — retrieval, ingestion, etc. (planned) |
 | Shared | `shared/` | Cross-cutting code shared by apps and services (planned) |
-| Infrastructure IaC | `infrastructure/` | Docker, deployment configs |
+| Infrastructure IaC | `infrastructure/` | Docker, deployment configs (planned) |
 | Migrations | `alembic/` | PostgreSQL schema migrations via Alembic |
 | Tests | `tests/` | Unit, integration, e2e, evaluation, performance |
 | Docs | `docs/` | All project documentation |

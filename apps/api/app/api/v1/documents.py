@@ -9,12 +9,12 @@ from fastapi import (
     status,
 )
 
-from app.ai.knowledge.processing.enums import DocumentFormat
-from app.ai.knowledge.processing.interfaces import ParseRequest
+# from app.ai.knowledge.processing.enums import DocumentFormat
+# from app.ai.knowledge.processing.interfaces import ParseRequest
 from app.ai.knowledge.upload.service import UploadService
 from app.auth.dependencies import get_current_user
 from app.dependencies import (
-    get_document_processing_service,
+    # get_document_processing_service,
     get_document_repository,
     get_upload_service,
 )
@@ -22,9 +22,10 @@ from app.exceptions.base import ValidationException
 from app.models.user import User
 from app.repositories.document import DocumentRepository
 from app.schemas.document import DocumentResponse, DocumentUploadResponse
-from app.services.document_processing_service import (
-    DocumentProcessingService,
-)
+
+# from app.services.document_processing_service import (
+#     DocumentProcessingService,
+# )
 
 logger = structlog.get_logger()
 
@@ -65,14 +66,14 @@ async def upload_document(
     file: UploadFile = File(...),
     current_user: User = Depends(get_current_user),
     upload_service: UploadService = Depends(get_upload_service),
-    processing_service: DocumentProcessingService = Depends(
-        get_document_processing_service,
-    ),
+    # processing_service: DocumentProcessingService = Depends(
+    #     get_document_processing_service,
+    # ),
 ) -> DocumentUploadResponse:
     """
     Upload a document to ResearchMind.
 
-    Workflow:
+    Synchrounous Workflow (previous):
 
     1. Validate upload
     2. Upload original document to S3
@@ -82,6 +83,17 @@ async def upload_document(
 
     Processing failures do not fail the upload request.
     The document processing status records the outcome.
+
+    Asynchrounous Workflow (current):
+
+    1. Validate upload
+    2. Upload original document to storage
+    3. Persist document metadata
+    4. Enqueue an asynchronous processing job
+    5. Return immediately
+
+    Document processing occurs asynchronously in the
+    background worker.
     """
 
     if not file.filename:
@@ -101,26 +113,29 @@ async def upload_document(
         file=file.file,
     )
 
-    parse_request = ParseRequest(
-        document_id=document.id,
-        storage_key=document.storage_key,
-        filename=document.filename,
-        content_type=document.content_type,
-        document_format=DocumentFormat.from_content_type(
-            document.content_type,
-        ),
-    )
+    # This is the synchronous file processing flow - initial implementation
+    # Commented this after created worker to process docs asynchrnously
 
-    try:
-        await processing_service.process(
-            document=document,
-            request=parse_request,
-        )
-    except Exception:
-        logger.exception(
-            "document.processing_failed_after_upload",
-            document_id=str(document.id),
-            owner_id=str(current_user.id),
-        )
+    # parse_request = ParseRequest(
+    #     document_id=document.id,
+    #     storage_key=document.storage_key,
+    #     filename=document.filename,
+    #     content_type=document.content_type,
+    #     document_format=DocumentFormat.from_content_type(
+    #         document.content_type,
+    #     ),
+    # )
+
+    # try:
+    #     await processing_service.process(
+    #         document=document,
+    #         request=parse_request,
+    #     )
+    # except Exception:
+    #     logger.exception(
+    #         "document.processing_failed_after_upload",
+    #         document_id=str(document.id),
+    #         owner_id=str(current_user.id),
+    #     )
 
     return DocumentUploadResponse.model_validate(document)

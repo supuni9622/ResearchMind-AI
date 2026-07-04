@@ -152,8 +152,12 @@ This is the full set of events currently emitted, grouped by area.
 
 `upload.validation_failed` (with `reason`: `empty_filename`,
 `unsupported_extension`, `unsupported_content_type`, `empty_file`,
-`file_too_large`), `document.uploaded`, `document.upload_failed` (carries
-`stage`: `hashing` / `storage_upload` / `persistence`),
+`file_too_large`), `document.uploaded`, `document.duplicate_detected`
+(carries `existing_document_id`; logged just before `UploadService.upload()`
+raises `ConflictException` — a duplicate is not routed through
+`document.upload_failed`, since nothing was written and there is nothing to
+roll back or clean up), `document.upload_failed` (carries `stage`:
+`hashing` / `storage_upload` / `persistence`),
 `upload.storage_cleanup_succeeded`, `upload.storage_cleanup_failed`
 
 ## Processing

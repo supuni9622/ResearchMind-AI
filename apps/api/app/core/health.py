@@ -4,12 +4,14 @@ import structlog
 from fastapi import Request
 from sqlalchemy import text
 
+from app.db.session import engine
+
 logger = structlog.get_logger()
 
 
 async def postgres_health(request: Request) -> str:
     try:
-        async with request.app.state.postgres_engine.begin() as conn:
+        async with engine.begin() as conn:
             await conn.execute(text("SELECT 1"))
         return "healthy"
     except Exception as exc:

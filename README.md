@@ -230,6 +230,11 @@ uv run alembic stamp base && uv run alembic upgrade head 2>&1
 ./scripts/dev.sh
 ```
 
+### 10. Run workers locally
+```bash
+python -m apps.worker.main
+```
+
 This runs migrations first, then starts the server with hot-reload. Running migrations inside `uvicorn --reload` directly causes hot-reload to interrupt the migration mid-run — always use this script for local development.
 
 `dev.sh` also runs `alembic check` before starting the server, so it will fail fast if your models have drifted from the last migration.
@@ -439,6 +444,18 @@ Or paste the `id_token` into the **Authorize** button in Swagger at
 `http://localhost:8000/docs`.
 
 ---
+
+## Inspect queues in valkey locally
+
+```
+docker ps
+docker exec -it researchmind-valkey valkey-cli
+```
+
+### Inspect the queue
+```
+LRANGE document-processing 0 -1
+```
 
 ## License
 

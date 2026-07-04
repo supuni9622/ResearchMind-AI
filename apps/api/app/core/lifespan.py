@@ -8,8 +8,8 @@ from fastapi import FastAPI
 from alembic import command
 from app.core.logging import configure_logging
 from app.core.settings import settings
-from app.db.postgres import create_postgres_engine
 from app.db.qdrant import create_qdrant_client
+from app.db.session import engine
 from app.db.valkey import create_valkey_client
 
 logger = structlog.get_logger()
@@ -35,7 +35,8 @@ async def lifespan(app: FastAPI):
         await asyncio.to_thread(_run_migrations)
         logger.info("db.migrations_complete")
 
-    app.state.postgres_engine = create_postgres_engine()
+    # app.state.postgres_engine = create_postgres_engine()
+    # app.state.postgres_engine = engine
     app.state.valkey = create_valkey_client()
     app.state.qdrant = create_qdrant_client()
 
@@ -50,7 +51,8 @@ async def lifespan(app: FastAPI):
 
     logger.info("app.shutting_down")
 
-    await app.state.postgres_engine.dispose()
+    # await app.state.postgres_engine.dispose()
+    await engine.dispose()
     await app.state.valkey.aclose()
     await app.state.qdrant.close()
 

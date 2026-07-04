@@ -121,6 +121,31 @@ Source: `app/ai/knowledge/upload/`, `app/ai/knowledge/processing/`,
 - **Concurrency**: concurrent uploads produce independent document IDs and
   storage keys; one invalid upload among several concurrent requests fails
   on its own without affecting the others
+- **Duplicate detection**: a duplicate upload raises `ConflictException`
+  (`409`, `details.existing_document_id`) instead of writing to storage or
+  the database — see below
+
+## Duplicate detection — `test_duplicate_detection.py` (integration), `test_document_repository.py` (integration)
+
+Exercises the real `UploadService`, `DuplicateDetectionService`,
+`DocumentRepository`, and `SHA256Hasher` against `researchmind_test`; only
+the S3 boundary is faked, so uploads-that-should-not-happen can be asserted
+on directly.
+
+- A new PDF creates one DB row and one storage object at
+  `documents/{owner_id}/{document_id}/original.{ext}`
+- Re-uploading identical bytes is rejected with `ConflictException`
+  (`details = {"existing_document_id", "filename"}`); no second DB row, no
+  second storage upload
+- Renaming the file before re-upload does not defeat detection — SHA-256 is
+  computed over content, not the filename; the rejection still references
+  the original document, not the incoming one
+- Duplicate detection is scoped per owner: two different owners uploading
+  identical bytes each get their own document
+- `DocumentRepository.find_by_owner_and_hash` regression test: seeds two
+  rows with the same `(owner_id, checksum)` (no DB-level uniqueness
+  constraint exists yet) and asserts the lookup resolves to the most recent
+  match instead of raising `sqlalchemy.exc.MultipleResultsFound`
 
 ## Processing pipeline — `test_service.py`, `test_service_resilience.py` (`ProcessingService`)
 
@@ -178,9 +203,11 @@ Source: `app/ai/knowledge/upload/`, `app/ai/knowledge/processing/`,
   non-PDF bytes) failing inside `DoclingParser`
 - DOCX/Markdown/plain-text parsing (only PDF has a parser test)
 - The `/documents/upload` HTTP endpoint end-to-end (auth + upload +
-  processing wired together through `TestClient`)
-- Checksum-based deduplication (the repository method exists;
-  `UploadService` has the lookup commented out as a future enhancement)
+  processing wired together through `TestClient`) — in particular, whether
+  the route still calls `DocumentProcessingService.process()` after a
+  duplicate rejection (it shouldn't reach that call at all now that
+  `UploadService.upload()` raises before returning, but this isn't
+  asserted at the HTTP layer)
 
 ---
 
@@ -192,6 +219,7 @@ Source: `app/ai/knowledge/upload/`, `app/ai/knowledge/processing/`,
 | JWT verification / Cognito claims / token exchange | **Not covered** |
 | Upload validation | Covered |
 | Upload storage failures & cleanup | Covered |
+| Duplicate detection (checksum, per-owner scoping, conflict response) | Covered |
 | Processing pipeline storage failures | Covered |
 | Document status persistence on failure | Covered |
 | Concurrency (upload, processing, lifecycle, S3) | Covered |

@@ -37,6 +37,7 @@ def _make_deps() -> dict[str, AsyncMock]:
     hasher = AsyncMock()
     repository = AsyncMock()
     duplicate_detection_service = AsyncMock()
+    processing_queue = AsyncMock()
 
     hasher.hash_file = AsyncMock(return_value="deadbeef")
     storage.upload = AsyncMock(return_value=None)
@@ -44,6 +45,7 @@ def _make_deps() -> dict[str, AsyncMock]:
     duplicate_detection_service.check = AsyncMock(
         return_value=DuplicateCheckResult(is_duplicate=False),
     )
+    processing_queue.enqueue = AsyncMock(return_value=None)
 
     async def _create(document):
         return document
@@ -56,6 +58,7 @@ def _make_deps() -> dict[str, AsyncMock]:
         "hasher": hasher,
         "repository": repository,
         "duplicate_detection_service": duplicate_detection_service,
+        "processing_queue": processing_queue,
     }
 
 
@@ -66,6 +69,7 @@ def _make_service(deps: dict[str, AsyncMock]) -> UploadService:
         hasher=deps["hasher"],
         repository=deps["repository"],
         duplicate_detection_service=deps["duplicate_detection_service"],
+        processing_queue=deps["processing_queue"],
     )
 
 

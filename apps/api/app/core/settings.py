@@ -5,6 +5,8 @@ import os
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from app.infrastructure.queue.enums import QueueProvider
+
 _ENV_FILE = ".env.test" if os.getenv("ENVIRONMENT") == "test" else ".env"
 
 
@@ -57,7 +59,7 @@ class Settings(BaseSettings):
     # AWS (Future)
     # ==========================================================================
 
-    aws_region: str | None = None
+    aws_region: str = "us-east-1"
     cognito_user_pool_id: str | None = None
     cognito_app_client_id: str | None = None
     cognito_domain: str | None = None
@@ -69,6 +71,11 @@ class Settings(BaseSettings):
     aws_secret_access_key: str | None = None
     aws_session_token: str | None = None
     aws_s3_endpoint_url: str | None = None
+
+    queue_provider: QueueProvider = QueueProvider.VALKEY
+
+    # AWS SQS
+    sqs_queue_url: str = ""
 
     # ==========================================================================
     # Security

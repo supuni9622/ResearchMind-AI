@@ -43,11 +43,21 @@ from app.ai.knowledge.upload.service import UploadService
 from app.core.settings import settings
 from app.db.session import get_db
 from app.infrastructure.hashing import FileHasher, SHA256Hasher
+from app.infrastructure.queue.factory import (
+    create_processing_queue,
+)
+from app.infrastructure.queue.interfaces import (
+    ProcessingQueue,
+)
 from app.infrastructure.storage import DocumentStorage, create_storage
 from app.repositories.document import DocumentRepository
 from app.services.document_processing_service import (
     DocumentProcessingService,
 )
+from app.services.queued_document_processing_service import (
+    QueuedDocumentProcessingService,
+)
+from apps.worker.processing_worker import ProcessingWorker
 
 
 def _get_storage() -> DocumentStorage:
@@ -59,6 +69,17 @@ def _get_storage() -> DocumentStorage:
     """
 
     return create_storage(settings)
+
+
+@lru_cache
+def _get_processing_queue() -> ProcessingQueue:
+    """
+    Create the configured processing queue.
+
+    The queue implementation is selected from configuration.
+    """
+
+    return create_processing_queue(settings)
 
 
 @lru_cache
@@ -195,6 +216,14 @@ def get_document_storage() -> DocumentStorage:
     return _get_storage()
 
 
+def get_processing_queue() -> ProcessingQueue:
+    """
+    Return the configured processing queue.
+    """
+
+    return _get_processing_queue()
+
+
 def get_file_hasher() -> FileHasher:
     """
     Return the configured file hasher.
@@ -243,6 +272,24 @@ def get_document_processing_service(
     )
 
 
+def get_queued_document_processing_service(
+    document_processing_service: DocumentProcessingService = Depends(
+        get_document_processing_service,
+    ),
+    repository: DocumentRepository = Depends(
+        get_document_repository,
+    ),
+) -> QueuedDocumentProcessingService:
+    """
+    Create the queued document processing service.
+    """
+
+    return QueuedDocumentProcessingService(
+        document_processing_service=document_processing_service,
+        document_repository=repository,
+    )
+
+
 def get_upload_service(
     session: AsyncSession = Depends(get_db),
     repository: DocumentRepository = Depends(
@@ -257,6 +304,9 @@ def get_upload_service(
     duplicate_detection_service: DuplicateDetectionService = Depends(
         get_duplicate_detection_service,
     ),
+    processing_queue: ProcessingQueue = Depends(
+        get_processing_queue,
+    ),
 ) -> UploadService:
     """
     Create the upload service.
@@ -268,4 +318,23 @@ def get_upload_service(
         storage=storage,
         hasher=hasher,
         duplicate_detection_service=duplicate_detection_service,
+        processing_queue=processing_queue,
+    )
+
+
+def get_processing_worker(
+    queue: ProcessingQueue = Depends(
+        get_processing_queue,
+    ),
+    queued_document_processing_service: QueuedDocumentProcessingService = Depends(
+        get_queued_document_processing_service,
+    ),
+) -> ProcessingWorker:
+    """
+    Create the background processing worker.
+    """
+
+    return ProcessingWorker(
+        queue=queue,
+        queued_document_processing_service=(queued_document_processing_service),
     )

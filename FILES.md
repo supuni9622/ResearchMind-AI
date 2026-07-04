@@ -28,9 +28,18 @@ Every file and folder in the ResearchMind-AI monorepo.
 | `README.md` | Project overview, quickstart, auth guide, Alembic troubleshooting |
 | `ROADMAP.md` | Feature and milestone roadmap |
 | `SECURITY.md` | (empty) |
+| `setup_commands.md` | Makefile-style shortcut commands (`docker compose up/down`) |
 | `STRUCTURE.md` | High-level folder/file structure with layer descriptions |
 | `DEV_GUIDE.md` | Step-by-step local development guide — setup, Alembic issues, Docker rules, auth testing |
 | `test.txt` | Stray scratch file — can be deleted |
+
+---
+
+## `.claude/`
+
+| File | Description |
+|------|-------------|
+| `settings.local.json` | Local Claude Code permission/tooling settings (gitignored-style local overrides) |
 
 ---
 
@@ -76,6 +85,7 @@ All subdirectories are empty — planned AI agent implementations.
 | `script.py.mako` | Template for new migration files |
 | `versions/43dc35ceb875_debug.py` | Migration 1: creates `users` table + `updated_at` trigger |
 | `versions/a97b3b8eee9f_create_documents_table.py` | Migration 2: creates `documents` table with FK to `users` |
+| `versions/1b6e40f3a754_split_document_status_into_upload_.py` | Migration 3: splits the single `status` column into `upload_status` + `processing_status` (+ `processed_at`, `processing_error`) |
 
 ---
 
@@ -85,7 +95,7 @@ All subdirectories are empty — planned AI agent implementations.
 
 #### `ai/`
 
-AI subsystem. Most subdirectories are scaffolded but empty — only `knowledge/upload/` and `infrastructure/` are implemented.
+AI subsystem. Document processing, metadata/statistics enrichment, and upload (including duplicate detection) are implemented; most other subdirectories are still scaffolded and empty.
 
 ##### `ai/config/`
 
@@ -108,11 +118,61 @@ AI subsystem. Most subdirectories are scaffolded but empty — only `knowledge/u
 |-----------|--------|
 | `cache/` | (empty) — planned semantic caching |
 | `chunking/` | (empty) — planned document chunking |
-| `documents/` | (empty) — planned document processing |
 | `embeddings/` | (empty) — planned embedding generation |
+| `processing/` | **Implemented** — see below |
 | `reranking/` | (empty) — planned result reranking |
 | `retrieval/` | (empty) — planned vector retrieval |
+| `upload/` | **Implemented** — see below |
 | `vectorstores/` | (empty) — planned vector store abstraction |
+
+##### `ai/knowledge/processing/` — **Implemented**
+
+| File | Description |
+|------|-------------|
+| `__init__.py` | Package exports |
+| `adapters/docling.py` | Docling adapter — alternative entry point into the Docling library |
+| `parsers/base.py` | `BaseDocumentParser` abstract class |
+| `parsers/docling.py` | Docling-backed parser implementation |
+| `artifact_builder.py` | Builds `ProcessingArtifacts` from a `ProcessedDocument` |
+| `artifact_writer.py` | Persists artifacts to storage (S3) |
+| `artifacts.py` | `ProcessingArtifact` / `ProcessingArtifacts` models |
+| `enums.py` | `DocumentFormat`, `ParserType`, `ProcessingStatus`, `ProcessingStage` |
+| `exceptions.py` | `ProcessingError` hierarchy |
+| `interfaces.py` | `DocumentParser` ABC, `ParseRequest` |
+| `models.py` | `ProcessedDocument`, block types, `ProcessingResult` |
+| `registry.py` | `ParserRegistry` — format → parser resolution |
+| `service.py` | `ProcessingService` — orchestrates the full pipeline (parse → enrich → build artifacts → write) |
+| `temporary_file_manager.py` | `TemporaryFileManager` — creates temp files from downloaded document bytes, preserves extension, cleans up after processing |
+
+###### `ai/knowledge/processing/metadata/` — **Implemented**
+
+Metadata enrichment pipeline. Providers enrich the canonical `ProcessedDocument` with additional metadata; each provider contributes without overwriting metadata owned by another provider.
+
+| File | Description |
+|------|-------------|
+| `__init__.py` | Package exports |
+| `base.py` | `BaseMetadataProvider` — base implementation concrete providers should inherit from |
+| `interfaces.py` | `MetadataProvider` ABC |
+| `models.py` | `MetadataUpdate` model |
+| `registry.py` | Metadata provider registry — registration and pipeline resolution |
+| `service.py` | `MetadataEnrichmentService` — coordinates providers, enriches the document |
+| `providers/__init__.py` | Package exports |
+| `providers/language.py` | Detects primary document language via `langdetect`, run against extracted text (not the raw file) |
+| `providers/pdf.py` | Extracts embedded PDF metadata via `pypdf`; reads metadata only, does not inspect content |
+
+###### `ai/knowledge/processing/statistics/` — **Implemented**
+
+Statistics enrichment pipeline, structurally parallel to `metadata/`. Providers enrich the canonical `DocumentStatistics` model.
+
+| File | Description |
+|------|-------------|
+| `__init__.py` | Package exports |
+| `base.py` | `BaseStatisticsProvider` — base implementation for concrete providers |
+| `interfaces.py` | `StatisticsProvider` ABC |
+| `models.py` | `DocumentStatistics` model |
+| `registry.py` | Statistics provider registry |
+| `service.py` | `StatisticsEnrichmentService` — coordinates providers, enriches statistics |
+| `providers/pdf.py` | PDF-specific statistics (currently: page count); structural stats (headings, tables, etc.) are deferred to a future Docling statistics provider |
 
 ##### `ai/knowledge/upload/` — **Implemented**
 
@@ -125,10 +185,22 @@ AI subsystem. Most subdirectories are scaffolded but empty — only `knowledge/u
 | `interfaces.py` | Abstract interfaces for the upload pipeline |
 | `models.py` | Upload-related data models |
 | `schemas.py` | Pydantic schemas for upload requests and responses |
-| `service.py` | `UploadService` — orchestrates validate → hash → S3 upload → DB write; logs `document.uploaded` with duration, `document.upload_failed` with traceback |
+| `service.py` | `UploadService` — orchestrates validate → duplicate check → hash → S3 upload → DB write; logs `document.uploaded` with duration, `document.upload_failed` with traceback |
 | `storage.py` | Upload-specific storage helpers |
 | `types.py` | Type aliases used across the upload module |
 | `validators.py` | `UploadValidator` — validates filename, content type, file size; logs `upload.validation_failed` with `reason` field for each rule |
+
+###### `ai/knowledge/upload/duplicate/` — **Implemented**
+
+Duplicate document detection, checked during upload before storage/DB writes.
+
+| File | Description |
+|------|-------------|
+| `__init__.py` | Package exports |
+| `exceptions.py` | `DuplicateDetectionError` base exception |
+| `interfaces.py` | `DuplicateDetector` ABC — the upload workflow depends only on this abstraction |
+| `models.py` | Request/response models exchanged between the upload workflow and the duplicate detection service |
+| `service.py` | `DuplicateDetectionService` — determines whether a document already exists for a user based on its SHA-256 checksum (hash computation itself is delegated to `FileHasher`) |
 
 ##### `ai/quality/`
 
@@ -292,6 +364,21 @@ All files empty — planned shared AI types and interfaces.
 | `noop.py` | No-op metrics emitter (used when no metrics backend is configured) |
 | `upload.py` | Upload-specific metrics definitions |
 
+##### `infrastructure/queue/` — planned (ADR-011)
+
+All files empty — scaffolding for an async queue abstraction to support background document processing.
+
+| File | Purpose |
+|------|---------|
+| `__init__.py` | (empty) |
+| `exceptions.py` | (empty) |
+| `factory.py` | (empty) |
+| `interfaces.py` | (empty) |
+| `models.py` | (empty) |
+| `providers/__init__.py` | (empty) |
+| `providers/sqs.py` | (empty) — planned SQS-backed provider |
+| `providers/valkey.py` | (empty) — planned Valkey-backed provider |
+
 ##### `infrastructure/storage/`
 
 | File | Description |
@@ -329,8 +416,8 @@ FastAPI application entry point — creates the app, registers middleware and ex
 | File | Description |
 |------|-------------|
 | `__init__.py` | Exports all models (required so Alembic autogenerate can detect them) |
-| `document.py` | `Document` SQLAlchemy model — id, owner_id (FK→users), filename, storage_key, content_type, size_bytes, checksum, status |
-| `enums.py` | `DocumentStatus` StrEnum — uploaded, processing, ready, failed, deleted |
+| `document.py` | `Document` SQLAlchemy model — id, owner_id (FK→users), filename, storage_key, content_type, size_bytes, checksum, `upload_status`, `processing_status`, `processed_at`, `processing_error` |
+| `enums.py` | `DocumentUploadStatus` StrEnum (pending, uploading, completed, failed) and `DocumentProcessingStatus` StrEnum (pending, processing, completed, failed) — split from the original single `DocumentStatus` |
 | `user.py` | `User` SQLAlchemy model — id, auth_provider, provider_user_id, email, username, full_name, avatar_url, is_active, is_verified, is_superuser, last_login_at |
 
 ---
@@ -372,13 +459,43 @@ Empty directory — placeholder.
 |------|-------------|
 | `__init__.py` | Package marker |
 | `auth.py` | `AuthService.exchange_code()` — POSTs to Cognito `/oauth2/token`, supports PKCE and confidential clients; logs exchange start/success/failure |
+| `document_processing_service.py` | `DocumentProcessingService` — orchestrates the processing lifecycle and persists status transitions (PROCESSING → COMPLETED/FAILED) |
 | `user.py` | `UserService` — `sync_user`, `create_user`, `get_user_by_id/email`, `update_last_login`, `deactivate_user`; logs all lifecycle events including `user.not_found` and `user.deactivated` |
 
 ---
 
 ## `apps/web/`
 
-Empty — planned Next.js frontend.
+Next.js 15 frontend — **implemented** (Cognito auth, dashboard, documents, research chat scaffolding).
+
+| File | Description |
+|------|-------------|
+| `.env.local` | Cognito client ID, domain, redirect URI, API URL |
+| `.env.local.example` | Template for `.env.local` |
+| `.gitignore` | Frontend-specific git ignore rules |
+| `eslint.config.mjs` | ESLint configuration |
+| `next-env.d.ts` | Next.js TypeScript environment declarations (generated) |
+| `next.config.ts` | Next.js configuration |
+| `package.json` | Next.js 15, React 19, Tailwind 3, TypeScript dependencies |
+| `postcss.config.mjs` | PostCSS configuration (Tailwind) |
+| `README.md` | Setup instructions and auth flow diagram |
+| `tailwind.config.ts` | Custom palette: ink, stone, sage, amber scales |
+| `tsconfig.json` | TypeScript configuration |
+| `tsconfig.tsbuildinfo` | TypeScript incremental build cache (generated) |
+| `src/app/(app)/dashboard/page.tsx` | Dashboard page |
+| `src/app/(app)/documents/page.tsx` | Document upload page (drag-and-drop) |
+| `src/app/(app)/research/page.tsx` | Research chat interface |
+| `src/app/(app)/layout.tsx` | `AppShell` — auth guard, redirects unauthenticated users |
+| `src/app/auth/callback/page.tsx` | Cognito OAuth callback — exchanges code for token |
+| `src/app/globals.css` | Global styles |
+| `src/app/layout.tsx` | Root layout — fonts, `AuthProvider` |
+| `src/app/page.tsx` | Landing / sign-in page |
+| `src/components/auth/login-button.tsx` | Cognito hosted UI redirect button |
+| `src/components/layout/sidebar.tsx` | App sidebar navigation |
+| `src/hooks/use-auth.tsx` | `AuthContext` — token storage, profile fetch, `isUnauthorized` state |
+| `src/lib/api.ts` | Typed API client (`UserProfile`, `Document`) |
+| `src/lib/auth.ts` | Cognito URL builders, token storage (sessionStorage) |
+| `src/lib/errors.ts` | `extractErrorMessage` — maps an `ErrorResponse`/`ErrorDetail` body (from `app/schemas/common.py`) to a display string |
 
 ## `apps/worker/`
 
@@ -420,6 +537,8 @@ All empty.
 | `ADR-007-middleware-registration.md` | Decision: middleware registration pattern |
 | `ADR-008-typed-api-schemas.md` | Decision: explicit response models on all endpoints |
 | `ADR-009-identity-architecture` | Decision: external identity provider (Cognito), ResearchMind owns users not auth |
+| `ADR-010-document-processing-strategy.md` | Decision: document processing pipeline strategy (Docling-based parsing) |
+| `ADR-011-queue-abstraction.md` | Decision: queue abstraction for asynchronous document processing (SQS/Valkey-backed) |
 
 ---
 
@@ -435,6 +554,7 @@ All empty.
 | `1.knowledge_platform/1.6.doc_upload_final.md` | Upload feature final summary |
 | `1.knowledge_platform/1.7.doc_upload_archotecture.md` | Upload architecture deep-dive |
 | `1.knowledge_platform/1.8.doc_upload_implementation.md` | Upload implementation reference |
+| `1.knowledge_platform/2.2.doc_processing.md` | Processing decision notes — Docling version choice for the processing pipeline |
 
 ---
 
@@ -471,7 +591,7 @@ All empty.
 | `frontend-architecture.md` | (empty) |
 | `identity-architecture.md` | **Full auth architecture** — Cognito flow, per-request auth, implementation table, manual testing guide, AWS Console setup, common errors, issues encountered |
 | `mcp-architecture.md` | (empty) |
-| `observability-strategy.md` | (empty) |
+| `observability-strategy.md` | Observability strategy — recently updated with content (previously empty) |
 | `project-constitution.md` | Project principles, goals, and constraints |
 | `quality-strategy.md` | (empty) |
 | `repository-structure.md` | Repository layer patterns |
@@ -522,6 +642,7 @@ All empty.
 | `concepts/README.md` | Concepts index |
 | `milestones/030-backend-foundation.md` | Milestone 0.30 retrospective |
 | `milestones/0.31-engineering-quality.md` | Milestone 0.31 retrospective |
+| `milestones/2026-07-02-processing-platform-summary.md` | Milestone retrospective: first end-to-end Document Processing Platform implementation |
 | `milestones/README.md` | Milestones index |
 
 ---
@@ -543,15 +664,13 @@ All empty — planned evaluation documentation.
 
 ### `docs/guides/`
 
-All empty — planned developer guides.
-
-| File | Purpose |
-|------|---------|
+| File | Description |
+|------|-------------|
 | `coding-standards.md` | (empty) |
 | `contributing.md` | (empty) |
 | `debugging.md` | (empty) |
 | `style-guide.md` | (empty) |
-| `testing.md` | (empty) |
+| `testing.md` | Testing guide — recently updated with content (previously empty) |
 
 ---
 
@@ -561,6 +680,7 @@ All empty — planned developer guides.
 |------|-------------|
 | `chat-handoff1.md` | Context handoff document from session 1 |
 | `chat-handoff2.md` | Context handoff document from session 2 |
+| `CHATGPT_HANDOFF_PHASE_2_2.md` | Master project context/handoff doc for Phase 2.2 (document processing), written for a ChatGPT collaborator |
 
 ---
 
@@ -588,6 +708,23 @@ All empty — planned product docs.
 | `features.md` | (empty) |
 | `getting-started.md` | (empty) |
 | `release-notes.md` | (empty) |
+
+---
+
+### `docs/project/`
+
+Numbered project reference set — appears to be a parallel/newer take on project context alongside the root `docs/project-constitution.md` and `docs/project-handbook.md`.
+
+| File | Description |
+|------|-------------|
+| `00-project-constitution.md` | Project constitution v1.0 |
+| `01-current-state.md` | Current project state snapshot |
+| `02-roadmap.md` | Project roadmap v1.0 |
+| `03-frozen-decisions.md` | Frozen engineering decisions v1.0 |
+| `04-folder-structure.md` | Folder structure reference v1.0 |
+| `05-tech-stack.md` | Technology stack reference v1.0 |
+| `06-chatgpt-collaboration.md` | Guide for collaborating with ChatGPT on this project |
+| `07-engineering-journal.md` | Engineering journal v1.0 |
 
 ---
 
@@ -636,8 +773,10 @@ All empty — planned workflow documentation.
 | File | Description |
 |------|-------------|
 | `index.md` | Docs home and navigation index |
+| `phase2_roadmap.md` | Frozen Phase 2 roadmap — Upload Platform (complete) → Document Processing |
 | `project-constitution.md` | Project principles and goals |
 | `project-handbook.md` | Working agreements and team practices |
+| `s3_configuration_guide.md` | Guide for configuring AWS S3 for document storage |
 
 ---
 
@@ -653,6 +792,8 @@ Empty — planned experimental code and prototypes.
 
 ## `infrastructure/`
 
+All empty — planned infrastructure-as-code. (The former `s3_configuration_guide.md` here has moved to `docs/s3_configuration_guide.md`.)
+
 | Path | Description |
 |------|-------------|
 | `database/` | Empty — planned DB provisioning scripts |
@@ -660,7 +801,6 @@ Empty — planned experimental code and prototypes.
 | `docker/` | Empty — planned Dockerfiles |
 | `monitoring/` | Empty — planned monitoring stack config |
 | `scripts/` | Empty — planned infrastructure automation |
-| `s3_configuration_guide.md` | Guide for configuring AWS S3 for document storage |
 
 ---
 
@@ -710,27 +850,56 @@ All empty — planned cross-cutting code.
 
 | File | Description |
 |------|-------------|
+| `__init__.py` | Package marker |
 | `conftest.py` | Shared pytest fixtures: `client` (TestClient), `test_engine` (async engine against `researchmind_test`), `db_session` |
+| `api/__init__.py` | Package marker |
 | `api/test_health.py` | Tests `GET /api/v1/health` returns `healthy` when all services are up |
-| `integration/test_user_repository.py` | Integration tests: create, get by email, exists, delete user via `UserRepository` |
-| `integration/test_user_service.py` | Integration tests: create user, duplicate email conflict, not found, sync existing, deactivate |
+| `integration/__init__.py` | Package marker |
+| `integration/ai/knowledge/processing/test_processing_service.py` | Full DoclingParser → ProcessingService pipeline integration test |
+| `integration/ai/knowledge/upload/test_duplicate_detection.py` | Integration test: real `UploadService`, `DuplicateDetectionService`, `DocumentRepository`, `SHA256Hasher` against the Postgres test DB (only S3 is faked) |
 | `integration/test_document_repository.py` | (empty) |
 | `integration/test_document_service.py` | (empty) |
 | `integration/test_memory.py` | (empty) |
 | `integration/test_retriever.py` | (empty) |
+| `integration/test_user_repository.py` | Integration tests: create, get by email, exists, delete user via `UserRepository` |
+| `integration/test_user_service.py` | Integration tests: create user, duplicate email conflict, not found, sync existing, deactivate |
 | `integration/test_vector_store.py` | (empty) |
+| `unit/__init__.py` | Package marker |
 | `unit/test_settings.py` | Unit tests for Pydantic settings loading |
 | `unit/test_prompt_builder.py` | (empty) |
+| `unit/test_utils.py` | (empty) |
+| `unit/ai/__init__.py` | Package marker |
+| `unit/ai/knowledge/__init__.py` | Package marker |
+| `unit/ai/knowledge/processing/__init__.py` | Package marker |
+| `unit/ai/knowledge/processing/test_docling_parser.py` | `DoclingParser.parse()` with real PDF fixture |
+| `unit/ai/knowledge/processing/test_models.py` | `ProcessedDocument`, block types, discriminated union |
+| `unit/ai/knowledge/processing/test_registry.py` | `ParserRegistry` registration, lookup, deduplication |
+| `unit/ai/knowledge/processing/test_service.py` | `ProcessingService` orchestration with `FakeParser` |
+| `unit/ai/knowledge/processing/test_service_resilience.py` | Resilience tests: storage/parser failures are logged with pipeline-stage context and propagate untouched |
+| `unit/ai/knowledge/processing/test_temporary_file_manager.py` | `TemporaryFileManager` — temp file lifecycle, content integrity, cleanup |
+| `unit/ai/knowledge/processing/metadata/__init__.py` | Package marker |
+| `unit/ai/knowledge/processing/metadata/test_service.py` | `MetadataEnrichmentService` — regression coverage for a bug where `PDFMetadataProvider` ran against every format (crashed on DOCX) |
+| `unit/ai/knowledge/upload/__init__.py` | Package marker |
+| `unit/ai/knowledge/upload/test_service.py` | `UploadService` — invalid files rejected before storage/hasher/DB touched, size boundary enforcement |
+| `unit/ai/knowledge/upload/test_validators.py` | `UploadValidator` — invalid filename/extension/content-type/size rejection rules |
+| `unit/infrastructure/__init__.py` | Package marker |
+| `unit/infrastructure/storage/__init__.py` | Package marker |
+| `unit/infrastructure/storage/test_s3_storage.py` | `S3StorageService` — wraps raw boto3 `ClientError` into typed `StorageError` subclasses for every operation |
+| `unit/services/__init__.py` | Package marker |
+| `unit/services/test_document_processing_service.py` | `DocumentProcessingService` — happy path persists PROCESSING then COMPLETED (flushed and committed) |
+| `evaluation/__init__.py` | Package marker |
 | `evaluation/test_faithfulness.py` | (empty) |
 | `evaluation/test_groundedness.py` | (empty) |
 | `evaluation/test_reranking.py` | (empty) |
 | `evaluation/test_retrieval_precision.py` | (empty) |
+| `performance/__init__.py` | Package marker |
 | `performance/test_embedding_speed.py` | (empty) |
 | `performance/test_latency.py` | (empty) |
 | `performance/test_qdrant_speed.py` | (empty) |
+| `security/__init__.py` | Package marker |
 | `security/test_jailbreaks.py` | (empty) |
 | `security/test_prompt_injection.py` | (empty) |
-| `research/test_utils.py` | (empty) |
+| `fixtures/sample.pdf` | PDF fixture for parser integration tests |
 
 ---
 

@@ -27,6 +27,8 @@ from app.ai.knowledge.upload.duplicate.service import DuplicateDetectionService
 from app.ai.knowledge.upload.service import UploadService
 from app.exceptions.base import ConflictException
 from app.infrastructure.hashing.sha256 import SHA256Hasher
+from app.infrastructure.queue.interfaces import ProcessingQueue
+from app.infrastructure.queue.models import ProcessingJob, QueueMessage
 from app.infrastructure.storage.interfaces import DocumentStorage
 from app.models.user import User
 from app.repositories.document import DocumentRepository
@@ -58,6 +60,25 @@ class InMemoryDocumentStorage(DocumentStorage):
         return f"https://fake-storage.test/{key}"
 
 
+class InMemoryProcessingQueue(ProcessingQueue):
+    """Fake ProcessingQueue that keeps enqueued jobs in memory."""
+
+    def __init__(self) -> None:
+        self.jobs: list[ProcessingJob] = []
+
+    async def enqueue(self, job: ProcessingJob) -> None:
+        self.jobs.append(job)
+
+    async def dequeue(self) -> QueueMessage | None:
+        return None
+
+    async def acknowledge(self, message: QueueMessage) -> None:
+        pass
+
+    async def reject(self, message: QueueMessage) -> None:
+        pass
+
+
 async def _make_owner(session) -> uuid.UUID:
     user = User(
         auth_provider="cognito",
@@ -76,6 +97,7 @@ def _make_upload_service(session, storage: InMemoryDocumentStorage) -> UploadSer
         storage=storage,
         hasher=SHA256Hasher(),
         duplicate_detection_service=DuplicateDetectionService(repository),
+        processing_queue=InMemoryProcessingQueue(),
         repository=repository,
     )
 

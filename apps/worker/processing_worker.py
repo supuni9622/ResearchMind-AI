@@ -38,11 +38,12 @@ class ProcessingWorker:
         *,
         queue: ProcessingQueue,
         queued_document_processing_service: QueuedDocumentProcessingService,
-        poll_interval: float = 1.0,
+        poll_interval: float = 0.5,
     ) -> None:
         self._queue = queue
         self._queued_document_processing_service = queued_document_processing_service
         self._poll_interval = poll_interval
+        self._running = True
 
     async def run(self) -> None:
         """
@@ -51,7 +52,7 @@ class ProcessingWorker:
 
         logger.info("processing_worker.started")
 
-        while True:
+        while self._running:
             message = await self._queue.dequeue()
 
             if message is None:
@@ -106,3 +107,19 @@ class ProcessingWorker:
                     )
 
                     await self._queue.reject(message)
+        logger.info(
+            "processing_worker.shutdown_complete",
+        )
+
+    def stop(self) -> None:
+        """
+        Request a graceful worker shutdown.
+
+        The worker finishes the current job before exiting.
+        """
+
+        logger.info(
+            "processing_worker.stopping_requested",
+        )
+
+        self._running = False

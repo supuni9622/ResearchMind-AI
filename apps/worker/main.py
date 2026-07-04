@@ -12,6 +12,7 @@ Run locally:
 from __future__ import annotations
 
 import asyncio
+import signal
 
 import structlog
 from app.bootstrap.worker import create_processing_worker
@@ -32,9 +33,36 @@ async def main() -> None:
             session=session,
         )
 
-    await worker.run()
+        def shutdown(
+            signum: int,
+            frame: object | None,
+        ) -> None:
+            logger.info(
+                "processing_worker.signal_received",
+                signal=signal.Signals(signum).name,
+            )
 
-    logger.info("processing_worker.running")
+            worker.stop()
+
+        signal.signal(
+            signal.SIGINT,
+            shutdown,
+        )
+
+        signal.signal(
+            signal.SIGTERM,
+            shutdown,
+        )
+
+        logger.info(
+            "processing_worker.running",
+        )
+
+        await worker.run()
+
+        logger.info(
+            "processing_worker.shutdown_complete",
+        )
 
 
 if __name__ == "__main__":

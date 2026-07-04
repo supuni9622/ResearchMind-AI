@@ -80,7 +80,7 @@ class Settings(BaseSettings):
     # Queue
 
     queue_max_attempts: int = 3
-
+    queue_name: str = "document-processing"
     # ==========================================================================
     # Security
     # ==========================================================================

@@ -4,11 +4,12 @@ Valkey-backed implementation of the processing queue.
 
 from __future__ import annotations
 
+import structlog
+from app.core.settings import settings
 from app.infrastructure.queue.exceptions import (
     QueueConnectionError,
     QueueDequeueError,
     QueueEnqueueError,
-    QueueRejectError,
 )
 from app.infrastructure.queue.interfaces import ProcessingQueue
 from app.infrastructure.queue.models import (
@@ -16,6 +17,8 @@ from app.infrastructure.queue.models import (
     QueueMessage,
 )
 from redis.asyncio import Redis
+
+logger = structlog.get_logger()
 
 
 class ValkeyQueue(ProcessingQueue):
@@ -28,15 +31,13 @@ class ValkeyQueue(ProcessingQueue):
     application layer.
     """
 
-    DEFAULT_QUEUE_NAME = "document-processing"
-
     def __init__(
         self,
         client: Redis,
-        queue_name: str = DEFAULT_QUEUE_NAME,
     ) -> None:
         self._client = client
-        self._queue_name = queue_name
+        self._queue_name = settings.queue_name
+        self._dead_letter_queue_name = f"{settings.queue_name}-dlq"
 
     async def enqueue(
         self,
@@ -104,15 +105,25 @@ class ValkeyQueue(ProcessingQueue):
         message: QueueMessage,
     ) -> None:
         """
-        Requeue a failed processing job.
+        Move a failed message into the dead-letter queue.
         """
 
-        try:
-            await self.enqueue(
-                message.job,
-            )
-        except Exception as exc:
-            raise QueueRejectError("Failed to requeue processing job.") from exc
+        payload = message.job.model_dump_json()
+        logger.warning(
+            "queue.dead_letter",
+            document_id=str(message.job.document_id),
+            attempt=message.job.attempt,
+            queue=self._dead_letter_queue_name,
+        )
+
+        await self._client.lpush(
+            self._dead_letter_queue_name,
+            payload,
+        )
+
+        await self.acknowledge(
+            message,
+        )
 
     async def ping(self) -> None:
         """

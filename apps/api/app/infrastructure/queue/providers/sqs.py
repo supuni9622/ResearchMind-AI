@@ -7,7 +7,6 @@ from app.infrastructure.queue.exceptions import (
     QueueAcknowledgeError,
     QueueDequeueError,
     QueueEnqueueError,
-    QueueRejectError,
 )
 from app.infrastructure.queue.interfaces import ProcessingQueue
 from app.infrastructure.queue.models import (
@@ -111,24 +110,40 @@ class SQSQueue(ProcessingQueue):
         except (ClientError, BotoCoreError) as exc:
             raise QueueAcknowledgeError("Failed to acknowledge processing job.") from exc
 
+    # async def reject(
+    #     self,
+    #     message: QueueMessage,
+    # ) -> None:
+    #     """
+    #     Make the message immediately visible again.
+    #     """
+
+    #     try:
+    #         await asyncio.to_thread(
+    #             self._client.change_message_visibility,
+    #             QueueUrl=self._queue_url,
+    #             ReceiptHandle=message.receipt_handle,
+    #             VisibilityTimeout=0,
+    #         )
+
+    #     except (ClientError, BotoCoreError) as exc:
+    #         raise QueueRejectError("Failed to reject processing job.") from exc
+
     async def reject(
         self,
         message: QueueMessage,
     ) -> None:
         """
-        Make the message immediately visible again.
+        Reject a processing message.
+
+        Amazon SQS dead-letter queues are configured through the
+        queue Redrive Policy. Rejecting simply acknowledges the
+        current message.
         """
 
-        try:
-            await asyncio.to_thread(
-                self._client.change_message_visibility,
-                QueueUrl=self._queue_url,
-                ReceiptHandle=message.receipt_handle,
-                VisibilityTimeout=0,
-            )
-
-        except (ClientError, BotoCoreError) as exc:
-            raise QueueRejectError("Failed to reject processing job.") from exc
+        await self.acknowledge(
+            message,
+        )
 
     async def retry(
         self,

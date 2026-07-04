@@ -184,8 +184,9 @@ Statistics enrichment pipeline, structurally parallel to `metadata/`. Providers 
 | `exceptions.py` | Upload-specific exceptions |
 | `interfaces.py` | Abstract interfaces for the upload pipeline |
 | `models.py` | Upload-related data models |
+| `processing_job_builder.py` | `ProcessingJobBuilder` — builds the canonical `ProcessingJob` (document_id, owner_id, storage_key) from a persisted `Document` |
 | `schemas.py` | Pydantic schemas for upload requests and responses |
-| `service.py` | `UploadService` — orchestrates validate → duplicate check → hash → S3 upload → DB write; logs `document.uploaded` with duration, `document.upload_failed` with traceback |
+| `service.py` | `UploadService` — orchestrates validate → duplicate check → hash → S3 upload → DB write → enqueue processing job (async); logs `document.uploaded` with duration, `document.processing_enqueued`, `document.upload_failed` with traceback |
 | `storage.py` | Upload-specific storage helpers |
 | `types.py` | Type aliases used across the upload module |
 | `validators.py` | `UploadValidator` — validates filename, content type, file size; logs `upload.validation_failed` with `reason` field for each rule |
@@ -264,7 +265,7 @@ All files empty — planned shared AI types and interfaces.
 | `v1/admin.py` | (empty) |
 | `v1/auth.py` | `POST /auth/callback` (Cognito code exchange) and `GET /auth/me` |
 | `v1/chat.py` | (empty) |
-| `v1/documents.py` | `POST /documents/upload` — validates filename, measures file size, delegates to `UploadService` |
+| `v1/documents.py` | `GET /documents` — lists the current user's documents; `POST /documents/upload` — validates filename, measures file size, delegates to `UploadService` (upload now enqueues async processing instead of processing synchronously — the old inline `ProcessingService` call is commented out) |
 | `v1/evaluation.py` | (empty) |
 | `v1/feedback.py` | (empty) |
 | `v1/health.py` | `GET /health` — checks PostgreSQL, Valkey, Qdrant connectivity |
@@ -291,8 +292,16 @@ All files empty — planned shared AI types and interfaces.
 | `health.py` | Health check functions for PostgreSQL, Valkey, Qdrant; logs `health.degraded` and per-service warnings |
 | `lifespan.py` | FastAPI lifespan — configures logging, runs migrations (`AUTO_MIGRATE`), initializes infrastructure, logs `app.starting` / `app.ready` / `app.shutdown_complete` |
 | `logging.py` | Structlog configuration — stdlib bridge via `ProcessorFormatter`, environment-aware renderer (ConsoleRenderer in dev, JSON in production), silences noisy loggers |
-| `settings.py` | Pydantic `Settings` — all env vars; includes `auto_migrate` flag (default `false`) |
+| `settings.py` | Pydantic `Settings` — all env vars; includes `auto_migrate` flag, `queue_provider` (`QueueProvider.VALKEY` default), `sqs_queue_url`, `queue_max_attempts` |
 | `setup.py` | App factory and setup helpers |
+
+---
+
+#### `bootstrap/` — **Implemented**
+
+| File | Description |
+|------|-------------|
+| `worker.py` | Application composition root for the worker process — `create_processing_worker(session)` wires up storage, parser/metadata/statistics registries, `ProcessingService`, `DocumentProcessingService`, `QueuedDocumentProcessingService`, and the configured queue into a `ProcessingWorker` |
 
 ---
 
@@ -317,7 +326,7 @@ All files empty — planned shared AI types and interfaces.
 | `cache.py` | (empty) |
 | `database.py` | (empty) |
 | `settings.py` | (empty) |
-| `upload.py` | FastAPI dependency providers for the upload workflow: `get_document_storage`, `get_file_hasher`, `get_document_repository`, `get_upload_service` |
+| `upload.py` | FastAPI dependency providers for the upload/processing workflow: `get_document_storage`, `get_file_hasher`, `get_document_repository`, `get_processing_queue`, `get_processing_service`, `get_document_processing_service`, `get_queued_document_processing_service`, `get_upload_service`, `get_processing_worker` |
 | `vector_store.py` | (empty) |
 
 ---
@@ -364,20 +373,21 @@ All files empty — planned shared AI types and interfaces.
 | `noop.py` | No-op metrics emitter (used when no metrics backend is configured) |
 | `upload.py` | Upload-specific metrics definitions |
 
-##### `infrastructure/queue/` — planned (ADR-011)
+##### `infrastructure/queue/` — **Implemented** (ADR-011, ADR-012)
 
-All files empty — scaffolding for an async queue abstraction to support background document processing.
+Async queue abstraction backing asynchronous document processing. `UploadService` enqueues jobs; `apps/worker` consumes them.
 
-| File | Purpose |
-|------|---------|
-| `__init__.py` | (empty) |
-| `exceptions.py` | (empty) |
-| `factory.py` | (empty) |
-| `interfaces.py` | (empty) |
-| `models.py` | (empty) |
-| `providers/__init__.py` | (empty) |
-| `providers/sqs.py` | (empty) — planned SQS-backed provider |
-| `providers/valkey.py` | (empty) — planned Valkey-backed provider |
+| File | Description |
+|------|-------------|
+| `__init__.py` | Package marker |
+| `enums.py` | `QueueProvider` StrEnum — `VALKEY`, `SQS` |
+| `exceptions.py` | `QueueError` hierarchy — `QueueConnectionError`, `QueueEnqueueError`, `QueueDequeueError`, `QueueAcknowledgeError`, `QueueRejectError` |
+| `factory.py` | `create_processing_queue(settings)` — selects `ValkeyQueue` or `SQSQueue` based on `settings.queue_provider` |
+| `interfaces.py` | `ProcessingQueue` ABC — `enqueue`, `dequeue`, `acknowledge`, `reject`, `retry` |
+| `models.py` | `ProcessingJob` (document_id, owner_id, storage_key, attempt, created_at), `QueueMessage` (job + provider metadata) |
+| `providers/__init__.py` | Package marker |
+| `providers/sqs.py` | `SQSQueue` — Amazon SQS implementation via boto3 run in `asyncio.to_thread`; `reject`/`retry` rely on SQS redrive policy for dead-lettering |
+| `providers/valkey.py` | `ValkeyQueue` — Redis List-backed implementation; `reject` pushes to a `<queue>-dlq` dead-letter list and logs `queue.dead_letter`; `ping()` for health checks |
 
 ##### `infrastructure/storage/`
 
@@ -460,6 +470,7 @@ Empty directory — placeholder.
 | `__init__.py` | Package marker |
 | `auth.py` | `AuthService.exchange_code()` — POSTs to Cognito `/oauth2/token`, supports PKCE and confidential clients; logs exchange start/success/failure |
 | `document_processing_service.py` | `DocumentProcessingService` — orchestrates the processing lifecycle and persists status transitions (PROCESSING → COMPLETED/FAILED) |
+| `queued_document_processing_service.py` | `QueuedDocumentProcessingService` — bridges the queue to the processing pipeline: resolves the `Document` for a `ProcessingJob`, builds the `ParseRequest`, and invokes `DocumentProcessingService` |
 | `user.py` | `UserService` — `sync_user`, `create_user`, `get_user_by_id/email`, `update_last_login`, `deactivate_user`; logs all lifecycle events including `user.not_found` and `user.deactivated` |
 
 ---
@@ -497,9 +508,16 @@ Next.js 15 frontend — **implemented** (Cognito auth, dashboard, documents, res
 | `src/lib/auth.ts` | Cognito URL builders, token storage (sessionStorage) |
 | `src/lib/errors.ts` | `extractErrorMessage` — maps an `ErrorResponse`/`ErrorDetail` body (from `app/schemas/common.py`) to a display string |
 
-## `apps/worker/`
+## `apps/worker/` — **Implemented** (ADR-012)
 
-Empty — planned background worker.
+Standalone background worker process that consumes document processing jobs from the queue asynchronously, decoupling upload from processing.
+
+| File | Description |
+|------|-------------|
+| `__init__.py` | Package marker |
+| `main.py` | Entry point (`python -m apps.worker.main`) — builds the worker via `create_processing_worker`, registers `SIGINT`/`SIGTERM` handlers for graceful shutdown, runs until stopped |
+| `metrics.py` | `WorkerMetrics` dataclass — in-memory counters (processed/successful/failed/retried/dead-lettered jobs, average processing time), reset on restart |
+| `processing_worker.py` | `ProcessingWorker` — polls the queue, delegates to `QueuedDocumentProcessingService`, retries failed jobs up to `settings.queue_max_attempts` before dead-lettering, logs periodic `processing_worker.metrics`, supports graceful `stop()` |
 
 ---
 
@@ -539,6 +557,7 @@ All empty.
 | `ADR-009-identity-architecture` | Decision: external identity provider (Cognito), ResearchMind owns users not auth |
 | `ADR-010-document-processing-strategy.md` | Decision: document processing pipeline strategy (Docling-based parsing) |
 | `ADR-011-queue-abstraction.md` | Decision: queue abstraction for asynchronous document processing (SQS/Valkey-backed) |
+| `ADR-012-asynchronous-document-processing.md` | Decision: move document processing off the upload request path into a standalone worker consuming the queue |
 
 ---
 
@@ -591,7 +610,7 @@ All empty.
 | `frontend-architecture.md` | (empty) |
 | `identity-architecture.md` | **Full auth architecture** — Cognito flow, per-request auth, implementation table, manual testing guide, AWS Console setup, common errors, issues encountered |
 | `mcp-architecture.md` | (empty) |
-| `observability-strategy.md` | Observability strategy — recently updated with content (previously empty) |
+| `observability-strategy.md` | Observability strategy — logging is the only implemented pillar (structlog, request correlation); metrics/tracing are placeholders under `docs/monitoring/` |
 | `project-constitution.md` | Project principles, goals, and constraints |
 | `quality-strategy.md` | (empty) |
 | `repository-structure.md` | Repository layer patterns |
@@ -643,6 +662,7 @@ All empty.
 | `milestones/030-backend-foundation.md` | Milestone 0.30 retrospective |
 | `milestones/0.31-engineering-quality.md` | Milestone 0.31 retrospective |
 | `milestones/2026-07-02-processing-platform-summary.md` | Milestone retrospective: first end-to-end Document Processing Platform implementation |
+| `milestones/2026-07-04-asynchronous-document-processing.md` | Milestone retrospective: asynchronous document processing — queue abstraction, background worker, retry/dead-letter handling, worker metrics, graceful shutdown |
 | `milestones/README.md` | Milestones index |
 
 ---

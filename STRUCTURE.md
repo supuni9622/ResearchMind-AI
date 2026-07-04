@@ -89,8 +89,9 @@ ResearchMind-AI/
 │   │       │   │   │   ├── exceptions.py    # Upload exceptions
 │   │       │   │   │   ├── interfaces.py    # Upload abstract interfaces
 │   │       │   │   │   ├── models.py        # Upload domain models
+│   │       │   │   │   ├── processing_job_builder.py  # Builds ProcessingJob from a persisted Document
 │   │       │   │   │   ├── schemas.py       # Upload Pydantic schemas
-│   │       │   │   │   ├── service.py       # UploadService orchestration
+│   │       │   │   │   ├── service.py       # UploadService orchestration — now enqueues async processing
 │   │       │   │   │   ├── storage.py       # Storage operations for uploads
 │   │       │   │   │   ├── types.py         # Upload type aliases
 │   │       │   │   │   └── validators.py    # File validation logic
@@ -148,8 +149,11 @@ ResearchMind-AI/
 │   │       │   ├── health.py            # Health check logic
 │   │       │   ├── lifespan.py          # FastAPI lifespan (startup/shutdown, auto-migrate)
 │   │       │   ├── logging.py           # Structured logging (structlog + stdlib bridge)
-│   │       │   ├── settings.py          # Pydantic settings (env-driven)
+│   │       │   ├── settings.py          # Pydantic settings (env-driven; incl. queue_provider, sqs_queue_url, queue_max_attempts)
 │   │       │   └── setup.py             # App factory / setup helpers
+│   │       │
+│   │       ├── bootstrap/       # Composition roots shared across entry points
+│   │       │   └── worker.py            # create_processing_worker() — wires the worker's object graph
 │   │       │
 │   │       ├── db/              # Database layer
 │   │       │   ├── base.py              # SQLAlchemy DeclarativeBase
@@ -163,7 +167,7 @@ ResearchMind-AI/
 │   │       │   ├── cache.py             # Cache dependency
 │   │       │   ├── database.py          # DB session dependency
 │   │       │   ├── settings.py          # Settings dependency
-│   │       │   ├── upload.py            # Upload service dependency
+│   │       │   ├── upload.py            # Upload/processing service dependencies (incl. processing queue, worker)
 │   │       │   └── vector_store.py      # Vector store dependency
 │   │       │
 │   │       ├── exceptions/      # Exception hierarchy and handlers
@@ -186,14 +190,15 @@ ResearchMind-AI/
 │   │       │   │   ├── models.py        # Metrics data models
 │   │       │   │   ├── noop.py          # No-op metrics collector
 │   │       │   │   └── upload.py        # Upload-specific metrics
-│   │       │   ├── queue/               # Async queue abstraction (planned, ADR-011)
+│   │       │   ├── queue/               # Async queue abstraction (ADR-011, ADR-012)
 │   │       │   │   ├── providers/
-│   │       │   │   │   ├── sqs.py       # SQS queue provider (empty — planned)
-│   │       │   │   │   └── valkey.py    # Valkey-backed queue provider (empty — planned)
-│   │       │   │   ├── exceptions.py    # (empty — planned)
-│   │       │   │   ├── factory.py       # (empty — planned)
-│   │       │   │   ├── interfaces.py    # (empty — planned)
-│   │       │   │   └── models.py        # (empty — planned)
+│   │       │   │   │   ├── sqs.py       # SQSQueue — boto3 via asyncio.to_thread; redrive-policy dead-lettering
+│   │       │   │   │   └── valkey.py    # ValkeyQueue — Redis List-backed; pushes rejects to a <queue>-dlq list
+│   │       │   │   ├── enums.py         # QueueProvider (VALKEY, SQS)
+│   │       │   │   ├── exceptions.py    # QueueError hierarchy
+│   │       │   │   ├── factory.py       # create_processing_queue(settings) — selects provider
+│   │       │   │   ├── interfaces.py    # ProcessingQueue ABC (enqueue, dequeue, acknowledge, reject, retry)
+│   │       │   │   └── models.py        # ProcessingJob, QueueMessage
 │   │       │   └── storage/
 │   │       │       ├── exceptions.py    # Storage exceptions
 │   │       │       ├── factory.py       # Storage provider factory
@@ -231,6 +236,7 @@ ResearchMind-AI/
 │   │       ├── services/        # Business logic layer
 │   │       │   ├── auth.py                        # OAuth code exchange with Cognito
 │   │       │   ├── document_processing_service.py # Orchestrates processing lifecycle + status updates
+│   │       │   ├── queued_document_processing_service.py  # Bridges queue jobs to DocumentProcessingService
 │   │       │   └── user.py                        # User sync, creation, and lifecycle
 │   │       │
 │   │       └── main.py          # FastAPI app entry point
@@ -273,7 +279,10 @@ ResearchMind-AI/
 │   │   ├── tsconfig.json                    # TypeScript configuration
 │   │   └── README.md                        # Setup instructions and auth flow diagram
 │   │
-│   └── worker/                  # Background worker app (planned)
+│   └── worker/                  # Background document processing worker (ADR-012)
+│       ├── main.py              # Entry point — signal handling (SIGINT/SIGTERM) for graceful shutdown
+│       ├── metrics.py           # WorkerMetrics — in-memory job counters, logged periodically
+│       └── processing_worker.py # ProcessingWorker — poll/process/retry/dead-letter loop
 │
 ├── benchmarks/                  # Performance benchmarks (planned)
 │
@@ -294,7 +303,8 @@ ResearchMind-AI/
 │   │   ├── ADR-008-typed-api-schemas.md
 │   │   ├── ADR-009-identity-architecture
 │   │   ├── ADR-010-document-processing-strategy.md
-│   │   └── ADR-011-queue-abstraction.md
+│   │   ├── ADR-011-queue-abstraction.md
+│   │   └── ADR-012-asynchronous-document-processing.md
 │   │
 │   ├── ai/                      # AI feature specs (knowledge platform)
 │   │   └── 1.knowledge_platform/
@@ -365,7 +375,8 @@ ResearchMind-AI/
 │   │   └── milestones/
 │   │       ├── 030-backend-foundation.md
 │   │       ├── 0.31-engineering-quality.md
-│   │       └── 2026-07-02-processing-platform-summary.md  # Document Processing Platform milestone retrospective
+│   │       ├── 2026-07-02-processing-platform-summary.md  # Document Processing Platform milestone retrospective
+│   │       └── 2026-07-04-asynchronous-document-processing.md  # Queue abstraction + background worker milestone retrospective
 │   │
 │   ├── evaluation/              # Evaluation strategy and metrics
 │   │   ├── benchmarks.md
@@ -572,9 +583,11 @@ ResearchMind-AI/
 | API app | `apps/api/` | FastAPI server — routes, middleware, models, schemas |
 | Frontend | `apps/web/` | Next.js 15 App Router — Cognito auth, dashboard, documents, research |
 | Processing pipeline | `apps/api/app/ai/knowledge/processing/` | Docling parser, metadata/statistics enrichment, artifact builder/writer, registry, service |
-| Upload pipeline | `apps/api/app/ai/knowledge/upload/` | File validation, duplicate detection, S3 upload, checksum hashing |
-| Infrastructure | `apps/api/app/infrastructure/` | S3 storage, SHA-256 hashing, metrics adapters, queue abstraction (planned) |
-| Application services | `apps/api/app/services/` | Auth, user lifecycle, document processing orchestration |
+| Upload pipeline | `apps/api/app/ai/knowledge/upload/` | File validation, duplicate detection, S3 upload, checksum hashing, enqueues async processing job |
+| Async worker | `apps/worker/` | Standalone process consuming the queue, running `DocumentProcessingService` per job, retry/dead-letter handling |
+| Infrastructure | `apps/api/app/infrastructure/` | S3 storage, SHA-256 hashing, metrics adapters, queue abstraction (Valkey/SQS-backed) |
+| Composition roots | `apps/api/app/bootstrap/` | Builds shared object graphs (e.g. the worker) used by multiple entry points |
+| Application services | `apps/api/app/services/` | Auth, user lifecycle, document processing orchestration, queued-job processing |
 | Agents | `agents/` | Autonomous AI agents (planned) |
 | Services | `services/` | Internal service modules — retrieval, ingestion, etc. (planned) |
 | Shared | `shared/` | Cross-cutting code shared by apps and services (planned) |

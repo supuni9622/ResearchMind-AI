@@ -74,6 +74,8 @@ def _make_statistics_service() -> AsyncMock:
 
 def _make_document(blocks: list | None = None) -> ProcessedDocument:
     return ProcessedDocument(
+        document_id=uuid.uuid4(),
+        filename="test.pdf",
         format=DocumentFormat.PDF,
         parser=ParserType.DOCLING,
         metadata=DocumentMetadata(),
@@ -273,6 +275,8 @@ class TestFormatRouting:
     async def test_pdf_request_routes_to_pdf_parser(self) -> None:
         pdf_doc = _make_document()
         txt_doc = ProcessedDocument(
+            document_id=uuid.uuid4(),
+            filename="test.txt",
             format=DocumentFormat.TEXT,
             parser=ParserType.DOCLING,
             metadata=DocumentMetadata(),
@@ -294,6 +298,8 @@ class TestFormatRouting:
 
     async def test_text_request_routes_to_text_parser(self) -> None:
         txt_doc = ProcessedDocument(
+            document_id=uuid.uuid4(),
+            filename="test.txt",
             format=DocumentFormat.TEXT,
             parser=ParserType.DOCLING,
             metadata=DocumentMetadata(),
@@ -316,6 +322,8 @@ class TestFormatRouting:
     async def test_sequential_requests_each_resolve_correctly(self) -> None:
         pdf_doc = _make_document()
         txt_doc = ProcessedDocument(
+            document_id=uuid.uuid4(),
+            filename="test.txt",
             format=DocumentFormat.TEXT,
             parser=ParserType.DOCLING,
             metadata=DocumentMetadata(),

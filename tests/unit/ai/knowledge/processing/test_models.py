@@ -10,6 +10,8 @@ Covers:
 
 from __future__ import annotations
 
+from uuid import uuid4
+
 import pytest
 from app.ai.knowledge.processing.enums import DocumentFormat, ParserType, ProcessingStatus
 from app.ai.knowledge.processing.models import (
@@ -34,6 +36,8 @@ from pydantic import ValidationError
 
 def _make_processed_document(**overrides) -> ProcessedDocument:
     defaults = dict(
+        document_id=uuid4(),
+        filename="test.pdf",
         format=DocumentFormat.PDF,
         parser=ParserType.DOCLING,
         metadata=DocumentMetadata(),
@@ -223,6 +227,8 @@ class TestDiscriminatedUnionRoundTrip:
 
     def test_raw_dict_deserialized_by_discriminator(self) -> None:
         raw = {
+            "document_id": str(uuid4()),
+            "filename": "test.pdf",
             "format": "pdf",
             "parser": "docling",
             "metadata": {},

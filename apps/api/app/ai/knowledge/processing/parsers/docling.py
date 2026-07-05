@@ -117,6 +117,8 @@ class DoclingParser(BaseDocumentParser):
         )
 
         return ProcessedDocument(
+            document_id=request.document_id,
+            filename=request.filename,
             format=request.document_format,
             parser=ParserType.DOCLING,
             metadata=metadata,

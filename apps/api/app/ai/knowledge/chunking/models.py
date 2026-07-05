@@ -51,7 +51,7 @@ class ChunkContent(BaseModel):
 
     content_type: ChunkContentType = Field(
         default=ChunkContentType.TEXT,
-        description="Logical content type represented by this chunk.",
+        description="Logical content type represented by the chunk.",
     )
 
 
@@ -62,34 +62,35 @@ class ChunkContent(BaseModel):
 
 class ChunkStructure(BaseModel):
     """
-    Structural information describing where the chunk originated.
+    Structural information describing where the chunk originated
+    within the source document.
     """
 
     model_config = ConfigDict(extra="forbid")
 
     heading: str | None = Field(
         default=None,
-        description="Nearest heading associated with this chunk.",
+        description="Nearest heading associated with the chunk.",
     )
 
     heading_path: list[str] = Field(
         default_factory=list,
-        description="Hierarchy of headings from root to current section.",
+        description="Heading hierarchy from the document root.",
     )
 
     page_numbers: list[int] = Field(
         default_factory=list,
-        description="Pages covered by this chunk.",
+        description="Pages covered by the chunk.",
     )
 
     hierarchy_level: int | None = Field(
         default=None,
-        description="Hierarchy level of the chunk within the document.",
+        description="Hierarchy level within the document.",
     )
 
-    parent_chunk_id: str | None = Field(
+    parent_chunk_id: UUID | None = Field(
         default=None,
-        description="Parent chunk identifier for hierarchical chunking.",
+        description="Parent chunk identifier used by hierarchical chunking.",
     )
 
 
@@ -132,13 +133,12 @@ class ChunkProvenance(BaseModel):
         description="Unique identifier of the source document.",
     )
 
-    filename: str | None = Field(
-        default=None,
-        description="Original document filename.",
+    filename: str = Field(
+        description="Original filename of the source document.",
     )
 
     parser: str = Field(
-        description="Parser used to generate the processed document.",
+        description="Parser implementation used to produce the processed document.",
     )
 
     parser_version: str | None = Field(
@@ -157,7 +157,7 @@ class ChunkExperiment(BaseModel):
     Metadata describing how the chunk was produced.
 
     These fields support experimentation, benchmarking,
-    and reproducibility.
+    reproducibility, and future evaluation.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -172,7 +172,7 @@ class ChunkExperiment(BaseModel):
     )
 
     configuration_fingerprint: str = Field(
-        description="Unique fingerprint representing the chunking configuration.",
+        description="Stable fingerprint of the chunking configuration.",
     )
 
     experiment_tag: str | None = Field(
@@ -182,7 +182,7 @@ class ChunkExperiment(BaseModel):
 
     additional_metadata: dict[str, Any] = Field(
         default_factory=dict,
-        description="Additional provider-specific metadata.",
+        description="Provider-specific metadata.",
     )
 
 
@@ -195,13 +195,14 @@ class Chunk(BaseModel):
     """
     Canonical knowledge unit of the Knowledge Platform.
 
-    Every downstream AI platform progressively enriches the same Chunk
-    instance throughout its lifecycle.
+    The Chunk is the canonical object that flows through the entire AI
+    pipeline. Downstream platforms progressively enrich the same Chunk
+    instance rather than replacing it with framework-specific models.
     """
 
     model_config = ConfigDict(extra="forbid")
 
-    id: str = Field(
+    id: UUID = Field(
         description="Unique chunk identifier.",
     )
 

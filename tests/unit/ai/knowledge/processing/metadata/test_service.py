@@ -17,6 +17,7 @@ Covers:
 from __future__ import annotations
 
 from pathlib import Path
+from uuid import uuid4
 
 from app.ai.knowledge.processing.enums import DocumentFormat, ParserType
 from app.ai.knowledge.processing.metadata.base import BaseMetadataProvider
@@ -66,6 +67,8 @@ class FakeMetadataProvider(BaseMetadataProvider):
 
 def _make_document(document_format: DocumentFormat) -> ProcessedDocument:
     return ProcessedDocument(
+        document_id=uuid4(),
+        filename="test-document",
         format=document_format,
         parser=ParserType.DOCLING,
         metadata=DocumentMetadata(),

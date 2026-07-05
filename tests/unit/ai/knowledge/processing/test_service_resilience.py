@@ -48,6 +48,8 @@ class FakeParser(DocumentParser):
     async def parse(self, request: ParseRequest) -> ProcessedDocument:
         self.call_count += 1
         return ProcessedDocument(
+            document_id=request.document_id,
+            filename=request.filename,
             format=request.document_format,
             parser=ParserType.DOCLING,
             metadata=DocumentMetadata(),

@@ -41,7 +41,25 @@ ResearchMind-AI/
 │   │       │   │   └── scanners.py          # Input/output scanners
 │   │       │   ├── knowledge/               # RAG knowledge pipeline
 │   │       │   │   ├── cache/               # Semantic caching (planned)
-│   │       │   │   ├── chunking/            # Document chunking strategies (planned)
+│   │       │   │   ├── chunking/            # Document chunking pipeline
+│   │       │   │   │   ├── artifacts/
+│   │       │   │   │   │   ├── builder.py          # ChunkArtifactBuilder — builds ChunkArtifact from generated chunks
+│   │       │   │   │   │   ├── models.py           # ChunkArtifact + sub-models (document, strategy, statistics, evaluation)
+│   │       │   │   │   │   └── writer.py           # ChunkArtifactWriter — persists ChunkArtifact to storage (S3)
+│   │       │   │   │   ├── evaluators/             # Chunk quality evaluators (planned)
+│   │       │   │   │   ├── providers/
+│   │       │   │   │   │   └── fixed.py            # FixedChunkingProvider — fixed-size overlapping character windows
+│   │       │   │   │   ├── statistics/
+│   │       │   │   │   │   └── service.py          # ChunkStatisticsService — character/word/sentence/token statistics
+│   │       │   │   │   ├── base.py                 # BaseChunkingProvider — generic base building the canonical Chunk
+│   │       │   │   │   ├── config.py               # FixedChunkingConfig — chunk_size/chunk_overlap validation
+│   │       │   │   │   ├── enums.py                # ChunkingStrategy, ChunkContentType
+│   │       │   │   │   ├── exceptions.py           # ChunkingError hierarchy
+│   │       │   │   │   ├── factory.py              # create_chunking_service() — composition root (registers Fixed provider)
+│   │       │   │   │   ├── interfaces.py           # ChunkingProvider ABC
+│   │       │   │   │   ├── models.py               # Chunk + sub-models (content, structure, statistics, provenance, experiment)
+│   │       │   │   │   ├── registry.py             # ChunkingRegistry — strategy → provider resolution
+│   │       │   │   │   └── service.py              # ChunkingService — validates document, delegates to provider
 │   │       │   │   ├── embeddings/          # Embedding generation (planned)
 │   │       │   │   ├── processing/          # Document processing pipeline
 │   │       │   │   │   ├── adapters/
@@ -74,7 +92,7 @@ ResearchMind-AI/
 │   │       │   │   │   ├── interfaces.py           # DocumentParser ABC, ParseRequest
 │   │       │   │   │   ├── models.py               # ProcessedDocument, block types, ProcessingResult
 │   │       │   │   │   ├── registry.py             # ParserRegistry — format → parser resolution
-│   │       │   │   │   ├── service.py              # ProcessingService — orchestrates the full pipeline
+│   │       │   │   │   ├── service.py              # ProcessingService — orchestrates the full pipeline (parse → enrich → artifacts → chunk → chunk artifacts)
 │   │       │   │   │   └── temporary_file_manager.py  # Temp file lifecycle for downloaded documents
 │   │       │   │   ├── reranking/           # Result reranking (planned)
 │   │       │   │   ├── retrieval/           # Vector retrieval (planned)
@@ -153,7 +171,7 @@ ResearchMind-AI/
 │   │       │   └── setup.py             # App factory / setup helpers
 │   │       │
 │   │       ├── bootstrap/       # Composition roots shared across entry points
-│   │       │   └── worker.py            # create_processing_worker() — wires the worker's object graph
+│   │       │   └── worker.py            # create_processing_worker() — wires the worker's object graph (incl. Chunking Platform)
 │   │       │
 │   │       ├── db/              # Database layer
 │   │       │   ├── base.py              # SQLAlchemy DeclarativeBase
@@ -167,7 +185,7 @@ ResearchMind-AI/
 │   │       │   ├── cache.py             # Cache dependency
 │   │       │   ├── database.py          # DB session dependency
 │   │       │   ├── settings.py          # Settings dependency
-│   │       │   ├── upload.py            # Upload/processing service dependencies (incl. processing queue, worker)
+│   │       │   ├── upload.py            # Upload/processing service dependencies (incl. processing queue, worker, chunking service/artifact builder/writer)
 │   │       │   └── vector_store.py      # Vector store dependency
 │   │       │
 │   │       ├── exceptions/      # Exception hierarchy and handlers
@@ -304,7 +322,9 @@ ResearchMind-AI/
 │   │   ├── ADR-009-identity-architecture
 │   │   ├── ADR-010-document-processing-strategy.md
 │   │   ├── ADR-011-queue-abstraction.md
-│   │   └── ADR-012-asynchronous-document-processing.md
+│   │   ├── ADR-012-asynchronous-document-processing.md
+│   │   ├── ADR-013-canonical-chunk-model.md
+│   │   └── ADR-014-chunking-provider-architecture.md
 │   │
 │   ├── ai/                      # AI feature specs (knowledge platform)
 │   │   └── 1.knowledge_platform/
@@ -330,6 +350,7 @@ ResearchMind-AI/
 │   ├── architecture/            # System design and architecture docs
 │   │   ├── agent-architecture.md
 │   │   ├── ai-architecture.md
+│   │   ├── ai-framework-integration.md
 │   │   ├── backend-architecture.md
 │   │   ├── coding-standards.md
 │   │   ├── database-design.md
@@ -376,7 +397,8 @@ ResearchMind-AI/
 │   │       ├── 030-backend-foundation.md
 │   │       ├── 0.31-engineering-quality.md
 │   │       ├── 2026-07-02-processing-platform-summary.md  # Document Processing Platform milestone retrospective
-│   │       └── 2026-07-04-asynchronous-document-processing.md  # Queue abstraction + background worker milestone retrospective
+│   │       ├── 2026-07-04-asynchronous-document-processing.md  # Queue abstraction + background worker milestone retrospective
+│   │       └── 2026-07-05-fixed-chunking.md  # Fixed Chunking Platform milestone retrospective (Phase 2.3.3)
 │   │
 │   ├── evaluation/              # Evaluation strategy and metrics
 │   │   ├── benchmarks.md
@@ -504,8 +526,11 @@ ResearchMind-AI/
 │   │   ├── test_reranking.py
 │   │   └── test_retrieval_precision.py
 │   ├── integration/                         # Integration tests
+│   │   ├── ai/knowledge/chunking/
+│   │   │   ├── test_fixed_chunking_pipeline.py    # End-to-end Fixed Chunking pipeline (ordering, provenance, experiment metadata, statistics)
+│   │   │   └── test_fixed_chunking_edge_cases.py  # Overlap preservation; empty/whitespace documents raise ChunkingValidationError
 │   │   ├── ai/knowledge/processing/
-│   │   │   └── test_processing_service.py   # Full DoclingParser → ProcessingService pipeline
+│   │   │   └── test_processing_service.py   # Full DoclingParser → ProcessingService pipeline (incl. chunking stage)
 │   │   ├── ai/knowledge/upload/
 │   │   │   └── test_duplicate_detection.py  # Real UploadService + DuplicateDetectionService against Postgres
 │   │   ├── test_document_repository.py
@@ -583,6 +608,7 @@ ResearchMind-AI/
 | API app | `apps/api/` | FastAPI server — routes, middleware, models, schemas |
 | Frontend | `apps/web/` | Next.js 15 App Router — Cognito auth, dashboard, documents, research |
 | Processing pipeline | `apps/api/app/ai/knowledge/processing/` | Docling parser, metadata/statistics enrichment, artifact builder/writer, registry, service |
+| Chunking pipeline | `apps/api/app/ai/knowledge/chunking/` | Transforms a `ProcessedDocument` into retrieval-ready `Chunk`s via a registry-based provider strategy (Fixed implemented), builds/persists the canonical `ChunkArtifact` (`chunks.json`) |
 | Upload pipeline | `apps/api/app/ai/knowledge/upload/` | File validation, duplicate detection, S3 upload, checksum hashing, enqueues async processing job |
 | Async worker | `apps/worker/` | Standalone process consuming the queue, running `DocumentProcessingService` per job, retry/dead-letter handling |
 | Infrastructure | `apps/api/app/infrastructure/` | S3 storage, SHA-256 hashing, metrics adapters, queue abstraction (Valkey/SQS-backed) |

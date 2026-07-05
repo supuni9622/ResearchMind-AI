@@ -13,9 +13,9 @@ from __future__ import annotations
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
-class FixedChunkingConfig(BaseModel):
+class BaseChunkingConfig(BaseModel):
     """
-    Configuration for the Fixed Chunking provider.
+    Base configuration shared by all chunking providers.
     """
 
     model_config = ConfigDict(
@@ -36,7 +36,7 @@ class FixedChunkingConfig(BaseModel):
     )
 
     @model_validator(mode="after")
-    def validate_overlap(self) -> FixedChunkingConfig:
+    def validate_overlap(self) -> BaseChunkingConfig:
         """
         Ensure overlap is smaller than the chunk size.
         """
@@ -47,3 +47,41 @@ class FixedChunkingConfig(BaseModel):
             )
 
         return self
+
+
+class FixedChunkingConfig(BaseChunkingConfig):
+    """
+    Configuration for the Fixed Chunking provider.
+    """
+
+    pass
+
+
+class RecursiveChunkingConfig(BaseChunkingConfig):
+    """
+    Configuration for the Recursive Chunking provider.
+
+    The provider delegates chunk splitting to LangChain's
+    RecursiveCharacterTextSplitter while keeping LangChain
+    isolated behind the provider layer.
+    """
+
+    separators: list[str] = Field(
+        default_factory=lambda: [
+            "\n\n",
+            "\n",
+            ". ",
+            " ",
+            "",
+        ],
+        description=(
+            "Ordered separators used by the recursive splitter. "
+            "The splitter attempts each separator before falling "
+            "back to the next."
+        ),
+    )
+
+    keep_separator: bool = Field(
+        default=True,
+        description="Whether matched separators should remain in the resulting chunks.",
+    )

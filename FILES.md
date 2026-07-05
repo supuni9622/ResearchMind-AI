@@ -117,13 +117,36 @@ AI subsystem. Document processing, metadata/statistics enrichment, and upload (i
 | Directory | Status |
 |-----------|--------|
 | `cache/` | (empty) — planned semantic caching |
-| `chunking/` | (empty) — planned document chunking |
+| `chunking/` | **Implemented** — see below |
 | `embeddings/` | (empty) — planned embedding generation |
 | `processing/` | **Implemented** — see below |
 | `reranking/` | (empty) — planned result reranking |
 | `retrieval/` | (empty) — planned vector retrieval |
 | `upload/` | **Implemented** — see below |
 | `vectorstores/` | (empty) — planned vector store abstraction |
+
+##### `ai/knowledge/chunking/` — **Implemented**
+
+Chunking pipeline. Transforms a canonical `ProcessedDocument` into retrieval-ready `Chunk` objects and persists a full chunking run as a canonical `ChunkArtifact` (`chunks.json`). Structurally parallel to `processing/`: a provider registry behind a single service, plus a dedicated `artifacts/` sub-package for the persisted output. Only the Fixed strategy is implemented so far; the enum already lists Recursive/Markdown/Hierarchical/Semantic/LLM/Adaptive for future providers.
+
+| File | Description |
+|------|-------------|
+| `__init__.py` | (empty) |
+| `base.py` | `BaseChunkingProvider[ConfigT]` — generic base class; builds the canonical `Chunk` (provenance, experiment metadata, statistics) so concrete providers only decide chunk boundaries |
+| `config.py` | `FixedChunkingConfig` — `chunk_size`/`chunk_overlap`, with a validator ensuring overlap is smaller than chunk size |
+| `enums.py` | `ChunkingStrategy` (fixed/recursive/markdown/hierarchical/semantic/llm/adaptive), `ChunkContentType` |
+| `exceptions.py` | `ChunkingError` hierarchy — `ChunkingProviderNotFoundError`, `ChunkingValidationError` |
+| `factory.py` | `create_chunking_service()` — composition root; registers all chunking providers (currently: Fixed) |
+| `interfaces.py` | `ChunkingProvider` ABC |
+| `models.py` | `Chunk` and its sub-models — `ChunkContent`, `ChunkStructure`, `ChunkStatistics`, `ChunkProvenance`, `ChunkExperiment` |
+| `registry.py` | `ChunkingRegistry` — strategy → provider resolution |
+| `service.py` | `ChunkingService` — validates the document (rejects empty/whitespace-only text via `ChunkingValidationError`), resolves the provider, delegates chunk generation |
+| `providers/fixed.py` | `FixedChunkingProvider` — fixed-size overlapping character windows; stops once a window reaches the end of the text so the final chunk's overlap with its predecessor is never short |
+| `statistics/service.py` | `ChunkStatisticsService` — character/word/sentence counts, estimated token count (4-chars-per-token heuristic), average token length; shared by every provider |
+| `artifacts/models.py` | `ChunkArtifact` — canonical persistence model for a full chunking run (`document`, `strategy`, `statistics`, `evaluation`, `chunks`), serialized to `chunks.json` |
+| `artifacts/builder.py` | `ChunkArtifactBuilder` — builds a `ChunkArtifact` from a list of `Chunk`s |
+| `artifacts/writer.py` | `ChunkArtifactWriter` — persists a `ChunkArtifact` to storage under `documents/{owner_id}/{document_id}/chunking/{strategy}/{artifact_id}/chunks.json` |
+| `evaluators/` | (empty) — planned chunk quality evaluators |
 
 ##### `ai/knowledge/processing/` — **Implemented**
 
@@ -141,7 +164,7 @@ AI subsystem. Document processing, metadata/statistics enrichment, and upload (i
 | `interfaces.py` | `DocumentParser` ABC, `ParseRequest` |
 | `models.py` | `ProcessedDocument`, block types, `ProcessingResult` |
 | `registry.py` | `ParserRegistry` — format → parser resolution |
-| `service.py` | `ProcessingService` — orchestrates the full pipeline (parse → enrich → build artifacts → write) |
+| `service.py` | `ProcessingService` — orchestrates the full pipeline (parse → enrich → build/write artifacts → chunk → persist chunk artifacts) |
 | `temporary_file_manager.py` | `TemporaryFileManager` — creates temp files from downloaded document bytes, preserves extension, cleans up after processing |
 
 ###### `ai/knowledge/processing/metadata/` — **Implemented**
@@ -301,7 +324,7 @@ All files empty — planned shared AI types and interfaces.
 
 | File | Description |
 |------|-------------|
-| `worker.py` | Application composition root for the worker process — `create_processing_worker(session)` wires up storage, parser/metadata/statistics registries, `ProcessingService`, `DocumentProcessingService`, `QueuedDocumentProcessingService`, and the configured queue into a `ProcessingWorker` |
+| `worker.py` | Application composition root for the worker process — `create_processing_worker(session)` wires up storage, parser/metadata/statistics registries, the Chunking Platform (`create_chunking_service()`, `ChunkArtifactBuilder`, `ChunkArtifactWriter`), `ProcessingService`, `DocumentProcessingService`, `QueuedDocumentProcessingService`, and the configured queue into a `ProcessingWorker` |
 
 ---
 
@@ -326,7 +349,7 @@ All files empty — planned shared AI types and interfaces.
 | `cache.py` | (empty) |
 | `database.py` | (empty) |
 | `settings.py` | (empty) |
-| `upload.py` | FastAPI dependency providers for the upload/processing workflow: `get_document_storage`, `get_file_hasher`, `get_document_repository`, `get_processing_queue`, `get_processing_service`, `get_document_processing_service`, `get_queued_document_processing_service`, `get_upload_service`, `get_processing_worker` |
+| `upload.py` | FastAPI dependency providers for the upload/processing workflow: `get_document_storage`, `get_file_hasher`, `get_document_repository`, `get_processing_queue`, `get_processing_service` (now also wires the Chunking Platform — `_get_chunking_service`, `_get_chunk_artifact_builder`, `ChunkArtifactWriter`), `get_document_processing_service`, `get_queued_document_processing_service`, `get_upload_service`, `get_processing_worker` |
 | `vector_store.py` | (empty) |
 
 ---
@@ -558,6 +581,8 @@ All empty.
 | `ADR-010-document-processing-strategy.md` | Decision: document processing pipeline strategy (Docling-based parsing) |
 | `ADR-011-queue-abstraction.md` | Decision: queue abstraction for asynchronous document processing (SQS/Valkey-backed) |
 | `ADR-012-asynchronous-document-processing.md` | Decision: move document processing off the upload request path into a standalone worker consuming the queue |
+| `ADR-013-canonical-chunk-model.md` | Decision: canonical `Chunk` model — the framework-independent knowledge unit consumed by embeddings/retrieval/reranking/citation/evaluation |
+| `ADR-014-chunking-provider-architecture.md` | Decision: chunking provider architecture — registry-based strategy pattern supporting multiple simultaneous chunking strategies |
 
 ---
 
@@ -618,6 +643,7 @@ All empty.
 | `security.md` | (empty) |
 | `system-overview.md` | High-level system overview |
 | `tech-stack.md` | (empty) |
+| `ai-framework-integration.md` | AI framework integration strategy — approach for integrating with external AI frameworks/providers (e.g. LangChain) |
 
 ---
 
@@ -663,6 +689,7 @@ All empty.
 | `milestones/0.31-engineering-quality.md` | Milestone 0.31 retrospective |
 | `milestones/2026-07-02-processing-platform-summary.md` | Milestone retrospective: first end-to-end Document Processing Platform implementation |
 | `milestones/2026-07-04-asynchronous-document-processing.md` | Milestone retrospective: asynchronous document processing — queue abstraction, background worker, retry/dead-letter handling, worker metrics, graceful shutdown |
+| `milestones/2026-07-05-fixed-chunking.md` | Milestone retrospective (Phase 2.3.3): first production-ready Fixed Chunking Platform implementation |
 | `milestones/README.md` | Milestones index |
 
 ---
@@ -875,7 +902,9 @@ All empty — planned cross-cutting code.
 | `api/__init__.py` | Package marker |
 | `api/test_health.py` | Tests `GET /api/v1/health` returns `healthy` when all services are up |
 | `integration/__init__.py` | Package marker |
-| `integration/ai/knowledge/processing/test_processing_service.py` | Full DoclingParser → ProcessingService pipeline integration test |
+| `integration/ai/knowledge/chunking/test_fixed_chunking_pipeline.py` | End-to-end Fixed Chunking pipeline test — `ProcessedDocument` → `ChunkingService` → `FixedChunkingProvider` → `list[Chunk]`, verifying ordering, provenance, experiment metadata, statistics |
+| `integration/ai/knowledge/chunking/test_fixed_chunking_edge_cases.py` | Fixed Chunking edge cases — overlap is preserved between every consecutive chunk pair (incl. the truncated final chunk); empty/whitespace-only documents raise `ChunkingValidationError` |
+| `integration/ai/knowledge/processing/test_processing_service.py` | Full DoclingParser → ProcessingService pipeline integration test (parse → enrich → artifacts → chunk → chunk artifacts), using the real Chunking Platform |
 | `integration/ai/knowledge/upload/test_duplicate_detection.py` | Integration test: real `UploadService`, `DuplicateDetectionService`, `DocumentRepository`, `SHA256Hasher` against the Postgres test DB (only S3 is faked) |
 | `integration/test_document_repository.py` | (empty) |
 | `integration/test_document_service.py` | (empty) |

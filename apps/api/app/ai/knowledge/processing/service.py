@@ -304,19 +304,35 @@ class ProcessingService:
         Persistence is intentionally delegated to the final step.
         """
 
+        # log.debug(
+        #     "processing.chunking.started",
+        #     strategy=ChunkingStrategy.FIXED.value,
+        # )
+
+        # chunks = await self._chunking_service.chunk(
+        #     document=document,
+        #     strategy=ChunkingStrategy.FIXED,
+        # )
+
+        # log.info(
+        #     "processing.chunking.completed",
+        #     strategy=ChunkingStrategy.FIXED.value,
+        #     chunk_count=len(chunks),
+        # )
+
         log.debug(
             "processing.chunking.started",
-            strategy=ChunkingStrategy.FIXED.value,
+            strategy=ChunkingStrategy.RECURSIVE.value,
         )
 
         chunks = await self._chunking_service.chunk(
             document=document,
-            strategy=ChunkingStrategy.FIXED,
+            strategy=ChunkingStrategy.RECURSIVE,
         )
 
         log.info(
             "processing.chunking.completed",
-            strategy=ChunkingStrategy.FIXED.value,
+            strategy=ChunkingStrategy.RECURSIVE.value,
             chunk_count=len(chunks),
         )
 
@@ -331,5 +347,3 @@ class ProcessingService:
             artifact_id=str(artifact.artifact_id),
         )
         return artifact
-
-        # Task 4 will persist this artifact.

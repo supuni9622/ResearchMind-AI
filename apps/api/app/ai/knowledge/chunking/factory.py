@@ -11,8 +11,15 @@ provider here without modifying the rest of the application.
 
 from __future__ import annotations
 
-from app.ai.knowledge.chunking.config import FixedChunkingConfig
+from app.ai.knowledge.chunking.config import (
+    FixedChunkingConfig,
+    RecursiveChunkingConfig,
+)
+from app.ai.knowledge.chunking.interfaces import ChunkingProvider
 from app.ai.knowledge.chunking.providers.fixed import FixedChunkingProvider
+from app.ai.knowledge.chunking.providers.recursive import (
+    RecursiveChunkingProvider,
+)
 from app.ai.knowledge.chunking.registry import ChunkingRegistry
 from app.ai.knowledge.chunking.service import ChunkingService
 
@@ -24,11 +31,17 @@ def create_chunking_service() -> ChunkingService:
 
     registry = ChunkingRegistry()
 
-    registry.register(
+    providers: list[ChunkingProvider] = [
         FixedChunkingProvider(
             FixedChunkingConfig(),
-        )
-    )
+        ),
+        RecursiveChunkingProvider(
+            RecursiveChunkingConfig(),
+        ),
+    ]
+
+    for provider in providers:
+        registry.register(provider)
 
     return ChunkingService(
         registry=registry,

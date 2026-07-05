@@ -23,6 +23,9 @@ from __future__ import annotations
 
 import structlog
 
+# from app.ai.knowledge.chunking.artifacts.builder import ChunkArtifactBuilder
+# from app.ai.knowledge.chunking.artifacts.writer import ChunkArtifactWriter
+# from app.ai.knowledge.chunking.service import ChunkingService
 from app.ai.knowledge.processing.artifact_builder import ArtifactBuilder
 from app.ai.knowledge.processing.artifact_writer import ArtifactWriter
 from app.ai.knowledge.processing.enums import ProcessingStatus
@@ -65,6 +68,9 @@ class ProcessingService:
         statistics_service: StatisticsEnrichmentService,
         artifact_builder: ArtifactBuilder,
         artifact_writer: ArtifactWriter,
+        # chunking_service: ChunkingService,
+        # chunk_artifact_builder: ChunkArtifactBuilder,
+        # chunk_artifact_writer: ChunkArtifactWriter,
     ) -> None:
         self._storage = storage
         self._temporary_file_manager = temporary_file_manager
@@ -73,6 +79,9 @@ class ProcessingService:
         self._statistics_service = statistics_service
         self._artifact_builder = artifact_builder
         self._artifact_writer = artifact_writer
+        # self._chunking_service = chunking_service
+        # self._chunk_artifact_builder = chunk_artifact_builder
+        # self._chunk_artifact_writer = chunk_artifact_writer
 
     async def process(
         self,
@@ -96,6 +105,7 @@ class ProcessingService:
             parser = self._parser_registry.get_parser(
                 request.document_format,
             )
+
         except ParserNotFoundError:
             log.warning(
                 "processing.parser_not_found",
@@ -130,6 +140,18 @@ class ProcessingService:
 
                 document: ProcessedDocument = await parser.parse(
                     parser_request,
+                )
+
+                # Enrich the parsed document with application-level metadata.
+                document = document.model_copy(
+                    update={
+                        "document_id": request.document_id,
+                        "filename": request.filename,
+                    }
+                )
+                log.info(
+                    "processing.document_enriched",
+                    document=document.model_dump(mode="json"),
                 )
 
                 log.debug(
@@ -175,12 +197,57 @@ class ProcessingService:
             word_count=document.statistics.word_count,
         )
 
+        log.debug(
+            "processing.parse_completed",
+            parser=parser.parser_name,
+            character_count=document.statistics.character_count,
+            word_count=document.statistics.word_count,
+        )
+
+        await self._persist_processing_artifacts(
+            owner_id=owner_id,
+            request=request,
+            document=document,
+            parser_name=parser.parser_name,
+            log=log,
+        )
+
+        log.info("processing.completed")
+
+        return ProcessingResult(
+            status=ProcessingStatus.COMPLETED,
+            document=document,
+        )
+
+    async def _persist_processing_artifacts(
+        self,
+        *,
+        owner_id: str,
+        request: ParseRequest,
+        document: ProcessedDocument,
+        parser_name: str,
+        log: structlog.typing.FilteringBoundLogger,
+    ) -> None:
+        """
+        Build and persist processing artifacts.
+
+        This stage serializes the canonical processed document into the
+        processing artifacts consumed by downstream AI platforms.
+        """
+
         try:
+            log.info(
+                "processing.document_before_artifact_builder",
+                document=document.model_dump(mode="json"),
+            )
+
             artifacts = self._artifact_builder.build(
                 document,
             )
 
-            log.debug("processing.artifacts_built")
+            log.debug(
+                "processing.artifacts_built",
+            )
 
             await self._artifact_writer.write(
                 owner_id=owner_id,
@@ -191,14 +258,7 @@ class ProcessingService:
         except Exception as exc:
             log.exception(
                 "processing.artifact_persistence_failed",
-                parser=parser.parser_name,
+                parser=parser_name,
                 exc_type=type(exc).__name__,
             )
             raise
-
-        log.info("processing.completed")
-
-        return ProcessingResult(
-            status=ProcessingStatus.COMPLETED,
-            document=document,
-        )

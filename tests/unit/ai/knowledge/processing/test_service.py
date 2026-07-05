@@ -171,7 +171,10 @@ class TestProcessingServiceHappyPath:
     ) -> None:
         request = _make_request(DocumentFormat.PDF)
         result = await service.process(owner_id=_OWNER_ID, request=request)
-        assert result.document is document
+        expected = document.model_copy(
+            update={"document_id": request.document_id, "filename": request.filename}
+        )
+        assert result.document == expected
 
     async def test_parser_called_exactly_once(
         self,
@@ -289,10 +292,12 @@ class TestFormatRouting:
         txt_parser = FakeParser({DocumentFormat.TEXT}, result=txt_doc)
         service = _make_service(pdf_parser, txt_parser)
 
-        result = await service.process(
-            owner_id=_OWNER_ID, request=_make_request(DocumentFormat.PDF)
+        request = _make_request(DocumentFormat.PDF)
+        result = await service.process(owner_id=_OWNER_ID, request=request)
+        expected = pdf_doc.model_copy(
+            update={"document_id": request.document_id, "filename": request.filename}
         )
-        assert result.document is pdf_doc
+        assert result.document == expected
         assert pdf_parser.call_count == 1
         assert txt_parser.call_count == 0
 
@@ -312,10 +317,12 @@ class TestFormatRouting:
         txt_parser = FakeParser({DocumentFormat.TEXT}, result=txt_doc)
         service = _make_service(pdf_parser, txt_parser)
 
-        result = await service.process(
-            owner_id=_OWNER_ID, request=_make_request(DocumentFormat.TEXT)
+        request = _make_request(DocumentFormat.TEXT)
+        result = await service.process(owner_id=_OWNER_ID, request=request)
+        expected = txt_doc.model_copy(
+            update={"document_id": request.document_id, "filename": request.filename}
         )
-        assert result.document is txt_doc
+        assert result.document == expected
         assert txt_parser.call_count == 1
         assert pdf_parser.call_count == 0
 
@@ -336,8 +343,16 @@ class TestFormatRouting:
         txt_parser = FakeParser({DocumentFormat.TEXT}, result=txt_doc)
         service = _make_service(pdf_parser, txt_parser)
 
-        r1 = await service.process(owner_id=_OWNER_ID, request=_make_request(DocumentFormat.PDF))
-        r2 = await service.process(owner_id=_OWNER_ID, request=_make_request(DocumentFormat.TEXT))
+        pdf_request = _make_request(DocumentFormat.PDF)
+        txt_request = _make_request(DocumentFormat.TEXT)
+        r1 = await service.process(owner_id=_OWNER_ID, request=pdf_request)
+        r2 = await service.process(owner_id=_OWNER_ID, request=txt_request)
 
-        assert r1.document is pdf_doc
-        assert r2.document is txt_doc
+        expected_pdf = pdf_doc.model_copy(
+            update={"document_id": pdf_request.document_id, "filename": pdf_request.filename}
+        )
+        expected_txt = txt_doc.model_copy(
+            update={"document_id": txt_request.document_id, "filename": txt_request.filename}
+        )
+        assert r1.document == expected_pdf
+        assert r2.document == expected_txt

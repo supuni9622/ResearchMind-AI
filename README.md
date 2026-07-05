@@ -397,6 +397,17 @@ Only use `docker compose down -v` when you want a completely clean slate (e.g. r
 
 ---
 
+## Benchmark reports running
+
+1. Chunking
+```
+uv run python -m benchmarks.runner chunking --dataset benchmarks/datasets/research-papers --output benchmarks/chunking/reports
+
+# optionally: --output benchmarks/chunking/reports
+```
+
+---
+
 ## Authentication (AWS Cognito)
 
 ResearchMind uses AWS Cognito Hosted UI for authentication. The API validates

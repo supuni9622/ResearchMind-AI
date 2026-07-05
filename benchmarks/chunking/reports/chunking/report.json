@@ -1,0 +1,53 @@
+{
+  "benchmark_name": "Chunking",
+  "generated_at": "2026-07-05T17:58:25.194062Z",
+  "dataset": {
+    "name": "research-papers",
+    "document_count": 5
+  },
+  "candidates": [
+    {
+      "name": "fixed",
+      "version": "1.0",
+      "metrics": {
+        "documents": 5,
+        "total_chunks": 1247,
+        "average_chunk_size": 499.18,
+        "average_word_count": 67.28,
+        "average_token_count": 124.79,
+        "min_chunk_size": 494,
+        "max_chunk_size": 499
+      },
+      "notes": {}
+    },
+    {
+      "name": "recursive",
+      "version": "1.0",
+      "metrics": {
+        "documents": 5,
+        "total_chunks": 1481,
+        "average_chunk_size": 336.64,
+        "average_word_count": 46.1,
+        "average_token_count": 83.8,
+        "min_chunk_size": 330,
+        "max_chunk_size": 347
+      },
+      "notes": {}
+    },
+    {
+      "name": "markdown",
+      "version": "1.0",
+      "metrics": {
+        "documents": 5,
+        "total_chunks": 1500,
+        "average_chunk_size": 343.97,
+        "average_word_count": 47.21,
+        "average_token_count": 85.62,
+        "min_chunk_size": 229,
+        "max_chunk_size": 373
+      },
+      "notes": {}
+    }
+  ],
+  "summary": {}
+}

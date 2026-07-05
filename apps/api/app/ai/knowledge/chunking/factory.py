@@ -26,9 +26,13 @@ from app.ai.knowledge.chunking.registry import ChunkingRegistry
 from app.ai.knowledge.chunking.service import ChunkingService
 
 
-def create_chunking_service() -> ChunkingService:
+def create_chunking_registry() -> ChunkingRegistry:
     """
-    Create a fully configured ChunkingService.
+    Create a fully configured ChunkingRegistry.
+
+    This is the single place where chunking providers are constructed and
+    registered. Both `create_chunking_service()` and the Benchmark Platform
+    depend on this function rather than duplicating provider construction.
     """
 
     registry = ChunkingRegistry()
@@ -48,6 +52,14 @@ def create_chunking_service() -> ChunkingService:
     for provider in providers:
         registry.register(provider)
 
+    return registry
+
+
+def create_chunking_service() -> ChunkingService:
+    """
+    Create a fully configured ChunkingService.
+    """
+
     return ChunkingService(
-        registry=registry,
+        registry=create_chunking_registry(),
     )

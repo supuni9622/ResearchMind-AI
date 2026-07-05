@@ -12,6 +12,7 @@ rest of the application remains framework-independent.
 from __future__ import annotations
 
 from app.ai.knowledge.chunking.base import BaseChunkingProvider
+from app.ai.knowledge.chunking.chunk_factory import ChunkFactory
 from app.ai.knowledge.chunking.config import RecursiveChunkingConfig
 from app.ai.knowledge.chunking.enums import ChunkingStrategy
 from app.ai.knowledge.chunking.models import Chunk
@@ -19,7 +20,9 @@ from app.ai.knowledge.processing.models import ProcessedDocument
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 
-class RecursiveChunkingProvider(BaseChunkingProvider[RecursiveChunkingConfig]):
+class RecursiveChunkingProvider(
+    BaseChunkingProvider[RecursiveChunkingConfig],
+):
     """
     Recursive chunking implementation.
 
@@ -35,11 +38,11 @@ class RecursiveChunkingProvider(BaseChunkingProvider[RecursiveChunkingConfig]):
 
     @property
     def strategy(self) -> ChunkingStrategy:
-        return ChunkingStrategy.RECURSIVE
+        """
+        Chunking strategy implemented by this provider.
+        """
 
-    @property
-    def config(self) -> RecursiveChunkingConfig:
-        return self._config
+        return ChunkingStrategy.RECURSIVE
 
     async def chunk(
         self,
@@ -72,16 +75,15 @@ class RecursiveChunkingProvider(BaseChunkingProvider[RecursiveChunkingConfig]):
 
         total_chunks = len(chunk_texts)
 
-        chunks: list[Chunk] = []
-
-        for index, chunk_text in enumerate(chunk_texts):
-            chunks.append(
-                self._build_chunk(
-                    document=document,
-                    text=chunk_text,
-                    index=index,
-                    total_chunks=total_chunks,
-                )
+        return [
+            ChunkFactory.from_text(
+                document=document,
+                text=chunk_text,
+                index=index,
+                total_chunks=total_chunks,
+                strategy=self.strategy,
+                strategy_version=self.version,
+                configuration_fingerprint=self.configuration_fingerprint,
             )
-
-        return chunks
+            for index, chunk_text in enumerate(chunk_texts)
+        ]

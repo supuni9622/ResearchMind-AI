@@ -11,6 +11,7 @@ Future chunking strategies are evaluated relative to this implementation.
 from __future__ import annotations
 
 from app.ai.knowledge.chunking.base import BaseChunkingProvider
+from app.ai.knowledge.chunking.chunk_factory import ChunkFactory
 from app.ai.knowledge.chunking.config import FixedChunkingConfig
 from app.ai.knowledge.chunking.enums import ChunkingStrategy
 from app.ai.knowledge.chunking.models import Chunk
@@ -85,11 +86,14 @@ class FixedChunkingProvider(
         total_chunks = len(chunk_texts)
 
         return [
-            self._build_chunk(
+            ChunkFactory.from_text(
                 document=document,
                 text=chunk_text,
                 index=index,
                 total_chunks=total_chunks,
+                strategy=self.strategy,
+                strategy_version=self.version,
+                configuration_fingerprint=self.configuration_fingerprint,
             )
             for index, chunk_text in enumerate(chunk_texts)
         ]

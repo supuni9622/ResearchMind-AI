@@ -85,3 +85,54 @@ class RecursiveChunkingConfig(BaseChunkingConfig):
         default=True,
         description="Whether matched separators should remain in the resulting chunks.",
     )
+
+
+class MarkdownChunkingConfig(BaseModel):
+    """
+    Configuration for the Markdown Chunking provider.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+        frozen=True,
+    )
+
+    headers_to_split_on: tuple[tuple[str, str], ...] = (
+        ("#", "h1"),
+        ("##", "h2"),
+        ("###", "h3"),
+        ("####", "h4"),
+        ("#####", "h5"),
+        ("######", "h6"),
+    )
+
+    strip_headers: bool = Field(
+        default=False,
+        description="Whether Markdown headers should be removed from chunks.",
+    )
+
+    return_each_line: bool = Field(
+        default=False,
+        description="Whether every line should become an individual document.",
+    )
+
+    chunk_size: int = Field(
+        default=500,
+        ge=1,
+        description="Maximum recursive chunk size.",
+    )
+
+    chunk_overlap: int = Field(
+        default=100,
+        ge=0,
+        description="Chunk overlap after Markdown section splitting.",
+    )
+
+    @model_validator(mode="after")
+    def validate_overlap(self) -> MarkdownChunkingConfig:
+        if self.chunk_overlap >= self.chunk_size:
+            raise ValueError(
+                "chunk_overlap must be smaller than chunk_size.",
+            )
+
+        return self

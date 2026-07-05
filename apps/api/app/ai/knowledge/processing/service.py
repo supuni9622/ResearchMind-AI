@@ -320,19 +320,35 @@ class ProcessingService:
         #     chunk_count=len(chunks),
         # )
 
+        # log.debug(
+        #     "processing.chunking.started",
+        #     strategy=ChunkingStrategy.RECURSIVE.value,
+        # )
+
+        # chunks = await self._chunking_service.chunk(
+        #     document=document,
+        #     strategy=ChunkingStrategy.RECURSIVE,
+        # )
+
+        # log.info(
+        #     "processing.chunking.completed",
+        #     strategy=ChunkingStrategy.RECURSIVE.value,
+        #     chunk_count=len(chunks),
+        # )
+
         log.debug(
             "processing.chunking.started",
-            strategy=ChunkingStrategy.RECURSIVE.value,
+            strategy=ChunkingStrategy.MARKDOWN.value,
         )
 
         chunks = await self._chunking_service.chunk(
             document=document,
-            strategy=ChunkingStrategy.RECURSIVE,
+            strategy=ChunkingStrategy.MARKDOWN,
         )
 
         log.info(
             "processing.chunking.completed",
-            strategy=ChunkingStrategy.RECURSIVE.value,
+            strategy=ChunkingStrategy.MARKDOWN.value,
             chunk_count=len(chunks),
         )
 

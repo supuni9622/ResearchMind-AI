@@ -3,6 +3,8 @@ from unittest.mock import AsyncMock
 from uuid import uuid4
 
 import pytest
+from app.ai.knowledge.chunking.artifacts.builder import ChunkArtifactBuilder
+from app.ai.knowledge.chunking.factory import create_chunking_service
 from app.ai.knowledge.processing.artifact_builder import ArtifactBuilder
 from app.ai.knowledge.processing.enums import (
     DocumentFormat,
@@ -59,6 +61,9 @@ async def test_processing_service_processes_pdf():
     writer = AsyncMock()
     writer.write = AsyncMock(return_value=None)
 
+    chunk_artifact_writer = AsyncMock()
+    chunk_artifact_writer.write = AsyncMock(return_value=None)
+
     storage = AsyncMock()
     storage.download = AsyncMock(
         return_value=Path("tests/fixtures/sample.pdf").read_bytes(),
@@ -89,6 +94,9 @@ async def test_processing_service_processes_pdf():
         statistics_service=statistics_service,
         artifact_builder=ArtifactBuilder(),
         artifact_writer=writer,
+        chunking_service=create_chunking_service(),
+        chunk_artifact_builder=ChunkArtifactBuilder(),
+        chunk_artifact_writer=chunk_artifact_writer,
     )
 
     request = ParseRequest(

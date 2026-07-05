@@ -12,7 +12,7 @@ Covers:
 from __future__ import annotations
 
 import uuid
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from app.ai.knowledge.processing.artifact_builder import ArtifactBuilder
@@ -72,6 +72,27 @@ def _make_statistics_service() -> AsyncMock:
     return statistics_service
 
 
+def _make_chunking_service() -> AsyncMock:
+    """Build a fake chunking service: returns a single dummy chunk."""
+    chunking_service = AsyncMock()
+    chunking_service.chunk = AsyncMock(return_value=[MagicMock()])
+    return chunking_service
+
+
+def _make_chunk_artifact_builder() -> MagicMock:
+    """Build a fake chunk artifact builder: returns an opaque artifact."""
+    builder = MagicMock()
+    builder.build = MagicMock(return_value=MagicMock())
+    return builder
+
+
+def _make_chunk_artifact_writer() -> AsyncMock:
+    """Build a no-op chunk artifact writer."""
+    writer = AsyncMock()
+    writer.write = AsyncMock(return_value=None)
+    return writer
+
+
 def _make_document(blocks: list | None = None) -> ProcessedDocument:
     return ProcessedDocument(
         document_id=uuid.uuid4(),
@@ -99,6 +120,9 @@ def _make_service(parser: DocumentParser, *extra_parsers: DocumentParser) -> Pro
         statistics_service=_make_statistics_service(),
         artifact_builder=ArtifactBuilder(),
         artifact_writer=writer,
+        chunking_service=_make_chunking_service(),
+        chunk_artifact_builder=_make_chunk_artifact_builder(),
+        chunk_artifact_writer=_make_chunk_artifact_writer(),
     )
 
 
@@ -256,6 +280,9 @@ class TestRegistryErrors:
             statistics_service=_make_statistics_service(),
             artifact_builder=ArtifactBuilder(),
             artifact_writer=writer,
+            chunking_service=_make_chunking_service(),
+            chunk_artifact_builder=_make_chunk_artifact_builder(),
+            chunk_artifact_writer=_make_chunk_artifact_writer(),
         )
 
         with pytest.raises(ParserNotFoundError):

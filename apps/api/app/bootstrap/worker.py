@@ -7,6 +7,9 @@ multiple application entry points (API, workers, CLI, etc.).
 
 from __future__ import annotations
 
+from app.ai.knowledge.chunking.artifacts.builder import ChunkArtifactBuilder
+from app.ai.knowledge.chunking.artifacts.writer import ChunkArtifactWriter
+from app.ai.knowledge.chunking.factory import create_chunking_service
 from app.ai.knowledge.processing.artifact_builder import ArtifactBuilder
 from app.ai.knowledge.processing.artifact_writer import ArtifactWriter
 from app.ai.knowledge.processing.metadata.providers.language import (
@@ -84,6 +87,9 @@ def create_processing_worker(
         ),
         artifact_builder=ArtifactBuilder(),
         artifact_writer=ArtifactWriter(storage),
+        chunking_service=create_chunking_service(),
+        chunk_artifact_builder=ChunkArtifactBuilder(),
+        chunk_artifact_writer=ChunkArtifactWriter(storage),
     )
 
     repository = DocumentRepository(session)

@@ -23,9 +23,11 @@ from __future__ import annotations
 
 import structlog
 
-# from app.ai.knowledge.chunking.artifacts.builder import ChunkArtifactBuilder
-# from app.ai.knowledge.chunking.artifacts.writer import ChunkArtifactWriter
-# from app.ai.knowledge.chunking.service import ChunkingService
+from app.ai.knowledge.chunking.artifacts.builder import ChunkArtifactBuilder
+from app.ai.knowledge.chunking.artifacts.models import ChunkArtifact
+from app.ai.knowledge.chunking.artifacts.writer import ChunkArtifactWriter
+from app.ai.knowledge.chunking.enums import ChunkingStrategy
+from app.ai.knowledge.chunking.service import ChunkingService
 from app.ai.knowledge.processing.artifact_builder import ArtifactBuilder
 from app.ai.knowledge.processing.artifact_writer import ArtifactWriter
 from app.ai.knowledge.processing.enums import ProcessingStatus
@@ -68,9 +70,9 @@ class ProcessingService:
         statistics_service: StatisticsEnrichmentService,
         artifact_builder: ArtifactBuilder,
         artifact_writer: ArtifactWriter,
-        # chunking_service: ChunkingService,
-        # chunk_artifact_builder: ChunkArtifactBuilder,
-        # chunk_artifact_writer: ChunkArtifactWriter,
+        chunking_service: ChunkingService,
+        chunk_artifact_builder: ChunkArtifactBuilder,
+        chunk_artifact_writer: ChunkArtifactWriter,
     ) -> None:
         self._storage = storage
         self._temporary_file_manager = temporary_file_manager
@@ -79,9 +81,9 @@ class ProcessingService:
         self._statistics_service = statistics_service
         self._artifact_builder = artifact_builder
         self._artifact_writer = artifact_writer
-        # self._chunking_service = chunking_service
-        # self._chunk_artifact_builder = chunk_artifact_builder
-        # self._chunk_artifact_writer = chunk_artifact_writer
+        self._chunking_service = chunking_service
+        self._chunk_artifact_builder = chunk_artifact_builder
+        self._chunk_artifact_writer = chunk_artifact_writer
 
     async def process(
         self,
@@ -212,6 +214,29 @@ class ProcessingService:
             log=log,
         )
 
+        chunk_artifact = await self._execute_chunking_stage(
+            owner_id=owner_id,
+            document=document,
+            log=log,
+        )
+        log.debug(
+            "processing.chunking.preview",
+            first_chunk=chunk_artifact.chunks[0].content.text[:200]
+            if chunk_artifact.chunks
+            else None,
+        )
+
+        await self._chunk_artifact_writer.write(
+            owner_id=owner_id,
+            artifact=chunk_artifact,
+        )
+
+        log.info(
+            "processing.chunk_artifacts_persisted",
+            strategy=chunk_artifact.strategy.strategy.value,
+            artifact_id=str(chunk_artifact.artifact_id),
+        )
+
         log.info("processing.completed")
 
         return ProcessingResult(
@@ -262,3 +287,49 @@ class ProcessingService:
                 exc_type=type(exc).__name__,
             )
             raise
+
+    async def _execute_chunking_stage(
+        self,
+        *,
+        owner_id: str,
+        document: ProcessedDocument,
+        log: structlog.typing.FilteringBoundLogger,
+    ) -> ChunkArtifact:
+        """
+        Execute the document chunking stage.
+
+        This stage transforms the canonical processed document into
+        retrieval-ready chunks and builds the canonical chunk artifact.
+
+        Persistence is intentionally delegated to the final step.
+        """
+
+        log.debug(
+            "processing.chunking.started",
+            strategy=ChunkingStrategy.FIXED.value,
+        )
+
+        chunks = await self._chunking_service.chunk(
+            document=document,
+            strategy=ChunkingStrategy.FIXED,
+        )
+
+        log.info(
+            "processing.chunking.completed",
+            strategy=ChunkingStrategy.FIXED.value,
+            chunk_count=len(chunks),
+        )
+
+        artifact = self._chunk_artifact_builder.build(
+            chunks,
+        )
+
+        log.info(
+            "processing.chunk_artifact_built",
+            strategy=artifact.strategy.strategy.value,
+            chunk_count=artifact.statistics.total_chunks,
+            artifact_id=str(artifact.artifact_id),
+        )
+        return artifact
+
+        # Task 4 will persist this artifact.

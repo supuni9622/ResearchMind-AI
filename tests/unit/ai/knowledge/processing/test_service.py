@@ -93,6 +93,27 @@ def _make_chunk_artifact_writer() -> AsyncMock:
     return writer
 
 
+def _make_embedding_service() -> AsyncMock:
+    """Build a fake embedding service: returns a single dummy embedding."""
+    embedding_service = AsyncMock()
+    embedding_service.embed = AsyncMock(return_value=[MagicMock()])
+    return embedding_service
+
+
+def _make_embedding_artifact_builder() -> MagicMock:
+    """Build a fake embedding artifact builder: returns an opaque artifact."""
+    builder = MagicMock()
+    builder.build = MagicMock(return_value=MagicMock())
+    return builder
+
+
+def _make_embedding_artifact_writer() -> AsyncMock:
+    """Build a no-op embedding artifact writer."""
+    writer = AsyncMock()
+    writer.write = AsyncMock(return_value=None)
+    return writer
+
+
 def _make_document(blocks: list | None = None) -> ProcessedDocument:
     return ProcessedDocument(
         document_id=uuid.uuid4(),
@@ -123,6 +144,9 @@ def _make_service(parser: DocumentParser, *extra_parsers: DocumentParser) -> Pro
         chunking_service=_make_chunking_service(),
         chunk_artifact_builder=_make_chunk_artifact_builder(),
         chunk_artifact_writer=_make_chunk_artifact_writer(),
+        embedding_service=_make_embedding_service(),
+        embedding_artifact_builder=_make_embedding_artifact_builder(),
+        embedding_artifact_writer=_make_embedding_artifact_writer(),
     )
 
 
@@ -283,6 +307,9 @@ class TestRegistryErrors:
             chunking_service=_make_chunking_service(),
             chunk_artifact_builder=_make_chunk_artifact_builder(),
             chunk_artifact_writer=_make_chunk_artifact_writer(),
+            embedding_service=_make_embedding_service(),
+            embedding_artifact_builder=_make_embedding_artifact_builder(),
+            embedding_artifact_writer=_make_embedding_artifact_writer(),
         )
 
         with pytest.raises(ParserNotFoundError):

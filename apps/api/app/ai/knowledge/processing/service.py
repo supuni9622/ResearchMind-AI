@@ -28,6 +28,15 @@ from app.ai.knowledge.chunking.artifacts.models import ChunkArtifact
 from app.ai.knowledge.chunking.artifacts.writer import ChunkArtifactWriter
 from app.ai.knowledge.chunking.enums import ChunkingStrategy
 from app.ai.knowledge.chunking.service import ChunkingService
+from app.ai.knowledge.embeddings.artifacts.builder import (
+    EmbeddingArtifactBuilder,
+)
+from app.ai.knowledge.embeddings.artifacts.models import EmbeddingArtifact
+from app.ai.knowledge.embeddings.artifacts.writer import (
+    EmbeddingArtifactWriter,
+)
+from app.ai.knowledge.embeddings.enums import EmbeddingProvider
+from app.ai.knowledge.embeddings.service import EmbeddingService
 from app.ai.knowledge.processing.artifact_builder import ArtifactBuilder
 from app.ai.knowledge.processing.artifact_writer import ArtifactWriter
 from app.ai.knowledge.processing.enums import ProcessingStatus
@@ -73,6 +82,9 @@ class ProcessingService:
         chunking_service: ChunkingService,
         chunk_artifact_builder: ChunkArtifactBuilder,
         chunk_artifact_writer: ChunkArtifactWriter,
+        embedding_service: EmbeddingService,
+        embedding_artifact_builder: EmbeddingArtifactBuilder,
+        embedding_artifact_writer: EmbeddingArtifactWriter,
     ) -> None:
         self._storage = storage
         self._temporary_file_manager = temporary_file_manager
@@ -84,6 +96,9 @@ class ProcessingService:
         self._chunking_service = chunking_service
         self._chunk_artifact_builder = chunk_artifact_builder
         self._chunk_artifact_writer = chunk_artifact_writer
+        self._embedding_service = embedding_service
+        self._embedding_artifact_builder = embedding_artifact_builder
+        self._embedding_artifact_writer = embedding_artifact_writer
 
     async def process(
         self,
@@ -237,6 +252,23 @@ class ProcessingService:
             artifact_id=str(chunk_artifact.artifact_id),
         )
 
+        embedding_artifact = await self._execute_embedding_stage(
+            owner_id=owner_id,
+            chunk_artifact=chunk_artifact,
+            log=log,
+        )
+
+        await self._embedding_artifact_writer.write(
+            owner_id=owner_id,
+            artifact=embedding_artifact,
+        )
+
+        log.info(
+            "processing.embedding_artifacts_persisted",
+            provider=embedding_artifact.execution.provider.value,
+            artifact_id=str(embedding_artifact.artifact_id),
+        )
+
         log.info("processing.completed")
 
         return ProcessingResult(
@@ -304,6 +336,8 @@ class ProcessingService:
         Persistence is intentionally delegated to the final step.
         """
 
+        log = log.bind(owner_id=owner_id)
+
         # log.debug(
         #     "processing.chunking.started",
         #     strategy=ChunkingStrategy.FIXED.value,
@@ -362,4 +396,52 @@ class ProcessingService:
             chunk_count=artifact.statistics.total_chunks,
             artifact_id=str(artifact.artifact_id),
         )
+        return artifact
+
+    async def _execute_embedding_stage(
+        self,
+        *,
+        owner_id: str,
+        chunk_artifact: ChunkArtifact,
+        log: structlog.typing.FilteringBoundLogger,
+    ) -> EmbeddingArtifact:
+        """
+        Execute the embedding stage.
+
+        This stage transforms the canonical ChunkArtifact into canonical
+        Embeddings and builds the EmbeddingArtifact.
+
+        Persistence is intentionally delegated to the caller.
+        """
+
+        log = log.bind(owner_id=owner_id)
+
+        log.debug(
+            "processing.embedding.started",
+            provider=EmbeddingProvider.SENTENCE_TRANSFORMERS.value,
+        )
+
+        embeddings = await self._embedding_service.embed(
+            artifact=chunk_artifact,
+            provider=EmbeddingProvider.SENTENCE_TRANSFORMERS,
+        )
+
+        log.info(
+            "processing.embedding.completed",
+            provider=EmbeddingProvider.SENTENCE_TRANSFORMERS.value,
+            embedding_count=len(embeddings),
+        )
+
+        artifact = self._embedding_artifact_builder.build(
+            chunk_artifact=chunk_artifact,
+            embeddings=embeddings,
+        )
+
+        log.info(
+            "processing.embedding_artifact_built",
+            provider=artifact.execution.provider.value,
+            embedding_count=artifact.statistics.total_embeddings,
+            artifact_id=str(artifact.artifact_id),
+        )
+
         return artifact

@@ -117,6 +117,27 @@ def _default_chunk_artifact_writer() -> AsyncMock:
     return writer
 
 
+def _default_embedding_service() -> AsyncMock:
+    """Fake embedding service: returns a single dummy embedding."""
+    embedding_service = AsyncMock()
+    embedding_service.embed = AsyncMock(return_value=[MagicMock()])
+    return embedding_service
+
+
+def _default_embedding_artifact_builder() -> MagicMock:
+    """Fake embedding artifact builder: returns an opaque artifact."""
+    builder = MagicMock()
+    builder.build = MagicMock(return_value=MagicMock())
+    return builder
+
+
+def _default_embedding_artifact_writer() -> AsyncMock:
+    """No-op embedding artifact writer."""
+    writer = AsyncMock()
+    writer.write = AsyncMock(return_value=None)
+    return writer
+
+
 def _make_service(
     *,
     storage: AsyncMock | None = None,
@@ -138,6 +159,9 @@ def _make_service(
         chunking_service=_default_chunking_service(),
         chunk_artifact_builder=_default_chunk_artifact_builder(),
         chunk_artifact_writer=_default_chunk_artifact_writer(),
+        embedding_service=_default_embedding_service(),
+        embedding_artifact_builder=_default_embedding_artifact_builder(),
+        embedding_artifact_writer=_default_embedding_artifact_writer(),
     )
     return service, parser
 

@@ -13,6 +13,14 @@ from app.ai.knowledge.chunking.artifacts.builder import ChunkArtifactBuilder
 from app.ai.knowledge.chunking.artifacts.writer import ChunkArtifactWriter
 from app.ai.knowledge.chunking.factory import create_chunking_service
 from app.ai.knowledge.chunking.service import ChunkingService
+from app.ai.knowledge.embeddings.artifacts.builder import (
+    EmbeddingArtifactBuilder,
+)
+from app.ai.knowledge.embeddings.artifacts.writer import (
+    EmbeddingArtifactWriter,
+)
+from app.ai.knowledge.embeddings.create import create_embedding_service
+from app.ai.knowledge.embeddings.service import EmbeddingService
 from app.ai.knowledge.processing.artifact_builder import ArtifactBuilder
 from app.ai.knowledge.processing.artifact_writer import ArtifactWriter
 from app.ai.knowledge.processing.metadata.providers.language import (
@@ -198,6 +206,24 @@ def _get_chunk_artifact_builder() -> ChunkArtifactBuilder:
 
 
 @lru_cache
+def _get_embedding_service() -> EmbeddingService:
+    """
+    Create the embedding service.
+    """
+
+    return create_embedding_service()
+
+
+@lru_cache
+def _get_embedding_artifact_builder() -> EmbeddingArtifactBuilder:
+    """
+    Create the embedding artifact builder.
+    """
+
+    return EmbeddingArtifactBuilder()
+
+
+@lru_cache
 def _get_temporary_file_manager() -> TemporaryFileManager:
     """
     Create the temporary file manager.
@@ -274,6 +300,9 @@ def get_processing_service(
         chunking_service=_get_chunking_service(),
         chunk_artifact_builder=_get_chunk_artifact_builder(),
         chunk_artifact_writer=ChunkArtifactWriter(storage),
+        embedding_service=_get_embedding_service(),
+        embedding_artifact_builder=_get_embedding_artifact_builder(),
+        embedding_artifact_writer=EmbeddingArtifactWriter(storage),
     )
 
 

@@ -59,6 +59,8 @@ from app.ai.knowledge.processing.statistics.service import (
 from app.ai.knowledge.processing.temporary_file_manager import (
     TemporaryFileManager,
 )
+from app.ai.observability.report import RuntimeReportBuilder
+from app.ai.observability.runtime import RuntimeMetricsCollector
 from app.infrastructure.storage.interfaces import DocumentStorage
 
 logger = structlog.get_logger()
@@ -117,6 +119,8 @@ class ProcessingService:
         )
 
         log.info("processing.started")
+        runtime = RuntimeMetricsCollector()
+        runtime.start_pipeline()
 
         try:
             parser = self._parser_registry.get_parser(
@@ -139,6 +143,7 @@ class ProcessingService:
             document_bytes = await self._storage.download(
                 key=request.storage_key,
             )
+            runtime.start_stage("Processing")
 
             log.debug(
                 "processing.document_downloaded",
@@ -213,13 +218,7 @@ class ProcessingService:
             character_count=document.statistics.character_count,
             word_count=document.statistics.word_count,
         )
-
-        log.debug(
-            "processing.parse_completed",
-            parser=parser.parser_name,
-            character_count=document.statistics.character_count,
-            word_count=document.statistics.word_count,
-        )
+        runtime.finish_stage()
 
         await self._persist_processing_artifacts(
             owner_id=owner_id,
@@ -228,6 +227,8 @@ class ProcessingService:
             parser_name=parser.parser_name,
             log=log,
         )
+
+        runtime.start_stage("Chunking")
 
         chunk_artifact = await self._execute_chunking_stage(
             owner_id=owner_id,
@@ -240,6 +241,7 @@ class ProcessingService:
             if chunk_artifact.chunks
             else None,
         )
+        runtime.finish_stage()
 
         await self._chunk_artifact_writer.write(
             owner_id=owner_id,
@@ -252,11 +254,20 @@ class ProcessingService:
             artifact_id=str(chunk_artifact.artifact_id),
         )
 
+        runtime.add_artifact(
+            "chunks.json",
+            len(chunk_artifact.model_dump_json().encode("utf-8")),
+        )
+
+        runtime.start_stage("Embedding")
+
         embedding_artifact = await self._execute_embedding_stage(
             owner_id=owner_id,
             chunk_artifact=chunk_artifact,
             log=log,
         )
+
+        runtime.finish_stage()
 
         await self._embedding_artifact_writer.write(
             owner_id=owner_id,
@@ -267,6 +278,18 @@ class ProcessingService:
             "processing.embedding_artifacts_persisted",
             provider=embedding_artifact.execution.provider.value,
             artifact_id=str(embedding_artifact.artifact_id),
+        )
+
+        runtime.add_artifact(
+            "embeddings.json",
+            len(embedding_artifact.model_dump_json().encode("utf-8")),
+        )
+
+        metrics = runtime.finish_pipeline()
+
+        log.info(
+            "processing.runtime_metrics",
+            report=RuntimeReportBuilder.build(metrics),
         )
 
         log.info("processing.completed")

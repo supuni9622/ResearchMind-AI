@@ -18,8 +18,6 @@ Every file and folder in the ResearchMind-AI monorepo.
 | `.python-version` | Pinned Python version for uv/pyenv |
 | `alembic.ini` | Alembic configuration (points to `alembic/env.py`) |
 | `CHANGELOG.md` | Version changelog |
-| `CODE_OF_CONDUCT.md` | (empty) |
-| `CONTRIBUTING.md` | (empty) |
 | `docker-compose.yml` | Local dev stack — PostgreSQL (5432), Valkey (6379), Qdrant (6333/6334) |
 | `FILES.md` | This file — complete file and folder map |
 | `LICENSE` | Project license |
@@ -127,21 +125,24 @@ AI subsystem. Document processing, metadata/statistics enrichment, and upload (i
 
 ##### `ai/knowledge/chunking/` — **Implemented**
 
-Chunking pipeline. Transforms a canonical `ProcessedDocument` into retrieval-ready `Chunk` objects and persists a full chunking run as a canonical `ChunkArtifact` (`chunks.json`). Structurally parallel to `processing/`: a provider registry behind a single service, plus a dedicated `artifacts/` sub-package for the persisted output. Only the Fixed strategy is implemented so far; the enum already lists Recursive/Markdown/Hierarchical/Semantic/LLM/Adaptive for future providers.
+Chunking pipeline. Transforms a canonical `ProcessedDocument` into retrieval-ready `Chunk` objects and persists a full chunking run as a canonical `ChunkArtifact` (`chunks.json`). Structurally parallel to `processing/`: a provider registry behind a single service, plus a dedicated `artifacts/` sub-package for the persisted output. Fixed, Recursive (LangChain), and Markdown strategies are implemented; the enum already lists Hierarchical/Semantic/LLM/Adaptive for future providers.
 
 | File | Description |
 |------|-------------|
 | `__init__.py` | (empty) |
-| `base.py` | `BaseChunkingProvider[ConfigT]` — generic base class; builds the canonical `Chunk` (provenance, experiment metadata, statistics) so concrete providers only decide chunk boundaries |
-| `config.py` | `FixedChunkingConfig` — `chunk_size`/`chunk_overlap`, with a validator ensuring overlap is smaller than chunk size |
+| `base.py` | `BaseChunkingProvider[ConfigT]` — generic base class shared by every provider (config, version, configuration fingerprint); the legacy `_build_chunk` helper is superseded by `ChunkFactory` |
+| `chunk_factory.py` | `ChunkFactory` — canonical `Chunk` mapper (`from_text()`); every provider builds chunks through this factory instead of constructing `Chunk` directly |
+| `config.py` | `BaseChunkingConfig` (`chunk_size`/`chunk_overlap` + overlap-smaller-than-size validator), `FixedChunkingConfig`, `RecursiveChunkingConfig` (separators, `keep_separator`), `MarkdownChunkingConfig` (heading levels, `strip_headers`, `return_each_line`) |
 | `enums.py` | `ChunkingStrategy` (fixed/recursive/markdown/hierarchical/semantic/llm/adaptive), `ChunkContentType` |
 | `exceptions.py` | `ChunkingError` hierarchy — `ChunkingProviderNotFoundError`, `ChunkingValidationError` |
-| `factory.py` | `create_chunking_service()` — composition root; registers all chunking providers (currently: Fixed) |
+| `factory.py` | `create_chunking_registry()` — single place providers are constructed/registered; `create_chunking_service()` — composition root wrapping it in a `ChunkingService`. Both the Processing Platform and the Benchmark Platform depend on `create_chunking_registry()` rather than duplicating provider construction |
 | `interfaces.py` | `ChunkingProvider` ABC |
 | `models.py` | `Chunk` and its sub-models — `ChunkContent`, `ChunkStructure`, `ChunkStatistics`, `ChunkProvenance`, `ChunkExperiment` |
 | `registry.py` | `ChunkingRegistry` — strategy → provider resolution |
 | `service.py` | `ChunkingService` — validates the document (rejects empty/whitespace-only text via `ChunkingValidationError`), resolves the provider, delegates chunk generation |
 | `providers/fixed.py` | `FixedChunkingProvider` — fixed-size overlapping character windows; stops once a window reaches the end of the text so the final chunk's overlap with its predecessor is never short |
+| `providers/recursive.py` | `RecursiveChunkingProvider` — delegates to LangChain's `RecursiveCharacterTextSplitter`, encapsulating LangChain behind the provider so the rest of the app stays framework-independent |
+| `providers/markdown.py` | `MarkdownChunkingProvider` — splits on Markdown headings (`MarkdownHeaderTextSplitter`) first, then recursively splits oversized sections, preserving heading hierarchy (`heading`, `heading_path`) on each chunk |
 | `statistics/service.py` | `ChunkStatisticsService` — character/word/sentence counts, estimated token count (4-chars-per-token heuristic), average token length; shared by every provider |
 | `artifacts/models.py` | `ChunkArtifact` — canonical persistence model for a full chunking run (`document`, `strategy`, `statistics`, `evaluation`, `chunks`), serialized to `chunks.json` |
 | `artifacts/builder.py` | `ChunkArtifactBuilder` — builds a `ChunkArtifact` from a list of `Chunk`s |
@@ -544,9 +545,33 @@ Standalone background worker process that consumes document processing jobs from
 
 ---
 
-## `benchmarks/`
+## `benchmarks/` — **Implemented**
 
-Empty — planned performance benchmarks.
+Engineering Benchmark Platform — an offline framework for comparing competing AI implementations (e.g. chunking strategies) against version-controlled datasets. Deliberately separate from automated tests (which verify correctness) and from the planned Runtime Evaluation / Experimentation platforms (which observe or replay the *production* pipeline). Executed manually via `uv run python -m benchmarks.runner <name> --dataset <path>`.
+
+| File | Description |
+|------|-------------|
+| `README.md` | Platform overview — goals, testing-vs-benchmarking philosophy, relationship to Runtime Evaluation and the Experimentation Platform, repository layout, report format, usage |
+| `runner.py` | CLI entry point (`python -m benchmarks.runner <benchmark> --dataset <path> [--output <path>]`) — resolves the benchmark from `create_benchmark_registry()`, runs it, writes `report.md` + `report.json` |
+| `factory.py` | `create_benchmark_registry()` — composition root; constructs each benchmark (currently: `ChunkingBenchmark`) and registers it with a `BenchmarkRegistry` |
+| `registry.py` | `BenchmarkRegistry` — name → benchmark resolution (keyed by `Benchmark.name.lower()`) |
+| `interfaces/benchmark.py` | `Benchmark` ABC — `name` property, `run(dataset_path) -> BenchmarkReport` |
+| `models/report.py` | Canonical report models — `BenchmarkCandidate` (one implementation's metrics), `BenchmarkDataset`, `BenchmarkReport` |
+| `common/dataset_loader.py` | `DatasetLoader` — loads every `ProcessedDocument` from a dataset directory (`<paper>/processed_document.json`) |
+| `common/report_generator.py` | `BenchmarkReportGenerator` — renders a `BenchmarkReport` as Markdown (comparison table + per-candidate sections) or JSON |
+| `common/metrics.py` | (empty) — planned shared metrics helpers |
+| `common/report.py` | (empty) — superseded by `models/report.py` |
+| `common/timer.py` | (empty) — planned timing helper |
+| `chunking/benchmark.py` | `ChunkingBenchmark` — runs every registered chunking provider over the same document set and aggregates chunk-count/size/word/token metrics per strategy |
+| `chunking/report_generator.py` | `ChunkingBenchmarkReportGenerator` — currently a thin subclass of the generic `BenchmarkReportGenerator`; placeholder for chunking-specific visualizations |
+| `chunking/reports/chunking/report.{md,json}` | Checked-in example output from a real `chunking` benchmark run (Fixed vs. Recursive vs. Markdown over the research-papers dataset) |
+| `embeddings/benchmark.py` | (empty) — planned embedding provider benchmark |
+| `retrieval/benchmark.py` | (empty) — planned retrieval strategy benchmark |
+| `reranking/benchmark.py` | (empty) — planned reranker benchmark |
+| `pipeline/benchmark.py` | (empty) — planned end-to-end pipeline benchmark |
+| `datasets/README.md` | Benchmark dataset philosophy — deterministic, version-controlled, immutable once published; documents the `processed_document.json`-per-paper layout |
+| `datasets/research-papers/paper-00{1-5}/processed_document.json` | Canonical `ProcessedDocument` fixtures — the current benchmark corpus (5 research papers) |
+| `reports/.gitkeep` | Placeholder keeping the default `--output` directory tracked in git |
 
 ---
 
@@ -622,28 +647,22 @@ All empty.
 | File | Description |
 |------|-------------|
 | `README.md` | Architecture docs index |
-| `agent-architecture.md` | (empty) |
-| `ai-architecture.md` | (empty) |
+| `ai-framework-integration.md` | AI framework integration strategy — how ResearchMind integrates with external AI frameworks/providers (LangChain, LangGraph, Docling, Voyage AI, OpenAI SDK, Anthropic SDK, etc.) without leaking them into core contracts |
 | `backend-architecture.md` | FastAPI backend architecture overview |
-| `coding-standards.md` | (empty) |
-| `database-design.md` | (empty) |
+| `chunking-platform.md` | Chunking Platform architecture overview (Phase 2.3 foundation) — responsibility, why chunking is an independent platform, how it fits the wider Knowledge Platform |
+| `chunking-platform-architecture.md` | Chunking Platform Architecture v1.0 (**Frozen**) — the pre-implementation architecture freeze document; future work extends rather than redesigns it |
+| `chunk-lifecycle-and-dataflow.md` | Chunk Lifecycle & Data Flow v1.0 (**Frozen**) — how a single canonical `Chunk` object flows and is progressively enriched across the entire AI pipeline (companion to the architecture doc, focused on dataflow rather than components) |
 | `db-sessions.md` | SQLAlchemy session management patterns |
-| `decision-boundaries.md` | (empty) |
 | `decision-history.md` | History of architectural decisions |
-| `engineering-principles.md` | (empty) |
-| `evaluation-strategy.md` | (empty) |
-| `frontend-architecture.md` | (empty) |
+| `evaluation-platform.md` | Runtime Evaluation Platform (planned) — continuously observes/measures the *configured production* pipeline (latency, quality, health) without altering its behavior |
+| `evaluation-strategy.md` | Evaluation strategy — why ResearchMind separates Engineering Benchmarks, Runtime Evaluation, and the Experimentation Platform into three complementary layers with different audiences and lifecycles |
+| `experimentation-platform.md` | Experimentation Platform (planned) — asynchronous background evaluation of alternative AI strategies against production documents, without affecting production |
 | `identity-architecture.md` | **Full auth architecture** — Cognito flow, per-request auth, implementation table, manual testing guide, AWS Console setup, common errors, issues encountered |
-| `mcp-architecture.md` | (empty) |
+| `knowledge-platform-roadmap.md` | Knowledge Platform roadmap — the full subsystem breakdown (chunking → embeddings → vector store → retrieval → reranking → memory → knowledge service) and how each communicates via canonical models |
 | `observability-strategy.md` | Observability strategy — logging is the only implemented pillar (structlog, request correlation); metrics/tracing are placeholders under `docs/monitoring/` |
 | `project-constitution.md` | Project principles, goals, and constraints |
-| `quality-strategy.md` | (empty) |
 | `repository-structure.md` | Repository layer patterns |
-| `scalability.md` | (empty) |
-| `security.md` | (empty) |
 | `system-overview.md` | High-level system overview |
-| `tech-stack.md` | (empty) |
-| `ai-framework-integration.md` | AI framework integration strategy — approach for integrating with external AI frameworks/providers (e.g. LangChain) |
 
 ---
 
@@ -904,6 +923,7 @@ All empty — planned cross-cutting code.
 | `integration/__init__.py` | Package marker |
 | `integration/ai/knowledge/chunking/test_fixed_chunking_pipeline.py` | End-to-end Fixed Chunking pipeline test — `ProcessedDocument` → `ChunkingService` → `FixedChunkingProvider` → `list[Chunk]`, verifying ordering, provenance, experiment metadata, statistics |
 | `integration/ai/knowledge/chunking/test_fixed_chunking_edge_cases.py` | Fixed Chunking edge cases — overlap is preserved between every consecutive chunk pair (incl. the truncated final chunk); empty/whitespace-only documents raise `ChunkingValidationError` |
+| `integration/ai/knowledge/chunking/test_recursive_chunking_pipeline.py` | End-to-end Recursive Chunking pipeline test (`ChunkingService` → `RecursiveChunkingProvider` → `ChunkArtifactBuilder`) — canonical Chunk fields, artifact statistics, and JSON serialization |
 | `integration/ai/knowledge/processing/test_processing_service.py` | Full DoclingParser → ProcessingService pipeline integration test (parse → enrich → artifacts → chunk → chunk artifacts), using the real Chunking Platform |
 | `integration/ai/knowledge/upload/test_duplicate_detection.py` | Integration test: real `UploadService`, `DuplicateDetectionService`, `DocumentRepository`, `SHA256Hasher` against the Postgres test DB (only S3 is faked) |
 | `integration/test_document_repository.py` | (empty) |

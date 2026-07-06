@@ -48,14 +48,17 @@ ResearchMind-AI/
 │   │       │   │   │   │   └── writer.py           # ChunkArtifactWriter — persists ChunkArtifact to storage (S3)
 │   │       │   │   │   ├── evaluators/             # Chunk quality evaluators (planned)
 │   │       │   │   │   ├── providers/
-│   │       │   │   │   │   └── fixed.py            # FixedChunkingProvider — fixed-size overlapping character windows
+│   │       │   │   │   │   ├── fixed.py            # FixedChunkingProvider — fixed-size overlapping character windows
+│   │       │   │   │   │   ├── recursive.py        # RecursiveChunkingProvider — LangChain RecursiveCharacterTextSplitter
+│   │       │   │   │   │   └── markdown.py         # MarkdownChunkingProvider — heading-aware split, then recursive on oversized sections
 │   │       │   │   │   ├── statistics/
 │   │       │   │   │   │   └── service.py          # ChunkStatisticsService — character/word/sentence/token statistics
-│   │       │   │   │   ├── base.py                 # BaseChunkingProvider — generic base building the canonical Chunk
-│   │       │   │   │   ├── config.py               # FixedChunkingConfig — chunk_size/chunk_overlap validation
+│   │       │   │   │   ├── base.py                 # BaseChunkingProvider — generic base (config, version, fingerprint)
+│   │       │   │   │   ├── chunk_factory.py         # ChunkFactory — canonical Chunk mapper used by every provider
+│   │       │   │   │   ├── config.py               # BaseChunkingConfig + Fixed/Recursive/Markdown configs
 │   │       │   │   │   ├── enums.py                # ChunkingStrategy, ChunkContentType
 │   │       │   │   │   ├── exceptions.py           # ChunkingError hierarchy
-│   │       │   │   │   ├── factory.py              # create_chunking_service() — composition root (registers Fixed provider)
+│   │       │   │   │   ├── factory.py              # create_chunking_registry() / create_chunking_service() — composition root (Fixed, Recursive, Markdown)
 │   │       │   │   │   ├── interfaces.py           # ChunkingProvider ABC
 │   │       │   │   │   ├── models.py               # Chunk + sub-models (content, structure, statistics, provenance, experiment)
 │   │       │   │   │   ├── registry.py             # ChunkingRegistry — strategy → provider resolution
@@ -302,7 +305,43 @@ ResearchMind-AI/
 │       ├── metrics.py           # WorkerMetrics — in-memory job counters, logged periodically
 │       └── processing_worker.py # ProcessingWorker — poll/process/retry/dead-letter loop
 │
-├── benchmarks/                  # Performance benchmarks (planned)
+├── benchmarks/                  # Engineering Benchmark Platform
+│   ├── chunking/
+│   │   ├── benchmark.py                     # ChunkingBenchmark — runs every registered provider over the same dataset
+│   │   ├── report_generator.py              # ChunkingBenchmarkReportGenerator (subclass; chunking-specific viz placeholder)
+│   │   └── reports/chunking/report.{md,json}  # Checked-in example output from a real benchmark run
+│   ├── common/
+│   │   ├── dataset_loader.py                # DatasetLoader — loads ProcessedDocument fixtures from a dataset directory
+│   │   ├── report_generator.py              # BenchmarkReportGenerator — renders BenchmarkReport as Markdown/JSON
+│   │   ├── metrics.py                       # (empty) — planned shared metrics helpers
+│   │   ├── report.py                        # (empty) — superseded by models/report.py
+│   │   └── timer.py                         # (empty) — planned timing helper
+│   ├── datasets/
+│   │   ├── README.md                        # Dataset philosophy — deterministic, version-controlled, immutable
+│   │   └── research-papers/
+│   │       ├── paper-001/processed_document.json
+│   │       ├── paper-002/processed_document.json
+│   │       ├── paper-003/processed_document.json
+│   │       ├── paper-004/processed_document.json
+│   │       └── paper-005/processed_document.json
+│   ├── embeddings/
+│   │   └── benchmark.py                     # (empty) — planned embedding provider benchmark
+│   ├── interfaces/
+│   │   └── benchmark.py                     # Benchmark ABC — name, run(dataset_path) -> BenchmarkReport
+│   ├── models/
+│   │   └── report.py                        # BenchmarkCandidate, BenchmarkDataset, BenchmarkReport
+│   ├── pipeline/
+│   │   └── benchmark.py                     # (empty) — planned end-to-end pipeline benchmark
+│   ├── reports/
+│   │   └── .gitkeep                         # Keeps the default --output directory tracked
+│   ├── reranking/
+│   │   └── benchmark.py                     # (empty) — planned reranker benchmark
+│   ├── retrieval/
+│   │   └── benchmark.py                     # (empty) — planned retrieval strategy benchmark
+│   ├── README.md                             # Platform overview, philosophy, workflow, usage
+│   ├── factory.py                            # create_benchmark_registry() — composition root
+│   ├── registry.py                           # BenchmarkRegistry — name → benchmark resolution
+│   └── runner.py                             # CLI entry point (python -m benchmarks.runner <name> --dataset <path>)
 │
 ├── datasets/                    # Data for evaluation and testing
 │   ├── golden/                  # Ground-truth / golden datasets
@@ -348,28 +387,22 @@ ResearchMind-AI/
 │   │   └── reports.md
 │   │
 │   ├── architecture/            # System design and architecture docs
-│   │   ├── agent-architecture.md
-│   │   ├── ai-architecture.md
 │   │   ├── ai-framework-integration.md
 │   │   ├── backend-architecture.md
-│   │   ├── coding-standards.md
-│   │   ├── database-design.md
+│   │   ├── chunk-lifecycle-and-dataflow.md   # Frozen v1.0 — Chunk lifecycle/dataflow across the whole pipeline
+│   │   ├── chunking-platform-architecture.md # Frozen v1.0 — pre-implementation architecture freeze
+│   │   ├── chunking-platform.md              # Chunking Platform overview (Phase 2.3 foundation)
 │   │   ├── db-sessions.md
-│   │   ├── decision-boundaries.md
 │   │   ├── decision-history.md
-│   │   ├── engineering-principles.md
-│   │   ├── evaluation-strategy.md
-│   │   ├── frontend-architecture.md
+│   │   ├── evaluation-platform.md            # Runtime Evaluation Platform (planned)
+│   │   ├── evaluation-strategy.md            # Why three evaluation layers (Benchmarks / Runtime Eval / Experimentation)
+│   │   ├── experimentation-platform.md       # Experimentation Platform (planned)
 │   │   ├── identity-architecture.md
-│   │   ├── mcp-architecture.md
+│   │   ├── knowledge-platform-roadmap.md     # Full Knowledge Platform subsystem breakdown
 │   │   ├── observability-strategy.md
 │   │   ├── project-constitution.md
-│   │   ├── quality-strategy.md
 │   │   ├── repository-structure.md
-│   │   ├── scalability.md
-│   │   ├── security.md
-│   │   ├── system-overview.md
-│   │   └── tech-stack.md
+│   │   └── system-overview.md
 │   │
 │   ├── deployment/              # Deployment guides
 │   │   ├── local.md
@@ -528,7 +561,8 @@ ResearchMind-AI/
 │   ├── integration/                         # Integration tests
 │   │   ├── ai/knowledge/chunking/
 │   │   │   ├── test_fixed_chunking_pipeline.py    # End-to-end Fixed Chunking pipeline (ordering, provenance, experiment metadata, statistics)
-│   │   │   └── test_fixed_chunking_edge_cases.py  # Overlap preservation; empty/whitespace documents raise ChunkingValidationError
+│   │   │   ├── test_fixed_chunking_edge_cases.py  # Overlap preservation; empty/whitespace documents raise ChunkingValidationError
+│   │   │   └── test_recursive_chunking_pipeline.py  # End-to-end Recursive Chunking pipeline (ChunkArtifactBuilder + JSON serialization)
 │   │   ├── ai/knowledge/processing/
 │   │   │   └── test_processing_service.py   # Full DoclingParser → ProcessingService pipeline (incl. chunking stage)
 │   │   ├── ai/knowledge/upload/
@@ -584,8 +618,6 @@ ResearchMind-AI/
 │   └── settings.json            # Workspace settings
 ├── alembic.ini                  # Alembic configuration file
 ├── CHANGELOG.md                 # Version changelog
-├── CODE_OF_CONDUCT.md
-├── CONTRIBUTING.md
 ├── DEV_GUIDE.md                 # Step-by-step local development guide
 ├── docker-compose.yml           # Local dev stack (PostgreSQL, Valkey, Qdrant)
 ├── FILES.md                     # Complete file and folder map
@@ -611,6 +643,7 @@ ResearchMind-AI/
 | Chunking pipeline | `apps/api/app/ai/knowledge/chunking/` | Transforms a `ProcessedDocument` into retrieval-ready `Chunk`s via a registry-based provider strategy (Fixed implemented), builds/persists the canonical `ChunkArtifact` (`chunks.json`) |
 | Upload pipeline | `apps/api/app/ai/knowledge/upload/` | File validation, duplicate detection, S3 upload, checksum hashing, enqueues async processing job |
 | Async worker | `apps/worker/` | Standalone process consuming the queue, running `DocumentProcessingService` per job, retry/dead-letter handling |
+| Engineering benchmarks | `benchmarks/` | Offline, manually-run comparison of competing AI implementations (currently: chunking strategies) against version-controlled datasets — independent from tests and from production infrastructure |
 | Infrastructure | `apps/api/app/infrastructure/` | S3 storage, SHA-256 hashing, metrics adapters, queue abstraction (Valkey/SQS-backed) |
 | Composition roots | `apps/api/app/bootstrap/` | Builds shared object graphs (e.g. the worker) used by multiple entry points |
 | Application services | `apps/api/app/services/` | Auth, user lifecycle, document processing orchestration, queued-job processing |

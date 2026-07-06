@@ -266,10 +266,7 @@ Implemented
 
 - ✅ Fixed Chunking Provider
 - ✅ Recursive Chunking Provider (LangChain)
-
-Next
-
-- 🚧 Markdown Chunking Provider
+- ✅ Markdown Chunking Provider (heading-aware, then recursive on oversized sections, LangChain)
 
 Planned
 
@@ -289,10 +286,27 @@ Implemented
 - End-to-end chunk generation
 - Recursive provider validation
 
+Not yet covered
+
+- Markdown provider has no automated test yet (exercised manually via the Benchmark Platform only)
+
+---
+
+### Engineering Benchmark Platform
+
+**Status:** ✅ Implemented (Chunking benchmark only)
+
+Implemented
+
+- `benchmarks/` composition root (`create_benchmark_registry`, `BenchmarkRegistry`)
+- Canonical `BenchmarkReport` / `BenchmarkCandidate` / `BenchmarkDataset` models
+- `DatasetLoader` + `BenchmarkReportGenerator` (Markdown + JSON output)
+- `ChunkingBenchmark` — compares Fixed vs. Recursive vs. Markdown over a 5-document research-papers dataset
+- CLI runner (`uv run python -m benchmarks.runner chunking --dataset ...`)
+
 Planned
 
-- Strategy comparison benchmarks
-- Benchmark dataset
+- Embedding, retrieval, reranking, and end-to-end pipeline benchmarks
 
 ---
 
@@ -300,17 +314,20 @@ Planned
 
 Completed
 
-- Chunking Architecture
-- Canonical Chunk Model ADR
-- Chunking Provider Architecture ADR
+- Chunking Architecture (`chunking-platform.md`, `chunking-platform-architecture.md` — frozen v1.0)
+- Chunk Lifecycle & Data Flow (`chunk-lifecycle-and-dataflow.md` — frozen v1.0)
+- Canonical Chunk Model ADR (ADR-013)
+- Chunking Provider Architecture ADR (ADR-014)
 - Chunking Engineering Journal
-- Chunking Roadmap
+- Knowledge Platform Roadmap
+- Evaluation Strategy (three-layer model: Benchmarks / Runtime Evaluation / Experimentation)
+- AI Framework Integration Strategy
 
 ---
 
 ### Runtime Evaluation
 
-Planned
+Planned (architecture documented in `docs/architecture/evaluation-platform.md`)
 
 Runtime Evaluation will evolve together with the Chunking Platform.
 
@@ -337,17 +354,6 @@ Initial metrics
 
 # Next Milestone
 
-## Continue Phase 2.3 — Chunking Platform
-
-Immediate roadmap
-
-- Markdown Chunking Provider
-- Chunking runtime evaluation
-- Benchmark dataset
-- Chunking strategy comparison
-
-After Markdown
-
 - Begin Phase 2.4 — Embedding Platform
 
 ---
@@ -364,16 +370,22 @@ After Markdown
 
 ✅ Recursive Chunking Provider (LangChain)
 
+✅ Markdown Chunking Provider (LangChain)
+
+✅ `ChunkFactory` — centralized canonical Chunk construction shared by every provider
+
 ✅ Chunk artifact persistence
 
 ✅ Processing → Chunking integration
 
 ✅ End-to-end chunk generation pipeline
 
+✅ Engineering Benchmark Platform (chunking strategy comparison, Markdown/JSON reports)
+
 ---
 
 **Last Updated:** 2026-07-05
 
-**Current Focus:** Phase 2.3 — Chunking Platform (Markdown Chunking Provider)
+**Current Focus:** Phase 2.3 — Chunking Platform (Hierarchical Chunking Provider, runtime evaluation)
 
 **Next Major Phase:** Phase 2.4 — Embedding Platform

@@ -177,10 +177,7 @@ Completed
 - Amazon S3 persistence
 - Fixed Chunking
 - Recursive Chunking (LangChain)
-
-Next
-
-- Markdown Chunking
+- Markdown Chunking (heading-aware, LangChain)
 
 Future
 
@@ -427,7 +424,9 @@ Components
 
 # Engineering Benchmarks
 
-Engineering Benchmarks are repository-owned evaluation datasets.
+**Status:** 🚧 In Progress (Chunking implemented; other categories planned)
+
+Engineering Benchmarks are repository-owned evaluation datasets and an offline framework (`benchmarks/`) for comparing competing AI implementations. Unlike tests, they don't verify correctness — they help engineers compare trade-offs and produce reproducible Markdown/JSON reports.
 
 Purpose
 
@@ -436,14 +435,18 @@ Purpose
 - Compare providers
 - Measure quality
 
-Examples
+Implemented
 
-- Chunking benchmarks
+- Chunking benchmarks (Fixed vs. Recursive vs. Markdown, over a versioned research-papers dataset)
+
+Planned
+
 - Embedding benchmarks
 - Retrieval benchmarks
-- End-to-end RAG benchmarks
+- Reranking benchmarks
+- End-to-end pipeline benchmarks
 
-Benchmarks execute during development and CI.
+Benchmarks are executed manually (`uv run python -m benchmarks.runner <name> --dataset <path>`), not as part of CI.
 
 They are independent from Runtime Evaluation and the Experimentation Platform.
 

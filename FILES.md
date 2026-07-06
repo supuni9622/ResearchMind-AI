@@ -116,7 +116,7 @@ AI subsystem. Document processing, metadata/statistics enrichment, and upload (i
 |-----------|--------|
 | `cache/` | (empty) — planned semantic caching |
 | `chunking/` | **Implemented** — see below |
-| `embeddings/` | (empty) — planned embedding generation |
+| `embeddings/` | **Implemented** — see below |
 | `processing/` | **Implemented** — see below |
 | `reranking/` | (empty) — planned result reranking |
 | `retrieval/` | (empty) — planned vector retrieval |
@@ -149,6 +149,28 @@ Chunking pipeline. Transforms a canonical `ProcessedDocument` into retrieval-rea
 | `artifacts/writer.py` | `ChunkArtifactWriter` — persists a `ChunkArtifact` to storage under `documents/{owner_id}/{document_id}/chunking/{strategy}/{artifact_id}/chunks.json` |
 | `evaluators/` | (empty) — planned chunk quality evaluators |
 
+##### `ai/knowledge/embeddings/` — **Implemented**
+
+Embedding pipeline. Transforms a canonical `ChunkArtifact` into vector `Embedding` objects and persists a full embedding run as a canonical `EmbeddingArtifact` (`embeddings.json`). Structurally parallel to `chunking/`: a provider registry behind a single service, plus a dedicated `artifacts/` sub-package for the persisted output. Sentence Transformers is implemented; the config module already defines Voyage AI and OpenAI configs for future providers.
+
+| File | Description |
+|------|-------------|
+| `__init__.py` | (empty) |
+| `base.py` | `BaseEmbeddingProvider[ConfigT]` — generic base class shared by every provider (config, version, configuration fingerprint) |
+| `config.py` | `BaseEmbeddingConfig` (`batch_size`, `normalize_embeddings`), `SentenceTransformerEmbeddingConfig`, `VoyageAIEmbeddingConfig`, `OpenAIEmbeddingConfig` |
+| `create.py` | `create_embedding_registry()` — single place providers are constructed/registered; `create_embedding_service()` — composition root wrapping it in an `EmbeddingService`. Both the Processing Platform and the Benchmark Platform depend on `create_embedding_registry()` rather than duplicating provider construction |
+| `enums.py` | `EmbeddingProvider` (sentence_transformers/voyage_ai/openai/bge/instructor/nomic) |
+| `exceptions.py` | `EmbeddingError` hierarchy — `EmbeddingProviderNotFoundError`, `EmbeddingValidationError`, `EmbeddingGenerationError` |
+| `factory.py` | `EmbeddingFactory` — canonical `Embedding` mapper (`from_vector()`); every provider builds embeddings through this factory instead of constructing `Embedding` directly |
+| `interfaces.py` | `EmbeddingProvider` ABC |
+| `models.py` | `Embedding` and its sub-models — `EmbeddingVector`, `EmbeddingProvenance`, `EmbeddingProviderMetadata`, `EmbeddingStatistics`, `EmbeddingExperiment` |
+| `registry.py` | `EmbeddingRegistry` — provider → implementation resolution |
+| `service.py` | `EmbeddingService` — validates the chunk artifact (rejects empty/blank-text chunks via `EmbeddingValidationError`), resolves the provider, delegates embedding generation |
+| `providers/sentence_transformers.py` | `SentenceTransformerEmbeddingProvider` — wraps the real `sentence-transformers` library, encapsulating it behind the provider so the rest of the app stays framework-independent |
+| `artifacts/models.py` | `EmbeddingArtifact` — canonical persistence model for a full embedding run (`document`, `chunking`, `execution`, `statistics`, `evaluation`, `embeddings`), serialized to `embeddings.json` |
+| `artifacts/builder.py` | `EmbeddingArtifactBuilder` — builds an `EmbeddingArtifact` from a `ChunkArtifact` and its generated embeddings |
+| `artifacts/writer.py` | `EmbeddingArtifactWriter` — persists an `EmbeddingArtifact` to storage under `documents/{owner_id}/{document_id}/embeddings/{provider}/{artifact_id}/embeddings.json` |
+
 ##### `ai/knowledge/processing/` — **Implemented**
 
 | File | Description |
@@ -165,7 +187,7 @@ Chunking pipeline. Transforms a canonical `ProcessedDocument` into retrieval-rea
 | `interfaces.py` | `DocumentParser` ABC, `ParseRequest` |
 | `models.py` | `ProcessedDocument`, block types, `ProcessingResult` |
 | `registry.py` | `ParserRegistry` — format → parser resolution |
-| `service.py` | `ProcessingService` — orchestrates the full pipeline (parse → enrich → build/write artifacts → chunk → persist chunk artifacts) |
+| `service.py` | `ProcessingService` — orchestrates the full pipeline (parse → enrich → build/write artifacts → chunk → persist chunk artifacts → embed → persist embedding artifacts) |
 | `temporary_file_manager.py` | `TemporaryFileManager` — creates temp files from downloaded document bytes, preserves extension, cleans up after processing |
 
 ###### `ai/knowledge/processing/metadata/` — **Implemented**
@@ -325,7 +347,7 @@ All files empty — planned shared AI types and interfaces.
 
 | File | Description |
 |------|-------------|
-| `worker.py` | Application composition root for the worker process — `create_processing_worker(session)` wires up storage, parser/metadata/statistics registries, the Chunking Platform (`create_chunking_service()`, `ChunkArtifactBuilder`, `ChunkArtifactWriter`), `ProcessingService`, `DocumentProcessingService`, `QueuedDocumentProcessingService`, and the configured queue into a `ProcessingWorker` |
+| `worker.py` | Application composition root for the worker process — `create_processing_worker(session)` wires up storage, parser/metadata/statistics registries, the Chunking Platform (`create_chunking_service()`, `ChunkArtifactBuilder`, `ChunkArtifactWriter`), the Embedding Platform (`create_embedding_service()`, `EmbeddingArtifactBuilder`, `EmbeddingArtifactWriter`), `ProcessingService`, `DocumentProcessingService`, `QueuedDocumentProcessingService`, and the configured queue into a `ProcessingWorker` |
 
 ---
 
@@ -350,7 +372,7 @@ All files empty — planned shared AI types and interfaces.
 | `cache.py` | (empty) |
 | `database.py` | (empty) |
 | `settings.py` | (empty) |
-| `upload.py` | FastAPI dependency providers for the upload/processing workflow: `get_document_storage`, `get_file_hasher`, `get_document_repository`, `get_processing_queue`, `get_processing_service` (now also wires the Chunking Platform — `_get_chunking_service`, `_get_chunk_artifact_builder`, `ChunkArtifactWriter`), `get_document_processing_service`, `get_queued_document_processing_service`, `get_upload_service`, `get_processing_worker` |
+| `upload.py` | FastAPI dependency providers for the upload/processing workflow: `get_document_storage`, `get_file_hasher`, `get_document_repository`, `get_processing_queue`, `get_processing_service` (now also wires the Chunking Platform — `_get_chunking_service`, `_get_chunk_artifact_builder`, `ChunkArtifactWriter` — and the Embedding Platform — `_get_embedding_service`, `_get_embedding_artifact_builder`, `EmbeddingArtifactWriter`), `get_document_processing_service`, `get_queued_document_processing_service`, `get_upload_service`, `get_processing_worker` |
 | `vector_store.py` | (empty) |
 
 ---
@@ -924,7 +946,8 @@ All empty — planned cross-cutting code.
 | `integration/ai/knowledge/chunking/test_fixed_chunking_pipeline.py` | End-to-end Fixed Chunking pipeline test — `ProcessedDocument` → `ChunkingService` → `FixedChunkingProvider` → `list[Chunk]`, verifying ordering, provenance, experiment metadata, statistics |
 | `integration/ai/knowledge/chunking/test_fixed_chunking_edge_cases.py` | Fixed Chunking edge cases — overlap is preserved between every consecutive chunk pair (incl. the truncated final chunk); empty/whitespace-only documents raise `ChunkingValidationError` |
 | `integration/ai/knowledge/chunking/test_recursive_chunking_pipeline.py` | End-to-end Recursive Chunking pipeline test (`ChunkingService` → `RecursiveChunkingProvider` → `ChunkArtifactBuilder`) — canonical Chunk fields, artifact statistics, and JSON serialization |
-| `integration/ai/knowledge/processing/test_processing_service.py` | Full DoclingParser → ProcessingService pipeline integration test (parse → enrich → artifacts → chunk → chunk artifacts), using the real Chunking Platform |
+| `integration/ai/knowledge/embeddings/test_sentence_transformers_pipeline.py` | End-to-end embedding pipeline test (`EmbeddingService` → real `SentenceTransformerEmbeddingProvider` → `EmbeddingArtifactBuilder`) — canonical Embedding fields, artifact statistics, and JSON serialization |
+| `integration/ai/knowledge/processing/test_processing_service.py` | Full DoclingParser → ProcessingService pipeline integration test (parse → enrich → artifacts → chunk → chunk artifacts → embed → embedding artifacts), using the real Chunking and Embedding Platforms |
 | `integration/ai/knowledge/upload/test_duplicate_detection.py` | Integration test: real `UploadService`, `DuplicateDetectionService`, `DocumentRepository`, `SHA256Hasher` against the Postgres test DB (only S3 is faked) |
 | `integration/test_document_repository.py` | (empty) |
 | `integration/test_document_service.py` | (empty) |
@@ -939,6 +962,13 @@ All empty — planned cross-cutting code.
 | `unit/test_utils.py` | (empty) |
 | `unit/ai/__init__.py` | Package marker |
 | `unit/ai/knowledge/__init__.py` | Package marker |
+| `unit/ai/knowledge/embeddings/__init__.py` | Package marker |
+| `unit/ai/knowledge/embeddings/test_registry.py` | `EmbeddingRegistry` registration, lookup, duplicate rejection, unregister/clear, defensive `providers` copy |
+| `unit/ai/knowledge/embeddings/test_service.py` | `EmbeddingService` — delegates to the resolved provider; raises on unknown provider, empty chunk artifact, and blank-text chunks |
+| `unit/ai/knowledge/embeddings/test_factory.py` | `EmbeddingFactory.from_vector` — provenance/statistics/provider mapping from a `Chunk`, vector dimension derivation |
+| `unit/ai/knowledge/embeddings/artifacts/__init__.py` | Package marker |
+| `unit/ai/knowledge/embeddings/artifacts/test_builder.py` | `EmbeddingArtifactBuilder` — statistics aggregation, document/chunking/execution metadata derivation, empty-embeddings `ValueError` |
+| `unit/ai/knowledge/embeddings/artifacts/test_writer.py` | `EmbeddingArtifactWriter` — S3 key layout, serialized payload/content-type, storage error propagation |
 | `unit/ai/knowledge/processing/__init__.py` | Package marker |
 | `unit/ai/knowledge/processing/test_docling_parser.py` | `DoclingParser.parse()` with real PDF fixture |
 | `unit/ai/knowledge/processing/test_models.py` | `ProcessedDocument`, block types, discriminated union |

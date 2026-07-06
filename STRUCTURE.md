@@ -63,7 +63,23 @@ ResearchMind-AI/
 │   │       │   │   │   ├── models.py               # Chunk + sub-models (content, structure, statistics, provenance, experiment)
 │   │       │   │   │   ├── registry.py             # ChunkingRegistry — strategy → provider resolution
 │   │       │   │   │   └── service.py              # ChunkingService — validates document, delegates to provider
-│   │       │   │   ├── embeddings/          # Embedding generation (planned)
+│   │       │   │   ├── embeddings/          # Embedding generation pipeline
+│   │       │   │   │   ├── artifacts/
+│   │       │   │   │   │   ├── builder.py          # EmbeddingArtifactBuilder — builds EmbeddingArtifact from a ChunkArtifact + generated embeddings
+│   │       │   │   │   │   ├── models.py           # EmbeddingArtifact + sub-models (document, chunking, execution, statistics, evaluation)
+│   │       │   │   │   │   └── writer.py           # EmbeddingArtifactWriter — persists EmbeddingArtifact to storage (S3)
+│   │       │   │   │   ├── providers/
+│   │       │   │   │   │   └── sentence_transformers.py  # SentenceTransformerEmbeddingProvider — real SentenceTransformers model
+│   │       │   │   │   ├── base.py                 # BaseEmbeddingProvider — generic base (config, version, fingerprint)
+│   │       │   │   │   ├── config.py               # BaseEmbeddingConfig + SentenceTransformer/VoyageAI/OpenAI configs
+│   │       │   │   │   ├── create.py               # create_embedding_registry() / create_embedding_service() — composition root
+│   │       │   │   │   ├── enums.py                # EmbeddingProvider
+│   │       │   │   │   ├── exceptions.py           # EmbeddingError hierarchy
+│   │       │   │   │   ├── factory.py              # EmbeddingFactory — canonical Embedding mapper used by every provider
+│   │       │   │   │   ├── interfaces.py           # EmbeddingProvider ABC
+│   │       │   │   │   ├── models.py               # Embedding + sub-models (vector, provenance, provider, statistics, experiment)
+│   │       │   │   │   ├── registry.py             # EmbeddingRegistry — provider → implementation resolution
+│   │       │   │   │   └── service.py              # EmbeddingService — validates chunk artifact, delegates to provider
 │   │       │   │   ├── processing/          # Document processing pipeline
 │   │       │   │   │   ├── adapters/
 │   │       │   │   │   │   └── docling.py          # Docling adapter (alternative entry point)
@@ -95,7 +111,7 @@ ResearchMind-AI/
 │   │       │   │   │   ├── interfaces.py           # DocumentParser ABC, ParseRequest
 │   │       │   │   │   ├── models.py               # ProcessedDocument, block types, ProcessingResult
 │   │       │   │   │   ├── registry.py             # ParserRegistry — format → parser resolution
-│   │       │   │   │   ├── service.py              # ProcessingService — orchestrates the full pipeline (parse → enrich → artifacts → chunk → chunk artifacts)
+│   │       │   │   │   ├── service.py              # ProcessingService — orchestrates the full pipeline (parse → enrich → artifacts → chunk → chunk artifacts → embed → embedding artifacts)
 │   │       │   │   │   └── temporary_file_manager.py  # Temp file lifecycle for downloaded documents
 │   │       │   │   ├── reranking/           # Result reranking (planned)
 │   │       │   │   ├── retrieval/           # Vector retrieval (planned)
@@ -174,7 +190,7 @@ ResearchMind-AI/
 │   │       │   └── setup.py             # App factory / setup helpers
 │   │       │
 │   │       ├── bootstrap/       # Composition roots shared across entry points
-│   │       │   └── worker.py            # create_processing_worker() — wires the worker's object graph (incl. Chunking Platform)
+│   │       │   └── worker.py            # create_processing_worker() — wires the worker's object graph (incl. Chunking and Embedding Platforms)
 │   │       │
 │   │       ├── db/              # Database layer
 │   │       │   ├── base.py              # SQLAlchemy DeclarativeBase
@@ -188,7 +204,7 @@ ResearchMind-AI/
 │   │       │   ├── cache.py             # Cache dependency
 │   │       │   ├── database.py          # DB session dependency
 │   │       │   ├── settings.py          # Settings dependency
-│   │       │   ├── upload.py            # Upload/processing service dependencies (incl. processing queue, worker, chunking service/artifact builder/writer)
+│   │       │   ├── upload.py            # Upload/processing service dependencies (incl. processing queue, worker, chunking and embedding service/artifact builder/writer)
 │   │       │   └── vector_store.py      # Vector store dependency
 │   │       │
 │   │       ├── exceptions/      # Exception hierarchy and handlers
@@ -563,8 +579,10 @@ ResearchMind-AI/
 │   │   │   ├── test_fixed_chunking_pipeline.py    # End-to-end Fixed Chunking pipeline (ordering, provenance, experiment metadata, statistics)
 │   │   │   ├── test_fixed_chunking_edge_cases.py  # Overlap preservation; empty/whitespace documents raise ChunkingValidationError
 │   │   │   └── test_recursive_chunking_pipeline.py  # End-to-end Recursive Chunking pipeline (ChunkArtifactBuilder + JSON serialization)
+│   │   ├── ai/knowledge/embeddings/
+│   │   │   └── test_sentence_transformers_pipeline.py  # End-to-end embedding pipeline (real SentenceTransformerEmbeddingProvider + EmbeddingArtifactBuilder)
 │   │   ├── ai/knowledge/processing/
-│   │   │   └── test_processing_service.py   # Full DoclingParser → ProcessingService pipeline (incl. chunking stage)
+│   │   │   └── test_processing_service.py   # Full DoclingParser → ProcessingService pipeline (incl. chunking + embedding stages)
 │   │   ├── ai/knowledge/upload/
 │   │   │   └── test_duplicate_detection.py  # Real UploadService + DuplicateDetectionService against Postgres
 │   │   ├── test_document_repository.py
@@ -582,6 +600,13 @@ ResearchMind-AI/
 │   │   ├── test_jailbreaks.py
 │   │   └── test_prompt_injection.py
 │   ├── unit/
+│   │   ├── ai/knowledge/embeddings/
+│   │   │   ├── artifacts/
+│   │   │   │   ├── test_builder.py          # EmbeddingArtifactBuilder — statistics aggregation, metadata derivation, empty-collection guard
+│   │   │   │   └── test_writer.py           # EmbeddingArtifactWriter — storage key layout, serialized payload, error propagation
+│   │   │   ├── test_factory.py              # EmbeddingFactory — provenance/statistics/vector mapping from a Chunk
+│   │   │   ├── test_registry.py             # EmbeddingRegistry registration, lookup, deduplication
+│   │   │   └── test_service.py              # EmbeddingService orchestration — delegation and validation failures
 │   │   ├── ai/knowledge/processing/
 │   │   │   ├── metadata/
 │   │   │   │   └── test_service.py          # MetadataEnrichmentService — regression coverage (PDF provider vs. non-PDF formats)
@@ -641,6 +666,7 @@ ResearchMind-AI/
 | Frontend | `apps/web/` | Next.js 15 App Router — Cognito auth, dashboard, documents, research |
 | Processing pipeline | `apps/api/app/ai/knowledge/processing/` | Docling parser, metadata/statistics enrichment, artifact builder/writer, registry, service |
 | Chunking pipeline | `apps/api/app/ai/knowledge/chunking/` | Transforms a `ProcessedDocument` into retrieval-ready `Chunk`s via a registry-based provider strategy (Fixed implemented), builds/persists the canonical `ChunkArtifact` (`chunks.json`) |
+| Embedding pipeline | `apps/api/app/ai/knowledge/embeddings/` | Transforms a `ChunkArtifact` into vector `Embedding`s via a registry-based provider strategy (Sentence Transformers implemented), builds/persists the canonical `EmbeddingArtifact` (`embeddings.json`) |
 | Upload pipeline | `apps/api/app/ai/knowledge/upload/` | File validation, duplicate detection, S3 upload, checksum hashing, enqueues async processing job |
 | Async worker | `apps/worker/` | Standalone process consuming the queue, running `DocumentProcessingService` per job, retry/dead-letter handling |
 | Engineering benchmarks | `benchmarks/` | Offline, manually-run comparison of competing AI implementations (currently: chunking strategies) against version-controlled datasets — independent from tests and from production infrastructure |

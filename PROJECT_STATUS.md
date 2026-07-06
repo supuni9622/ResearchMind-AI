@@ -1,5 +1,7 @@
 # ResearchMind AI — Project Status
 
+**Last Updated:** 2026-07-06
+
 ---
 
 # Phase 1 — Identity & User Platform
@@ -57,7 +59,7 @@
 
 ---
 
-## Milestone 2.1 — Document Upload Platform
+# Milestone 2.1 — Document Upload Platform
 
 **Status:** ✅ Complete
 
@@ -74,11 +76,11 @@
 
 ---
 
-## Milestone 2.2 — Processing Platform
+# Milestone 2.2 — Processing Platform
 
 **Status:** ✅ Complete
 
-### Processing Foundation
+## Processing Foundation
 
 Implemented
 
@@ -89,7 +91,7 @@ Implemented
 
 ---
 
-### Parser Framework
+## Parser Framework
 
 Implemented
 
@@ -100,7 +102,7 @@ Implemented
 
 ---
 
-### Metadata Platform
+## Metadata Platform
 
 Implemented
 
@@ -111,7 +113,7 @@ Implemented
 
 ---
 
-### Statistics Platform
+## Statistics Platform
 
 Implemented
 
@@ -131,7 +133,7 @@ Currently extracts
 
 ---
 
-### Processing Artifacts
+## Processing Artifacts
 
 Generated
 
@@ -143,7 +145,7 @@ Artifacts are automatically persisted to Amazon S3.
 
 ---
 
-### Asynchronous Processing
+## Asynchronous Processing
 
 Implemented
 
@@ -160,7 +162,7 @@ Queue provider selection is configuration-driven.
 
 ---
 
-### Background Worker
+## Background Worker
 
 Implemented
 
@@ -169,11 +171,10 @@ Implemented
 - Worker bootstrap
 - Shared database session
 - Graceful shutdown
-- Runtime metrics
 
 ---
 
-### Reliability
+## Reliability
 
 Implemented
 
@@ -181,11 +182,10 @@ Implemented
 - Dead Letter Queue
 - Duplicate detection
 - Structured logging
-- Worker observability
 
 ---
 
-### AWS Integrations
+## AWS Integrations
 
 Implemented
 
@@ -195,39 +195,39 @@ Implemented
 
 ---
 
-### Documentation
+## Documentation
 
 Completed
 
 - ADR-009 — Queue Abstraction
 - ADR-010 — Asynchronous Document Processing
-- Canonical Processing Model
 - Processing Architecture
+- Canonical Processing Model
 - Engineering Journal
 
 ---
 
-## Milestone 2.3 — Chunking Platform
+# Milestone 2.3 — Chunking Platform
 
-**Status:** 🚧 In Progress
+**Status:** ✅ Complete
 
-### Foundation
+## Foundation
 
 Implemented
 
 - Canonical Chunk model
 - Chunk metadata
-- Provenance model
+- Provenance
 - Experiment metadata
 - Chunk statistics
 - Provider abstraction
 - Registry
 - Factory
-- Chunking service
+- ChunkingService
 
 ---
 
-### Artifact Platform
+## Artifact Platform
 
 Implemented
 
@@ -250,93 +250,233 @@ chunking/
 
 ---
 
-### Processing Integration
+## Processing Integration
 
 Implemented
 
-- Automatic chunk generation after processing
+- Automatic chunk generation
+- Processing pipeline integration
 - Chunk artifact persistence
-- End-to-end processing integration
 
 ---
 
-### Chunking Providers
+## Chunking Providers
 
 Implemented
 
-- ✅ Fixed Chunking Provider
-- ✅ Recursive Chunking Provider (LangChain)
-- ✅ Markdown Chunking Provider (heading-aware, then recursive on oversized sections, LangChain)
+- ✅ Fixed Chunking
+- ✅ Recursive Chunking (LangChain)
+- ✅ Markdown Chunking (Docling + LangChain)
 
-Planned
+Future Providers
 
-- Hierarchical Chunking
-- Semantic Chunking
-- LLM Chunking
-- Adaptive Chunking
+- Hierarchical
+- Semantic
+- LLM
+- Adaptive
 
 ---
 
-### Testing
+## Runtime Evaluation
+
+✅ Initial runtime evaluation implemented.
+
+The next evolution of runtime evaluation will move into the dedicated Observability Platform.
+
+---
+
+## Engineering Benchmark Platform
 
 Implemented
 
-- Provider tests
-- Integration tests
-- End-to-end chunk generation
-- Recursive provider validation
+- Benchmark framework
+- Registry
+- Runner
+- Canonical benchmark models
+- Dataset loader
+- Markdown / JSON report generation
+- Chunking benchmark
 
-Not yet covered
+Future
 
-- Markdown provider has no automated test yet (exercised manually via the Benchmark Platform only)
-
----
-
-### Engineering Benchmark Platform
-
-**Status:** ✅ Implemented (Chunking benchmark only)
-
-Implemented
-
-- `benchmarks/` composition root (`create_benchmark_registry`, `BenchmarkRegistry`)
-- Canonical `BenchmarkReport` / `BenchmarkCandidate` / `BenchmarkDataset` models
-- `DatasetLoader` + `BenchmarkReportGenerator` (Markdown + JSON output)
-- `ChunkingBenchmark` — compares Fixed vs. Recursive vs. Markdown over a 5-document research-papers dataset
-- CLI runner (`uv run python -m benchmarks.runner chunking --dataset ...`)
-
-Planned
-
-- Embedding, retrieval, reranking, and end-to-end pipeline benchmarks
+- Embedding benchmark
+- Retrieval benchmark
+- Reranking benchmark
+- Pipeline benchmark
 
 ---
 
-### Documentation
+## Documentation
 
 Completed
 
-- Chunking Architecture (`chunking-platform.md`, `chunking-platform-architecture.md` — frozen v1.0)
-- Chunk Lifecycle & Data Flow (`chunk-lifecycle-and-dataflow.md` — frozen v1.0)
-- Canonical Chunk Model ADR (ADR-013)
-- Chunking Provider Architecture ADR (ADR-014)
+- Chunking Platform Architecture
+- Chunk Lifecycle & Data Flow
+- ADR-013 — Canonical Chunk Model
+- ADR-014 — Chunking Provider Architecture
 - Chunking Engineering Journal
 - Knowledge Platform Roadmap
-- Evaluation Strategy (three-layer model: Benchmarks / Runtime Evaluation / Experimentation)
+- Evaluation Strategy
 - AI Framework Integration Strategy
 
 ---
 
-### Runtime Evaluation
+# Milestone 2.4 — Embedding Platform
 
-Planned (architecture documented in `docs/architecture/evaluation-platform.md`)
+**Status:** ✅ Complete
 
-Runtime Evaluation will evolve together with the Chunking Platform.
+## Foundation
 
-Initial metrics
+Implemented
 
-- Strategy
-- Chunk count
-- Chunk statistics
-- Chunking latency
+- Canonical Embedding model
+- Embedding statistics
+- Provenance
+- Provider metadata
+- Experiment metadata
+
+---
+
+## Architecture
+
+Implemented
+
+- Provider Pattern
+- Registry Pattern
+- Factory Pattern
+- Composition Root (`create.py`)
+- Framework-independent canonical models
+
+---
+
+## Provider
+
+Implemented
+
+- Sentence Transformers provider
+
+Planned
+
+- Voyage AI
+- OpenAI
+- BGE
+- Instructor
+- Nomic
+
+---
+
+## Artifact Platform
+
+Implemented
+
+- EmbeddingArtifact
+- EmbeddingArtifactBuilder
+- EmbeddingArtifactWriter
+
+Artifacts
+
+```
+embeddings/
+
+    {provider}/
+
+        {artifact_id}/
+
+            embeddings.json
+```
+
+---
+
+## Processing Integration
+
+Implemented
+
+The production pipeline now executes
+
+```
+Processing
+
+↓
+
+Chunking
+
+↓
+
+Embedding
+```
+
+automatically for every uploaded document.
+
+---
+
+## Manual Verification
+
+Completed
+
+Verified
+
+- Processing
+- Chunk generation
+- Embedding generation
+- Artifact generation
+- Amazon S3 persistence
+- Configuration fingerprints
+- Provider metadata
+- Canonical models
+
+---
+
+## Documentation
+
+Completed
+
+Architecture
+
+- Embedding Platform Architecture
+
+Engineering Journal
+
+- Embedding Platform
+
+ADRs
+
+- ADR-008 — Canonical AI Platform Pipeline
+
+---
+
+# Phase 2.4.4 — Observability Platform
+
+**Status:** 🚧 Design Complete — Implementation Pending
+
+Purpose
+
+Provide standardized engineering visibility across every AI platform.
+
+Initial implementation
+
+- Runtime Evaluation
+- Stage Metrics
+- Pipeline Metrics
+- Execution duration
+- Memory usage
+- Artifact size
+
+Future
+
+- Cost tracking
+- Token tracking
+- Resource monitoring
+- Tracing
+- Telemetry
+- OpenTelemetry
+- Grafana
+
+Documentation completed
+
+- Observability Platform Architecture
+- Observability Engineering Journal
+- ADR-016 — Observability Platform
+- Observability Platform Roadmap
 
 ---
 
@@ -347,45 +487,57 @@ Initial metrics
 | Phase 1 — Identity Platform | ✅ Complete |
 | Phase 2.1 — Document Upload Platform | ✅ Complete |
 | Phase 2.2 — Processing Platform | ✅ Complete |
-| Phase 2.3 — Chunking Platform | 🚧 In Progress |
-| Phase 2.4 — Embedding Platform | ⏳ Planned |
-
----
-
-# Next Milestone
-
-- Begin Phase 2.4 — Embedding Platform
+| Phase 2.3 — Chunking Platform | ✅ Complete |
+| Phase 2.4 — Embedding Platform | ✅ Complete |
+| Phase 2.4.4 — Observability Platform | 🚧 Design Complete |
 
 ---
 
 # Recently Completed
 
-✅ Canonical Chunk model
+✅ Embedding Platform
 
-✅ Chunk artifact architecture
+✅ Sentence Transformers Provider
 
-✅ Chunk provider architecture
+✅ Embedding Artifact Platform
 
-✅ Fixed Chunking Provider
+✅ Processing → Embedding integration
 
-✅ Recursive Chunking Provider (LangChain)
+✅ End-to-end embedding pipeline
 
-✅ Markdown Chunking Provider (LangChain)
+✅ Canonical AI Platform Pipeline architecture
 
-✅ `ChunkFactory` — centralized canonical Chunk construction shared by every provider
-
-✅ Chunk artifact persistence
-
-✅ Processing → Chunking integration
-
-✅ End-to-end chunk generation pipeline
-
-✅ Engineering Benchmark Platform (chunking strategy comparison, Markdown/JSON reports)
+✅ Observability Platform architecture
 
 ---
 
-**Last Updated:** 2026-07-05
+# Current Focus
 
-**Current Focus:** Phase 2.3 — Chunking Platform (Hierarchical Chunking Provider, runtime evaluation)
+**Phase 2.4.4 — Observability Platform**
 
-**Next Major Phase:** Phase 2.4 — Embedding Platform
+Implement
+
+- RuntimeEvaluationService
+- StageMetric
+- PipelineMetric
+- PipelineReport
+- ProcessingService integration
+- Execution timing
+- Memory tracking
+- Artifact size measurement
+
+---
+
+# Next Major Phase
+
+**Phase 2.5 — Vector Store Platform**
+
+Planned providers
+
+- ChromaDB
+- pgvector
+- Pinecone
+- Qdrant
+- Weaviate
+
+The Vector Store Platform will consume the canonical `EmbeddingArtifact` produced by the Embedding Platform and continue the artifact-driven AI pipeline established by ADR-008.

@@ -2679,7 +2679,7 @@ ResearchMind is not built to demonstrate every AI technology.
 It is built to demonstrate sound AI engineering.
 
 # Milestone dependency graph
-
+```
 Engineering Foundation
           │
           ▼
@@ -2709,7 +2709,11 @@ Engineering Foundation
           ▼
  Enterprise Platform
 
+ ```
+
  ## Knowledge Platform
+
+ ```
 
  Upload
    │
@@ -2730,3 +2734,4 @@ Retrieval
    │
    ▼
 Reranking
+```

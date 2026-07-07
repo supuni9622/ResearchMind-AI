@@ -15,6 +15,7 @@ from __future__ import annotations
 from openai import OpenAI
 from voyageai.client import Client as VoyageAIClient
 
+from app.ai.knowledge.cache.embeddings.create import create_embedding_cache
 from app.ai.knowledge.embeddings.config import (
     OpenAIEmbeddingConfig,
     SentenceTransformerEmbeddingConfig,
@@ -32,6 +33,7 @@ from app.ai.knowledge.embeddings.providers.voyage import (
 )
 from app.ai.knowledge.embeddings.registry import EmbeddingRegistry
 from app.ai.knowledge.embeddings.service import EmbeddingService
+from app.core.constants import OPENAI_MAX_RETRIES, VOYAGE_MAX_RETRIES
 from app.core.settings import settings
 
 
@@ -41,10 +43,15 @@ def create_voyage_client() -> VoyageAIClient:
 
     This centralizes SDK client construction so that providers remain
     independent from application configuration.
+
+    The Voyage AI SDK disables retries by default (``max_retries=0``),
+    so retry behavior is set explicitly here rather than left to the
+    SDK default.
     """
 
     return VoyageAIClient(
         api_key=settings.voyage_api_key,
+        max_retries=VOYAGE_MAX_RETRIES,
     )
 
 
@@ -54,10 +61,15 @@ def create_openai_client() -> OpenAI:
 
     This centralizes SDK client construction so that providers remain
     independent from application configuration.
+
+    Retry behavior is set explicitly rather than left to the OpenAI
+    SDK default, so both embedding providers share a deliberate,
+    documented retry policy.
     """
 
     return OpenAI(
         api_key=settings.openai_api_key,
+        max_retries=OPENAI_MAX_RETRIES,
     )
 
 
@@ -103,4 +115,5 @@ def create_embedding_service() -> EmbeddingService:
 
     return EmbeddingService(
         registry=create_embedding_registry(),
+        cache=create_embedding_cache(),
     )

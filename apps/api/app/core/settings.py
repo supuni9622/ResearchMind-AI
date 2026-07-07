@@ -90,5 +90,12 @@ class Settings(BaseSettings):
 
     voyage_api_key: str | None = None
 
+    # ==========================================================================
+    # Embedding Cache
+    # ==========================================================================
+
+    embedding_cache_enabled: bool = True
+    embedding_cache_ttl_seconds: int = 60 * 60 * 24 * 30
+
 
 settings = Settings()  # pyright: ignore[reportCallIssue]

@@ -29,6 +29,7 @@ from uuid import UUID, uuid4
 from app.ai.knowledge.chunking.enums import ChunkingStrategy
 from app.ai.knowledge.embeddings.enums import EmbeddingProvider
 from app.ai.knowledge.embeddings.models import Embedding
+from app.ai.knowledge.vectorstores.enums import VectorDistanceMetric
 from pydantic import BaseModel, ConfigDict, Field
 
 # ============================================================================
@@ -114,6 +115,10 @@ class EmbeddingArtifactExecution(BaseModel):
     model_version: str | None = Field(
         default=None,
         description="Embedding model version.",
+    )
+
+    recommended_distance_metric: VectorDistanceMetric = Field(
+        description="Distance metric recommended by the embedding provider.",
     )
 
     configuration_fingerprint: str = Field(

@@ -23,6 +23,7 @@ from app.ai.knowledge.embeddings.artifacts.models import (
 )
 from app.ai.knowledge.embeddings.artifacts.writer import EmbeddingArtifactWriter
 from app.ai.knowledge.embeddings.enums import EmbeddingProvider
+from app.ai.knowledge.vectorstores.enums import VectorDistanceMetric
 from app.infrastructure.storage.exceptions import StorageUploadError
 
 _DOCUMENT_ID = uuid.uuid4()
@@ -44,6 +45,7 @@ def _make_artifact() -> EmbeddingArtifact:
             provider=EmbeddingProvider.SENTENCE_TRANSFORMERS,
             provider_version="1.0",
             model="all-MiniLM-L6-v2",
+            recommended_distance_metric=VectorDistanceMetric.DOT,
             configuration_fingerprint="fingerprint",
         ),
         statistics=EmbeddingArtifactStatistics(total_embeddings=1, dimensions=384),

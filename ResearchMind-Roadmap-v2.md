@@ -1,0 +1,2732 @@
+# ResearchMind AI Engineering Roadmap v2
+
+Version: 2.0
+
+Status: Active
+
+---
+
+# 1. Vision
+
+## Mission
+
+ResearchMind is a production-grade AI Research & Intelligence Platform designed to demonstrate modern AI Engineering practices while serving as a real-world application for intelligent knowledge discovery.
+
+The project is not simply a RAG chatbot.
+
+It is an engineering platform that combines:
+
+- Knowledge Processing
+- Retrieval-Augmented Generation (RAG)
+- AI Runtime
+- Multi-Agent Systems
+- External MCP integrations
+- Evaluation
+- Observability
+- Production Engineering
+
+The long-term goal is to build a modular AI platform that resembles how modern AI systems are designed in industry.
+
+---
+
+# 2. Objectives
+
+ResearchMind has three primary objectives.
+
+## Objective 1
+
+Become an excellent AI Engineer.
+
+The project should teach:
+
+- AI Engineering
+- Production AI Systems
+- System Design
+- Clean Architecture
+- Performance Engineering
+- Evaluation Driven Development
+
+---
+
+## Objective 2
+
+Build a production-grade AI platform.
+
+Every architectural decision should be made as if ResearchMind will eventually serve real users.
+
+---
+
+## Objective 3
+
+Create an outstanding portfolio project.
+
+The finished system should demonstrate practical experience in:
+
+- RAG
+- AI Agents
+- LangGraph
+- MCP
+- Evaluation
+- Production AI Infrastructure
+
+---
+
+# 3. Engineering Philosophy
+
+ResearchMind follows several engineering principles.
+
+---
+
+## Build Production Systems
+
+Every implementation should be suitable for production.
+
+Examples:
+
+- structured logging
+- configuration management
+- testing
+- provider abstraction
+- documentation
+
+---
+
+## Avoid Premature Abstraction
+
+Abstractions exist only when they simplify the system.
+
+Do not build generic frameworks before real use cases exist.
+
+---
+
+## Vertical Slice Development
+
+Complete one capability end-to-end before introducing supporting infrastructure.
+
+Example:
+
+```
+Upload
+
+↓
+
+Processing
+
+↓
+
+Chunking
+
+↓
+
+Embedding
+
+↓
+
+Vector Store
+
+↓
+
+Retrieval
+```
+
+before introducing:
+
+- queues
+- distributed workers
+- advanced caching
+
+---
+
+## Provider Independence
+
+External services should never leak into business logic.
+
+Examples:
+
+- LLM providers
+- Embedding providers
+- Vector databases
+- MCP servers
+
+Business code depends only on canonical interfaces.
+
+---
+
+## Evaluation Driven Development
+
+Every AI improvement should be measurable.
+
+Instead of asking:
+
+> Does it work?
+
+We ask:
+
+> Did it improve quality?
+
+---
+
+## Documentation First
+
+Every important architectural decision should be documented.
+
+ResearchMind should explain:
+
+- what was built
+- why it was built
+- why alternatives were rejected
+
+---
+
+# 4. Architecture Philosophy
+
+ResearchMind is organized around platforms.
+
+Not technologies.
+
+Platforms own business capabilities.
+
+Technologies implement those capabilities.
+
+Example:
+
+```
+Knowledge Platform
+
+↓
+
+Embedding Platform
+
+↓
+
+Vector Platform
+```
+
+NOT
+
+```
+Sentence Transformers
+
+↓
+
+Qdrant
+
+↓
+
+LangChain
+```
+
+This makes technologies replaceable.
+
+---
+
+# 5. Frozen Technology Decisions
+
+These decisions are considered stable unless a future ADR replaces them.
+
+## Backend
+
+- Python
+- FastAPI
+- SQLAlchemy
+- Pydantic v2
+
+---
+
+## Database
+
+- PostgreSQL
+
+---
+
+## Object Storage
+
+Development
+
+- Local Storage
+
+Production
+
+- Amazon S3
+
+---
+
+## Vector Database
+
+Qdrant
+
+---
+
+## Primary Embedding Provider
+
+Voyage AI
+
+Current model:
+
+```
+voyage-3-lite
+```
+
+---
+
+## Primary LLM Provider (Development)
+
+Groq
+
+---
+
+## Primary Workflow Engine
+
+LangGraph
+
+---
+
+## Primary AI Framework
+
+LangChain
+
+---
+
+## Cache
+
+Valkey
+
+---
+
+## Evaluation
+
+LangSmith
+
+DeepEval
+
+Ragas
+
+---
+
+# 6. Development Strategy
+
+The project will be built in four major layers.
+
+```
+Layer 1
+
+Knowledge Platform
+
+↓
+
+Layer 2
+
+AI Runtime Platform
+
+↓
+
+Layer 3
+
+Research & Agent Platform
+
+↓
+
+Layer 4
+
+Production & Enterprise Platform
+```
+
+Each layer builds upon the previous one.
+
+---
+
+# 7. Platform Overview
+
+ResearchMind consists of ten major platforms.
+
+```
+Phase 0
+
+Engineering Foundation
+
+↓
+
+Phase 1
+
+Identity Platform
+
+↓
+
+Phase 2
+
+Knowledge Platform
+
+↓
+
+Phase 3
+
+AI Runtime Platform
+
+↓
+
+Phase 4
+
+Research Platform
+
+↓
+
+Phase 5
+
+Agent Platform
+
+↓
+
+Phase 6
+
+MCP Platform
+
+↓
+
+Phase 7
+
+AI Quality Platform
+
+↓
+
+Phase 8
+
+Production Platform
+
+↓
+
+Phase 9
+
+Enterprise Platform
+```
+
+---
+
+# Phase 0 — Engineering Foundation
+
+## Goal
+
+Create a production-ready backend foundation.
+
+---
+
+## Milestones
+
+### 0.1 Project Bootstrap
+
+- Project structure
+- Dependency management
+- Docker Compose
+- Environment configuration
+- Local development
+
+Deliverable
+
+Working backend.
+
+---
+
+### 0.2 Backend Foundation
+
+- FastAPI
+- Dependency Injection
+- Lifespan
+- SQLAlchemy
+- Exception handling
+- Logging
+- Health endpoints
+
+Deliverable
+
+Production backend skeleton.
+
+---
+
+### 0.3 Engineering Quality
+
+- Ruff
+- MyPy
+- Pytest
+- Coverage
+- Pre-commit
+- GitHub Actions
+
+Deliverable
+
+Production engineering workflow.
+
+---
+
+### Exit Criteria
+
+- Local development works
+- CI passes
+- Testing configured
+- Logging configured
+- Documentation started
+
+Status
+
+✅ Complete
+
+---
+
+# Phase 1 — Identity Platform
+
+## Goal
+
+Provide secure authentication and user management.
+
+---
+
+## Milestones
+
+### 1.1 Authentication
+
+- Cognito
+- JWT Verification
+- Protected APIs
+
+---
+
+### 1.2 Identity
+
+- Internal User
+- Synchronization
+- Identity abstraction
+
+---
+
+### 1.3 User Profile
+
+- Preferences
+- Research settings
+
+Deferred
+
+- Organizations
+- RBAC
+- Billing integration
+
+---
+
+### Exit Criteria
+
+- Secure authentication
+- Current user available
+- Identity abstraction completed
+
+Status
+
+✅ Complete
+
+---
+
+# Phase 2 — Knowledge Platform
+
+## Goal
+
+Build a production-grade knowledge ingestion and retrieval foundation.
+
+This phase creates the heart of the RAG system.
+
+Everything after this phase depends on the Knowledge Platform.
+
+---
+
+## Phase 2.1 — Upload Platform
+
+### Goal
+
+Accept and store user documents.
+
+### Milestones
+
+- Upload API
+- Validation
+- Storage abstraction
+- Metadata creation
+- Duplicate detection hook
+- Virus scan hook (future)
+
+### Deliverable
+
+Documents can be uploaded and stored.
+
+### Exit Criteria
+
+- Upload succeeds
+- Metadata stored
+- File persisted
+
+Status
+
+✅ Complete
+
+---
+
+## Phase 2.2 — Document Intelligence Platform
+
+### Goal
+
+Convert uploaded files into structured knowledge.
+
+### Milestones
+
+- Document parsing
+- Text normalization
+- Markdown generation
+- Plain text generation
+- Metadata extraction
+- Fingerprinting
+- Language detection
+- OCR hooks
+- Citation mapping
+- Page mapping
+
+### Deliverable
+
+Canonical processed document.
+
+### Exit Criteria
+
+- Structured document created
+- Processing artifacts generated
+
+Status
+
+✅ Complete
+
+---
+
+## Phase 2.3 — Chunking Platform
+
+### Goal
+
+Transform documents into retrieval-ready chunks.
+
+### Milestones
+
+Current
+
+- Recursive chunking
+- Chunk metadata
+- Chunk artifacts
+- Chunk evaluation foundation
+
+Future
+
+- Semantic chunking
+- Parent-child chunking
+- Late chunking
+- Agentic chunking
+
+### Deliverable
+
+Canonical chunk collection.
+
+### Exit Criteria
+
+- Chunk artifacts generated
+- Strategy abstraction completed
+
+Status
+
+✅ Complete
+
+## Phase 2.4 — Embedding Platform
+
+### Goal
+
+Transform knowledge chunks into high-quality semantic vector representations.
+
+The Embedding Platform provides a provider-independent abstraction for
+embedding generation while producing canonical embedding artifacts for
+downstream platforms.
+
+---
+
+### Milestones
+
+#### 2.4.1 Platform Foundation
+
+- Canonical domain models
+- Provider abstraction
+- Provider registry
+- Provider factory
+- Service layer
+- Configuration
+- Artifact models
+- Artifact builder
+- Artifact writer
+
+Deliverable
+
+Production-ready embedding platform architecture.
+
+Status
+
+✅ Complete
+
+---
+
+#### 2.4.2 Voyage AI Provider
+
+- Provider implementation
+- Batch embedding
+- Retry handling
+- Error mapping
+- Configuration
+
+Deliverable
+
+Primary production embedding provider.
+
+Status
+
+🚧 Current
+
+---
+
+#### 2.4.3 Embedding Cache
+
+Purpose
+
+Avoid generating identical embeddings multiple times.
+
+Features
+
+- Chunk hash
+- Cache lookup
+- Cache expiration
+- Cache invalidation
+
+Storage
+
+Valkey
+
+Deliverable
+
+Production embedding cache.
+
+---
+
+#### 2.4.4 Additional Providers
+
+Future providers
+
+- OpenAI
+- BGE
+- E5
+- Nomic
+- Instructor
+
+Purpose
+
+Learning and benchmarking.
+
+---
+
+#### 2.4.5 Embedding Benchmark
+
+Compare providers using
+
+- Latency
+- Cost
+- Dimensions
+- Storage size
+- Recall
+- Throughput
+
+Deliverable
+
+Embedding comparison framework.
+
+---
+
+### Exit Criteria
+
+- Provider abstraction completed
+- Voyage AI operational
+- Embedding artifacts generated
+- Embedding cache operational
+
+---
+
+## Phase 2.5 — Vector Platform
+
+### Goal
+
+Persist embeddings in a production-grade vector database.
+
+The Vector Platform owns vector indexing and collection management.
+
+It does not perform retrieval.
+
+---
+
+### Milestones
+
+#### 2.5.1 Platform Foundation
+
+- Canonical models
+- Provider abstraction
+- Registry
+- Configuration
+- Service
+- Interfaces
+- Exceptions
+
+Deliverable
+
+Vector Store Platform architecture.
+
+Status
+
+✅ Complete
+
+---
+
+#### 2.5.2 Qdrant Provider
+
+- Collection creation
+- Collection management
+- Upsert
+- Delete
+- Count
+- Collection metadata
+
+Deliverable
+
+Production Qdrant provider.
+
+Status
+
+✅ Complete
+
+---
+
+#### 2.5.3 Indexing Pipeline
+
+Workflow
+
+```
+Embedding Artifact
+
+↓
+
+VectorStoreService
+
+↓
+
+Collection Definition
+
+↓
+
+VectorStoreRecord
+
+↓
+
+Qdrant
+```
+
+Tasks
+
+- Build collection definition
+- Build vector records
+- Ensure collection exists
+- Batch indexing
+- Statistics generation
+
+Deliverable
+
+Production indexing pipeline.
+
+---
+
+#### 2.5.4 Vector Store Artifacts
+
+Generate
+
+- vector_store.json
+- indexing statistics
+- execution metadata
+
+Deliverable
+
+Canonical vector indexing artifacts.
+
+---
+
+#### 2.5.5 Snapshot Management
+
+Future
+
+- Snapshot creation
+- Snapshot restore
+- Backup metadata
+
+---
+
+### Exit Criteria
+
+- Embeddings indexed
+- Qdrant operational
+- Artifacts generated
+- End-to-end indexing verified
+
+---
+
+## Phase 2.6 — Retrieval Platform
+
+### Goal
+
+Retrieve the most relevant knowledge from indexed vectors.
+
+Retrieval becomes the entry point for every AI workflow.
+
+---
+
+### Milestones
+
+#### 2.6.1 Retrieval Foundation
+
+Workflow
+
+```
+Question
+
+↓
+
+Embedding
+
+↓
+
+Qdrant
+
+↓
+
+Top-K Results
+```
+
+Features
+
+- Query embedding
+- Vector search
+- Top-K retrieval
+
+---
+
+#### 2.6.2 Metadata Filtering
+
+Support filters
+
+- owner_id
+- workspace_id
+- document_id
+- filename
+- language
+- tags
+
+Deliverable
+
+Filtered retrieval.
+
+---
+
+#### 2.6.3 Retrieval Strategies
+
+Initial
+
+- Similarity search
+
+Future
+
+- MMR
+- Parent retrieval
+- Multi-query retrieval
+- Contextual compression
+
+---
+
+#### 2.6.4 Retrieval Cache
+
+Purpose
+
+Avoid repeated vector searches.
+
+Storage
+
+Valkey
+
+Deliverable
+
+Production retrieval cache.
+
+---
+
+#### 2.6.5 Retrieval Evaluation
+
+Metrics
+
+- Recall@K
+- Precision@K
+- MRR
+- NDCG
+- Latency
+
+Deliverable
+
+Retrieval benchmark suite.
+
+---
+
+### Exit Criteria
+
+- Retrieval operational
+- Metadata filters supported
+- Evaluation completed
+- Cache operational
+
+---
+
+## Phase 2.7 — Reranking Platform
+
+### Goal
+
+Improve retrieval quality by reordering retrieved documents.
+
+---
+
+### Milestones
+
+#### 2.7.1 Platform Foundation
+
+- Provider abstraction
+- Registry
+- Service
+- Artifacts
+
+---
+
+#### 2.7.2 Voyage AI Reranker
+
+Primary provider.
+
+Future
+
+- Cohere
+- Jina
+- BGE Cross Encoder
+
+---
+
+#### 2.7.3 Reranking Evaluation
+
+Metrics
+
+- Precision improvement
+- MRR improvement
+- Latency
+- Cost
+
+---
+
+### Exit Criteria
+
+- Reranking operational
+- Evaluation completed
+
+---
+
+## Phase 2.8 — Knowledge Platform Integration
+
+### Goal
+
+Integrate every knowledge subsystem into one production RAG pipeline.
+
+Pipeline
+
+```
+Upload
+
+↓
+
+Processing
+
+↓
+
+Chunking
+
+↓
+
+Embedding
+
+↓
+
+Vector Store
+
+↓
+
+Retrieval
+
+↓
+
+Reranking
+```
+
+Tasks
+
+- End-to-end integration
+- Integration tests
+- Performance verification
+- Failure recovery
+- Pipeline documentation
+
+Deliverable
+
+Production-ready RAG engine.
+
+---
+
+### Exit Criteria
+
+- Complete RAG pipeline operational
+- Every artifact generated
+- Every platform integrated
+- Integration tests passing
+
+Status
+
+🚧 In Progress
+
+---
+
+# Phase 3 — AI Runtime Platform
+
+## Goal
+
+Provide a unified runtime for all LLM interactions.
+
+This platform owns generation.
+
+Knowledge retrieval remains inside the Knowledge Platform.
+
+---
+
+## Phase 3.1 — LLM Provider Platform
+
+### Goal
+
+Abstract LLM providers.
+
+Primary
+
+- Groq
+
+Future
+
+- OpenAI
+- Anthropic
+- Gemini
+- Azure OpenAI
+- Ollama
+
+Features
+
+- Provider registry
+- Model registry
+- Model routing
+- Streaming
+- Retries
+- Timeouts
+- Structured output
+
+Deliverable
+
+Provider-independent LLM runtime.
+
+---
+
+## Phase 3.2 — Prompt Platform
+
+Purpose
+
+Treat prompts as production artifacts.
+
+Features
+
+- Prompt templates
+- Prompt registry
+- Versioning
+- Variables
+- Evaluation
+- A/B testing
+
+Deliverable
+
+Prompt management platform.
+
+---
+
+## Phase 3.3 — Conversation Platform
+
+Features
+
+- Sessions
+- Conversation history
+- Context management
+- Streaming responses
+- Chat titles
+
+Deliverable
+
+Production chat platform.
+
+---
+
+## Phase 3.4 — Memory Platform
+
+Memory types
+
+- Short-term
+- Long-term
+- User profile
+- Research memory
+- Semantic memory
+
+Deliverable
+
+Unified memory platform.
+
+---
+
+## Phase 3.5 — Runtime Cache
+
+Introduce
+
+- Conversation cache
+- Semantic cache
+- Response cache
+
+Purpose
+
+Reduce latency and LLM costs.
+
+---
+
+### Exit Criteria
+
+- Runtime operational
+- Chat operational
+- Memory operational
+- Streaming operational
+
+---
+
+# Phase 4 — Research Platform
+
+## Goal
+
+Transform the RAG engine into an intelligent research system.
+
+Workflow
+
+```
+Planner
+
+↓
+
+Research
+
+↓
+
+Summarization
+
+↓
+
+Review
+
+↓
+
+Evaluation
+
+↓
+
+Report
+
+↓
+
+Human Feedback
+```
+
+---
+
+## Milestones
+
+### 4.1 Planner
+
+- Intent detection
+- Task decomposition
+- Research planning
+
+---
+
+### 4.2 Research Engine
+
+- Internal RAG
+- Knowledge retrieval
+- Tool calling
+- Evidence collection
+
+---
+
+### 4.3 Summarizer
+
+- Evidence synthesis
+- Citation preservation
+- Structured summaries
+
+---
+
+### 4.4 Reviewer
+
+- Gap detection
+- Fact verification
+- Completeness analysis
+
+---
+
+### 4.5 Report Generator
+
+Outputs
+
+- Markdown
+- PDF
+- Citations
+- References
+
+---
+
+### 4.6 Human Review
+
+Features
+
+- Approve
+- Reject
+- Edit
+- Feedback
+
+---
+
+### Exit Criteria
+
+- End-to-end research workflow operational
+- Human review integrated
+- Report generation completed
+
+# Phase 5 — Agent Platform
+
+## Goal
+
+Build production-grade AI agents capable of planning, reasoning,
+executing tools, recovering from failures, and collaborating through
+structured workflows.
+
+This platform introduces LangGraph into ResearchMind.
+
+The Agent Platform builds upon:
+
+- Knowledge Platform
+- AI Runtime Platform
+- Research Platform
+
+---
+
+## Architecture
+
+```
+Planner
+
+↓
+
+Workflow Orchestrator (LangGraph)
+
+↓
+
+Agents
+
+↓
+
+Tools
+
+↓
+
+Evaluation
+
+↓
+
+Output
+```
+
+Planner decides.
+
+Workflow Orchestrator executes.
+
+Agents perform work.
+
+---
+
+## 5.1 Workflow Engine
+
+### Goal
+
+Build reusable LangGraph workflows.
+
+Features
+
+- Graph construction
+- Nodes
+- Edges
+- State
+- Conditional routing
+- Parallel execution
+
+Deliverable
+
+Reusable workflow engine.
+
+---
+
+## 5.2 Planner
+
+Purpose
+
+Convert user requests into execution plans.
+
+Responsibilities
+
+- Intent detection
+- Task decomposition
+- Execution planning
+- Agent selection
+
+Deliverable
+
+Planner abstraction.
+
+---
+
+## 5.3 Agent Runtime
+
+Implement agents such as
+
+- Research Agent
+- Retrieval Agent
+- Summarization Agent
+- Review Agent
+- Report Agent
+
+Future
+
+- Coding Agent
+- Data Analysis Agent
+
+Deliverable
+
+Reusable agent runtime.
+
+---
+
+## 5.4 Workflow State
+
+State management
+
+- Shared state
+- Intermediate outputs
+- Agent communication
+- Context propagation
+
+Deliverable
+
+Production workflow state.
+
+---
+
+## 5.5 Human Interrupts
+
+Support
+
+- Human approval
+- Manual correction
+- Resume workflow
+- Reject workflow
+
+Deliverable
+
+Human-in-the-loop workflows.
+
+---
+
+## 5.6 Checkpointing
+
+Support
+
+- Resume execution
+- Failure recovery
+- Partial replay
+
+Deliverable
+
+Recoverable workflows.
+
+---
+
+## 5.7 Multi-Agent Collaboration
+
+Support
+
+- Planner
+- Researcher
+- Reviewer
+- Critic
+- Writer
+
+Future
+
+Specialized domain agents.
+
+---
+
+## 5.8 Agent Evaluation
+
+Metrics
+
+- Task completion
+- Planning quality
+- Tool success
+- Recovery success
+- Execution latency
+
+---
+
+### Exit Criteria
+
+- LangGraph integrated
+- Multi-agent workflows operational
+- Human interrupts operational
+- Checkpointing operational
+
+---
+
+# Phase 6 — MCP Platform
+
+## Goal
+
+Connect ResearchMind to external capabilities using the
+Model Context Protocol (MCP).
+
+ResearchMind should never depend directly on external services.
+
+Instead
+
+```
+Planner
+
+↓
+
+MCP Manager
+
+↓
+
+Capability Routing
+
+↓
+
+External MCP Servers
+```
+
+---
+
+## 6.1 MCP Client
+
+Features
+
+- MCP protocol
+- Session lifecycle
+- Authentication
+- Connection management
+
+Deliverable
+
+Reusable MCP client.
+
+---
+
+## 6.2 MCP Registry
+
+Purpose
+
+Maintain every available capability.
+
+Examples
+
+- Scientific Search
+- Climate
+- GitHub
+- Crypto
+- NASA
+- Earthquakes
+
+Deliverable
+
+Capability registry.
+
+---
+
+## 6.3 MCP Manager
+
+Responsibilities
+
+- Capability discovery
+- Routing
+- Health monitoring
+- Failover
+- Permission checks
+
+Deliverable
+
+Central MCP orchestration.
+
+---
+
+## 6.4 Research MCP
+
+Capabilities
+
+- Academic search
+- Paper retrieval
+- DOI lookup
+- Citation lookup
+
+---
+
+## 6.5 Development MCP
+
+Capabilities
+
+- GitHub
+- Documentation
+- Package lookup
+- API documentation
+
+---
+
+## 6.6 Domain MCPs
+
+Examples
+
+- Climate
+- Earthquake
+- Space
+- Crypto
+- Finance
+- Healthcare
+
+---
+
+## 6.7 MCP Evaluation
+
+Metrics
+
+- Tool latency
+- Success rate
+- Failure rate
+- Availability
+
+---
+
+### Exit Criteria
+
+- MCP Manager operational
+- Capability routing operational
+- Multiple MCP servers integrated
+
+---
+
+# Phase 7 — AI Quality Platform
+
+## Goal
+
+Make AI quality measurable.
+
+Nothing AI-related should be considered complete without evaluation.
+
+---
+
+## 7.1 Evaluation Framework
+
+Features
+
+- Evaluation abstraction
+- Dataset abstraction
+- Benchmark runner
+- Experiment runner
+
+Deliverable
+
+Unified evaluation platform.
+
+---
+
+## 7.2 Retrieval Evaluation
+
+Metrics
+
+- Recall@K
+- Precision@K
+- MRR
+- NDCG
+- Latency
+
+---
+
+## 7.3 Generation Evaluation
+
+Metrics
+
+- Faithfulness
+- Groundedness
+- Completeness
+- Citation Quality
+- Hallucination Detection
+
+---
+
+## 7.4 Prompt Evaluation
+
+Evaluate
+
+- Prompt versions
+- Prompt quality
+- Prompt regressions
+
+---
+
+## 7.5 Agent Evaluation
+
+Measure
+
+- Planning
+- Tool usage
+- Reasoning
+- Recovery
+- Final quality
+
+---
+
+## 7.6 Benchmark Platform
+
+Support
+
+- Golden datasets
+- Regression datasets
+- Historical benchmarks
+- Version comparisons
+
+---
+
+## 7.7 Experiment Tracking
+
+Compare
+
+- Embeddings
+- Chunkers
+- Retrieval strategies
+- Rerankers
+- Models
+- Prompts
+
+Deliverable
+
+AI experimentation platform.
+
+---
+
+## 7.8 Cost & Token Analytics
+
+Track
+
+- Token usage
+- Embedding costs
+- LLM costs
+- Tool costs
+- Runtime costs
+
+Deliverable
+
+Engineering analytics.
+
+---
+
+## 7.9 LangSmith Integration
+
+Use LangSmith for
+
+- Traces
+- Prompt debugging
+- Chains
+- Graphs
+- Evaluations
+
+---
+
+### Exit Criteria
+
+- Every AI subsystem measurable
+- Historical benchmarks available
+- Regression testing operational
+
+---
+
+# Phase 8 — Production Platform
+
+## Goal
+
+Transform ResearchMind into a production-ready AI system.
+
+---
+
+## 8.1 AI Observability
+
+Logging
+
+Metrics
+
+Tracing
+
+Distributed tracing
+
+OpenTelemetry
+
+Prometheus
+
+Grafana
+
+Phoenix
+
+LangSmith
+
+---
+
+## 8.2 Performance Engineering
+
+Optimize
+
+- Latency
+- Throughput
+- Memory
+- Cost
+- Startup time
+
+Deliverable
+
+Performance dashboard.
+
+---
+
+## 8.3 Security Platform
+
+Implement
+
+- Authentication
+- Authorization
+- Prompt Injection Detection
+- Jailbreak Detection
+- PII Detection
+- Tool Policies
+- MCP Permissions
+- Secret Management
+
+Deliverable
+
+AI security layer.
+
+---
+
+## 8.4 Infrastructure
+
+Production
+
+- Docker
+- Kubernetes
+- AWS
+- API Gateway
+- Load Balancer
+
+Deliverable
+
+Cloud deployment.
+
+---
+
+## 8.5 CI/CD
+
+Pipeline
+
+- Build
+- Test
+- Security scan
+- Deployment
+- Rollback
+
+---
+
+## 8.6 Production Operations
+
+Support
+
+- Blue/Green Deployment
+- Canary Releases
+- Feature Flags
+- Backup
+- Disaster Recovery
+
+---
+
+### Exit Criteria
+
+- Production deployment
+- Monitoring operational
+- Security validated
+- Performance verified
+
+---
+
+# Phase 9 — Enterprise Platform
+
+## Goal
+
+Transform ResearchMind into an enterprise-ready AI platform.
+
+---
+
+## 9.1 Organizations
+
+Support
+
+- Organizations
+- Teams
+- Workspaces
+
+---
+
+## 9.2 RBAC
+
+Features
+
+- Roles
+- Permissions
+- Policies
+
+---
+
+## 9.3 Multi-Tenancy
+
+Support
+
+- Tenant isolation
+- Resource isolation
+- Knowledge isolation
+
+---
+
+## 9.4 Billing
+
+Track
+
+- Usage
+- Tokens
+- Embeddings
+- API calls
+
+Support
+
+- Quotas
+- Limits
+- Plans
+
+---
+
+## 9.5 Compliance
+
+Prepare for
+
+- GDPR
+- Audit Logging
+- Data Retention
+- Privacy Controls
+
+---
+
+## 9.6 Admin Platform
+
+Provide
+
+- User Management
+- System Health
+- AI Analytics
+- Evaluation Dashboard
+- Cost Dashboard
+
+---
+
+## 9.7 Extension Platform
+
+Support
+
+- Plugin Framework
+- Custom MCP Registration
+- Third-party Extensions
+- SDK
+
+---
+
+### Exit Criteria
+
+- Multi-tenant
+- Enterprise-ready
+- Extensible
+- Operational
+
+# 10. Cross-Cutting Capabilities
+
+These capabilities evolve throughout the entire project.
+
+They are **not phases**.
+
+Every platform should contribute to them.
+
+---
+
+## 10.1 Logging
+
+Starts
+
+Phase 0
+
+Matures
+
+Phase 8
+
+Requirements
+
+- Structured logging
+- Correlation IDs
+- Request IDs
+- AI execution IDs
+- JSON logs
+- Error context
+- Performance logs
+
+---
+
+## 10.2 Metrics
+
+Starts
+
+Phase 0
+
+Matures
+
+Phase 8
+
+Collect
+
+- Request latency
+- AI latency
+- Embedding latency
+- Retrieval latency
+- Queue latency
+- Error rate
+- Success rate
+
+---
+
+## 10.3 Tracing
+
+Starts
+
+Phase 2
+
+Matures
+
+Phase 8
+
+Technology
+
+- OpenTelemetry
+- LangSmith
+- Phoenix
+
+Trace
+
+```
+Upload
+
+↓
+
+Processing
+
+↓
+
+Chunking
+
+↓
+
+Embedding
+
+↓
+
+Retrieval
+
+↓
+
+LLM
+
+↓
+
+Response
+```
+
+---
+
+## 10.4 Testing
+
+Every platform requires
+
+- Unit Tests
+- Integration Tests
+- End-to-End Tests
+
+AI Platforms additionally require
+
+- Regression Tests
+- Benchmark Tests
+
+---
+
+## 10.5 Documentation
+
+Every platform requires
+
+Architecture
+
+↓
+
+ADR
+
+↓
+
+Concept Documents
+
+↓
+
+Engineering Journal
+
+↓
+
+Implementation Guide
+
+↓
+
+README
+
+---
+
+## 10.6 Performance
+
+Measure
+
+- Memory
+- CPU
+- Cost
+- Latency
+- Throughput
+
+before optimization.
+
+---
+
+## 10.7 Security
+
+Introduced gradually.
+
+Examples
+
+- JWT
+- Prompt Injection Detection
+- Tool Policies
+- PII Detection
+- Secret Management
+- Audit Logs
+
+---
+
+## 10.8 AI Evaluation
+
+Evaluation is continuous.
+
+Examples
+
+- Retrieval quality
+- Prompt quality
+- Agent quality
+- Citation quality
+- Hallucination rate
+
+---
+
+## 10.9 Cost Tracking
+
+Measure
+
+- Embedding cost
+- LLM cost
+- MCP cost
+- Infrastructure cost
+
+---
+
+## 10.10 Versioning
+
+Version
+
+- Prompts
+- Chunkers
+- Embeddings
+- Workflows
+- Evaluation datasets
+- MCP interfaces
+
+Everything important should be versioned.
+
+---
+
+# 11. AI Core Architecture
+
+ResearchMind is organized into one central AI Core.
+
+```
+Applications
+
+│
+
+├── REST API
+
+├── Workers
+
+└── Future Web UI
+
+        │
+
+        ▼
+
+AI Core
+
+├── AI Runtime
+
+├── AI Knowledge
+
+├── AI Quality
+
+├── AI Registry
+
+└── AI Guardrails
+```
+
+---
+
+## AI Runtime
+
+Responsible for
+
+- Provider Registry
+- Model Registry
+- Model Routing
+- Prompt Registry
+- Streaming
+- Structured Output
+- Function Calling
+
+---
+
+## AI Knowledge
+
+Responsible for
+
+- Upload
+- Processing
+- Chunking
+- Embeddings
+- Vector Store
+- Retrieval
+- Reranking
+
+---
+
+## AI Quality
+
+Responsible for
+
+- Evaluation
+- LangSmith
+- Benchmarks
+- Experiment Tracking
+- Regression Testing
+- Cost Tracking
+- Token Tracking
+
+---
+
+## AI Registry
+
+Central registry of
+
+- Providers
+- Models
+- Embeddings
+- Rerankers
+- Prompt Templates
+- MCP Servers
+
+---
+
+## AI Guardrails
+
+Responsible for
+
+- Prompt Injection Detection
+- Jailbreak Detection
+- Tool Policies
+- PII Detection
+- Safety Policies
+
+---
+
+# 12. Standard Milestone Lifecycle
+
+Every milestone follows the same engineering process.
+
+```
+Problem
+
+↓
+
+Requirements
+
+↓
+
+Architecture
+
+↓
+
+ADR
+
+↓
+
+Domain Models
+
+↓
+
+Contracts
+
+↓
+
+Implementation
+
+↓
+
+Testing
+
+↓
+
+Observability
+
+↓
+
+Evaluation
+
+↓
+
+Documentation
+
+↓
+
+Production Review
+
+↓
+
+Commit
+
+↓
+
+Retrospective
+```
+
+No milestone is considered complete without finishing every stage.
+
+---
+
+# 13. Standard Platform Architecture
+
+Every major platform follows the same internal structure.
+
+```
+Platform
+
+├── Domain Models
+
+├── Configuration
+
+├── Interfaces
+
+├── Base Classes
+
+├── Provider Implementations
+
+├── Registry
+
+├── Factory (only if needed)
+
+├── Service
+
+├── Artifact Builder
+
+├── Artifact Writer
+
+├── Artifacts
+
+├── Exceptions
+
+└── Tests
+```
+
+This consistency makes the entire codebase predictable.
+
+---
+
+# 14. Architecture Decision Records (ADR)
+
+Every important architectural decision must have an ADR.
+
+Examples
+
+- Why Qdrant?
+- Why Voyage AI?
+- Why LangGraph?
+- Why canonical models?
+- Why provider architecture?
+- Why artifacts?
+- Why Valkey?
+- Why hybrid retrieval?
+
+ADRs document
+
+- Context
+- Decision
+- Alternatives
+- Consequences
+
+---
+
+# 15. Engineering Standards
+
+ResearchMind follows these engineering principles.
+
+## Production First
+
+Every implementation should be suitable for production.
+
+---
+
+## Simplicity First
+
+Choose the simplest solution that satisfies today's requirements.
+
+Avoid speculative abstractions.
+
+---
+
+## Platform Thinking
+
+Build reusable platforms rather than isolated features.
+
+---
+
+## Replaceability
+
+Every provider should be replaceable.
+
+---
+
+## Vertical Slice Development
+
+Complete one capability end-to-end before adding infrastructure.
+
+---
+
+## Provider Independence
+
+External SDKs never leak into business logic.
+
+---
+
+## Canonical Domain Models
+
+Platforms communicate using canonical models.
+
+Never SDK models.
+
+---
+
+## Artifacts as Contracts
+
+Every processing stage produces immutable artifacts.
+
+---
+
+## Evaluation Driven Development
+
+Every AI improvement should be measurable.
+
+---
+
+## Documentation First
+
+Architecture is documented while it evolves.
+
+Not afterwards.
+
+---
+
+# 16. Definition of Done
+
+A milestone is complete only when all of the following are satisfied.
+
+## Engineering
+
+- Code implemented
+- Code reviewed
+- Clean architecture
+- Static analysis passing
+
+---
+
+## Testing
+
+- Unit tests
+- Integration tests
+- End-to-end tests
+
+---
+
+## Documentation
+
+- ADR updated
+- Architecture updated
+- README updated
+- Engineering Journal updated
+
+---
+
+## Observability
+
+- Logging
+- Metrics
+- Error handling
+
+---
+
+## AI Quality
+
+Where applicable
+
+- Evaluation completed
+- Benchmark updated
+- Regression verified
+
+---
+
+## Production
+
+- Configuration reviewed
+- Performance reviewed
+- Security reviewed
+
+---
+
+# 17. Learning Objectives
+
+Every platform should teach both engineering and AI concepts.
+
+| Platform | Engineering | AI |
+|----------|-------------|----|
+| Knowledge | Architecture | RAG |
+| Runtime | Provider Design | LLMs |
+| Research | Workflow Design | Reasoning |
+| Agents | State Machines | Agent Systems |
+| MCP | Distributed Systems | Tool Calling |
+| Quality | Experimentation | AI Evaluation |
+| Production | DevOps | AI Operations |
+
+The goal is not simply to build software.
+
+The goal is to become an AI Engineer.
+
+---
+
+# 18. Future Research Topics
+
+These are intentionally deferred.
+
+Knowledge
+
+- GraphRAG
+- RAPTOR
+- Knowledge Graphs
+
+Retrieval
+
+- Hybrid Search
+- Late Interaction
+- ColBERT
+
+Embeddings
+
+- Domain Adaptation
+- Fine-tuning
+
+LLMs
+
+- Fine-tuning
+- Distillation
+- Self-hosting
+- vLLM
+
+Agents
+
+- Reflection
+- Debate
+- Self-Improvement
+
+Infrastructure
+
+- Kubernetes
+- Service Mesh
+- Multi-region Deployment
+
+These topics belong after the core platform reaches production quality.
+
+---
+
+# 19. Roadmap Completion Criteria
+
+ResearchMind v1.0 is complete when:
+
+✓ Knowledge Platform is production-ready.
+
+✓ AI Runtime is provider-independent.
+
+✓ Research workflows are operational.
+
+✓ Multi-agent workflows function reliably.
+
+✓ MCP integrations are available.
+
+✓ AI Quality platform continuously measures performance.
+
+✓ Production infrastructure is operational.
+
+✓ Enterprise features support organizational deployment.
+
+At this point, ResearchMind is no longer a portfolio project.
+
+It is a production-grade AI Engineering Platform.
+
+---
+
+# 20. Final Guiding Principle
+
+ResearchMind exists to answer one question:
+
+> "How do we build production-quality AI systems?"
+
+Every architectural decision should move the project closer to that goal.
+
+Whenever uncertainty arises, choose the solution that best balances:
+
+- Simplicity
+- Reliability
+- Performance
+- Maintainability
+- Cost-effectiveness
+- Learning value
+
+The project should grow through deliberate engineering decisions rather than unnecessary complexity.
+
+ResearchMind is not built to demonstrate every AI technology.
+
+It is built to demonstrate sound AI engineering.
+
+# Milestone dependency graph
+
+Engineering Foundation
+          │
+          ▼
+ Identity Platform
+          │
+          ▼
+  Knowledge Platform
+          │
+          ▼
+     AI Runtime
+          │
+          ▼
+ Research Platform
+          │
+          ▼
+   Agent Platform
+          │
+          ▼
+    MCP Platform
+          │
+          ▼
+  AI Quality Platform
+          │
+          ▼
+ Production Platform
+          │
+          ▼
+ Enterprise Platform
+
+ ## Knowledge Platform
+
+ Upload
+   │
+   ▼
+Processing
+   │
+   ▼
+Chunking
+   │
+   ▼
+Embeddings
+   │
+   ▼
+Vector Store
+   │
+   ▼
+Retrieval
+   │
+   ▼
+Reranking

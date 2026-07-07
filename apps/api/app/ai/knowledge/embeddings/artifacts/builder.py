@@ -20,6 +20,7 @@ from app.ai.knowledge.embeddings.artifacts.models import (
     EmbeddingArtifactStatistics,
 )
 from app.ai.knowledge.embeddings.models import Embedding
+from app.ai.knowledge.vectorstores.enums import VectorDistanceMetric
 
 
 class EmbeddingArtifactBuilder:
@@ -91,6 +92,7 @@ class EmbeddingArtifactBuilder:
             provider_version=first_embedding.experiment.provider_version,
             model=first_embedding.provider.model,
             model_version=first_embedding.provider.model_version,
+            recommended_distance_metric=VectorDistanceMetric.DOT,
             configuration_fingerprint=(first_embedding.experiment.configuration_fingerprint),
         )
 

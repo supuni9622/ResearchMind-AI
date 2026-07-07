@@ -40,6 +40,12 @@ class SentenceTransformerEmbeddingConfig(BaseEmbeddingConfig):
     Configuration for the Sentence Transformers provider.
     """
 
+    batch_size: int = Field(
+        default=64,
+        ge=1,
+        description="Maximum number of chunks embedded per local inference batch.",
+    )
+
     model_name: str = Field(
         default="all-MiniLM-L6-v2",
     )
@@ -62,8 +68,18 @@ class SentenceTransformerEmbeddingConfig(BaseEmbeddingConfig):
 
 
 class VoyageAIEmbeddingConfig(BaseEmbeddingConfig):
+    """
+    Configuration for the Voyage AI embedding provider.
+    """
+
+    batch_size: int = Field(
+        default=32,
+        ge=1,
+        description="Maximum number of chunks embedded per API request.",
+    )
+
     model_name: str = Field(
-        default="voyage-3-large",
+        default="voyage-3-lite",
     )
 
     input_type: str = Field(
@@ -72,6 +88,16 @@ class VoyageAIEmbeddingConfig(BaseEmbeddingConfig):
 
 
 class OpenAIEmbeddingConfig(BaseEmbeddingConfig):
+    """
+    Configuration for the OpenAI embedding provider.
+    """
+
+    batch_size: int = Field(
+        default=128,
+        ge=1,
+        description="Maximum number of chunks embedded per API request.",
+    )
+
     model_name: str = Field(
         default="text-embedding-3-large",
     )

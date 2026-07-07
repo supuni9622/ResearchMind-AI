@@ -88,5 +88,7 @@ class Settings(BaseSettings):
     secret_key: str = Field(...)
     access_token_expire_minutes: int = 30
 
+    voyage_api_key: str | None = None
+
 
 settings = Settings()  # pyright: ignore[reportCallIssue]

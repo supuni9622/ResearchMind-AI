@@ -1,12 +1,12 @@
 """
-Sentence Transformers embedding provider.
+Voyage AI embedding provider.
 
-This provider generates dense vector embeddings using the
-SentenceTransformers library while exposing only canonical Embedding
-models to the rest of the Knowledge Platform.
+This provider generates dense vector embeddings using the Voyage AI API
+while exposing only canonical Embedding models to the rest of the
+Knowledge Platform.
 
-SentenceTransformers is intentionally encapsulated within this provider
-so that the remainder of the application remains framework-independent.
+Voyage AI is intentionally encapsulated within this provider so that the
+remainder of the application remains framework-independent.
 """
 
 from __future__ import annotations
@@ -15,33 +15,32 @@ import structlog
 from app.ai.knowledge.chunking.artifacts.models import ChunkArtifact
 from app.ai.knowledge.embeddings.base import BaseEmbeddingProvider
 from app.ai.knowledge.embeddings.batching import EmbeddingBatcher
-from app.ai.knowledge.embeddings.config import (
-    SentenceTransformerEmbeddingConfig,
-)
+from app.ai.knowledge.embeddings.config import VoyageAIEmbeddingConfig
 from app.ai.knowledge.embeddings.enums import EmbeddingProvider
 from app.ai.knowledge.embeddings.factory import EmbeddingFactory
 from app.ai.knowledge.embeddings.models import Embedding
-from sentence_transformers import SentenceTransformer
+from voyageai.client import Client as VoyageAIClient
 
 logger = structlog.get_logger()
 
 
-class SentenceTransformerEmbeddingProvider(
-    BaseEmbeddingProvider[SentenceTransformerEmbeddingConfig],
+class VoyageAIEmbeddingProvider(
+    BaseEmbeddingProvider[VoyageAIEmbeddingConfig],
 ):
     """
-    Sentence Transformers embedding provider.
+    Voyage AI embedding provider.
 
     Generates dense vector embeddings for canonical chunks.
     """
 
     def __init__(
         self,
-        config: SentenceTransformerEmbeddingConfig,
+        config: VoyageAIEmbeddingConfig,
+        client: VoyageAIClient,
     ) -> None:
         super().__init__(config)
 
-        self._model: SentenceTransformer | None = None
+        self._client = client
 
     @property
     def provider(self) -> EmbeddingProvider:
@@ -49,7 +48,7 @@ class SentenceTransformerEmbeddingProvider(
         Provider identifier.
         """
 
-        return EmbeddingProvider.SENTENCE_TRANSFORMERS
+        return EmbeddingProvider.VOYAGE_AI
 
     @property
     def model(self) -> str:
@@ -74,12 +73,10 @@ class SentenceTransformerEmbeddingProvider(
             Canonical embeddings.
         """
 
-        model = self._get_model()
-
         chunks = artifact.chunks
 
         logger.info(
-            "embedding.sentence_transformers.started",
+            "embedding.voyage.started",
             provider=self.provider.value,
             model=self.model,
             chunk_count=len(chunks),
@@ -95,24 +92,27 @@ class SentenceTransformerEmbeddingProvider(
         for batch_chunks in batcher.batch(chunks):
             batch_texts = [chunk.content.text for chunk in batch_chunks]
 
-            batch_vectors = model.encode(
-                batch_texts,
-                batch_size=len(batch_texts),
-                normalize_embeddings=self.config.normalize_embeddings,
-                show_progress_bar=self.config.show_progress_bar,
-                convert_to_numpy=self.config.convert_to_numpy,
+            response = self._client.embed(
+                texts=batch_texts,
+                model=self.model,
+                input_type=self.config.input_type,
             )
+
             logger.debug(
-                "embedding.sentence_transformers.batch",
+                "embedding.voyage.batch",
                 provider=self.provider.value,
                 batch_size=len(batch_chunks),
             )
+
+            batch_vectors: list[list[float]] = [
+                [float(value) for value in vector] for vector in response.embeddings
+            ]
 
             embeddings.extend(
                 [
                     EmbeddingFactory.from_vector(
                         chunk=chunk,
-                        vector=vector.tolist(),
+                        vector=vector,
                         provider=self.provider,
                         model=self.model,
                         provider_version=self.version,
@@ -127,7 +127,7 @@ class SentenceTransformerEmbeddingProvider(
             )
 
         logger.info(
-            "embedding.sentence_transformers.completed",
+            "embedding.voyage.completed",
             provider=self.provider.value,
             model=self.model,
             embedding_count=len(embeddings),
@@ -135,25 +135,3 @@ class SentenceTransformerEmbeddingProvider(
         )
 
         return embeddings
-
-    def _get_model(
-        self,
-    ) -> SentenceTransformer:
-        """
-        Lazily construct and cache the SentenceTransformer model.
-        """
-
-        if self._model is None:
-            logger.info(
-                "embedding.sentence_transformers.loading_model",
-                model=self.config.model_name,
-                device=self.config.device,
-            )
-
-            self._model = SentenceTransformer(
-                model_name_or_path=self.config.model_name,
-                device=self.config.device,
-                trust_remote_code=self.config.trust_remote_code,
-            )
-
-        return self._model

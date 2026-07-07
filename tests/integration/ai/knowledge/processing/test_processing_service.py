@@ -4,11 +4,14 @@ from uuid import uuid4
 
 import pytest
 from app.ai.knowledge.chunking.artifacts.builder import ChunkArtifactBuilder
+from app.ai.knowledge.chunking.artifacts.models import ChunkArtifact
 from app.ai.knowledge.chunking.factory import create_chunking_service
 from app.ai.knowledge.embeddings.artifacts.builder import (
     EmbeddingArtifactBuilder,
 )
-from app.ai.knowledge.embeddings.create import create_embedding_service
+from app.ai.knowledge.embeddings.enums import EmbeddingProvider
+from app.ai.knowledge.embeddings.factory import EmbeddingFactory
+from app.ai.knowledge.embeddings.models import Embedding
 from app.ai.knowledge.processing.artifact_builder import ArtifactBuilder
 from app.ai.knowledge.processing.enums import (
     DocumentFormat,
@@ -71,6 +74,22 @@ async def test_processing_service_processes_pdf():
     embedding_artifact_writer = AsyncMock()
     embedding_artifact_writer.write = AsyncMock(return_value=None)
 
+    def _fake_embed(*, artifact: ChunkArtifact, provider: EmbeddingProvider) -> list[Embedding]:
+        return [
+            EmbeddingFactory.from_vector(
+                chunk=chunk,
+                vector=[0.0] * 8,
+                provider=provider,
+                model="test-voyage-model",
+                provider_version="1.0",
+                configuration_fingerprint="test-fingerprint",
+            )
+            for chunk in artifact.chunks
+        ]
+
+    embedding_service = AsyncMock()
+    embedding_service.embed = AsyncMock(side_effect=_fake_embed)
+
     storage = AsyncMock()
     storage.download = AsyncMock(
         return_value=Path("tests/fixtures/sample.pdf").read_bytes(),
@@ -104,7 +123,7 @@ async def test_processing_service_processes_pdf():
         chunking_service=create_chunking_service(),
         chunk_artifact_builder=ChunkArtifactBuilder(),
         chunk_artifact_writer=chunk_artifact_writer,
-        embedding_service=create_embedding_service(),
+        embedding_service=embedding_service,
         embedding_artifact_builder=EmbeddingArtifactBuilder(),
         embedding_artifact_writer=embedding_artifact_writer,
     )

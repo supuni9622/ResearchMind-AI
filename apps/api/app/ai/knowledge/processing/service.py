@@ -439,19 +439,35 @@ class ProcessingService:
 
         log = log.bind(owner_id=owner_id)
 
+        # log.debug(
+        #     "processing.embedding.started",
+        #     provider=EmbeddingProvider.SENTENCE_TRANSFORMERS.value,
+        # )
+
+        # embeddings = await self._embedding_service.embed(
+        #     artifact=chunk_artifact,
+        #     provider=EmbeddingProvider.SENTENCE_TRANSFORMERS,
+        # )
+
+        # log.info(
+        #     "processing.embedding.completed",
+        #     provider=EmbeddingProvider.SENTENCE_TRANSFORMERS.value,
+        #     embedding_count=len(embeddings),
+        # )
+
         log.debug(
             "processing.embedding.started",
-            provider=EmbeddingProvider.SENTENCE_TRANSFORMERS.value,
+            provider=EmbeddingProvider.VOYAGE_AI.value,
         )
 
         embeddings = await self._embedding_service.embed(
             artifact=chunk_artifact,
-            provider=EmbeddingProvider.SENTENCE_TRANSFORMERS,
+            provider=EmbeddingProvider.VOYAGE_AI,
         )
 
         log.info(
             "processing.embedding.completed",
-            provider=EmbeddingProvider.SENTENCE_TRANSFORMERS.value,
+            provider=EmbeddingProvider.VOYAGE_AI.value,
             embedding_count=len(embeddings),
         )
 

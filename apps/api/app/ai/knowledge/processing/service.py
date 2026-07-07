@@ -455,19 +455,35 @@ class ProcessingService:
         #     embedding_count=len(embeddings),
         # )
 
+        # log.debug(
+        #     "processing.embedding.started",
+        #     provider=EmbeddingProvider.VOYAGE_AI.value,
+        # )
+
+        # embeddings = await self._embedding_service.embed(
+        #     artifact=chunk_artifact,
+        #     provider=EmbeddingProvider.VOYAGE_AI,
+        # )
+
+        # log.info(
+        #     "processing.embedding.completed",
+        #     provider=EmbeddingProvider.VOYAGE_AI.value,
+        #     embedding_count=len(embeddings),
+        # )
+
         log.debug(
             "processing.embedding.started",
-            provider=EmbeddingProvider.VOYAGE_AI.value,
+            provider=EmbeddingProvider.OPENAI.value,
         )
 
         embeddings = await self._embedding_service.embed(
             artifact=chunk_artifact,
-            provider=EmbeddingProvider.VOYAGE_AI,
+            provider=EmbeddingProvider.OPENAI,
         )
 
         log.info(
             "processing.embedding.completed",
-            provider=EmbeddingProvider.VOYAGE_AI.value,
+            provider=EmbeddingProvider.OPENAI.value,
             embedding_count=len(embeddings),
         )
 

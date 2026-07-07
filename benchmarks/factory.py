@@ -16,12 +16,16 @@ from __future__ import annotations
 from app.ai.knowledge.chunking.artifacts.builder import (
     ChunkArtifactBuilder,
 )
+from app.ai.knowledge.chunking.enums import ChunkingStrategy
 from app.ai.knowledge.chunking.factory import (
     create_chunking_registry,
+    create_chunking_service,
 )
+from app.ai.knowledge.embeddings.create import create_embedding_registry
 
 from benchmarks.chunking.benchmark import ChunkingBenchmark
 from benchmarks.common.dataset_loader import DatasetLoader
+from benchmarks.embeddings.benchmark import EmbeddingBenchmark
 from benchmarks.registry import BenchmarkRegistry
 
 
@@ -42,12 +46,18 @@ def create_benchmark_registry() -> BenchmarkRegistry:
         )
     )
 
+    registry.register(
+        EmbeddingBenchmark(
+            registry=create_embedding_registry(),
+            chunking_service=create_chunking_service(),
+            chunking_strategy=ChunkingStrategy.RECURSIVE,
+            chunk_artifact_builder=ChunkArtifactBuilder(),
+            dataset_loader=dataset_loader,
+        )
+    )
+
     #
     # Future benchmarks
-    #
-    # registry.register(
-    #     EmbeddingBenchmark(...)
-    # )
     #
     # registry.register(
     #     RetrievalBenchmark(...)

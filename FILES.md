@@ -151,14 +151,15 @@ Chunking pipeline. Transforms a canonical `ProcessedDocument` into retrieval-rea
 
 ##### `ai/knowledge/embeddings/` — **Implemented**
 
-Embedding pipeline. Transforms a canonical `ChunkArtifact` into vector `Embedding` objects and persists a full embedding run as a canonical `EmbeddingArtifact` (`embeddings.json`). Structurally parallel to `chunking/`: a provider registry behind a single service, plus a dedicated `artifacts/` sub-package for the persisted output. Sentence Transformers is implemented; the config module already defines Voyage AI and OpenAI configs for future providers.
+Embedding pipeline. Transforms a canonical `ChunkArtifact` into vector `Embedding` objects and persists a full embedding run as a canonical `EmbeddingArtifact` (`embeddings.json`). Structurally parallel to `chunking/`: a provider registry behind a single service, plus a dedicated `artifacts/` sub-package for the persisted output. Sentence Transformers, Voyage AI, and OpenAI providers are all implemented and registered.
 
 | File | Description |
 |------|-------------|
 | `__init__.py` | (empty) |
 | `base.py` | `BaseEmbeddingProvider[ConfigT]` — generic base class shared by every provider (config, version, configuration fingerprint) |
+| `batching.py` | `EmbeddingBatcher` — lazily splits an iterable of chunks into fixed-size batches; shared by every provider that calls a batch-limited SDK (Sentence Transformers, Voyage AI, OpenAI) |
 | `config.py` | `BaseEmbeddingConfig` (`batch_size`, `normalize_embeddings`), `SentenceTransformerEmbeddingConfig`, `VoyageAIEmbeddingConfig`, `OpenAIEmbeddingConfig` |
-| `create.py` | `create_embedding_registry()` — single place providers are constructed/registered; `create_embedding_service()` — composition root wrapping it in an `EmbeddingService`. Both the Processing Platform and the Benchmark Platform depend on `create_embedding_registry()` rather than duplicating provider construction |
+| `create.py` | `create_voyage_client()` / `create_openai_client()` — construct the real Voyage/OpenAI SDK clients from settings; `create_embedding_registry()` — single place providers are constructed/registered (Sentence Transformers, Voyage AI, OpenAI); `create_embedding_service()` — composition root wrapping it in an `EmbeddingService`. Both the Processing Platform and the Benchmark Platform depend on `create_embedding_registry()` rather than duplicating provider construction |
 | `enums.py` | `EmbeddingProvider` (sentence_transformers/voyage_ai/openai/bge/instructor/nomic) |
 | `exceptions.py` | `EmbeddingError` hierarchy — `EmbeddingProviderNotFoundError`, `EmbeddingValidationError`, `EmbeddingGenerationError` |
 | `factory.py` | `EmbeddingFactory` — canonical `Embedding` mapper (`from_vector()`); every provider builds embeddings through this factory instead of constructing `Embedding` directly |
@@ -166,7 +167,9 @@ Embedding pipeline. Transforms a canonical `ChunkArtifact` into vector `Embeddin
 | `models.py` | `Embedding` and its sub-models — `EmbeddingVector`, `EmbeddingProvenance`, `EmbeddingProviderMetadata`, `EmbeddingStatistics`, `EmbeddingExperiment` |
 | `registry.py` | `EmbeddingRegistry` — provider → implementation resolution |
 | `service.py` | `EmbeddingService` — validates the chunk artifact (rejects empty/blank-text chunks via `EmbeddingValidationError`), resolves the provider, delegates embedding generation |
-| `providers/sentence_transformers.py` | `SentenceTransformerEmbeddingProvider` — wraps the real `sentence-transformers` library, encapsulating it behind the provider so the rest of the app stays framework-independent |
+| `providers/sentence_transformers.py` | `SentenceTransformerEmbeddingProvider` — wraps the real `sentence-transformers` library, batches chunks via `EmbeddingBatcher`, encapsulating the library behind the provider so the rest of the app stays framework-independent |
+| `providers/voyage.py` | `VoyageAIEmbeddingProvider` — wraps the Voyage AI SDK's `Client`, batches chunks via `EmbeddingBatcher`, coerces quantized int vectors to floats before building canonical embeddings |
+| `providers/openai.py` | `OpenAIEmbeddingProvider` — wraps the OpenAI SDK's `OpenAI` client, batches chunks via `EmbeddingBatcher` |
 | `artifacts/models.py` | `EmbeddingArtifact` — canonical persistence model for a full embedding run (`document`, `chunking`, `execution`, `statistics`, `evaluation`, `embeddings`), serialized to `embeddings.json` |
 | `artifacts/builder.py` | `EmbeddingArtifactBuilder` — builds an `EmbeddingArtifact` from a `ChunkArtifact` and its generated embeddings |
 | `artifacts/writer.py` | `EmbeddingArtifactWriter` — persists an `EmbeddingArtifact` to storage under `documents/{owner_id}/{document_id}/embeddings/{provider}/{artifact_id}/embeddings.json` |
@@ -569,13 +572,13 @@ Standalone background worker process that consumes document processing jobs from
 
 ## `benchmarks/` — **Implemented**
 
-Engineering Benchmark Platform — an offline framework for comparing competing AI implementations (e.g. chunking strategies) against version-controlled datasets. Deliberately separate from automated tests (which verify correctness) and from the planned Runtime Evaluation / Experimentation platforms (which observe or replay the *production* pipeline). Executed manually via `uv run python -m benchmarks.runner <name> --dataset <path>`.
+Engineering Benchmark Platform — an offline framework for comparing competing AI implementations (chunking strategies, embedding providers) against version-controlled datasets. Deliberately separate from automated tests (which verify correctness) and from the planned Runtime Evaluation / Experimentation platforms (which observe or replay the *production* pipeline). Executed manually via `uv run python -m benchmarks.runner <name> --dataset <path>`.
 
 | File | Description |
 |------|-------------|
-| `README.md` | Platform overview — goals, testing-vs-benchmarking philosophy, relationship to Runtime Evaluation and the Experimentation Platform, repository layout, report format, usage |
+| `README.md` | Platform overview — goals, testing-vs-benchmarking philosophy, relationship to Runtime Evaluation and the Experimentation Platform, repository layout, report format, usage. "Current" category list now includes Embeddings; `Usage` documents the actual `python -m benchmarks.runner <name> --dataset <path>` invocation |
 | `runner.py` | CLI entry point (`python -m benchmarks.runner <benchmark> --dataset <path> [--output <path>]`) — resolves the benchmark from `create_benchmark_registry()`, runs it, writes `report.md` + `report.json` |
-| `factory.py` | `create_benchmark_registry()` — composition root; constructs each benchmark (currently: `ChunkingBenchmark`) and registers it with a `BenchmarkRegistry` |
+| `factory.py` | `create_benchmark_registry()` — composition root; constructs each benchmark (currently: `ChunkingBenchmark`, `EmbeddingBenchmark`) and registers it with a `BenchmarkRegistry` |
 | `registry.py` | `BenchmarkRegistry` — name → benchmark resolution (keyed by `Benchmark.name.lower()`) |
 | `interfaces/benchmark.py` | `Benchmark` ABC — `name` property, `run(dataset_path) -> BenchmarkReport` |
 | `models/report.py` | Canonical report models — `BenchmarkCandidate` (one implementation's metrics), `BenchmarkDataset`, `BenchmarkReport` |
@@ -583,11 +586,13 @@ Engineering Benchmark Platform — an offline framework for comparing competing 
 | `common/report_generator.py` | `BenchmarkReportGenerator` — renders a `BenchmarkReport` as Markdown (comparison table + per-candidate sections) or JSON |
 | `common/metrics.py` | (empty) — planned shared metrics helpers |
 | `common/report.py` | (empty) — superseded by `models/report.py` |
-| `common/timer.py` | (empty) — planned timing helper |
+| `common/timer.py` | `Timer` — dependency-free, high-resolution timer (`start()`/`stop()`/`elapsed_seconds`/`elapsed_milliseconds`); also usable as a context manager (`with Timer() as timer:`) |
 | `chunking/benchmark.py` | `ChunkingBenchmark` — runs every registered chunking provider over the same document set and aggregates chunk-count/size/word/token metrics per strategy |
 | `chunking/report_generator.py` | `ChunkingBenchmarkReportGenerator` — currently a thin subclass of the generic `BenchmarkReportGenerator`; placeholder for chunking-specific visualizations |
 | `chunking/reports/chunking/report.{md,json}` | Checked-in example output from a real `chunking` benchmark run (Fixed vs. Recursive vs. Markdown over the research-papers dataset) |
-| `embeddings/benchmark.py` | (empty) — planned embedding provider benchmark |
+| `embeddings/benchmark.py` | `EmbeddingBenchmark` — chunks every document once (fixed `RECURSIVE` strategy, so every provider embeds identical input), then runs each registered embedding provider (Sentence Transformers, Voyage AI, OpenAI) against those chunks, timing latency/throughput/dimensions via `Timer`. Wraps each provider's run in its own try/except so one provider failing (e.g. a Voyage AI rate limit) is recorded as a `notes.error` on that candidate rather than aborting the whole report |
+| `embeddings/report_generator.py` | `EmbeddingBenchmarkReportGenerator` — thin subclass of the generic `BenchmarkReportGenerator`; placeholder for embedding-specific visualizations |
+| `embeddings/reports/embeddings/report.{md,json}` | Checked-in example output from a real `embeddings` benchmark run — Sentence Transformers completed all 5 documents (1481 chunks, 384-dim); Voyage AI completed 1 of 5 documents before hitting the configured account's free-tier rate limit (3 RPM), captured as a candidate-level error note |
 | `retrieval/benchmark.py` | (empty) — planned retrieval strategy benchmark |
 | `reranking/benchmark.py` | (empty) — planned reranker benchmark |
 | `pipeline/benchmark.py` | (empty) — planned end-to-end pipeline benchmark |
@@ -731,6 +736,7 @@ All empty.
 | `milestones/2026-07-02-processing-platform-summary.md` | Milestone retrospective: first end-to-end Document Processing Platform implementation |
 | `milestones/2026-07-04-asynchronous-document-processing.md` | Milestone retrospective: asynchronous document processing — queue abstraction, background worker, retry/dead-letter handling, worker metrics, graceful shutdown |
 | `milestones/2026-07-05-fixed-chunking.md` | Milestone retrospective (Phase 2.3.3): first production-ready Fixed Chunking Platform implementation |
+| `milestones/2026-07-06-runtime-metrics-foundation.md` | Milestone retrospective: Runtime Metrics Foundation |
 | `milestones/README.md` | Milestones index |
 
 ---
@@ -897,6 +903,8 @@ All empty — planned infrastructure-as-code. (The former `s3_configuration_guid
 | File | Description |
 |------|-------------|
 | `dev.sh` | Dev startup script — runs `alembic upgrade head` then `uvicorn --reload`; prevents hot-reload from interrupting migrations |
+| `benchmark_chunking.py` | Stray placeholder — a bare comment diagram (`Document → Fixed → Recursive → Markdown → Comparison Report`), no actual code; superseded by `benchmarks/chunking/benchmark.py` |
+| `verify_voyage_sdk.py` | Manual smoke-test script — resolves the Voyage AI provider from `create_embedding_registry()` and prints its provider/model, verifying registry registration, dependency injection, `VOYAGE_API_KEY` loading, and Voyage client construction end-to-end (`uv run python scripts/verify_voyage_sdk.py`) |
 
 ---
 
@@ -947,7 +955,7 @@ All empty — planned cross-cutting code.
 | `integration/ai/knowledge/chunking/test_fixed_chunking_edge_cases.py` | Fixed Chunking edge cases — overlap is preserved between every consecutive chunk pair (incl. the truncated final chunk); empty/whitespace-only documents raise `ChunkingValidationError` |
 | `integration/ai/knowledge/chunking/test_recursive_chunking_pipeline.py` | End-to-end Recursive Chunking pipeline test (`ChunkingService` → `RecursiveChunkingProvider` → `ChunkArtifactBuilder`) — canonical Chunk fields, artifact statistics, and JSON serialization |
 | `integration/ai/knowledge/embeddings/test_sentence_transformers_pipeline.py` | End-to-end embedding pipeline test (`EmbeddingService` → real `SentenceTransformerEmbeddingProvider` → `EmbeddingArtifactBuilder`) — canonical Embedding fields, artifact statistics, and JSON serialization |
-| `integration/ai/knowledge/processing/test_processing_service.py` | Full DoclingParser → ProcessingService pipeline integration test (parse → enrich → artifacts → chunk → chunk artifacts → embed → embedding artifacts), using the real Chunking and Embedding Platforms |
+| `integration/ai/knowledge/processing/test_processing_service.py` | Full DoclingParser → ProcessingService pipeline integration test (parse → enrich → artifacts → chunk → chunk artifacts → embed → embedding artifacts), using the real Chunking Platform; the embedding stage uses a mocked `EmbeddingService` (via `EmbeddingFactory`) since `ProcessingService` hardcodes the Voyage AI provider and this test doesn't assert on embedding content |
 | `integration/ai/knowledge/upload/test_duplicate_detection.py` | Integration test: real `UploadService`, `DuplicateDetectionService`, `DocumentRepository`, `SHA256Hasher` against the Postgres test DB (only S3 is faked) |
 | `integration/test_document_repository.py` | (empty) |
 | `integration/test_document_service.py` | (empty) |
@@ -966,6 +974,10 @@ All empty — planned cross-cutting code.
 | `unit/ai/knowledge/embeddings/test_registry.py` | `EmbeddingRegistry` registration, lookup, duplicate rejection, unregister/clear, defensive `providers` copy |
 | `unit/ai/knowledge/embeddings/test_service.py` | `EmbeddingService` — delegates to the resolved provider; raises on unknown provider, empty chunk artifact, and blank-text chunks |
 | `unit/ai/knowledge/embeddings/test_factory.py` | `EmbeddingFactory.from_vector` — provenance/statistics/provider mapping from a `Chunk`, vector dimension derivation |
+| `unit/ai/knowledge/embeddings/providers/__init__.py` | Package marker |
+| `unit/ai/knowledge/embeddings/providers/test_sentence_transformers.py` | `SentenceTransformerEmbeddingProvider` (mocked `SentenceTransformer`) — provider/model identifiers, lazy/cached model construction, conversion of encoded vectors into canonical `Embedding` models |
+| `unit/ai/knowledge/embeddings/providers/test_voyage.py` | `VoyageAIEmbeddingProvider` (mocked Voyage client) — client invoked with configured model/input_type, canonical `Embedding` conversion, quantized int vectors coerced to floats |
+| `unit/ai/knowledge/embeddings/providers/test_batching.py` | `EmbeddingBatcher` unit tests (equal-size splits, remainder handling, oversized batch_size, empty input, invalid batch_size) plus provider-level batching integration for both `SentenceTransformerEmbeddingProvider` and `VoyageAIEmbeddingProvider` |
 | `unit/ai/knowledge/embeddings/artifacts/__init__.py` | Package marker |
 | `unit/ai/knowledge/embeddings/artifacts/test_builder.py` | `EmbeddingArtifactBuilder` — statistics aggregation, document/chunking/execution metadata derivation, empty-embeddings `ValueError` |
 | `unit/ai/knowledge/embeddings/artifacts/test_writer.py` | `EmbeddingArtifactWriter` — S3 key layout, serialized payload/content-type, storage error propagation |

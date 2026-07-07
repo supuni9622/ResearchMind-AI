@@ -1,0 +1,59 @@
+{
+  "benchmark_name": "Embeddings",
+  "generated_at": "2026-07-07T06:57:45.057705Z",
+  "dataset": {
+    "name": "research-papers",
+    "document_count": 5
+  },
+  "candidates": [
+    {
+      "name": "sentence_transformers",
+      "version": "1.0",
+      "metrics": {
+        "documents": 5,
+        "total_chunks": 1481,
+        "total_embeddings": 1481,
+        "dimensions": 384,
+        "duration_seconds": 15.1887,
+        "average_latency_ms": 10.26,
+        "throughput_embeddings_per_second": 97.51
+      },
+      "notes": {
+        "model": "all-MiniLM-L6-v2"
+      }
+    },
+    {
+      "name": "voyage_ai",
+      "version": "1.0",
+      "metrics": {
+        "documents": 5,
+        "total_chunks": 1481,
+        "total_embeddings": 1481,
+        "dimensions": 512,
+        "duration_seconds": 41.5105,
+        "average_latency_ms": 28.03,
+        "throughput_embeddings_per_second": 35.68
+      },
+      "notes": {
+        "model": "voyage-3-lite"
+      }
+    },
+    {
+      "name": "openai",
+      "version": "1.0",
+      "metrics": {
+        "documents": 5,
+        "total_chunks": 1481,
+        "total_embeddings": 1481,
+        "dimensions": 1536,
+        "duration_seconds": 24.8303,
+        "average_latency_ms": 16.77,
+        "throughput_embeddings_per_second": 59.64
+      },
+      "notes": {
+        "model": "text-embedding-3-small"
+      }
+    }
+  ],
+  "summary": {}
+}

@@ -69,10 +69,13 @@ ResearchMind-AI/
 │   │       │   │   │   │   ├── models.py           # EmbeddingArtifact + sub-models (document, chunking, execution, statistics, evaluation)
 │   │       │   │   │   │   └── writer.py           # EmbeddingArtifactWriter — persists EmbeddingArtifact to storage (S3)
 │   │       │   │   │   ├── providers/
-│   │       │   │   │   │   └── sentence_transformers.py  # SentenceTransformerEmbeddingProvider — real SentenceTransformers model
+│   │       │   │   │   │   ├── sentence_transformers.py  # SentenceTransformerEmbeddingProvider — real SentenceTransformers model, batches via EmbeddingBatcher
+│   │       │   │   │   │   ├── voyage.py                 # VoyageAIEmbeddingProvider — real Voyage AI Client, batches via EmbeddingBatcher, coerces int vectors to float
+│   │       │   │   │   │   └── openai.py                 # OpenAIEmbeddingProvider — real OpenAI client, batches via EmbeddingBatcher
 │   │       │   │   │   ├── base.py                 # BaseEmbeddingProvider — generic base (config, version, fingerprint)
+│   │       │   │   │   ├── batching.py             # EmbeddingBatcher — lazily splits chunks into fixed-size batches, shared by every provider
 │   │       │   │   │   ├── config.py               # BaseEmbeddingConfig + SentenceTransformer/VoyageAI/OpenAI configs
-│   │       │   │   │   ├── create.py               # create_embedding_registry() / create_embedding_service() — composition root
+│   │       │   │   │   ├── create.py               # create_voyage_client() / create_openai_client() / create_embedding_registry() / create_embedding_service() — composition root
 │   │       │   │   │   ├── enums.py                # EmbeddingProvider
 │   │       │   │   │   ├── exceptions.py           # EmbeddingError hierarchy
 │   │       │   │   │   ├── factory.py              # EmbeddingFactory — canonical Embedding mapper used by every provider
@@ -331,7 +334,7 @@ ResearchMind-AI/
 │   │   ├── report_generator.py              # BenchmarkReportGenerator — renders BenchmarkReport as Markdown/JSON
 │   │   ├── metrics.py                       # (empty) — planned shared metrics helpers
 │   │   ├── report.py                        # (empty) — superseded by models/report.py
-│   │   └── timer.py                         # (empty) — planned timing helper
+│   │   └── timer.py                         # Timer — dependency-free high-resolution timer; usable via start()/stop() or as a context manager
 │   ├── datasets/
 │   │   ├── README.md                        # Dataset philosophy — deterministic, version-controlled, immutable
 │   │   └── research-papers/
@@ -341,7 +344,9 @@ ResearchMind-AI/
 │   │       ├── paper-004/processed_document.json
 │   │       └── paper-005/processed_document.json
 │   ├── embeddings/
-│   │   └── benchmark.py                     # (empty) — planned embedding provider benchmark
+│   │   ├── benchmark.py                     # EmbeddingBenchmark — chunks each document once (fixed RECURSIVE strategy), then runs every registered embedding provider against identical chunks, timing latency/throughput/dimensions; isolates per-provider failures so one candidate erroring doesn't abort the report
+│   │   ├── report_generator.py              # EmbeddingBenchmarkReportGenerator (subclass; embedding-specific viz placeholder)
+│   │   └── reports/embeddings/report.{md,json}  # Checked-in example output (Sentence Transformers full run; Voyage AI partial — hit free-tier rate limit)
 │   ├── interfaces/
 │   │   └── benchmark.py                     # Benchmark ABC — name, run(dataset_path) -> BenchmarkReport
 │   ├── models/
@@ -447,7 +452,8 @@ ResearchMind-AI/
 │   │       ├── 0.31-engineering-quality.md
 │   │       ├── 2026-07-02-processing-platform-summary.md  # Document Processing Platform milestone retrospective
 │   │       ├── 2026-07-04-asynchronous-document-processing.md  # Queue abstraction + background worker milestone retrospective
-│   │       └── 2026-07-05-fixed-chunking.md  # Fixed Chunking Platform milestone retrospective (Phase 2.3.3)
+│   │       ├── 2026-07-05-fixed-chunking.md  # Fixed Chunking Platform milestone retrospective (Phase 2.3.3)
+│   │       └── 2026-07-06-runtime-metrics-foundation.md  # Runtime Metrics Foundation milestone retrospective
 │   │
 │   ├── evaluation/              # Evaluation strategy and metrics
 │   │   ├── benchmarks.md
@@ -543,7 +549,9 @@ ResearchMind-AI/
 │   └── scripts/                 # Infrastructure automation scripts
 │
 ├── scripts/                     # Developer utility scripts
-│   └── dev.sh                   # Runs migrations then starts uvicorn dev server
+│   ├── dev.sh                   # Runs migrations then starts uvicorn dev server
+│   ├── benchmark_chunking.py    # Stray placeholder (comment-only diagram); superseded by benchmarks/chunking/benchmark.py
+│   └── verify_voyage_sdk.py     # Manual smoke test — resolves Voyage AI from create_embedding_registry() and prints provider/model
 │
 ├── services/                    # Internal service modules (planned)
 │   ├── cache/
@@ -582,7 +590,7 @@ ResearchMind-AI/
 │   │   ├── ai/knowledge/embeddings/
 │   │   │   └── test_sentence_transformers_pipeline.py  # End-to-end embedding pipeline (real SentenceTransformerEmbeddingProvider + EmbeddingArtifactBuilder)
 │   │   ├── ai/knowledge/processing/
-│   │   │   └── test_processing_service.py   # Full DoclingParser → ProcessingService pipeline (incl. chunking + embedding stages)
+│   │   │   └── test_processing_service.py   # Full DoclingParser → ProcessingService pipeline (incl. chunking + a mocked embedding stage — ProcessingService hardcodes Voyage AI, which this test avoids calling for real)
 │   │   ├── ai/knowledge/upload/
 │   │   │   └── test_duplicate_detection.py  # Real UploadService + DuplicateDetectionService against Postgres
 │   │   ├── test_document_repository.py
@@ -604,6 +612,10 @@ ResearchMind-AI/
 │   │   │   ├── artifacts/
 │   │   │   │   ├── test_builder.py          # EmbeddingArtifactBuilder — statistics aggregation, metadata derivation, empty-collection guard
 │   │   │   │   └── test_writer.py           # EmbeddingArtifactWriter — storage key layout, serialized payload, error propagation
+│   │   │   ├── providers/
+│   │   │   │   ├── test_sentence_transformers.py  # SentenceTransformerEmbeddingProvider (mocked SentenceTransformer) — identifiers, lazy/cached model construction, vector→canonical Embedding conversion
+│   │   │   │   ├── test_voyage.py           # VoyageAIEmbeddingProvider (mocked client) — client invocation, canonical Embedding conversion, int→float vector coercion
+│   │   │   │   └── test_batching.py         # EmbeddingBatcher unit tests + provider-level batching integration (Sentence Transformers, Voyage AI)
 │   │   │   ├── test_factory.py              # EmbeddingFactory — provenance/statistics/vector mapping from a Chunk
 │   │   │   ├── test_registry.py             # EmbeddingRegistry registration, lookup, deduplication
 │   │   │   └── test_service.py              # EmbeddingService orchestration — delegation and validation failures
@@ -666,10 +678,10 @@ ResearchMind-AI/
 | Frontend | `apps/web/` | Next.js 15 App Router — Cognito auth, dashboard, documents, research |
 | Processing pipeline | `apps/api/app/ai/knowledge/processing/` | Docling parser, metadata/statistics enrichment, artifact builder/writer, registry, service |
 | Chunking pipeline | `apps/api/app/ai/knowledge/chunking/` | Transforms a `ProcessedDocument` into retrieval-ready `Chunk`s via a registry-based provider strategy (Fixed implemented), builds/persists the canonical `ChunkArtifact` (`chunks.json`) |
-| Embedding pipeline | `apps/api/app/ai/knowledge/embeddings/` | Transforms a `ChunkArtifact` into vector `Embedding`s via a registry-based provider strategy (Sentence Transformers implemented), builds/persists the canonical `EmbeddingArtifact` (`embeddings.json`) |
+| Embedding pipeline | `apps/api/app/ai/knowledge/embeddings/` | Transforms a `ChunkArtifact` into vector `Embedding`s via a registry-based provider strategy (Sentence Transformers, Voyage AI, and OpenAI implemented), builds/persists the canonical `EmbeddingArtifact` (`embeddings.json`) |
 | Upload pipeline | `apps/api/app/ai/knowledge/upload/` | File validation, duplicate detection, S3 upload, checksum hashing, enqueues async processing job |
 | Async worker | `apps/worker/` | Standalone process consuming the queue, running `DocumentProcessingService` per job, retry/dead-letter handling |
-| Engineering benchmarks | `benchmarks/` | Offline, manually-run comparison of competing AI implementations (currently: chunking strategies) against version-controlled datasets — independent from tests and from production infrastructure |
+| Engineering benchmarks | `benchmarks/` | Offline, manually-run comparison of competing AI implementations (currently: chunking strategies, embedding providers) against version-controlled datasets — independent from tests and from production infrastructure |
 | Infrastructure | `apps/api/app/infrastructure/` | S3 storage, SHA-256 hashing, metrics adapters, queue abstraction (Valkey/SQS-backed) |
 | Composition roots | `apps/api/app/bootstrap/` | Builds shared object graphs (e.g. the worker) used by multiple entry points |
 | Application services | `apps/api/app/services/` | Auth, user lifecycle, document processing orchestration, queued-job processing |

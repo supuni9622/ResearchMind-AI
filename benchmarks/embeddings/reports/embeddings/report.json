@@ -1,0 +1,44 @@
+{
+  "benchmark_name": "Embeddings",
+  "generated_at": "2026-07-07T06:45:56.914422Z",
+  "dataset": {
+    "name": "research-papers",
+    "document_count": 5
+  },
+  "candidates": [
+    {
+      "name": "sentence_transformers",
+      "version": "1.0",
+      "metrics": {
+        "documents": 5,
+        "total_chunks": 1481,
+        "total_embeddings": 1481,
+        "dimensions": 384,
+        "duration_seconds": 13.9924,
+        "average_latency_ms": 9.45,
+        "throughput_embeddings_per_second": 105.84
+      },
+      "notes": {
+        "model": "all-MiniLM-L6-v2"
+      }
+    },
+    {
+      "name": "voyage_ai",
+      "version": "1.0",
+      "metrics": {
+        "documents": 1,
+        "total_chunks": 65,
+        "total_embeddings": 65,
+        "dimensions": 512,
+        "duration_seconds": 3.4071,
+        "average_latency_ms": 52.42,
+        "throughput_embeddings_per_second": 19.08
+      },
+      "notes": {
+        "model": "voyage-3-lite",
+        "error": "You have not yet added your payment method in the billing page and will have reduced rate limits of 3 RPM and 10K TPM. To unlock our standard rate limits, please add a payment method in the billing page for the appropriate organization in the user dashboard (https://dashboard.voyageai.com/). Even with payment methods entered, the free tokens (200M tokens for Voyage series 3) will still apply. After adding a payment method, you should see your rate limits increase after several minutes. See our pricing docs (https://docs.voyageai.com/docs/pricing) for the free tokens for your model."
+      }
+    }
+  ],
+  "summary": {}
+}

@@ -12,13 +12,18 @@ provider here without modifying the rest of the application.
 
 from __future__ import annotations
 
+from openai import OpenAI
 from voyageai.client import Client as VoyageAIClient
 
 from app.ai.knowledge.embeddings.config import (
+    OpenAIEmbeddingConfig,
     SentenceTransformerEmbeddingConfig,
     VoyageAIEmbeddingConfig,
 )
 from app.ai.knowledge.embeddings.interfaces import EmbeddingProvider
+from app.ai.knowledge.embeddings.providers.openai import (
+    OpenAIEmbeddingProvider,
+)
 from app.ai.knowledge.embeddings.providers.sentence_transformers import (
     SentenceTransformerEmbeddingProvider,
 )
@@ -43,6 +48,19 @@ def create_voyage_client() -> VoyageAIClient:
     )
 
 
+def create_openai_client() -> OpenAI:
+    """
+    Create a configured OpenAI client.
+
+    This centralizes SDK client construction so that providers remain
+    independent from application configuration.
+    """
+
+    return OpenAI(
+        api_key=settings.openai_api_key,
+    )
+
+
 def create_embedding_registry() -> EmbeddingRegistry:
     """
     Create a fully configured EmbeddingRegistry.
@@ -56,6 +74,7 @@ def create_embedding_registry() -> EmbeddingRegistry:
     registry = EmbeddingRegistry()
 
     voyage_client = create_voyage_client()
+    openai_client = create_openai_client()
 
     providers: list[EmbeddingProvider] = [
         SentenceTransformerEmbeddingProvider(
@@ -64,6 +83,10 @@ def create_embedding_registry() -> EmbeddingRegistry:
         VoyageAIEmbeddingProvider(
             config=VoyageAIEmbeddingConfig(),
             client=voyage_client,
+        ),
+        OpenAIEmbeddingProvider(
+            config=OpenAIEmbeddingConfig(),
+            client=openai_client,
         ),
     ]
 

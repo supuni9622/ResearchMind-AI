@@ -221,10 +221,10 @@ Used for:
 Current:
 
 - Chunking
+- Embeddings
 
 Planned:
 
-- Embeddings
 - Vector Stores
 - Retrieval
 - Reranking
@@ -262,17 +262,14 @@ Benchmarks operate directly on canonical platform abstractions.
 Run a benchmark:
 
 ```bash
-uv run python benchmarks/chunking/benchmark.py
+uv run python -m benchmarks.runner chunking --dataset benchmarks/datasets/research-papers
+uv run python -m benchmarks.runner embeddings --dataset benchmarks/datasets/research-papers
 ```
 
 Future:
 
 ```bash
-uv run python benchmarks/runner.py chunking
-
-uv run python benchmarks/runner.py embeddings
-
-uv run python benchmarks/runner.py retrieval
+uv run python -m benchmarks.runner retrieval --dataset ...
 ```
 
 ---

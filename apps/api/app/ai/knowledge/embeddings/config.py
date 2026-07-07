@@ -99,5 +99,5 @@ class OpenAIEmbeddingConfig(BaseEmbeddingConfig):
     )
 
     model_name: str = Field(
-        default="text-embedding-3-large",
+        default="text-embedding-3-small",
     )

@@ -1,6 +1,6 @@
 # ResearchMind AI Roadmap
 
-**Last Updated:** 2026-07-06
+**Last Updated:** 2026-07-07
 
 ---
 
@@ -419,19 +419,44 @@ Implemented
 - Composition Root (`create.py`)
 - Framework Independence
 
-### Provider
+### Providers
 
 Implemented
 
+Local
+
 - Sentence Transformers
 
-Planned
+Cloud
 
 - Voyage AI
 - OpenAI
+
+Planned
+
 - BGE
 - Instructor
 - Nomic
+
+No additional providers are planned until the core RAG pipeline is completed.
+
+### Shared Batching
+
+A single reusable batching utility, `EmbeddingBatcher`, is shared by every embedding provider.
+
+Responsibilities
+
+- Stream batches lazily
+- Provider-independent batching
+- Configurable batch sizes
+
+Default configuration
+
+| Provider | Batch Size |
+|-----------|-----------:|
+| Sentence Transformers | 64 |
+| Voyage AI | 32 |
+| OpenAI | 128 |
 
 ### Artifact Platform
 
@@ -477,10 +502,13 @@ Verified
 
 - Processing
 - Chunk generation
-- Embedding generation
+- Embedding generation (Sentence Transformers, Voyage AI, OpenAI)
+- Shared batching
+- Runtime metrics
 - Artifact persistence
 - Amazon S3 persistence
 - Configuration fingerprints
+- Provider metadata
 - Canonical models
 
 ---
@@ -505,13 +533,15 @@ ADR
 
 ## Milestone 2.4 — Observability Platform
 
-**Status:** 🚧 Design Complete — Implementation Pending
+**Status:** 🚧 Runtime Metrics Foundation Complete — Full Platform Deferred
 
 The Observability Platform provides standardized engineering visibility across every AI platform within ResearchMind.
 
 Unlike the Knowledge Platform, which performs AI operations, the Observability Platform measures, reports, and monitors those operations.
 
 It is intentionally designed as a **cross-cutting platform** rather than a feature inside individual AI platforms.
+
+Rather than implementing the full platform immediately, a lightweight **Runtime Metrics Foundation** was introduced first, providing standardized engineering metrics while avoiding unnecessary complexity. The remaining, more advanced Observability Platform work is intentionally deferred until after the core AI pipeline is complete.
 
 ---
 
@@ -529,9 +559,30 @@ It is intentionally designed as a **cross-cutting platform** rather than a featu
 
 ---
 
-### Initial Scope
+### Runtime Metrics Foundation
 
-The first implementation focuses on runtime evaluation.
+**Status:** ✅ Completed
+
+```text
+RuntimeMetricsCollector
+
+↓
+
+ProcessingService
+
+↓
+
+RuntimeReportGenerator
+```
+
+Every pipeline stage exposes:
+
+- Execution duration
+- Stage duration
+- Peak memory
+- Artifact size
+- Provider
+- Provider version
 
 Metrics include:
 
@@ -556,9 +607,13 @@ Provider
 - Provider
 - Provider version
 
+Runtime metrics provide immediate engineering visibility while allowing advanced observability to remain a future enhancement.
+
 ---
 
-### Future Scope
+### Future Scope — Full Observability Platform
+
+**Status:** Deferred
 
 - Provider costs
 - Token usage
@@ -628,7 +683,7 @@ Roadmap
 
 ## Milestone 2.5 — Vector Store Platform
 
-**Status:** Planned
+**Status:** ⏳ Next — Immediate Focus
 
 The Vector Store Platform transforms canonical embeddings into searchable vector indexes.
 
@@ -1349,6 +1404,7 @@ Framework
 Benchmarks
 
 - Chunking Benchmark
+- Embedding Benchmark
 
 Dataset
 
@@ -1358,11 +1414,11 @@ Dataset
 
 ## Planned
 
-- Embedding Benchmark
 - Vector Store Benchmark
 - Retrieval Benchmark
 - Reranking Benchmark
 - End-to-End Pipeline Benchmark
+
 
 ---
 
@@ -1445,8 +1501,8 @@ The major AI Engineering platforms interact as follows.
 | Phase 2.1 — Processing Platform | ✅ Complete |
 | Phase 2.2 — Chunking Platform | ✅ Complete |
 | Phase 2.3 — Embedding Platform | ✅ Complete |
-| Phase 2.4 — Observability Platform | 🚧 Design Complete |
-| Phase 2.5 — Vector Store Platform | ⏳ Planned |
+| Phase 2.4 — Observability Platform (Runtime Metrics Foundation) | 🚧 Runtime Metrics Foundation Complete |
+| Phase 2.5 — Vector Store Platform | ⏳ Next |
 | Phase 2.6 — Retrieval Platform | ⏳ Planned |
 | Phase 2.7 — Reranking Platform | ⏳ Planned |
 | Phase 2.8 — Conversation Memory Platform | ⏳ Planned |
@@ -1461,34 +1517,82 @@ The major AI Engineering platforms interact as follows.
 
 # Current Focus
 
-## Phase 2.4 — Observability Platform
+## Phase 2.5 — Vector Store Platform
 
-Immediate implementation goals
+The Embedding Platform is considered stable and frozen unless bugs are discovered. Runtime Metrics Foundation satisfies current observability needs, so the full Observability Platform remains deferred.
 
-- RuntimeEvaluationService
-- StageMetric model
-- PipelineMetric model
-- PipelineReport model
-- ProcessingService integration
-- Execution timing
-- Memory tracking
-- Artifact size measurement
-- Runtime reporting
+Objective: transform canonical embeddings into searchable vector indexes while maintaining the provider-driven architecture established throughout the Knowledge Platform, following the same architectural principles used by the Chunking and Embedding platforms. The initial provider will be **ChromaDB**.
+
+Implementation order
+
+```text
+Models
+
+↓
+
+Interfaces
+
+↓
+
+Provider Abstraction
+
+↓
+
+Registry
+
+↓
+
+Factory
+
+↓
+
+ChromaDB Provider
+
+↓
+
+VectorStoreArtifact
+
+↓
+
+Service
+
+↓
+
+Processing Integration
+
+↓
+
+Manual Verification
+
+↓
+
+Architecture Documentation
+
+↓
+
+Engineering Journal
+
+↓
+
+Roadmap Update
+```
 
 ---
 
 # Next Major Milestones
 
-1. Observability Platform
-2. Voyage AI Provider
-3. OpenAI Provider
-4. Embedding Benchmark
-5. Vector Store Platform
-6. Retrieval Platform
-7. Reranking Platform
-8. Knowledge Service
-9. Research Engine
-10. Agentic AI Platform
+This project intentionally prioritizes completing the production AI platform (Tier 1) before expanding engineering tooling (Tier 2/3 — Observability, Benchmarking, Experimentation).
+
+1. Vector Store Platform (Phase 2.5)
+2. Retrieval Platform (Phase 2.6)
+3. Reranking Platform (Phase 2.7)
+4. Research API (Phase 2.8 / Phase 3)
+5. Chat Platform
+6. Citation Platform
+7. Knowledge Service
+8. Research Engine
+9. Agentic AI Platform
+10. Advanced Observability, Embedding Benchmark, Experimentation Platform (deferred until the core RAG pipeline is complete)
 
 ---
 

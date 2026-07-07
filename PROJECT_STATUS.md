@@ -1,10 +1,10 @@
 # ResearchMind AI — Project Status
 
-**Last Updated:** 2026-07-06
+**Last Updated:** 2026-07-07
 
 ---
 
-# Phase 1 — Identity & User Platform
+# Phase 1 — Identity Platform
 
 ## Milestone 1.1 — Configuration
 
@@ -27,17 +27,10 @@
 - Internal User entity
 - SQLAlchemy ORM model
 - Alembic migration
-- User repository
-- User service
 - Repository pattern
 - Service layer
+- User synchronization
 - Application exception handling
-- Integration test foundation
-
-### Notes
-
-- ResearchMind owns its internal User entity.
-- Authentication remains provider-agnostic.
 
 ---
 
@@ -49,7 +42,6 @@
 
 - AWS Cognito authentication
 - JWT validation
-- Current user dependency
 - Authorization foundation
 - Protected API endpoints
 
@@ -70,9 +62,8 @@
 - Storage abstraction
 - Amazon S3 integration
 - SHA-256 hashing
-- Duplicate document detection
-- Storage key generation
-- Upload lifecycle logging
+- Duplicate detection
+- Upload lifecycle
 
 ---
 
@@ -86,18 +77,21 @@ Implemented
 
 - ProcessingService
 - DocumentProcessingService
-- QueuedDocumentProcessingService
-- Processing lifecycle management
+- Queue processing
+- Worker
+- Retry
+- Dead Letter Queue
+- Processing lifecycle
 
 ---
 
-## Parser Framework
+## Parser Platform
 
 Implemented
 
 - Parser abstraction
 - Parser registry
-- Docling integration
+- Docling provider
 - Canonical ProcessedDocument
 
 ---
@@ -107,9 +101,9 @@ Implemented
 Implemented
 
 - Metadata registry
-- Metadata enrichment service
-- PDF metadata provider
-- Language detection provider
+- Metadata enrichment
+- PDF metadata
+- Language detection
 
 ---
 
@@ -118,18 +112,17 @@ Implemented
 Implemented
 
 - Statistics registry
-- Statistics enrichment service
-- PDF statistics provider
+- Statistics enrichment
 
-Currently extracts
+Extracted
 
-- Page count
-- Word count
-- Character count
-- Paragraph count
-- Heading count
-- Table count
-- Figure count
+- Pages
+- Words
+- Characters
+- Paragraphs
+- Headings
+- Tables
+- Figures
 
 ---
 
@@ -141,47 +134,7 @@ Generated
 - parsed.md
 - parsed.txt
 
-Artifacts are automatically persisted to Amazon S3.
-
----
-
-## Asynchronous Processing
-
-Implemented
-
-- Queue abstraction
-- Queue factory
-- Provider architecture
-
-Supported Providers
-
-- Valkey
-- Amazon SQS
-
-Queue provider selection is configuration-driven.
-
----
-
-## Background Worker
-
-Implemented
-
-- Dedicated processing worker
-- Dependency injection
-- Worker bootstrap
-- Shared database session
-- Graceful shutdown
-
----
-
-## Reliability
-
-Implemented
-
-- Retry policy
-- Dead Letter Queue
-- Duplicate detection
-- Structured logging
+Persisted automatically to Amazon S3.
 
 ---
 
@@ -195,18 +148,6 @@ Implemented
 
 ---
 
-## Documentation
-
-Completed
-
-- ADR-009 — Queue Abstraction
-- ADR-010 — Asynchronous Document Processing
-- Processing Architecture
-- Canonical Processing Model
-- Engineering Journal
-
----
-
 # Milestone 2.3 — Chunking Platform
 
 **Status:** ✅ Complete
@@ -216,14 +157,24 @@ Completed
 Implemented
 
 - Canonical Chunk model
-- Chunk metadata
 - Provenance
+- Statistics
 - Experiment metadata
-- Chunk statistics
+- Metadata
 - Provider abstraction
 - Registry
 - Factory
 - ChunkingService
+
+---
+
+## Providers
+
+Implemented
+
+- Fixed Chunking
+- Recursive Chunking
+- Markdown Chunking
 
 ---
 
@@ -234,7 +185,6 @@ Implemented
 - ChunkArtifact
 - ChunkArtifactBuilder
 - ChunkArtifactWriter
-- Amazon S3 persistence
 
 Artifacts
 
@@ -254,70 +204,31 @@ chunking/
 
 Implemented
 
-- Automatic chunk generation
-- Processing pipeline integration
-- Chunk artifact persistence
+```
+Processing
+
+↓
+
+Chunking
+
+↓
+
+ChunkArtifact
+```
 
 ---
 
-## Chunking Providers
-
-Implemented
-
-- ✅ Fixed Chunking
-- ✅ Recursive Chunking (LangChain)
-- ✅ Markdown Chunking (Docling + LangChain)
-
-Future Providers
-
-- Hierarchical
-- Semantic
-- LLM
-- Adaptive
-
----
-
-## Runtime Evaluation
-
-✅ Initial runtime evaluation implemented.
-
-The next evolution of runtime evaluation will move into the dedicated Observability Platform.
-
----
-
-## Engineering Benchmark Platform
+## Benchmark Platform
 
 Implemented
 
 - Benchmark framework
 - Registry
 - Runner
-- Canonical benchmark models
 - Dataset loader
-- Markdown / JSON report generation
-- Chunking benchmark
-
-Future
-
-- Embedding benchmark
-- Retrieval benchmark
-- Reranking benchmark
-- Pipeline benchmark
-
----
-
-## Documentation
-
-Completed
-
-- Chunking Platform Architecture
-- Chunk Lifecycle & Data Flow
-- ADR-013 — Canonical Chunk Model
-- ADR-014 — Chunking Provider Architecture
-- Chunking Engineering Journal
-- Knowledge Platform Roadmap
-- Evaluation Strategy
-- AI Framework Integration Strategy
+- Markdown report generator
+- JSON report generator
+- Chunking Benchmark
 
 ---
 
@@ -330,8 +241,8 @@ Completed
 Implemented
 
 - Canonical Embedding model
-- Embedding statistics
 - Provenance
+- Statistics
 - Provider metadata
 - Experiment metadata
 
@@ -349,19 +260,37 @@ Implemented
 
 ---
 
-## Provider
+## Providers
 
 Implemented
 
-- Sentence Transformers provider
+- ✅ Sentence Transformers
+- ✅ Voyage AI
+- ✅ OpenAI
 
-Planned
+Future
 
-- Voyage AI
-- OpenAI
 - BGE
 - Instructor
 - Nomic
+
+---
+
+## Shared Batching
+
+Implemented
+
+- EmbeddingBatcher
+- Streaming batch processing
+- Provider-specific batch configuration
+
+Default batch sizes
+
+| Provider | Batch Size |
+|-----------|-----------:|
+| Sentence Transformers | 64 |
+| Voyage AI | 32 |
+| OpenAI | 128 |
 
 ---
 
@@ -391,8 +320,6 @@ embeddings/
 
 Implemented
 
-The production pipeline now executes
-
 ```
 Processing
 
@@ -403,9 +330,11 @@ Chunking
 ↓
 
 Embedding
-```
 
-automatically for every uploaded document.
+↓
+
+EmbeddingArtifact
+```
 
 ---
 
@@ -415,14 +344,16 @@ Completed
 
 Verified
 
-- Processing
-- Chunk generation
-- Embedding generation
+- Sentence Transformers
+- Voyage AI
+- OpenAI
+- Batch embedding
 - Artifact generation
 - Amazon S3 persistence
-- Configuration fingerprints
 - Provider metadata
+- Configuration fingerprints
 - Canonical models
+- Runtime metrics
 
 ---
 
@@ -434,49 +365,137 @@ Architecture
 
 - Embedding Platform Architecture
 
-Engineering Journal
+Engineering Journals
 
 - Embedding Platform
+- Multi-provider Embeddings & Shared Batching
 
-ADRs
+ADR
 
 - ADR-008 — Canonical AI Platform Pipeline
 
 ---
 
-# Phase 2.4.4 — Observability Platform
+# Phase 2.4.4 — Runtime Metrics Foundation
 
-**Status:** 🚧 Design Complete — Implementation Pending
+**Status:** ✅ Complete
 
-Purpose
+The initial Runtime Metrics Foundation has been implemented as the first vertical slice of the Observability Platform.
 
-Provide standardized engineering visibility across every AI platform.
+Implemented
 
-Initial implementation
+- RuntimeMetricsCollector
+- Stage metrics
+- Pipeline metrics
+- Runtime report generation
+- Memory measurement
+- Artifact size measurement
+- ProcessingService integration
 
-- Runtime Evaluation
-- Stage Metrics
-- Pipeline Metrics
+Collected Metrics
+
 - Execution duration
-- Memory usage
+- Stage duration
+- Pipeline duration
+- Peak memory
 - Artifact size
+- Provider
+- Provider version
 
-Future
+Example
+
+```
+Processing Pipeline Metrics
+
+Processing
+
+Chunking
+
+Embedding
+
+Peak Memory
+
+Pipeline Duration
+```
+
+---
+
+# Phase 2.4.5 — Observability Platform
+
+**Status:** 🚧 Deferred
+
+The Runtime Metrics Foundation has been completed.
+
+The remaining Observability Platform capabilities have been intentionally postponed in favor of delivering core AI functionality.
+
+Future scope
 
 - Cost tracking
-- Token tracking
-- Resource monitoring
+- Token usage
+- Queue latency
+- GPU monitoring
 - Tracing
 - Telemetry
 - OpenTelemetry
-- Grafana
+- Grafana dashboards
 
-Documentation completed
+---
 
-- Observability Platform Architecture
-- Observability Engineering Journal
-- ADR-016 — Observability Platform
-- Observability Platform Roadmap
+# Engineering Benchmark Platform
+
+**Status:** ✅ Foundation Complete
+
+Implemented
+
+- Benchmark framework
+- Registry
+- Runner
+- Dataset loader
+- Markdown reports
+- JSON reports
+- Chunking Benchmark
+
+Deferred
+
+- Embedding Benchmark
+- Retrieval Benchmark
+- Pipeline Benchmark
+
+Reason
+
+The project is prioritizing production AI capabilities over engineering tooling.
+
+---
+
+# Current Production Knowledge Pipeline
+
+```
+Upload
+
+↓
+
+Processing
+
+↓
+
+ProcessedDocument
+
+↓
+
+Chunking
+
+↓
+
+ChunkArtifact
+
+↓
+
+Embedding
+
+↓
+
+EmbeddingArtifact
+```
 
 ---
 
@@ -485,59 +504,95 @@ Documentation completed
 | Phase | Status |
 |--------|--------|
 | Phase 1 — Identity Platform | ✅ Complete |
-| Phase 2.1 — Document Upload Platform | ✅ Complete |
+| Phase 2.1 — Upload Platform | ✅ Complete |
 | Phase 2.2 — Processing Platform | ✅ Complete |
 | Phase 2.3 — Chunking Platform | ✅ Complete |
 | Phase 2.4 — Embedding Platform | ✅ Complete |
-| Phase 2.4.4 — Observability Platform | 🚧 Design Complete |
+| Runtime Metrics Foundation | ✅ Complete |
+| Observability Platform | 🚧 Deferred |
+| Benchmark Platform | ✅ Foundation Complete |
 
 ---
 
 # Recently Completed
 
-✅ Embedding Platform
+✅ Runtime Metrics Foundation
+
+✅ Runtime Report Generation
+
+✅ Shared Embedding Batching
 
 ✅ Sentence Transformers Provider
 
-✅ Embedding Artifact Platform
+✅ Voyage AI Provider
 
-✅ Processing → Embedding integration
+✅ OpenAI Provider
 
-✅ End-to-end embedding pipeline
+✅ Multi-provider Embedding Platform
 
-✅ Canonical AI Platform Pipeline architecture
-
-✅ Observability Platform architecture
+✅ End-to-End Embedding Pipeline
 
 ---
 
 # Current Focus
 
-**Phase 2.4.4 — Observability Platform**
+## Phase 2.5 — Vector Store Platform
 
-Implement
+The next milestone introduces persistent vector storage for canonical embeddings.
 
-- RuntimeEvaluationService
-- StageMetric
-- PipelineMetric
-- PipelineReport
-- ProcessingService integration
-- Execution timing
-- Memory tracking
-- Artifact size measurement
+Initial implementation
+
+- VectorStoreProvider abstraction
+- Registry
+- Factory
+- ChromaDB provider
+- VectorStoreArtifact
+- Processing integration
+- Manual verification
 
 ---
 
-# Next Major Phase
+# Immediate Roadmap
 
-**Phase 2.5 — Vector Store Platform**
+```
+Vector Store
 
-Planned providers
+↓
 
-- ChromaDB
-- pgvector
-- Pinecone
-- Qdrant
-- Weaviate
+Retrieval
 
-The Vector Store Platform will consume the canonical `EmbeddingArtifact` produced by the Embedding Platform and continue the artifact-driven AI pipeline established by ADR-008.
+↓
+
+Reranking
+
+↓
+
+Research API
+
+↓
+
+Chat
+
+↓
+
+Citations
+```
+
+---
+
+# Long-Term Vision
+
+ResearchMind is evolving into a production-grade AI Engineering Platform.
+
+The platform is built around independent, provider-driven AI capabilities connected through canonical artifacts.
+
+Every platform follows the same engineering principles:
+
+- Canonical Models
+- Canonical Artifacts
+- Provider Pattern
+- Registry Pattern
+- Factory Pattern
+- Composition Roots
+- Framework Independence
+- Production-first Engineering

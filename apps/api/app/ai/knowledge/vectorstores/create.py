@@ -59,7 +59,9 @@ def create_vectorstore_registry() -> VectorStoreRegistry:
 
     providers: list[VectorStoreProviderInterface] = [
         QdrantVectorStoreProvider(
-            config=QdrantVectorStoreConfig(),
+            config=QdrantVectorStoreConfig(
+                collection_name=settings.qdrant_collection_name,
+            ),
             client=qdrant_client,
         ),
     ]

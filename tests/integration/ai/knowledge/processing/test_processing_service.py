@@ -1,5 +1,5 @@
 from pathlib import Path
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
 import pytest
@@ -12,6 +12,7 @@ from app.ai.knowledge.embeddings.artifacts.builder import (
 from app.ai.knowledge.embeddings.enums import EmbeddingProvider
 from app.ai.knowledge.embeddings.factory import EmbeddingFactory
 from app.ai.knowledge.embeddings.models import Embedding
+from app.ai.knowledge.indexing.artifacts.builder import IndexingArtifactBuilder
 from app.ai.knowledge.processing.artifact_builder import ArtifactBuilder
 from app.ai.knowledge.processing.enums import (
     DocumentFormat,
@@ -74,6 +75,14 @@ async def test_processing_service_processes_pdf():
     embedding_artifact_writer = AsyncMock()
     embedding_artifact_writer.write = AsyncMock(return_value=None)
 
+    indexing_service = AsyncMock()
+    indexing_service.index = AsyncMock(
+        return_value=MagicMock(model_dump_json=MagicMock(return_value="{}"))
+    )
+
+    indexing_artifact_writer = AsyncMock()
+    indexing_artifact_writer.write = AsyncMock(return_value=None)
+
     def _fake_embed(*, artifact: ChunkArtifact, provider: EmbeddingProvider) -> list[Embedding]:
         return [
             EmbeddingFactory.from_vector(
@@ -126,6 +135,9 @@ async def test_processing_service_processes_pdf():
         embedding_service=embedding_service,
         embedding_artifact_builder=EmbeddingArtifactBuilder(),
         embedding_artifact_writer=embedding_artifact_writer,
+        indexing_service=indexing_service,
+        indexing_artifact_builder=IndexingArtifactBuilder(),
+        indexing_artifact_writer=indexing_artifact_writer,
     )
 
     request = ParseRequest(

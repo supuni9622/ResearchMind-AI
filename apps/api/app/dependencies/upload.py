@@ -21,6 +21,14 @@ from app.ai.knowledge.embeddings.artifacts.writer import (
 )
 from app.ai.knowledge.embeddings.create import create_embedding_service
 from app.ai.knowledge.embeddings.service import EmbeddingService
+from app.ai.knowledge.indexing.artifacts.builder import (
+    IndexingArtifactBuilder,
+)
+from app.ai.knowledge.indexing.artifacts.writer import (
+    IndexingArtifactWriter,
+)
+from app.ai.knowledge.indexing.create import create_indexing_service
+from app.ai.knowledge.indexing.service import IndexingService
 from app.ai.knowledge.processing.artifact_builder import ArtifactBuilder
 from app.ai.knowledge.processing.artifact_writer import ArtifactWriter
 from app.ai.knowledge.processing.metadata.providers.language import (
@@ -224,6 +232,24 @@ def _get_embedding_artifact_builder() -> EmbeddingArtifactBuilder:
 
 
 @lru_cache
+def _get_indexing_service() -> IndexingService:
+    """
+    Create the indexing service.
+    """
+
+    return create_indexing_service()
+
+
+@lru_cache
+def _get_indexing_artifact_builder() -> IndexingArtifactBuilder:
+    """
+    Create the indexing artifact builder.
+    """
+
+    return IndexingArtifactBuilder()
+
+
+@lru_cache
 def _get_temporary_file_manager() -> TemporaryFileManager:
     """
     Create the temporary file manager.
@@ -303,6 +329,9 @@ def get_processing_service(
         embedding_service=_get_embedding_service(),
         embedding_artifact_builder=_get_embedding_artifact_builder(),
         embedding_artifact_writer=EmbeddingArtifactWriter(storage),
+        indexing_service=_get_indexing_service(),
+        indexing_artifact_builder=_get_indexing_artifact_builder(),
+        indexing_artifact_writer=IndexingArtifactWriter(storage),
     )
 
 

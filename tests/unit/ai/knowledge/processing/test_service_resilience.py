@@ -16,6 +16,15 @@ import uuid
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from app.ai.knowledge.chunking.enums import ChunkingStrategy
+from app.ai.knowledge.embeddings.artifacts.models import (
+    EmbeddingArtifact,
+    EmbeddingArtifactChunking,
+    EmbeddingArtifactDocument,
+    EmbeddingArtifactExecution,
+    EmbeddingArtifactStatistics,
+)
+from app.ai.knowledge.embeddings.enums import EmbeddingProvider
 from app.ai.knowledge.processing.artifact_builder import ArtifactBuilder
 from app.ai.knowledge.processing.enums import DocumentFormat, ParserType, ProcessingStatus
 from app.ai.knowledge.processing.interfaces import DocumentParser, ParseRequest
@@ -27,6 +36,7 @@ from app.ai.knowledge.processing.models import (
 from app.ai.knowledge.processing.registry import ParserRegistry
 from app.ai.knowledge.processing.service import ProcessingService
 from app.ai.knowledge.processing.temporary_file_manager import TemporaryFileManager
+from app.ai.knowledge.vectorstores.enums import VectorDistanceMetric
 from app.infrastructure.storage.exceptions import StorageDownloadError, StorageUploadError
 
 _OWNER_ID = "test-owner"
@@ -124,15 +134,66 @@ def _default_embedding_service() -> AsyncMock:
     return embedding_service
 
 
+def _make_embedding_artifact() -> EmbeddingArtifact:
+    """Minimal real EmbeddingArtifact.
+
+    IndexingRequest validates embedding_artifact against the real
+    EmbeddingArtifact model, so a MagicMock stand-in fails validation; a
+    minimal real instance is needed instead.
+    """
+    return EmbeddingArtifact(
+        document=EmbeddingArtifactDocument(
+            document_id=uuid.uuid4(),
+            filename="test.pdf",
+            parser="docling",
+        ),
+        chunking=EmbeddingArtifactChunking(
+            strategy=ChunkingStrategy.MARKDOWN,
+            strategy_version="1.0",
+            configuration_fingerprint="test-fingerprint",
+        ),
+        execution=EmbeddingArtifactExecution(
+            provider=EmbeddingProvider.VOYAGE_AI,
+            provider_version="1.0",
+            model="test-model",
+            recommended_distance_metric=VectorDistanceMetric.DOT,
+            configuration_fingerprint="test-fingerprint",
+        ),
+        statistics=EmbeddingArtifactStatistics(),
+    )
+
+
 def _default_embedding_artifact_builder() -> MagicMock:
-    """Fake embedding artifact builder: returns an opaque artifact."""
+    """Fake embedding artifact builder: returns a minimal real
+    EmbeddingArtifact (see _make_embedding_artifact)."""
     builder = MagicMock()
-    builder.build = MagicMock(return_value=MagicMock())
+    builder.build = MagicMock(return_value=_make_embedding_artifact())
     return builder
 
 
 def _default_embedding_artifact_writer() -> AsyncMock:
     """No-op embedding artifact writer."""
+    writer = AsyncMock()
+    writer.write = AsyncMock(return_value=None)
+    return writer
+
+
+def _default_indexing_service() -> AsyncMock:
+    """Fake indexing service: returns an opaque result."""
+    indexing_service = AsyncMock()
+    indexing_service.index = AsyncMock(return_value=MagicMock())
+    return indexing_service
+
+
+def _default_indexing_artifact_builder() -> MagicMock:
+    """Fake indexing artifact builder: returns an opaque artifact."""
+    builder = MagicMock()
+    builder.build = MagicMock(return_value=MagicMock())
+    return builder
+
+
+def _default_indexing_artifact_writer() -> AsyncMock:
+    """No-op indexing artifact writer."""
     writer = AsyncMock()
     writer.write = AsyncMock(return_value=None)
     return writer
@@ -162,6 +223,9 @@ def _make_service(
         embedding_service=_default_embedding_service(),
         embedding_artifact_builder=_default_embedding_artifact_builder(),
         embedding_artifact_writer=_default_embedding_artifact_writer(),
+        indexing_service=_default_indexing_service(),
+        indexing_artifact_builder=_default_indexing_artifact_builder(),
+        indexing_artifact_writer=_default_indexing_artifact_writer(),
     )
     return service, parser
 

@@ -37,6 +37,18 @@ from app.ai.knowledge.embeddings.artifacts.writer import (
 )
 from app.ai.knowledge.embeddings.enums import EmbeddingProvider
 from app.ai.knowledge.embeddings.service import EmbeddingService
+from app.ai.knowledge.indexing.artifacts.builder import (
+    IndexingArtifactBuilder,
+)
+from app.ai.knowledge.indexing.artifacts.writer import (
+    IndexingArtifactWriter,
+)
+from app.ai.knowledge.indexing.models import (
+    IndexingRequest,
+)
+from app.ai.knowledge.indexing.service import (
+    IndexingService,
+)
 from app.ai.knowledge.processing.artifact_builder import ArtifactBuilder
 from app.ai.knowledge.processing.artifact_writer import ArtifactWriter
 from app.ai.knowledge.processing.enums import ProcessingStatus
@@ -87,6 +99,9 @@ class ProcessingService:
         embedding_service: EmbeddingService,
         embedding_artifact_builder: EmbeddingArtifactBuilder,
         embedding_artifact_writer: EmbeddingArtifactWriter,
+        indexing_service: IndexingService,
+        indexing_artifact_builder: IndexingArtifactBuilder,
+        indexing_artifact_writer: IndexingArtifactWriter,
     ) -> None:
         self._storage = storage
         self._temporary_file_manager = temporary_file_manager
@@ -101,6 +116,9 @@ class ProcessingService:
         self._embedding_service = embedding_service
         self._embedding_artifact_builder = embedding_artifact_builder
         self._embedding_artifact_writer = embedding_artifact_writer
+        self._indexing_service = indexing_service
+        self._indexing_artifact_builder = indexing_artifact_builder
+        self._indexing_artifact_writer = indexing_artifact_writer
 
     async def process(
         self,
@@ -283,6 +301,23 @@ class ProcessingService:
         runtime.add_artifact(
             "embeddings.json",
             len(embedding_artifact.model_dump_json().encode("utf-8")),
+        )
+        runtime.start_stage("Indexing")
+
+        indexing_artifact = await self._indexing_service.index(
+            IndexingRequest(
+                owner_id=owner_id,
+                embedding_artifact=embedding_artifact,
+            )
+        )
+        runtime.add_artifact(
+            "indexing.json", len(indexing_artifact.model_dump_json().encode("utf-8"))
+        )
+
+        runtime.finish_stage()
+
+        log.info(
+            "processing.indexing.completed",
         )
 
         metrics = runtime.finish_pipeline()

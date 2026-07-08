@@ -15,6 +15,15 @@ import uuid
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from app.ai.knowledge.chunking.enums import ChunkingStrategy
+from app.ai.knowledge.embeddings.artifacts.models import (
+    EmbeddingArtifact,
+    EmbeddingArtifactChunking,
+    EmbeddingArtifactDocument,
+    EmbeddingArtifactExecution,
+    EmbeddingArtifactStatistics,
+)
+from app.ai.knowledge.embeddings.enums import EmbeddingProvider
 from app.ai.knowledge.processing.artifact_builder import ArtifactBuilder
 from app.ai.knowledge.processing.enums import DocumentFormat, ParserType, ProcessingStatus
 from app.ai.knowledge.processing.exceptions import ParserNotFoundError
@@ -31,6 +40,7 @@ from app.ai.knowledge.processing.service import ProcessingService
 from app.ai.knowledge.processing.temporary_file_manager import (
     TemporaryFileManager,
 )
+from app.ai.knowledge.vectorstores.enums import VectorDistanceMetric
 
 # ---------------------------------------------------------------------------
 # Test doubles
@@ -100,15 +110,66 @@ def _make_embedding_service() -> AsyncMock:
     return embedding_service
 
 
+def _make_embedding_artifact() -> EmbeddingArtifact:
+    """Minimal real EmbeddingArtifact.
+
+    IndexingRequest validates embedding_artifact against the real
+    EmbeddingArtifact model, so a MagicMock stand-in fails validation; a
+    minimal real instance is needed instead.
+    """
+    return EmbeddingArtifact(
+        document=EmbeddingArtifactDocument(
+            document_id=uuid.uuid4(),
+            filename="test.pdf",
+            parser="docling",
+        ),
+        chunking=EmbeddingArtifactChunking(
+            strategy=ChunkingStrategy.MARKDOWN,
+            strategy_version="1.0",
+            configuration_fingerprint="test-fingerprint",
+        ),
+        execution=EmbeddingArtifactExecution(
+            provider=EmbeddingProvider.VOYAGE_AI,
+            provider_version="1.0",
+            model="test-model",
+            recommended_distance_metric=VectorDistanceMetric.DOT,
+            configuration_fingerprint="test-fingerprint",
+        ),
+        statistics=EmbeddingArtifactStatistics(),
+    )
+
+
 def _make_embedding_artifact_builder() -> MagicMock:
-    """Build a fake embedding artifact builder: returns an opaque artifact."""
+    """Build a fake embedding artifact builder: returns a minimal real
+    EmbeddingArtifact (see _make_embedding_artifact)."""
     builder = MagicMock()
-    builder.build = MagicMock(return_value=MagicMock())
+    builder.build = MagicMock(return_value=_make_embedding_artifact())
     return builder
 
 
 def _make_embedding_artifact_writer() -> AsyncMock:
     """Build a no-op embedding artifact writer."""
+    writer = AsyncMock()
+    writer.write = AsyncMock(return_value=None)
+    return writer
+
+
+def _make_indexing_service() -> AsyncMock:
+    """Build a fake indexing service: returns an opaque result."""
+    indexing_service = AsyncMock()
+    indexing_service.index = AsyncMock(return_value=MagicMock())
+    return indexing_service
+
+
+def _make_indexing_artifact_builder() -> MagicMock:
+    """Build a fake indexing artifact builder: returns an opaque artifact."""
+    builder = MagicMock()
+    builder.build = MagicMock(return_value=MagicMock())
+    return builder
+
+
+def _make_indexing_artifact_writer() -> AsyncMock:
+    """Build a no-op indexing artifact writer."""
     writer = AsyncMock()
     writer.write = AsyncMock(return_value=None)
     return writer
@@ -147,6 +208,9 @@ def _make_service(parser: DocumentParser, *extra_parsers: DocumentParser) -> Pro
         embedding_service=_make_embedding_service(),
         embedding_artifact_builder=_make_embedding_artifact_builder(),
         embedding_artifact_writer=_make_embedding_artifact_writer(),
+        indexing_service=_make_indexing_service(),
+        indexing_artifact_builder=_make_indexing_artifact_builder(),
+        indexing_artifact_writer=_make_indexing_artifact_writer(),
     )
 
 
@@ -310,6 +374,9 @@ class TestRegistryErrors:
             embedding_service=_make_embedding_service(),
             embedding_artifact_builder=_make_embedding_artifact_builder(),
             embedding_artifact_writer=_make_embedding_artifact_writer(),
+            indexing_service=_make_indexing_service(),
+            indexing_artifact_builder=_make_indexing_artifact_builder(),
+            indexing_artifact_writer=_make_indexing_artifact_writer(),
         )
 
         with pytest.raises(ParserNotFoundError):

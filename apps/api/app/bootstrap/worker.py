@@ -19,6 +19,15 @@ from app.ai.knowledge.embeddings.artifacts.writer import (
 from app.ai.knowledge.embeddings.create import (
     create_embedding_service,
 )
+from app.ai.knowledge.indexing.artifacts.builder import (
+    IndexingArtifactBuilder,
+)
+from app.ai.knowledge.indexing.artifacts.writer import (
+    IndexingArtifactWriter,
+)
+from app.ai.knowledge.indexing.create import (
+    create_indexing_service,
+)
 from app.ai.knowledge.processing.artifact_builder import ArtifactBuilder
 from app.ai.knowledge.processing.artifact_writer import ArtifactWriter
 from app.ai.knowledge.processing.metadata.providers.language import (
@@ -102,6 +111,9 @@ def create_processing_worker(
         embedding_service=create_embedding_service(),
         embedding_artifact_builder=EmbeddingArtifactBuilder(),
         embedding_artifact_writer=EmbeddingArtifactWriter(storage),
+        indexing_service=create_indexing_service(),
+        indexing_artifact_builder=IndexingArtifactBuilder(),
+        indexing_artifact_writer=IndexingArtifactWriter(storage),
     )
 
     repository = DocumentRepository(session)

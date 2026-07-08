@@ -857,7 +857,13 @@ Canonical vector indexing artifacts.
 
 ---
 
-#### 2.5.5 Snapshot Management
+### 2.5.5 Indexing Platform
+
+    • Vector Index
+    • BM25 Index
+    • Index Artifacts
+
+#### 2.5.6 Snapshot Management
 
 Future
 
@@ -875,6 +881,7 @@ Future
 - End-to-end indexing verified
 
 ---
+
 
 ## Phase 2.6 — Retrieval Platform
 
@@ -977,6 +984,21 @@ Metrics
 Deliverable
 
 Retrieval benchmark suite.
+
+2.6 Retrieval Platform
+
+    • Query Processing
+    • Semantic Search
+    • BM25 Search
+    • Hybrid Search
+    • Retrieval Strategies
+    • Fusion
+    • Metadata Filtering
+    • Evaluation
+
+2.7 Reranking Platform
+
+2.8 Knowledge Platform Integration
 
 ---
 

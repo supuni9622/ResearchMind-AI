@@ -48,6 +48,9 @@ from app.ai.knowledge.indexing.models import (
     IndexingRequest,
     IndexingResult,
 )
+from app.ai.knowledge.indexing.providers.fastembed import (
+    FastEmbedSparseEmbeddingProvider,
+)
 from app.ai.knowledge.vectorstores.enums import (
     VectorStoreProvider,
 )
@@ -76,9 +79,11 @@ class IndexingService(IndexingServiceInterface):
         self,
         vectorstore_service: VectorStoreService,
         artifact_writer: IndexingArtifactWriter,
+        sparse_embedding_provider: FastEmbedSparseEmbeddingProvider,
     ) -> None:
         self._vectorstore = vectorstore_service
         self._artifact_writer = artifact_writer
+        self._sparse_embedding_provider = sparse_embedding_provider
 
     async def index(
         self,
@@ -106,7 +111,7 @@ class IndexingService(IndexingServiceInterface):
             request,
         )
 
-        records = self._build_vector_records(
+        records = await self._build_vector_records(
             request,
         )
 
@@ -199,6 +204,9 @@ class IndexingService(IndexingServiceInterface):
         if not request.embedding_artifact.embeddings:
             raise InvalidIndexingRequestError("Embedding artifact contains no embeddings.")
 
+        if not request.chunk_artifact.chunks:
+            raise InvalidIndexingRequestError("Chunk artifact contains no chunks.")
+
     def _build_collection_definition(
         self,
         request: IndexingRequest,
@@ -218,29 +226,49 @@ class IndexingService(IndexingServiceInterface):
             distance_metric=artifact.execution.recommended_distance_metric,
         )
 
-    def _build_vector_records(
+    async def _build_vector_records(
         self,
         request: IndexingRequest,
     ) -> list[VectorStoreRecord]:
         """
         Transform canonical embeddings into vector store records.
+
+        Each dense embedding is paired with a sparse SPLADE vector
+        generated from its source chunk text, enabling Qdrant native
+        hybrid retrieval (see ADR-019).
         """
 
         artifact = request.embedding_artifact
 
+        chunks_by_id = {chunk.id: chunk for chunk in request.chunk_artifact.chunks}
+
+        sparse_vectors = await self._sparse_embedding_provider.embed(
+            [
+                chunks_by_id[embedding.provenance.chunk_id].content.text
+                for embedding in artifact.embeddings
+            ]
+        )
+
         records: list[VectorStoreRecord] = []
 
-        for embedding in artifact.embeddings:
+        for embedding, sparse_vector in zip(
+            artifact.embeddings,
+            sparse_vectors,
+            strict=True,
+        ):
+            chunk = chunks_by_id[embedding.provenance.chunk_id]
+
             records.append(
                 VectorStoreRecord(
                     id=embedding.id,
                     vector=embedding.vector.values,
+                    sparse_vector=sparse_vector,
                     payload=VectorPayload(
                         document_id=embedding.provenance.document_id,
                         chunk_id=embedding.provenance.chunk_id,
                         filename=embedding.provenance.filename,
                         owner_id=request.owner_id,
-                        chunk_index=0,
+                        chunk_index=chunk.index,
                         language=None,
                         additional_metadata={},
                     ),
@@ -264,6 +292,7 @@ class IndexingService(IndexingServiceInterface):
         return IndexStatistics(
             indexed_vectors=len(records),
             failed_vectors=0,
+            indexed_sparse_vectors=sum(1 for record in records if record.sparse_vector is not None),
             batch_size=len(records),
             duration_ms=duration_ms,
         )

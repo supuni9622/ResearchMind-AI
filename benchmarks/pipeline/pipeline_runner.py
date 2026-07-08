@@ -33,6 +33,7 @@ from app.ai.knowledge.indexing.artifacts.models import (
 from app.ai.knowledge.indexing.models import IndexingRequest
 from app.ai.knowledge.processing.models import ProcessedDocument
 from app.ai.observability.runtime import RuntimeMetricsCollector
+from app.core.settings import settings
 
 from benchmarks.pipeline.models import (
     ArtifactSizes,
@@ -125,6 +126,7 @@ async def run_document_pipeline(
         IndexingRequest(
             owner_id=owner_id,
             embedding_artifact=embedding_artifact,
+            chunk_artifact=chunk_artifact,
         )
     )
     runtime.finish_stage()
@@ -149,7 +151,10 @@ async def run_document_pipeline(
     )
     runtime.add_artifact("indexing.json", indexing_json_bytes)
     runtime.add_artifact("processed_document.json", source_size_bytes)
-    progress(f"  indexing done ({result.vector_statistics.indexed_vectors} vectors)")
+    progress(
+        f"  indexing done ({result.vector_statistics.indexed_vectors} dense, "
+        f"{result.vector_statistics.indexed_sparse_vectors} sparse vectors)"
+    )
 
     metrics = runtime.finish_pipeline()
     stage_duration_ms = {stage.stage: stage.duration_ms for stage in metrics.stages}
@@ -178,8 +183,10 @@ async def run_document_pipeline(
         ),
         indexing=IndexingMetrics(
             vector_count=result.vector_statistics.indexed_vectors,
+            sparse_vector_count=result.vector_statistics.indexed_sparse_vectors,
             duration_ms=stage_duration_ms["Indexing"],
             collection_name=result.vector_collection.name,
+            sparse_embedding_model=settings.sparse_embedding_model,
         ),
         artifacts=ArtifactSizes(
             processed_document_json_bytes=source_size_bytes,

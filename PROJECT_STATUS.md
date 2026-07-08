@@ -1,6 +1,6 @@
 # ResearchMind AI — Project Status
 
-**Last Updated:** 2026-07-07
+**Last Updated:** 2026-07-08
 
 ---
 
@@ -441,6 +441,54 @@ Future scope
 
 ---
 
+# Milestone 2.5 — Vector Store Platform
+
+**Status:** ✅ Complete
+
+Implemented
+
+- Canonical models (`VectorStoreRecord`, `SparseVector`, `VectorPayload`, `CollectionDefinition`, `CollectionMetadata`, `IndexStatistics`)
+- Provider abstraction (`VectorStoreProviderInterface`)
+- Registry Pattern
+- Composition Root (`create.py`)
+- Qdrant provider — collection create/exists, batched upsert, delete-by-document, count, collection info
+
+Documentation
+
+- ADR-017 — Vector Store Platform Architecture
+
+---
+
+# Milestone 2.6 — Indexing Platform (Hybrid Retrieval)
+
+**Status:** ✅ Complete
+
+ResearchMind now indexes both a dense and a sparse vector for every chunk into the same Qdrant collection, enabling native hybrid retrieval without a separate BM25 platform.
+
+Implemented
+
+- `IndexingService` — orchestrates dense+sparse record building, collection creation, upsert, statistics, artifact persistence
+- `FastEmbedSparseEmbeddingProvider` — SPLADE sparse vectors (`prithivida/Splade_PP_en_v1`), generated off the event loop via `asyncio.to_thread`
+- Qdrant collection schema migrated from a single unnamed vector to named `dense` + `sparse` vectors per point
+- `IndexingRequest` extended to carry the source `ChunkArtifact` (sparse generation needs raw chunk text)
+- `IndexingArtifact` / `indexing.json`, `IndexStatistics.indexed_sparse_vectors`
+- Fixed a latent bug: `VectorPayload.chunk_index` was hardcoded to `0` for every chunk; now reflects the real chunk position
+
+Manual Verification
+
+- Dropped and recreated the dev `researchmind_knowledge` Qdrant collection (old single-vector schema → new dense+sparse schema)
+- Ran the real pipeline end-to-end (Voyage AI dense + FastEmbed SPLADE sparse + Qdrant), confirmed both named vectors present
+- Issued a real sparse-vector query — the keyword-relevant chunk scored 17.15 vs. 0.66 for an unrelated chunk, confirming lexical matching works
+- Full test suite (234 tests), ruff, and mypy pass
+
+Documentation
+
+- ADR-018 — Knowledge Indexing and Retrieval Architecture
+- ADR-019 — Qdrant Native Hybrid Retrieval
+- `docs/architecture/hybrid-retrieval-indexing.md` — complete ingestion pipeline flow diagram, schema before/after, verification results
+
+---
+
 # Engineering Benchmark Platform
 
 **Status:** ✅ Foundation Complete
@@ -454,16 +502,16 @@ Implemented
 - Markdown reports
 - JSON reports
 - Chunking Benchmark
+- Embedding Benchmark
+- Pipeline Benchmark — end-to-end ingestion benchmark (real Chunking → Embedding → Indexing), now reports dense + sparse vector counts per document; re-run after the hybrid indexing change confirmed indexing (SPLADE inference) is the new dominant per-document latency cost, ahead of embedding
 
 Deferred
 
-- Embedding Benchmark
 - Retrieval Benchmark
-- Pipeline Benchmark
 
 Reason
 
-The project is prioritizing production AI capabilities over engineering tooling.
+The Retrieval Platform itself has not been implemented yet.
 
 ---
 
@@ -495,6 +543,14 @@ Embedding
 ↓
 
 EmbeddingArtifact
+
+↓
+
+Indexing (dense + sparse)
+
+↓
+
+Qdrant (hybrid — dense + sparse vectors, same collection)
 ```
 
 ---
@@ -510,11 +566,21 @@ EmbeddingArtifact
 | Phase 2.4 — Embedding Platform | ✅ Complete |
 | Runtime Metrics Foundation | ✅ Complete |
 | Observability Platform | 🚧 Deferred |
+| Phase 2.5 — Vector Store Platform | ✅ Complete |
+| Phase 2.6 — Indexing Platform (Hybrid Retrieval) | ✅ Complete |
 | Benchmark Platform | ✅ Foundation Complete |
 
 ---
 
 # Recently Completed
+
+✅ Vector Store Platform (Qdrant provider)
+
+✅ Sparse Embeddings (FastEmbed SPLADE)
+
+✅ Qdrant Native Hybrid Indexing (dense + sparse, same collection)
+
+✅ Ingestion Pipeline Benchmark (real end-to-end run, dense+sparse metrics)
 
 ✅ Runtime Metrics Foundation
 
@@ -536,29 +602,28 @@ EmbeddingArtifact
 
 # Current Focus
 
-## Phase 2.5 — Vector Store Platform
+## Phase 2.7 — Retrieval Platform
 
-The next milestone introduces persistent vector storage for canonical embeddings.
+With hybrid indexing complete, the next milestone builds the query side: retrieving from the dense+sparse vectors already indexed in Qdrant.
 
-Initial implementation
+Planned scope (per ADR-019)
 
-- VectorStoreProvider abstraction
-- Registry
-- Factory
-- ChromaDB provider
-- VectorStoreArtifact
-- Processing integration
-- Manual verification
+- Semantic Retrieval
+- Sparse Retrieval
+- Hybrid Retrieval (Qdrant fusion of dense + sparse)
+- Metadata Filtering
+- Voyage Reranker
+- Parent/Child Retrieval
+- Query Decomposition
+- Retrieval Evaluation
+
+`ai/knowledge/retrieval/` is currently an empty package.
 
 ---
 
 # Immediate Roadmap
 
 ```
-Vector Store
-
-↓
-
 Retrieval
 
 ↓

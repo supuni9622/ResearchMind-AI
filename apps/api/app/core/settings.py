@@ -98,5 +98,11 @@ class Settings(BaseSettings):
     embedding_cache_enabled: bool = True
     embedding_cache_ttl_seconds: int = 60 * 60 * 24 * 30
 
+    # ==========================================================================
+    # Sparse Embeddings (Hybrid Retrieval)
+    # ==========================================================================
+
+    sparse_embedding_model: str = "prithivida/Splade_PP_en_v1"
+
 
 settings = Settings()  # pyright: ignore[reportCallIssue]

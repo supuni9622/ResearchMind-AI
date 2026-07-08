@@ -15,6 +15,10 @@ Current documents:
 - Backend Architecture
 - Repository Structure
 - Decision History
+- Chunking Platform Architecture
+- Chunk Lifecycle & Data Flow
+- Embedding Platform
+- Hybrid Retrieval Indexing
 
 Future documents:
 

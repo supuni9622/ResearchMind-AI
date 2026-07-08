@@ -114,14 +114,28 @@ AI subsystem. Document processing, metadata/statistics enrichment, and upload (i
 
 | Directory | Status |
 |-----------|--------|
-| `cache/` | (empty) — planned semantic caching |
+| `cache/` | **Implemented** — Valkey-backed embedding cache, see below |
 | `chunking/` | **Implemented** — see below |
 | `embeddings/` | **Implemented** — see below |
+| `indexing/` | **Implemented** — see below |
 | `processing/` | **Implemented** — see below |
 | `reranking/` | (empty) — planned result reranking |
-| `retrieval/` | (empty) — planned vector retrieval |
+| `retrieval/` | (empty) — planned retrieval strategies (semantic, sparse, hybrid, per ADR-019 roadmap) |
 | `upload/` | **Implemented** — see below |
-| `vectorstores/` | (empty) — planned vector store abstraction |
+| `vectorstores/` | **Implemented** — see below |
+
+##### `ai/knowledge/cache/` — **Implemented**
+
+Embedding cache. Sits in front of dense embedding generation so identical chunk text is never re-embedded with the same provider/model/configuration.
+
+| File | Description |
+|------|-------------|
+| `__init__.py` | Package marker |
+| `embeddings/create.py` | `create_embedding_cache()` — composition root; returns `ValkeyEmbeddingCache` or `NullEmbeddingCache` based on `settings.embedding_cache_enabled` |
+| `embeddings/interfaces.py` | `EmbeddingCache` ABC — `get_many()` / `set_many()` |
+| `embeddings/key.py` | `build_embedding_cache_key()` — derives a stable cache key from provider, model, configuration fingerprint, and chunk text |
+| `embeddings/null.py` | `NullEmbeddingCache` — no-op fallback when caching is disabled |
+| `embeddings/valkey.py` | `ValkeyEmbeddingCache` — Redis-backed cache, honors `settings.embedding_cache_ttl_seconds` |
 
 ##### `ai/knowledge/chunking/` — **Implemented**
 
@@ -174,6 +188,25 @@ Embedding pipeline. Transforms a canonical `ChunkArtifact` into vector `Embeddin
 | `artifacts/builder.py` | `EmbeddingArtifactBuilder` — builds an `EmbeddingArtifact` from a `ChunkArtifact` and its generated embeddings |
 | `artifacts/writer.py` | `EmbeddingArtifactWriter` — persists an `EmbeddingArtifact` to storage under `documents/{owner_id}/{document_id}/embeddings/{provider}/{artifact_id}/embeddings.json` |
 
+##### `ai/knowledge/indexing/` — **Implemented**
+
+Indexing Platform (ADR-018, ADR-019). Transforms an `EmbeddingArtifact` (dense vectors) plus its source `ChunkArtifact` (chunk text) into `VectorStoreRecord`s carrying both a dense vector and a sparse SPLADE vector, and upserts them into Qdrant via the Vector Store Platform. Persists a full indexing run as a canonical `IndexingArtifact` (`indexing.json`). ResearchMind does not run a separate BM25 platform — sparse vectors generated here are what Qdrant uses for native hybrid/lexical retrieval.
+
+| File | Description |
+|------|-------------|
+| `__init__.py` | (empty) |
+| `models.py` | `IndexingRequest` (`owner_id`, `operation`, `embedding_artifact`, `chunk_artifact`), `IndexingExecution`, `IndexingResult` |
+| `enums.py` | `IndexType` (vector/bm25/knowledge_graph), `IndexStatus`, `IndexOperation` |
+| `interfaces.py` | `IndexingServiceInterface` ABC — `index()`, `reindex()`, `delete()` |
+| `exceptions.py` | `IndexingError` hierarchy — `InvalidIndexingRequestError`, `IndexingExecutionError`, `IndexProviderError`, `IndexArtifactError`, `SparseEmbeddingError` |
+| `service.py` | `IndexingService` — validates the request, matches each dense embedding back to its source chunk by `chunk_id`, generates sparse vectors for the batch via `FastEmbedSparseEmbeddingProvider`, builds `VectorStoreRecord`s (dense + sparse + payload incl. real `chunk_index`), creates the Qdrant collection if missing, upserts, builds statistics, persists the artifact |
+| `create.py` | `create_sparse_embedding_provider()` / `create_indexing_artifact_writer()` / `create_indexing_service()` — composition root |
+| `providers/__init__.py` | (empty) |
+| `providers/fastembed.py` | `FastEmbedSparseEmbeddingProvider` — wraps FastEmbed's `SparseTextEmbedding` (SPLADE, default model `prithivida/Splade_PP_en_v1`); inference is synchronous/CPU-bound so it runs via `asyncio.to_thread`; wraps failures in `SparseEmbeddingError` |
+| `artifacts/models.py` | `IndexingArtifact` — canonical persistence model (`execution`, `vector_index` incl. `CollectionDefinition` + `IndexStatistics`), serialized to `indexing.json` |
+| `artifacts/builder.py` | `IndexingArtifactBuilder` — builds an `IndexingArtifact` from an `IndexingExecution` + `IndexingResult` |
+| `artifacts/writer.py` | `IndexingArtifactWriter` — persists an `IndexingArtifact` to storage under `documents/{owner_id}/{document_id}/indexing/{execution_id}/indexing.json` |
+
 ##### `ai/knowledge/processing/` — **Implemented**
 
 | File | Description |
@@ -190,7 +223,7 @@ Embedding pipeline. Transforms a canonical `ChunkArtifact` into vector `Embeddin
 | `interfaces.py` | `DocumentParser` ABC, `ParseRequest` |
 | `models.py` | `ProcessedDocument`, block types, `ProcessingResult` |
 | `registry.py` | `ParserRegistry` — format → parser resolution |
-| `service.py` | `ProcessingService` — orchestrates the full pipeline (parse → enrich → build/write artifacts → chunk → persist chunk artifacts → embed → persist embedding artifacts) |
+| `service.py` | `ProcessingService` — orchestrates the full pipeline (parse → enrich → build/write artifacts → chunk → persist chunk artifacts → embed → persist embedding artifacts → index dense+sparse vectors into Qdrant → persist indexing artifacts) |
 | `temporary_file_manager.py` | `TemporaryFileManager` — creates temp files from downloaded document bytes, preserves extension, cleans up after processing |
 
 ###### `ai/knowledge/processing/metadata/` — **Implemented**
@@ -251,6 +284,25 @@ Duplicate document detection, checked during upload before storage/DB writes.
 | `interfaces.py` | `DuplicateDetector` ABC — the upload workflow depends only on this abstraction |
 | `models.py` | Request/response models exchanged between the upload workflow and the duplicate detection service |
 | `service.py` | `DuplicateDetectionService` — determines whether a document already exists for a user based on its SHA-256 checksum (hash computation itself is delegated to `FileHasher`) |
+
+##### `ai/knowledge/vectorstores/` — **Implemented**
+
+Vector Store Platform (ADR-017, ADR-019). Provider-independent vector database abstraction — canonical `VectorStoreRecord`s in, provider SDK types never leak out. Qdrant is the only implemented provider; it stores a named `dense` vector and a named `sparse` vector per point in the same collection so Qdrant can serve native hybrid retrieval without a separate BM25 system.
+
+| File | Description |
+|------|-------------|
+| `__init__.py` | (empty) |
+| `models.py` | `VectorPayload`, `VectorStoreRecord` (`vector` + optional `sparse_vector`), `SparseVector` (`indices`, `values`), `CollectionDefinition`, `CollectionMetadata`, `IndexStatistics` (incl. `indexed_sparse_vectors`) |
+| `enums.py` | `VectorStoreProvider` (qdrant/chromadb/pgvector/pinecone/weaviate — only qdrant implemented), `VectorDistanceMetric`, `VectorOperation` |
+| `interfaces.py` | `VectorStoreProviderInterface` ABC — `create_collection`, `collection_exists`, `upsert`, `delete_document`, `count`, `collection_info` |
+| `exceptions.py` | `VectorStoreError` hierarchy — `CollectionAlreadyExistsError`, `CollectionNotFoundError`, `VectorStoreValidationError`, `VectorIndexingError`, `VectorDeletionError`, `CollectionOperationError` |
+| `base.py` | `BaseVectorStoreProvider[ConfigT]` — generic base shared by every provider (config, version, configuration fingerprint) |
+| `config.py` | `BaseVectorStoreConfig` (`batch_size`, `create_collection_if_missing`) + `QdrantVectorStoreConfig` (collection name, distance metric, HNSW params, `on_disk_payload`), plus placeholder configs for Chroma/pgvector/Pinecone/Weaviate |
+| `registry.py` | `VectorStoreRegistry` — provider → implementation resolution |
+| `service.py` | `VectorStoreService` — validates records (rejects empty vectors), resolves the provider, delegates every operation |
+| `create.py` | `create_qdrant_client()` / `create_vectorstore_registry()` / `create_vectorstore_service()` — composition root |
+| `providers/qdrant.py` | `QdrantVectorStoreProvider` — creates collections with named `dense` + `sparse` vector configs (`DENSE_VECTOR_NAME`/`SPARSE_VECTOR_NAME` constants), converts records into `PointStruct`s carrying both named vectors, batches upserts, filters deletes by `document_id` payload field |
+| `artifacts/` | `builder.py` / `models.py` / `writer.py` — all empty; unused scaffold, superseded by `indexing/artifacts/` |
 
 ##### `ai/quality/`
 
@@ -341,7 +393,7 @@ All files empty — planned shared AI types and interfaces.
 | `health.py` | Health check functions for PostgreSQL, Valkey, Qdrant; logs `health.degraded` and per-service warnings |
 | `lifespan.py` | FastAPI lifespan — configures logging, runs migrations (`AUTO_MIGRATE`), initializes infrastructure, logs `app.starting` / `app.ready` / `app.shutdown_complete` |
 | `logging.py` | Structlog configuration — stdlib bridge via `ProcessorFormatter`, environment-aware renderer (ConsoleRenderer in dev, JSON in production), silences noisy loggers |
-| `settings.py` | Pydantic `Settings` — all env vars; includes `auto_migrate` flag, `queue_provider` (`QueueProvider.VALKEY` default), `sqs_queue_url`, `queue_max_attempts` |
+| `settings.py` | Pydantic `Settings` — all env vars; includes `auto_migrate` flag, `queue_provider` (`QueueProvider.VALKEY` default), `sqs_queue_url`, `queue_max_attempts`, `qdrant_url`/`qdrant_collection_name`, `embedding_cache_enabled`/`embedding_cache_ttl_seconds`, `sparse_embedding_model` (default `prithivida/Splade_PP_en_v1`) |
 | `setup.py` | App factory and setup helpers |
 
 ---
@@ -350,7 +402,7 @@ All files empty — planned shared AI types and interfaces.
 
 | File | Description |
 |------|-------------|
-| `worker.py` | Application composition root for the worker process — `create_processing_worker(session)` wires up storage, parser/metadata/statistics registries, the Chunking Platform (`create_chunking_service()`, `ChunkArtifactBuilder`, `ChunkArtifactWriter`), the Embedding Platform (`create_embedding_service()`, `EmbeddingArtifactBuilder`, `EmbeddingArtifactWriter`), `ProcessingService`, `DocumentProcessingService`, `QueuedDocumentProcessingService`, and the configured queue into a `ProcessingWorker` |
+| `worker.py` | Application composition root for the worker process — `create_processing_worker(session)` wires up storage, parser/metadata/statistics registries, the Chunking Platform (`create_chunking_service()`, `ChunkArtifactBuilder`, `ChunkArtifactWriter`), the Embedding Platform (`create_embedding_service()`, `EmbeddingArtifactBuilder`, `EmbeddingArtifactWriter`), the Indexing Platform (`create_indexing_service()`, `IndexingArtifactBuilder`, `IndexingArtifactWriter`), `ProcessingService`, `DocumentProcessingService`, `QueuedDocumentProcessingService`, and the configured queue into a `ProcessingWorker` |
 
 ---
 
@@ -375,7 +427,7 @@ All files empty — planned shared AI types and interfaces.
 | `cache.py` | (empty) |
 | `database.py` | (empty) |
 | `settings.py` | (empty) |
-| `upload.py` | FastAPI dependency providers for the upload/processing workflow: `get_document_storage`, `get_file_hasher`, `get_document_repository`, `get_processing_queue`, `get_processing_service` (now also wires the Chunking Platform — `_get_chunking_service`, `_get_chunk_artifact_builder`, `ChunkArtifactWriter` — and the Embedding Platform — `_get_embedding_service`, `_get_embedding_artifact_builder`, `EmbeddingArtifactWriter`), `get_document_processing_service`, `get_queued_document_processing_service`, `get_upload_service`, `get_processing_worker` |
+| `upload.py` | FastAPI dependency providers for the upload/processing workflow: `get_document_storage`, `get_file_hasher`, `get_document_repository`, `get_processing_queue`, `get_processing_service` (now also wires the Chunking Platform — `_get_chunking_service`, `_get_chunk_artifact_builder`, `ChunkArtifactWriter` — the Embedding Platform — `_get_embedding_service`, `_get_embedding_artifact_builder`, `EmbeddingArtifactWriter` — and the Indexing Platform — `_get_indexing_service`, `_get_indexing_artifact_builder`, `IndexingArtifactWriter`), `get_document_processing_service`, `get_queued_document_processing_service`, `get_upload_service`, `get_processing_worker` |
 | `vector_store.py` | (empty) |
 
 ---
@@ -595,10 +647,18 @@ Engineering Benchmark Platform — an offline framework for comparing competing 
 | `embeddings/reports/embeddings/report.{md,json}` | Checked-in example output from a real `embeddings` benchmark run — Sentence Transformers completed all 5 documents (1481 chunks, 384-dim); Voyage AI completed 1 of 5 documents before hitting the configured account's free-tier rate limit (3 RPM), captured as a candidate-level error note |
 | `retrieval/benchmark.py` | (empty) — planned retrieval strategy benchmark |
 | `reranking/benchmark.py` | (empty) — planned reranker benchmark |
-| `pipeline/benchmark.py` | (empty) — planned end-to-end pipeline benchmark |
+| `pipeline/benchmark.py` | `PipelineBenchmark` — end-to-end ingestion pipeline benchmark. Pushes every dataset document through the real Chunking → Embedding (Voyage AI) → Indexing (dense+sparse, Qdrant) services, aborting immediately on any failure rather than skipping. Has its own CLI entry point (`python -m benchmarks.pipeline.benchmark`) rather than going through `runner.py`, because its report shape (rich per-document/aggregate/throughput/storage/memory metrics) doesn't fit the candidate-comparison `BenchmarkReport` model |
+| `pipeline/dataset.py` | `load_pipeline_dataset()` — loads each dataset entry's `ProcessedDocument` plus its source JSON size |
+| `pipeline/models.py` | `PipelineBenchmarkReport` and sub-models: `DocumentPipelineResult`, `ChunkingMetrics`, `EmbeddingMetrics`, `IndexingMetrics` (`vector_count`, `sparse_vector_count`, `sparse_embedding_model`, `collection_name`), `ArtifactSizes`, `StatSummary`, `ThroughputSummary`, `StorageSummary`, `MemorySummary`, `SuccessReport`, `Observations` (incl. `average_sparse_vectors_generated`), `ProductionReadiness` |
+| `pipeline/pipeline_runner.py` | `run_document_pipeline()` — runs one document through the real pipeline and collects `RuntimeMetricsCollector` timings; records both dense (`indexed_vectors`) and sparse (`indexed_sparse_vectors`) vector counts from the `IndexingResult` |
+| `pipeline/report_generator.py` | `PipelineReportGenerator` — renders `PipelineBenchmarkReport` as Markdown (environment, dataset, per-document table incl. dense/sparse vector columns, aggregate stats, pipeline timing, storage, throughput, memory, success, observations, production readiness) |
+| `pipeline/services.py` | `PipelineServices` / `create_pipeline_services()` — constructs the real Chunking/Embedding/Indexing services via their production composition roots (mirrors `app.bootstrap.worker`), so the benchmark exercises the real object graph |
+| `pipeline/stats.py` | `summarize()` — average/minimum/maximum/median/p95 for a list of metric values |
 | `datasets/README.md` | Benchmark dataset philosophy — deterministic, version-controlled, immutable once published; documents the `processed_document.json`-per-paper layout |
 | `datasets/research-papers/paper-00{1-5}/processed_document.json` | Canonical `ProcessedDocument` fixtures — the current benchmark corpus (5 research papers) |
 | `reports/.gitkeep` | Placeholder keeping the default `--output` directory tracked in git |
+| `reports/ingestion-benchmark-report.md` | Checked-in example output from a real `pipeline` benchmark run (5 research papers) — includes dense + sparse vector counts and the SPLADE model used; indexing is now the dominant per-document latency cost (SPLADE CPU inference), not embedding |
+| `reports/ingestion-benchmark.json` | Same run, machine-readable |
 
 ---
 
@@ -635,6 +695,11 @@ All empty.
 | `ADR-012-asynchronous-document-processing.md` | Decision: move document processing off the upload request path into a standalone worker consuming the queue |
 | `ADR-013-canonical-chunk-model.md` | Decision: canonical `Chunk` model — the framework-independent knowledge unit consumed by embeddings/retrieval/reranking/citation/evaluation |
 | `ADR-014-chunking-provider-architecture.md` | Decision: chunking provider architecture — registry-based strategy pattern supporting multiple simultaneous chunking strategies |
+| `ADR-015-canonical-ai-platform-pipeline.md` | Decision: every AI platform consumes the canonical artifact produced by the previous platform — the pipeline communicates only through artifacts, never provider SDK types |
+| `ADR-016-observability-platform.md` | Decision: Observability is a first-class platform within the AI Engineering Platform, not an afterthought bolted onto individual services |
+| `ADR-017-vector-store-platform.md` | Decision: Vector Store Platform architecture — provider-independent abstraction over vector databases; Qdrant as the first implemented provider |
+| `ADR-018-knowledge-indexing-and-retrieval-architecture.md` | Decision: split Indexing and Retrieval into two independent platforms; Hybrid Retrieval, multiple retrieval strategies, reranking, metadata filtering, caching, and evaluation are all MVP scope, not future work |
+| `ADR-019-qdrant-native-hybrid-retrieval.md` | Decision: no separate BM25 platform — generate FastEmbed SPLADE sparse vectors alongside Voyage AI dense vectors and index both into the same Qdrant collection for native hybrid retrieval |
 
 ---
 
@@ -681,11 +746,14 @@ All empty.
 | `chunk-lifecycle-and-dataflow.md` | Chunk Lifecycle & Data Flow v1.0 (**Frozen**) — how a single canonical `Chunk` object flows and is progressively enriched across the entire AI pipeline (companion to the architecture doc, focused on dataflow rather than components) |
 | `db-sessions.md` | SQLAlchemy session management patterns |
 | `decision-history.md` | History of architectural decisions |
+| `embedding-platform.md` | Embedding Platform architecture (Phase 2.4, **Completed V1**) — provider pattern, registry, factory, artifact lifecycle, ProcessingService integration |
 | `evaluation-platform.md` | Runtime Evaluation Platform (planned) — continuously observes/measures the *configured production* pipeline (latency, quality, health) without altering its behavior |
 | `evaluation-strategy.md` | Evaluation strategy — why ResearchMind separates Engineering Benchmarks, Runtime Evaluation, and the Experimentation Platform into three complementary layers with different audiences and lifecycles |
 | `experimentation-platform.md` | Experimentation Platform (planned) — asynchronous background evaluation of alternative AI strategies against production documents, without affecting production |
+| `hybrid-retrieval-indexing.md` | Hybrid Retrieval Indexing (Phase 2.5, **Completed V1 — indexing side**) — sparse embeddings (FastEmbed SPLADE) + Qdrant native hybrid indexing (ADR-018, ADR-019); complete ingestion pipeline flow diagram, Qdrant schema before/after, real end-to-end verification results |
 | `identity-architecture.md` | **Full auth architecture** — Cognito flow, per-request auth, implementation table, manual testing guide, AWS Console setup, common errors, issues encountered |
 | `knowledge-platform-roadmap.md` | Knowledge Platform roadmap — the full subsystem breakdown (chunking → embeddings → vector store → retrieval → reranking → memory → knowledge service) and how each communicates via canonical models |
+| `observability-platform.md` | Observability Platform architecture |
 | `observability-strategy.md` | Observability strategy — logging is the only implemented pillar (structlog, request correlation); metrics/tracing are placeholders under `docs/monitoring/` |
 | `project-constitution.md` | Project principles, goals, and constraints |
 | `repository-structure.md` | Repository layer patterns |
@@ -789,6 +857,17 @@ All empty — planned observability docs.
 | `langsmith.md` | (empty) |
 | `otel.md` | (empty) |
 | `prometheus.md` | (empty) |
+
+---
+
+### `docs/platforms/`
+
+Platform-level design docs written before/alongside implementation — a level below the ADRs (which record a single decision) and above the code itself.
+
+| File | Description |
+|------|-------------|
+| `indexing-platform.md` | Indexing Platform design doc. Predates ADR-019: its BM25 platform section (separate `bm25/` provider folder) was superseded by Qdrant native sparse vectors (FastEmbed SPLADE) generated inside `indexing/providers/fastembed.py`; the rest of the document (Vector Store section, artifact-driven design principles) matches the current implementation |
+| `retrieval-platform.md` | Retrieval Platform design doc — not yet implemented; `ai/knowledge/retrieval/` is still an empty package |
 
 ---
 

@@ -60,3 +60,9 @@ class IndexArtifactError(IndexingError):
     """
     Raised when an indexing artifact cannot be created or persisted.
     """
+
+
+class SparseEmbeddingError(IndexingError):
+    """
+    Raised when sparse embedding generation fails.
+    """

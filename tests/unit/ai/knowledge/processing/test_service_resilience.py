@@ -16,6 +16,12 @@ import uuid
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from app.ai.knowledge.chunking.artifacts.models import (
+    ChunkArtifact,
+    ChunkArtifactDocument,
+    ChunkArtifactStatistics,
+    ChunkArtifactStrategy,
+)
 from app.ai.knowledge.chunking.enums import ChunkingStrategy
 from app.ai.knowledge.embeddings.artifacts.models import (
     EmbeddingArtifact,
@@ -113,10 +119,33 @@ def _default_chunking_service() -> AsyncMock:
     return chunking_service
 
 
+def _default_chunk_artifact() -> ChunkArtifact:
+    """Minimal real ChunkArtifact.
+
+    IndexingRequest validates chunk_artifact against the real
+    ChunkArtifact model, so a MagicMock stand-in fails validation; a
+    minimal real instance is needed instead.
+    """
+    return ChunkArtifact(
+        document=ChunkArtifactDocument(
+            document_id=uuid.uuid4(),
+            filename="test.pdf",
+            parser="docling",
+        ),
+        strategy=ChunkArtifactStrategy(
+            strategy=ChunkingStrategy.MARKDOWN,
+            strategy_version="1.0",
+            configuration_fingerprint="test-fingerprint",
+        ),
+        statistics=ChunkArtifactStatistics(),
+    )
+
+
 def _default_chunk_artifact_builder() -> MagicMock:
-    """Fake chunk artifact builder: returns an opaque artifact."""
+    """Fake chunk artifact builder: returns a minimal real ChunkArtifact
+    (see _default_chunk_artifact)."""
     builder = MagicMock()
-    builder.build = MagicMock(return_value=MagicMock())
+    builder.build = MagicMock(return_value=_default_chunk_artifact())
     return builder
 
 

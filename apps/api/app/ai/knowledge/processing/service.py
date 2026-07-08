@@ -308,6 +308,7 @@ class ProcessingService:
             IndexingRequest(
                 owner_id=owner_id,
                 embedding_artifact=embedding_artifact,
+                chunk_artifact=chunk_artifact,
             )
         )
         runtime.add_artifact(

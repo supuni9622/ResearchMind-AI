@@ -15,6 +15,10 @@ from __future__ import annotations
 from app.ai.knowledge.indexing.artifacts.writer import (
     IndexingArtifactWriter,
 )
+from app.ai.knowledge.indexing.providers.fastembed import (
+    FastEmbedSparseEmbeddingConfig,
+    FastEmbedSparseEmbeddingProvider,
+)
 from app.ai.knowledge.indexing.service import (
     IndexingService,
 )
@@ -35,6 +39,18 @@ def create_indexing_artifact_writer() -> IndexingArtifactWriter:
     )
 
 
+def create_sparse_embedding_provider() -> FastEmbedSparseEmbeddingProvider:
+    """
+    Create a fully configured FastEmbedSparseEmbeddingProvider.
+    """
+
+    return FastEmbedSparseEmbeddingProvider(
+        config=FastEmbedSparseEmbeddingConfig(
+            model_name=settings.sparse_embedding_model,
+        ),
+    )
+
+
 def create_indexing_service() -> IndexingService:
     """
     Create a fully configured IndexingService.
@@ -43,4 +59,5 @@ def create_indexing_service() -> IndexingService:
     return IndexingService(
         vectorstore_service=create_vectorstore_service(),
         artifact_writer=create_indexing_artifact_writer(),
+        sparse_embedding_provider=create_sparse_embedding_provider(),
     )

@@ -1,6 +1,6 @@
 {
-  "generated_at": "2026-07-08T08:31:16.092182Z",
-  "commit": "e7a6ddf",
+  "generated_at": "2026-07-08T10:01:35.290019Z",
+  "commit": "cd6da38",
   "environment": {
     "python_version": "3.12.13",
     "platform": "macOS-26.5.2-arm64-arm-64bit",
@@ -9,7 +9,8 @@
     "vector_store_provider": "qdrant",
     "owner_id": "benchmark-ingestion-pipeline",
     "embedding_model": "voyage-3-lite",
-    "qdrant_collection": "researchmind_knowledge"
+    "qdrant_collection": "researchmind_knowledge",
+    "sparse_embedding_model": "prithivida/Splade_PP_en_v1"
   },
   "dataset_name": "research-papers",
   "dataset_directory": "benchmarks/datasets/research-papers",
@@ -27,28 +28,30 @@
         "average_chunk_size": 373.258064516129,
         "largest_chunk": 499,
         "smallest_chunk": 40,
-        "duration_ms": 1.7625830005272292
+        "duration_ms": 1.671875001193257
       },
       "embedding": {
         "embedding_count": 62,
         "dimensions": 512,
-        "duration_ms": 2483.6867499998334,
+        "duration_ms": 22.3935829999391,
         "provider": "voyage_ai",
         "model": "voyage-3-lite"
       },
       "indexing": {
         "vector_count": 62,
-        "duration_ms": 1422.9181249993417,
-        "collection_name": "researchmind_knowledge"
+        "sparse_vector_count": 62,
+        "duration_ms": 3590.60458300155,
+        "collection_name": "researchmind_knowledge",
+        "sparse_embedding_model": "prithivida/Splade_PP_en_v1"
       },
       "artifacts": {
         "processed_document_json_bytes": 45952,
         "chunks_json_bytes": 109999,
         "embeddings_json_bytes": 1066768,
-        "indexing_json_bytes": 569
+        "indexing_json_bytes": 607
       },
-      "total_duration_ms": 8577.993666000111,
-      "peak_memory_mb": 544.875
+      "total_duration_ms": 7425.5463749977935,
+      "peak_memory_mb": 3919.640625
     },
     {
       "document": {
@@ -63,28 +66,30 @@
         "average_chunk_size": 351.4314314314314,
         "largest_chunk": 499,
         "smallest_chunk": 1,
-        "duration_ms": 37.094792000061716
+        "duration_ms": 165.92058300011558
       },
       "embedding": {
         "embedding_count": 999,
         "dimensions": 512,
-        "duration_ms": 20710.743249999723,
+        "duration_ms": 155.95112499795505,
         "provider": "voyage_ai",
         "model": "voyage-3-lite"
       },
       "indexing": {
         "vector_count": 999,
-        "duration_ms": 1583.6027920013294,
-        "collection_name": "researchmind_knowledge"
+        "sparse_vector_count": 999,
+        "duration_ms": 30203.273833998537,
+        "collection_name": "researchmind_knowledge",
+        "sparse_embedding_model": "prithivida/Splade_PP_en_v1"
       },
       "artifacts": {
         "processed_document_json_bytes": 698290,
         "chunks_json_bytes": 1695464,
         "embeddings_json_bytes": 17165681,
-        "indexing_json_bytes": 551
+        "indexing_json_bytes": 592
       },
-      "total_duration_ms": 65520.55945800021,
-      "peak_memory_mb": 561.734375
+      "total_duration_ms": 63104.57600000154,
+      "peak_memory_mb": 4139.34375
     },
     {
       "document": {
@@ -99,28 +104,30 @@
         "average_chunk_size": 341.68461538461537,
         "largest_chunk": 499,
         "smallest_chunk": 12,
-        "duration_ms": 3.4445000001142034
+        "duration_ms": 5.551833997742506
       },
       "embedding": {
         "embedding_count": 130,
         "dimensions": 512,
-        "duration_ms": 3342.3825000008947,
+        "duration_ms": 34.98804199989536,
         "provider": "voyage_ai",
         "model": "voyage-3-lite"
       },
       "indexing": {
         "vector_count": 130,
-        "duration_ms": 1314.9403330007772,
-        "collection_name": "researchmind_knowledge"
+        "sparse_vector_count": 130,
+        "duration_ms": 5303.761749997648,
+        "collection_name": "researchmind_knowledge",
+        "sparse_embedding_model": "prithivida/Splade_PP_en_v1"
       },
       "artifacts": {
         "processed_document_json_bytes": 85207,
         "chunks_json_bytes": 224147,
         "embeddings_json_bytes": 2239703,
-        "indexing_json_bytes": 573
+        "indexing_json_bytes": 590
       },
-      "total_duration_ms": 14114.014624999982,
-      "peak_memory_mb": 423.4375
+      "total_duration_ms": 9516.601667000941,
+      "peak_memory_mb": 3046.46875
     },
     {
       "document": {
@@ -135,28 +142,30 @@
         "average_chunk_size": 334.265873015873,
         "largest_chunk": 499,
         "smallest_chunk": 3,
-        "duration_ms": 11.136291999719106
+        "duration_ms": 12.472459002310643
       },
       "embedding": {
         "embedding_count": 252,
         "dimensions": 512,
-        "duration_ms": 5920.686459001445,
+        "duration_ms": 53.413333000207786,
         "provider": "voyage_ai",
         "model": "voyage-3-lite"
       },
       "indexing": {
         "vector_count": 252,
-        "duration_ms": 1446.9743339996057,
-        "collection_name": "researchmind_knowledge"
+        "sparse_vector_count": 252,
+        "duration_ms": 9184.428917000332,
+        "collection_name": "researchmind_knowledge",
+        "sparse_embedding_model": "prithivida/Splade_PP_en_v1"
       },
       "artifacts": {
         "processed_document_json_bytes": 159745,
         "chunks_json_bytes": 428508,
         "embeddings_json_bytes": 4334292,
-        "indexing_json_bytes": 573
+        "indexing_json_bytes": 590
       },
-      "total_duration_ms": 22043.346209000447,
-      "peak_memory_mb": 422.375
+      "total_duration_ms": 11611.490832998243,
+      "peak_memory_mb": 3639.296875
     },
     {
       "document": {
@@ -171,37 +180,39 @@
         "average_chunk_size": 229.50877192982455,
         "largest_chunk": 499,
         "smallest_chunk": 11,
-        "duration_ms": 3.3244579990423517
+        "duration_ms": 2.20695800089743
       },
       "embedding": {
         "embedding_count": 57,
         "dimensions": 512,
-        "duration_ms": 20827.46270899952,
+        "duration_ms": 10.47291699796915,
         "provider": "voyage_ai",
         "model": "voyage-3-lite"
       },
       "indexing": {
         "vector_count": 57,
-        "duration_ms": 1286.7399999995541,
-        "collection_name": "researchmind_knowledge"
+        "sparse_vector_count": 57,
+        "duration_ms": 2525.8598330001405,
+        "collection_name": "researchmind_knowledge",
+        "sparse_embedding_model": "prithivida/Splade_PP_en_v1"
       },
       "artifacts": {
         "processed_document_json_bytes": 25494,
         "chunks_json_bytes": 84931,
         "embeddings_json_bytes": 980707,
-        "indexing_json_bytes": 547
+        "indexing_json_bytes": 587
       },
-      "total_duration_ms": 33190.917874999286,
-      "peak_memory_mb": 422.40625
+      "total_duration_ms": 6412.3150410014205,
+      "peak_memory_mb": 3905.359375
     }
   ],
   "pipeline_timing": {
     "total_pipeline_duration_ms": {
-      "average": 28689.366366600007,
-      "minimum": 8577.993666000111,
-      "maximum": 65520.55945800021,
-      "median": 22043.346209000447,
-      "p95": 59054.631141400016
+      "average": 19614.10598319999,
+      "minimum": 6412.3150410014205,
+      "maximum": 63104.57600000154,
+      "median": 9516.601667000941,
+      "p95": 52805.958966600876
     },
     "processing_duration_ms": {
       "average": 0.0,
@@ -211,25 +222,25 @@
       "p95": 0.0
     },
     "chunking_duration_ms": {
-      "average": 11.352524999892921,
-      "minimum": 1.7625830005272292,
-      "maximum": 37.094792000061716,
-      "median": 3.4445000001142034,
-      "p95": 31.90309199999319
+      "average": 37.564741800451884,
+      "minimum": 1.671875001193257,
+      "maximum": 165.92058300011558,
+      "median": 5.551833997742506,
+      "p95": 135.23095820055457
     },
     "embedding_duration_ms": {
-      "average": 10656.992333600283,
-      "minimum": 2483.6867499998334,
-      "maximum": 20827.46270899952,
-      "median": 5920.686459001445,
-      "p95": 20804.11881719956
+      "average": 55.44379999919329,
+      "minimum": 10.47291699796915,
+      "maximum": 155.95112499795505,
+      "median": 34.98804199989536,
+      "p95": 135.4435665984056
     },
     "indexing_duration_ms": {
-      "average": 1411.0351168001216,
-      "minimum": 1286.7399999995541,
-      "maximum": 1583.6027920013294,
-      "median": 1422.9181249993417,
-      "p95": 1556.2771004009846
+      "average": 10161.585783399642,
+      "minimum": 2525.8598330001405,
+      "maximum": 30203.273833998537,
+      "median": 5303.761749997648,
+      "p95": 25999.504850598893
     }
   },
   "aggregate_statistics": {
@@ -247,34 +258,41 @@
       "median": 130.0,
       "p95": 849.5999999999999
     },
+    "sparse_vector_count": {
+      "average": 300.0,
+      "minimum": 57.0,
+      "maximum": 999.0,
+      "median": 130.0,
+      "p95": 849.5999999999999
+    },
     "artifact_size_bytes": {
-      "average": 5869540.2,
-      "minimum": 1091679.0,
-      "maximum": 19559986.0,
-      "median": 2549630.0,
-      "p95": 16632612.399999997
+      "average": 5869570.8,
+      "minimum": 1091719.0,
+      "maximum": 19560027.0,
+      "median": 2549647.0,
+      "p95": 16632648.599999998
     }
   },
   "throughput": {
-    "documents_per_minute": 2.091212136021039,
-    "chunks_per_second": 10.456060680105194,
-    "embeddings_per_second": 10.456060680105194,
-    "vectors_per_second": 10.456060680105194
+    "documents_per_minute": 3.0585373410939822,
+    "chunks_per_second": 15.292686705469912,
+    "embeddings_per_second": 15.292686705469912,
+    "vectors_per_second": 15.292686705469912
   },
   "storage": {
-    "average_bytes_per_document": 5869540.2,
+    "average_bytes_per_document": 5869570.8,
     "average_bytes_per_chunk": 1695.366,
     "average_bytes_per_embedding": 17191.434,
-    "total_bytes_generated": 29347701,
+    "total_bytes_generated": 29347854,
     "average_processed_document_json_bytes": 202937.6,
     "average_chunks_json_bytes": 508609.8,
     "average_embeddings_json_bytes": 5157430.2,
-    "average_indexing_json_bytes": 562.6
+    "average_indexing_json_bytes": 593.2
   },
   "memory": {
-    "average_peak_memory_mb": 474.965625,
-    "minimum_peak_memory_mb": 422.375,
-    "maximum_peak_memory_mb": 561.734375
+    "average_peak_memory_mb": 3730.021875,
+    "minimum_peak_memory_mb": 3046.46875,
+    "maximum_peak_memory_mb": 4139.34375
   },
   "success": {
     "documents_processed": 5,
@@ -284,15 +302,16 @@
   },
   "observations": {
     "slowest_document": "LLM_RESEARCH.pdf",
-    "slowest_document_duration_ms": 65520.55945800021,
-    "fastest_document": "151__CRC.pdfrevised.pdf",
-    "fastest_document_duration_ms": 8577.993666000111,
+    "slowest_document_duration_ms": 63104.57600000154,
+    "fastest_document": "data engineering .pdf",
+    "fastest_document_duration_ms": 6412.3150410014205,
     "largest_artifact": "LLM_RESEARCH.pdf / embeddings.json",
     "largest_artifact_bytes": 17165681,
     "smallest_artifact": "data engineering .pdf / indexing.json",
-    "smallest_artifact_bytes": 547,
-    "average_pipeline_time_ms": 28689.366366600007,
+    "smallest_artifact_bytes": 587,
+    "average_pipeline_time_ms": 19614.10598319999,
     "average_vectors_generated": 300.0,
+    "average_sparse_vectors_generated": 300.0,
     "average_chunks_generated": 300.0
   },
   "production_readiness": {
@@ -302,12 +321,14 @@
       "100% embedding success",
       "100% indexing success",
       "All artifacts generated",
-      "Average pipeline time: 28.69 s",
-      "Average vectors indexed: 300",
+      "Average pipeline time: 19.61 s",
+      "Average dense vectors indexed: 300",
+      "Average sparse vectors indexed: 300",
+      "Hybrid indexing functional (dense + sparse vectors in the same collection)",
       "No failures observed"
     ],
     "recommendations": [
-      "Optimize embedding latency (largest contributor)",
+      "Optimize indexing latency (largest contributor)",
       "Artifact storage per document is large; consider compression.",
       "Ready to proceed to Retrieval Platform"
     ]

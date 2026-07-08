@@ -40,7 +40,13 @@ ResearchMind-AI/
 │   │       │   │   ├── policies.py          # Content policy definitions
 │   │       │   │   └── scanners.py          # Input/output scanners
 │   │       │   ├── knowledge/               # RAG knowledge pipeline
-│   │       │   │   ├── cache/               # Semantic caching (planned)
+│   │       │   │   ├── cache/               # Embedding cache
+│   │       │   │   │   └── embeddings/
+│   │       │   │   │       ├── create.py           # create_embedding_cache() — composition root (Valkey or Null based on settings)
+│   │       │   │   │       ├── interfaces.py       # EmbeddingCache ABC
+│   │       │   │   │       ├── key.py              # build_embedding_cache_key() — provider+model+config-fingerprint+text hash
+│   │       │   │   │       ├── null.py             # NullEmbeddingCache — no-op fallback
+│   │       │   │   │       └── valkey.py           # ValkeyEmbeddingCache — Redis-backed vector cache
 │   │       │   │   ├── chunking/            # Document chunking pipeline
 │   │       │   │   │   ├── artifacts/
 │   │       │   │   │   │   ├── builder.py          # ChunkArtifactBuilder — builds ChunkArtifact from generated chunks
@@ -83,6 +89,19 @@ ResearchMind-AI/
 │   │       │   │   │   ├── models.py               # Embedding + sub-models (vector, provenance, provider, statistics, experiment)
 │   │       │   │   │   ├── registry.py             # EmbeddingRegistry — provider → implementation resolution
 │   │       │   │   │   └── service.py              # EmbeddingService — validates chunk artifact, delegates to provider
+│   │       │   │   ├── indexing/            # Indexing Platform — dense + sparse vectors → Qdrant hybrid (ADR-018, ADR-019)
+│   │       │   │   │   ├── artifacts/
+│   │       │   │   │   │   ├── builder.py          # IndexingArtifactBuilder — builds IndexingArtifact from an IndexingResult
+│   │       │   │   │   │   ├── models.py           # IndexingArtifact + sub-models (execution, VectorIndexArtifact)
+│   │       │   │   │   │   └── writer.py           # IndexingArtifactWriter — persists IndexingArtifact to storage (S3)
+│   │       │   │   │   ├── providers/
+│   │       │   │   │   │   └── fastembed.py        # FastEmbedSparseEmbeddingProvider — SPLADE sparse vectors, off-loop via asyncio.to_thread
+│   │       │   │   │   ├── create.py               # create_sparse_embedding_provider() / create_indexing_service() — composition root
+│   │       │   │   │   ├── enums.py                # IndexType, IndexStatus, IndexOperation
+│   │       │   │   │   ├── exceptions.py           # IndexingError hierarchy (incl. SparseEmbeddingError)
+│   │       │   │   │   ├── interfaces.py           # IndexingServiceInterface ABC
+│   │       │   │   │   ├── models.py               # IndexingRequest (embedding_artifact + chunk_artifact), IndexingExecution, IndexingResult
+│   │       │   │   │   └── service.py              # IndexingService — builds dense+sparse VectorStoreRecords, creates/upserts into Qdrant, persists artifact
 │   │       │   │   ├── processing/          # Document processing pipeline
 │   │       │   │   │   ├── adapters/
 │   │       │   │   │   │   └── docling.py          # Docling adapter (alternative entry point)
@@ -114,7 +133,7 @@ ResearchMind-AI/
 │   │       │   │   │   ├── interfaces.py           # DocumentParser ABC, ParseRequest
 │   │       │   │   │   ├── models.py               # ProcessedDocument, block types, ProcessingResult
 │   │       │   │   │   ├── registry.py             # ParserRegistry — format → parser resolution
-│   │       │   │   │   ├── service.py              # ProcessingService — orchestrates the full pipeline (parse → enrich → artifacts → chunk → chunk artifacts → embed → embedding artifacts)
+│   │       │   │   │   ├── service.py              # ProcessingService — orchestrates the full pipeline (parse → enrich → artifacts → chunk → chunk artifacts → embed → embedding artifacts → index (dense+sparse) → indexing artifacts)
 │   │       │   │   │   └── temporary_file_manager.py  # Temp file lifecycle for downloaded documents
 │   │       │   │   ├── reranking/           # Result reranking (planned)
 │   │       │   │   ├── retrieval/           # Vector retrieval (planned)
@@ -135,7 +154,19 @@ ResearchMind-AI/
 │   │       │   │   │   ├── storage.py       # Storage operations for uploads
 │   │       │   │   │   ├── types.py         # Upload type aliases
 │   │       │   │   │   └── validators.py    # File validation logic
-│   │       │   │   └── vectorstores/        # Vector store abstractions (planned)
+│   │       │   │   └── vectorstores/        # Vector Store Platform — Qdrant native hybrid retrieval (ADR-017, ADR-019)
+│   │       │   │       ├── artifacts/              # (empty) — unused scaffold, superseded by indexing/artifacts/
+│   │       │   │       ├── providers/
+│   │       │   │       │   └── qdrant.py           # QdrantVectorStoreProvider — named dense+sparse vectors per point, collection CRUD, upsert, delete
+│   │       │   │       ├── base.py                 # BaseVectorStoreProvider[ConfigT] — generic base (config, version, fingerprint)
+│   │       │   │       ├── config.py               # BaseVectorStoreConfig + Qdrant/Chroma/PgVector/Pinecone/Weaviate configs
+│   │       │   │       ├── create.py               # create_qdrant_client() / create_vectorstore_registry() / create_vectorstore_service() — composition root
+│   │       │   │       ├── enums.py                # VectorStoreProvider, VectorDistanceMetric, VectorOperation
+│   │       │   │       ├── exceptions.py           # VectorStoreError hierarchy
+│   │       │   │       ├── interfaces.py           # VectorStoreProviderInterface ABC
+│   │       │   │       ├── models.py               # VectorStoreRecord, SparseVector, VectorPayload, CollectionDefinition, CollectionMetadata, IndexStatistics
+│   │       │   │       ├── registry.py             # VectorStoreRegistry — provider → implementation resolution
+│   │       │   │       └── service.py              # VectorStoreService — validates records, delegates to provider
 │   │       │   ├── quality/                 # Evaluation and quality (planned)
 │   │       │   │   ├── benchmarks/
 │   │       │   │   ├── evaluation/
@@ -189,11 +220,11 @@ ResearchMind-AI/
 │   │       │   ├── health.py            # Health check logic
 │   │       │   ├── lifespan.py          # FastAPI lifespan (startup/shutdown, auto-migrate)
 │   │       │   ├── logging.py           # Structured logging (structlog + stdlib bridge)
-│   │       │   ├── settings.py          # Pydantic settings (env-driven; incl. queue_provider, sqs_queue_url, queue_max_attempts)
+│   │       │   ├── settings.py          # Pydantic settings (env-driven; incl. queue_provider, sqs_queue_url, queue_max_attempts, qdrant_collection_name, sparse_embedding_model)
 │   │       │   └── setup.py             # App factory / setup helpers
 │   │       │
 │   │       ├── bootstrap/       # Composition roots shared across entry points
-│   │       │   └── worker.py            # create_processing_worker() — wires the worker's object graph (incl. Chunking and Embedding Platforms)
+│   │       │   └── worker.py            # create_processing_worker() — wires the worker's object graph (incl. Chunking, Embedding, and Indexing Platforms)
 │   │       │
 │   │       ├── db/              # Database layer
 │   │       │   ├── base.py              # SQLAlchemy DeclarativeBase
@@ -207,7 +238,7 @@ ResearchMind-AI/
 │   │       │   ├── cache.py             # Cache dependency
 │   │       │   ├── database.py          # DB session dependency
 │   │       │   ├── settings.py          # Settings dependency
-│   │       │   ├── upload.py            # Upload/processing service dependencies (incl. processing queue, worker, chunking and embedding service/artifact builder/writer)
+│   │       │   ├── upload.py            # Upload/processing service dependencies (incl. processing queue, worker, chunking/embedding/indexing service/artifact builder/writer)
 │   │       │   └── vector_store.py      # Vector store dependency
 │   │       │
 │   │       ├── exceptions/      # Exception hierarchy and handlers
@@ -351,10 +382,18 @@ ResearchMind-AI/
 │   │   └── benchmark.py                     # Benchmark ABC — name, run(dataset_path) -> BenchmarkReport
 │   ├── models/
 │   │   └── report.py                        # BenchmarkCandidate, BenchmarkDataset, BenchmarkReport
-│   ├── pipeline/
-│   │   └── benchmark.py                     # (empty) — planned end-to-end pipeline benchmark
+│   ├── pipeline/                            # End-to-end ingestion pipeline benchmark (own CLI: `python -m benchmarks.pipeline.benchmark`, not via runner.py)
+│   │   ├── benchmark.py                     # PipelineBenchmark — runs every document through the real Chunking→Embedding→Indexing services, aggregates timing/storage/throughput/memory
+│   │   ├── dataset.py                       # load_pipeline_dataset() — loads ProcessedDocument entries + source size from the dataset directory
+│   │   ├── models.py                        # PipelineBenchmarkReport and sub-models (DocumentPipelineResult, IndexingMetrics incl. sparse_vector_count, StatSummary, ThroughputSummary, StorageSummary, Observations, ProductionReadiness)
+│   │   ├── pipeline_runner.py               # run_document_pipeline() — real Chunking → Embedding (Voyage AI) → Indexing (dense+sparse, Qdrant) → artifact persistence for one document
+│   │   ├── report_generator.py              # PipelineReportGenerator — renders PipelineBenchmarkReport as Markdown
+│   │   ├── services.py                      # create_pipeline_services() — reuses the real composition roots (mirrors app.bootstrap.worker)
+│   │   └── stats.py                         # summarize() — average/min/max/median/p95 over a metric list
 │   ├── reports/
-│   │   └── .gitkeep                         # Keeps the default --output directory tracked
+│   │   ├── .gitkeep                         # Keeps the default --output directory tracked
+│   │   ├── ingestion-benchmark-report.md    # Checked-in example output from a real pipeline benchmark run (incl. dense + sparse vector counts)
+│   │   └── ingestion-benchmark.json         # Same run, machine-readable
 │   ├── reranking/
 │   │   └── benchmark.py                     # (empty) — planned reranker benchmark
 │   ├── retrieval/
@@ -384,7 +423,12 @@ ResearchMind-AI/
 │   │   ├── ADR-011-queue-abstraction.md
 │   │   ├── ADR-012-asynchronous-document-processing.md
 │   │   ├── ADR-013-canonical-chunk-model.md
-│   │   └── ADR-014-chunking-provider-architecture.md
+│   │   ├── ADR-014-chunking-provider-architecture.md
+│   │   ├── ADR-015-canonical-ai-platform-pipeline.md
+│   │   ├── ADR-016-observability-platform.md
+│   │   ├── ADR-017-vector-store-platform.md
+│   │   ├── ADR-018-knowledge-indexing-and-retrieval-architecture.md
+│   │   └── ADR-019-qdrant-native-hybrid-retrieval.md
 │   │
 │   ├── ai/                      # AI feature specs (knowledge platform)
 │   │   └── 1.knowledge_platform/
@@ -415,11 +459,14 @@ ResearchMind-AI/
 │   │   ├── chunking-platform.md              # Chunking Platform overview (Phase 2.3 foundation)
 │   │   ├── db-sessions.md
 │   │   ├── decision-history.md
+│   │   ├── embedding-platform.md             # Embedding Platform architecture (Phase 2.4, completed V1)
 │   │   ├── evaluation-platform.md            # Runtime Evaluation Platform (planned)
 │   │   ├── evaluation-strategy.md            # Why three evaluation layers (Benchmarks / Runtime Eval / Experimentation)
 │   │   ├── experimentation-platform.md       # Experimentation Platform (planned)
+│   │   ├── hybrid-retrieval-indexing.md      # Sparse embeddings (FastEmbed SPLADE) + Qdrant native hybrid indexing (ADR-018, ADR-019); complete ingestion pipeline flow diagram
 │   │   ├── identity-architecture.md
 │   │   ├── knowledge-platform-roadmap.md     # Full Knowledge Platform subsystem breakdown
+│   │   ├── observability-platform.md         # Observability Platform architecture
 │   │   ├── observability-strategy.md
 │   │   ├── project-constitution.md
 │   │   ├── repository-structure.md
@@ -481,6 +528,10 @@ ResearchMind-AI/
 │   │   ├── langsmith.md
 │   │   ├── otel.md
 │   │   └── prometheus.md
+│   │
+│   ├── platforms/               # Platform-level design docs (pre-implementation planning)
+│   │   ├── indexing-platform.md      # Indexing Platform plan — predates ADR-019; BM25 section since superseded by Qdrant native sparse vectors
+│   │   └── retrieval-platform.md     # Retrieval Platform plan (not yet implemented)
 │   │
 │   ├── product/                 # Product-facing documentation
 │   │   ├── faq.md
@@ -679,6 +730,8 @@ ResearchMind-AI/
 | Processing pipeline | `apps/api/app/ai/knowledge/processing/` | Docling parser, metadata/statistics enrichment, artifact builder/writer, registry, service |
 | Chunking pipeline | `apps/api/app/ai/knowledge/chunking/` | Transforms a `ProcessedDocument` into retrieval-ready `Chunk`s via a registry-based provider strategy (Fixed implemented), builds/persists the canonical `ChunkArtifact` (`chunks.json`) |
 | Embedding pipeline | `apps/api/app/ai/knowledge/embeddings/` | Transforms a `ChunkArtifact` into vector `Embedding`s via a registry-based provider strategy (Sentence Transformers, Voyage AI, and OpenAI implemented), builds/persists the canonical `EmbeddingArtifact` (`embeddings.json`) |
+| Indexing Platform | `apps/api/app/ai/knowledge/indexing/` | Transforms an `EmbeddingArtifact` + `ChunkArtifact` into dense+sparse `VectorStoreRecord`s (sparse via FastEmbed SPLADE), upserts into Qdrant, builds/persists the canonical `IndexingArtifact` (`indexing.json`) — ADR-018, ADR-019 |
+| Vector Store Platform | `apps/api/app/ai/knowledge/vectorstores/` | Provider-independent vector database abstraction; Qdrant is the only implemented provider, using named dense+sparse vectors per point for native hybrid retrieval |
 | Upload pipeline | `apps/api/app/ai/knowledge/upload/` | File validation, duplicate detection, S3 upload, checksum hashing, enqueues async processing job |
 | Async worker | `apps/worker/` | Standalone process consuming the queue, running `DocumentProcessingService` per job, retry/dead-letter handling |
 | Engineering benchmarks | `benchmarks/` | Offline, manually-run comparison of competing AI implementations (currently: chunking strategies, embedding providers) against version-controlled datasets — independent from tests and from production infrastructure |

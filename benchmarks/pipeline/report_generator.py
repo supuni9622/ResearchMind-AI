@@ -94,9 +94,11 @@ class PipelineReportGenerator:
             "## Individual Document Results",
             "",
             "| Document | Pages | Chars | Words | Chunks | Avg Chunk | Largest | Smallest | "
-            "Chunking (ms) | Embeddings | Dims | Embedding (ms) | Vectors | Indexing (ms) | "
-            "Collection | Total (ms) | Peak Mem (MB) | Artifact Size |",
-            "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|---:|---:|---:|",
+            "Chunking (ms) | Embeddings | Dims | Embedding (ms) | Dense Vectors | "
+            "Sparse Vectors | Indexing (ms) | Collection | Total (ms) | Peak Mem (MB) | "
+            "Artifact Size |",
+            "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|"
+            "---:|---:|---:|",
         ]
 
         for result in report.documents:
@@ -114,6 +116,7 @@ class PipelineReportGenerator:
                 f"| {result.embedding.dimensions} "
                 f"| {result.embedding.duration_ms:.1f} "
                 f"| {result.indexing.vector_count} "
+                f"| {result.indexing.sparse_vector_count} "
                 f"| {result.indexing.duration_ms:.1f} "
                 f"| {result.indexing.collection_name} "
                 f"| {result.total_duration_ms:.1f} "
@@ -135,6 +138,7 @@ class PipelineReportGenerator:
         labels = {
             "chunk_count": "Chunk Count",
             "embedding_count": "Embedding Count",
+            "sparse_vector_count": "Sparse Vector Count",
             "artifact_size_bytes": "Artifact Size (bytes)",
         }
 
@@ -256,7 +260,14 @@ class PipelineReportGenerator:
                 f"({_format_bytes(observations.smallest_artifact_bytes)})"
             ),
             f"- **Average pipeline time:** {observations.average_pipeline_time_ms / 1000:.2f}s",
-            f"- **Average vectors generated:** {observations.average_vectors_generated:.0f}",
+            (
+                f"- **Average dense vectors generated:** "
+                f"{observations.average_vectors_generated:.0f}"
+            ),
+            (
+                f"- **Average sparse vectors generated:** "
+                f"{observations.average_sparse_vectors_generated:.0f}"
+            ),
             f"- **Average chunks generated:** {observations.average_chunks_generated:.0f}",
             "",
         ]

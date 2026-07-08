@@ -71,6 +71,31 @@ class VectorPayload(BaseModel):
 
 
 # ============================================================================
+# Sparse Vector
+# ============================================================================
+
+
+class SparseVector(BaseModel):
+    """
+    Sparse neural vector representing lexical signal for a chunk.
+
+    Produced by FastEmbed SPLADE and indexed alongside the dense vector
+    so that Qdrant can perform native hybrid retrieval without a
+    separate BM25 platform (see ADR-019).
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    indices: list[int] = Field(
+        description="Non-zero term indices in the sparse vocabulary.",
+    )
+
+    values: list[float] = Field(
+        description="Weights corresponding to each non-zero term index.",
+    )
+
+
+# ============================================================================
 # Vector Record
 # ============================================================================
 
@@ -90,6 +115,11 @@ class VectorStoreRecord(BaseModel):
 
     vector: list[float] = Field(
         description="Embedding vector values.",
+    )
+
+    sparse_vector: SparseVector | None = Field(
+        default=None,
+        description="Sparse vector enabling hybrid retrieval, when available.",
     )
 
     payload: VectorPayload
@@ -163,6 +193,12 @@ class IndexStatistics(BaseModel):
         default=0,
         ge=0,
         description="Vectors that failed to index.",
+    )
+
+    indexed_sparse_vectors: int = Field(
+        default=0,
+        ge=0,
+        description="Successfully indexed sparse vectors.",
     )
 
     batch_size: int = Field(

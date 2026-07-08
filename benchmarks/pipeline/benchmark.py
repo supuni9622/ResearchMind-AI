@@ -131,6 +131,7 @@ class PipelineBenchmark:
         chunk_counts = [float(r.chunking.chunk_count) for r in results]
         embedding_counts = [float(r.embedding.embedding_count) for r in results]
         vector_counts = [float(r.indexing.vector_count) for r in results]
+        sparse_vector_counts = [float(r.indexing.sparse_vector_count) for r in results]
         artifact_totals = [float(r.artifacts.total_bytes) for r in results]
         peak_memories = [r.peak_memory_mb for r in results]
 
@@ -145,6 +146,7 @@ class PipelineBenchmark:
         aggregate_statistics = {
             "chunk_count": summarize(chunk_counts),
             "embedding_count": summarize(embedding_counts),
+            "sparse_vector_count": summarize(sparse_vector_counts),
             "artifact_size_bytes": summarize(artifact_totals),
         }
 
@@ -278,6 +280,9 @@ class PipelineBenchmark:
             average_vectors_generated=(
                 sum(r.indexing.vector_count for r in results) / len(results)
             ),
+            average_sparse_vectors_generated=(
+                sum(r.indexing.sparse_vector_count for r in results) / len(results)
+            ),
             average_chunks_generated=aggregate_statistics["chunk_count"].average,
         )
 
@@ -303,7 +308,9 @@ class PipelineBenchmark:
             f"{success.success_rate:.0f}% indexing success",
             "All artifacts generated",
             f"Average pipeline time: {observations.average_pipeline_time_ms / 1000:.2f} s",
-            f"Average vectors indexed: {observations.average_vectors_generated:.0f}",
+            f"Average dense vectors indexed: {observations.average_vectors_generated:.0f}",
+            f"Average sparse vectors indexed: {observations.average_sparse_vectors_generated:.0f}",
+            "Hybrid indexing functional (dense + sparse vectors in the same collection)",
             (
                 "No failures observed"
                 if success.failed == 0
@@ -344,6 +351,7 @@ class PipelineBenchmark:
         if results:
             environment["embedding_model"] = results[0].embedding.model
             environment["qdrant_collection"] = results[0].indexing.collection_name
+            environment["sparse_embedding_model"] = results[0].indexing.sparse_embedding_model
 
         return environment
 

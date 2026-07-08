@@ -36,6 +36,12 @@ from qdrant_client.http import models as qdrant
 
 logger = structlog.get_logger()
 
+# Qdrant requires named vectors to store more than one vector type per
+# point. Dense and sparse vectors share the same collection so that
+# Qdrant can perform native hybrid retrieval (see ADR-019).
+DENSE_VECTOR_NAME = "dense"
+SPARSE_VECTOR_NAME = "sparse"
+
 
 class QdrantVectorStoreProvider(
     BaseVectorStoreProvider[QdrantVectorStoreConfig],
@@ -81,12 +87,21 @@ class QdrantVectorStoreProvider(
 
         await self._client.create_collection(
             collection_name=definition.name,
-            vectors_config=qdrant.VectorParams(
-                size=definition.dimensions,
-                distance=self._to_distance(
-                    definition.distance_metric,
+            vectors_config={
+                DENSE_VECTOR_NAME: qdrant.VectorParams(
+                    size=definition.dimensions,
+                    distance=self._to_distance(
+                        definition.distance_metric,
+                    ),
                 ),
-            ),
+            },
+            sparse_vectors_config={
+                SPARSE_VECTOR_NAME: qdrant.SparseVectorParams(
+                    index=qdrant.SparseIndexParams(
+                        on_disk=False,
+                    ),
+                ),
+            },
             hnsw_config=qdrant.HnswConfigDiff(
                 m=self.config.hnsw_m,
                 ef_construct=self.config.hnsw_ef_construct,
@@ -154,11 +169,25 @@ class QdrantVectorStoreProvider(
     ) -> qdrant.PointStruct:
         """
         Convert a canonical VectorStoreRecord into a Qdrant PointStruct.
+
+        Every point carries a named dense vector. A named sparse vector
+        is attached when present so Qdrant can serve native hybrid
+        retrieval from the same collection.
         """
+
+        vector: dict[str, list[float] | qdrant.SparseVector] = {
+            DENSE_VECTOR_NAME: record.vector,
+        }
+
+        if record.sparse_vector is not None:
+            vector[SPARSE_VECTOR_NAME] = qdrant.SparseVector(
+                indices=record.sparse_vector.indices,
+                values=record.sparse_vector.values,
+            )
 
         return qdrant.PointStruct(
             id=str(record.id),
-            vector=record.vector,
+            vector=vector,
             payload=record.payload.model_dump(
                 mode="json",
                 exclude_none=True,
@@ -311,18 +340,20 @@ class QdrantVectorStoreProvider(
 
         vectors = info.config.params.vectors
 
-        if not isinstance(vectors, qdrant.VectorParams):
+        if not isinstance(vectors, dict) or DENSE_VECTOR_NAME not in vectors:
             raise CollectionOperationError(
-                f"Collection '{collection_name}' does not use a single unnamed vector "
-                "configuration."
+                f"Collection '{collection_name}' does not define a "
+                f"'{DENSE_VECTOR_NAME}' named vector."
             )
+
+        dense_params = vectors[DENSE_VECTOR_NAME]
 
         return CollectionMetadata(
             definition=CollectionDefinition(
                 name=collection_name,
                 provider=self.provider,
-                dimensions=vectors.size,
-                distance_metric=self._from_distance(vectors.distance),
+                dimensions=dense_params.size,
+                distance_metric=self._from_distance(dense_params.distance),
             ),
             vector_count=info.points_count or 0,
         )

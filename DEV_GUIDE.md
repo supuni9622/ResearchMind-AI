@@ -82,7 +82,19 @@ AWS_SECRET_ACCESS_KEY=<your-secret>
 
 # Leave these blank (not empty string) if not using a custom S3 endpoint
 # AWS_S3_ENDPOINT_URL=
+
+# Required to run document ingestion end-to-end (dense embeddings)
+VOYAGE_API_KEY=<your-voyage-api-key>
+
+# Optional — sparse embedding model for Qdrant native hybrid retrieval (ADR-019).
+# Has a code default (prithivida/Splade_PP_en_v1); only set this to override it.
+# SPARSE_EMBEDDING_MODEL=prithivida/Splade_PP_en_v1
 ```
+
+> **Note:** The first time the Indexing Platform runs (first document ingested,
+> or first `benchmarks/pipeline/benchmark.py` run), FastEmbed downloads the
+> SPLADE ONNX model (~85 MB) from Hugging Face. This can take 1-2 minutes and
+> requires network access; subsequent runs load it from the local cache.
 
 > **Important:** Leave optional fields commented out or remove them entirely.
 > An empty value like `AWS_S3_ENDPOINT_URL=` is read as an empty string `""`
@@ -307,6 +319,39 @@ the IPv6 fallback correctly.
 
 ---
 
+## Qdrant — Common Issues
+
+### Issue 5: Upsert fails after pulling the hybrid retrieval change
+
+```
+qdrant_client.http.exceptions.UnexpectedResponse: ... Wrong input: Not existing vector name error: sparse
+```
+
+or similar errors mentioning a missing/mismatched vector name.
+
+**Cause:** ADR-019 changed the Qdrant collection schema from a single unnamed
+dense vector to two **named** vectors (`dense` + `sparse`) per point, so the
+Indexing Platform can store both a Voyage AI dense vector and a FastEmbed
+SPLADE sparse vector on the same point for native hybrid retrieval. Qdrant
+cannot migrate an existing collection from an unnamed-vector schema to a
+named-vector schema in place — if you ingested any documents into
+`researchmind_knowledge` before pulling this change, the collection still has
+the old schema.
+
+**Fix:** Drop the collection and let it be recreated automatically on the next
+ingestion (`IndexingService` creates it if missing):
+
+```bash
+curl -X DELETE http://localhost:6333/collections/researchmind_knowledge
+```
+
+This only deletes local dev vector data — source documents in S3 and the
+Postgres `documents` table are unaffected. Re-run ingestion (upload a document,
+or run `python -m benchmarks.pipeline.benchmark`) to repopulate it with the new
+schema.
+
+---
+
 ## Docker — Data Persistence Rules
 
 All three services use **named Docker volumes**, so data survives container restarts:
@@ -447,6 +492,9 @@ uv run alembic current
 
 # Check what tables exist
 psql postgresql://researchmind:researchmind@localhost:5432/researchmind -c "\dt"
+
+# Reset the Qdrant collection (e.g. after a vector schema change)
+curl -X DELETE http://localhost:6333/collections/researchmind_knowledge
 
 # Run tests
 ENVIRONMENT=test uv run pytest

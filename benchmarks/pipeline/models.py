@@ -57,8 +57,10 @@ class IndexingMetrics(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     vector_count: int
+    sparse_vector_count: int
     duration_ms: float
     collection_name: str
+    sparse_embedding_model: str
 
 
 class ArtifactSizes(BaseModel):
@@ -166,6 +168,7 @@ class Observations(BaseModel):
     smallest_artifact_bytes: int
     average_pipeline_time_ms: float
     average_vectors_generated: float
+    average_sparse_vectors_generated: float
     average_chunks_generated: float
 
 

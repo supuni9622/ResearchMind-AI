@@ -24,6 +24,7 @@ from uuid import UUID, uuid4
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.ai.knowledge.chunking.artifacts.models import ChunkArtifact
 from app.ai.knowledge.embeddings.artifacts.models import EmbeddingArtifact
 from app.ai.knowledge.indexing.enums import IndexOperation, IndexStatus
 from app.ai.knowledge.vectorstores.models import (
@@ -86,6 +87,13 @@ class IndexingRequest(BaseModel):
 
     embedding_artifact: EmbeddingArtifact = Field(
         description="Embedding artifact to index.",
+    )
+
+    chunk_artifact: ChunkArtifact = Field(
+        description=(
+            "Chunk artifact backing the embedding artifact. Chunk text is "
+            "required to generate sparse vectors for hybrid retrieval."
+        ),
     )
 
 

@@ -202,8 +202,8 @@ class IndexStatistics(BaseModel):
     )
 
     batch_size: int = Field(
-        gt=0,
-        description="Batch size used during indexing.",
+        ge=0,
+        description="Batch size used during indexing. Zero for non-batching operations.",
     )
 
     duration_ms: float = Field(

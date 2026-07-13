@@ -40,13 +40,19 @@ ResearchMind-AI/
 │   │       │   │   ├── policies.py          # Content policy definitions
 │   │       │   │   └── scanners.py          # Input/output scanners
 │   │       │   ├── knowledge/               # RAG knowledge pipeline
-│   │       │   │   ├── cache/               # Embedding cache
-│   │       │   │   │   └── embeddings/
-│   │       │   │   │       ├── create.py           # create_embedding_cache() — composition root (Valkey or Null based on settings)
-│   │       │   │   │       ├── interfaces.py       # EmbeddingCache ABC
-│   │       │   │   │       ├── key.py              # build_embedding_cache_key() — provider+model+config-fingerprint+text hash
-│   │       │   │   │       ├── null.py             # NullEmbeddingCache — no-op fallback
-│   │       │   │   │       └── valkey.py           # ValkeyEmbeddingCache — Redis-backed vector cache
+│   │       │   │   ├── cache/               # Embedding + query-embedding caches
+│   │       │   │   │   ├── embeddings/
+│   │       │   │   │   │   ├── create.py           # create_embedding_cache() — composition root (Valkey or Null based on settings)
+│   │       │   │   │   │   ├── interfaces.py       # EmbeddingCache ABC
+│   │       │   │   │   │   ├── key.py              # build_embedding_cache_key() — provider+model+config-fingerprint+text hash
+│   │       │   │   │   │   ├── null.py             # NullEmbeddingCache — no-op fallback
+│   │       │   │   │   │   └── valkey.py           # ValkeyEmbeddingCache — Redis-backed vector cache
+│   │       │   │   │   └── query_embeddings/
+│   │       │   │   │       ├── create.py           # create_query_embedding_cache() — composition root (Valkey or Null based on settings)
+│   │       │   │   │       ├── interfaces.py       # QueryEmbeddingCache ABC — get()/set()
+│   │       │   │   │       ├── key.py              # build_query_embedding_cache_key() — provider+model+config-fingerprint+query hash
+│   │       │   │   │       ├── null.py             # NullQueryEmbeddingCache — no-op fallback
+│   │       │   │   │       └── valkey.py           # ValkeyQueryEmbeddingCache — Redis-backed, TTL-based query embedding cache (fails open on Redis errors)
 │   │       │   │   ├── chunking/            # Document chunking pipeline
 │   │       │   │   │   ├── artifacts/
 │   │       │   │   │   │   ├── builder.py          # ChunkArtifactBuilder — builds ChunkArtifact from generated chunks
@@ -136,7 +142,27 @@ ResearchMind-AI/
 │   │       │   │   │   ├── service.py              # ProcessingService — orchestrates the full pipeline (parse → enrich → artifacts → chunk → chunk artifacts → embed → embedding artifacts → index (dense+sparse) → indexing artifacts)
 │   │       │   │   │   └── temporary_file_manager.py  # Temp file lifecycle for downloaded documents
 │   │       │   │   ├── reranking/           # Result reranking (planned)
-│   │       │   │   ├── retrieval/           # Vector retrieval (planned)
+│   │       │   │   ├── retrieval/           # Retrieval Platform — dense, sparse, hybrid (ADR-018, ADR-019, ADR-020, ADR-021)
+│   │       │   │   │   ├── fusion/
+│   │       │   │   │   │   ├── interfaces.py       # FusionStrategy ABC
+│   │       │   │   │   │   ├── models.py           # FusionResult (unused scaffold — RRF returns RetrievalResult directly)
+│   │       │   │   │   │   ├── rrf.py              # ReciprocalRankFusion — RRF (k=60, matches Elasticsearch/Azure AI Search defaults)
+│   │       │   │   │   │   └── service.py          # RetrievalFusionService — wraps the configured fusion strategy
+│   │       │   │   │   ├── providers/
+│   │       │   │   │   │   └── qdrant.py           # QdrantRetrievalProvider — search() (named "dense" vector) + search_sparse() (named "sparse" vector); shared _map_points() chunk mapper
+│   │       │   │   │   ├── query/
+│   │       │   │   │   │   ├── dense_service.py    # QueryEmbeddingService — Voyage AI/OpenAI query embeddings, Valkey-backed cache
+│   │       │   │   │   │   ├── models.py           # DenseQueryEmbedding, SparseQueryEmbedding
+│   │       │   │   │   │   └── sparse_service.py   # SparseQueryEmbeddingService — FastEmbed SPLADE query embeddings
+│   │       │   │   │   ├── base.py                 # BaseRetrievalProvider[ConfigT] — generic base (config, version, fingerprint)
+│   │       │   │   │   ├── config.py               # BaseRetrievalConfig + QdrantRetrievalConfig
+│   │       │   │   │   ├── create.py               # create_retrieval_registry() / create_query_embedding_service() / create_sparse_query_embedding_service() / create_fusion_service() / create_retrieval_service() — composition root
+│   │       │   │   │   ├── enums.py                # RetrievalProvider, RetrievalStrategy (dense/sparse/hybrid/parent_child/query_decomposition), RetrievalOperation
+│   │       │   │   │   ├── exceptions.py           # RetrievalError hierarchy
+│   │       │   │   │   ├── interfaces.py           # RetrievalProviderInterface ABC — search(), search_sparse()
+│   │       │   │   │   ├── models.py               # RetrievalQuery, RetrievedChunk, RetrievalStatistics, RetrievalExecution, RetrievalResult
+│   │       │   │   │   ├── registry.py             # RetrievalRegistry — provider → implementation resolution
+│   │       │   │   │   └── service.py              # RetrievalService — validation, normalization, search() / search_sparse() / search_hybrid() (dense+sparse candidate pool → RRF fusion)
 │   │       │   │   ├── upload/              # Document upload handling
 │   │       │   │   │   ├── duplicate/
 │   │       │   │   │   │   ├── exceptions.py       # DuplicateDetectionError hierarchy
@@ -373,7 +399,8 @@ ResearchMind-AI/
 │   │       ├── paper-002/processed_document.json
 │   │       ├── paper-003/processed_document.json
 │   │       ├── paper-004/processed_document.json
-│   │       └── paper-005/processed_document.json
+│   │       ├── paper-005/processed_document.json
+│   │       └── retrieval_queries.json       # 20-query hand-curated ground truth (document-level relevance, 4 categories) for the Retrieval Benchmark
 │   ├── embeddings/
 │   │   ├── benchmark.py                     # EmbeddingBenchmark — chunks each document once (fixed RECURSIVE strategy), then runs every registered embedding provider against identical chunks, timing latency/throughput/dimensions; isolates per-provider failures so one candidate erroring doesn't abort the report
 │   │   ├── report_generator.py              # EmbeddingBenchmarkReportGenerator (subclass; embedding-specific viz placeholder)
@@ -393,11 +420,15 @@ ResearchMind-AI/
 │   ├── reports/
 │   │   ├── .gitkeep                         # Keeps the default --output directory tracked
 │   │   ├── ingestion-benchmark-report.md    # Checked-in example output from a real pipeline benchmark run (incl. dense + sparse vector counts)
-│   │   └── ingestion-benchmark.json         # Same run, machine-readable
+│   │   ├── ingestion-benchmark.json         # Same run, machine-readable
+│   │   └── retrieval/report.{md,json}       # Checked-in example output from a real retrieval benchmark run (dense vs. sparse vs. hybrid)
 │   ├── reranking/
 │   │   └── benchmark.py                     # (empty) — planned reranker benchmark
-│   ├── retrieval/
-│   │   └── benchmark.py                     # (empty) — planned retrieval strategy benchmark
+│   ├── retrieval/                           # Retrieval Benchmark — dense vs. sparse vs. hybrid (ADR-020)
+│   │   ├── benchmark.py                     # RetrievalBenchmark — builds a dedicated Qdrant collection, evaluates 3 candidates against the query dataset
+│   │   ├── dataset.py                       # load_retrieval_queries() — loads/validates retrieval_queries.json
+│   │   ├── indexer.py                       # BenchmarkRetrievalIndexer — chunks + embeds (dense+sparse) + upserts the benchmark corpus into a dedicated collection, drop/recreate per run
+│   │   └── metrics.py                       # recall_at_k() / precision_at_k() / reciprocal_rank() — pure, document-level relevance functions
 │   ├── README.md                             # Platform overview, philosophy, workflow, usage
 │   ├── factory.py                            # create_benchmark_registry() — composition root
 │   ├── registry.py                           # BenchmarkRegistry — name → benchmark resolution
@@ -428,7 +459,9 @@ ResearchMind-AI/
 │   │   ├── ADR-016-observability-platform.md
 │   │   ├── ADR-017-vector-store-platform.md
 │   │   ├── ADR-018-knowledge-indexing-and-retrieval-architecture.md
-│   │   └── ADR-019-qdrant-native-hybrid-retrieval.md
+│   │   ├── ADR-019-qdrant-native-hybrid-retrieval.md
+│   │   ├── ADR-020-retrieval-evaluation-first-development.md
+│   │   └── ADR-021-hybrid-retrieval-architecture.md
 │   │
 │   ├── ai/                      # AI feature specs (knowledge platform)
 │   │   └── 1.knowledge_platform/
@@ -470,6 +503,7 @@ ResearchMind-AI/
 │   │   ├── observability-strategy.md
 │   │   ├── project-constitution.md
 │   │   ├── repository-structure.md
+│   │   ├── retrieval-benchmarking-strategy.md  # Accepted — retrieval benchmark methodology: query categories, dataset format v1/v2, ADR-020 metrics, Hybrid decision gate (ADR-021 context)
 │   │   └── system-overview.md
 │   │
 │   ├── deployment/              # Deployment guides
@@ -531,7 +565,7 @@ ResearchMind-AI/
 │   │
 │   ├── platforms/               # Platform-level design docs (pre-implementation planning)
 │   │   ├── indexing-platform.md      # Indexing Platform plan — predates ADR-019; BM25 section since superseded by Qdrant native sparse vectors
-│   │   └── retrieval-platform.md     # Retrieval Platform plan (not yet implemented)
+│   │   └── retrieval-platform.md     # Retrieval Platform plan — predates implementation; see ADR-020/ADR-021 and retrieval-benchmarking-strategy.md for the as-built architecture
 │   │
 │   ├── product/                 # Product-facing documentation
 │   │   ├── faq.md
@@ -659,6 +693,13 @@ ResearchMind-AI/
 │   │   ├── test_jailbreaks.py
 │   │   └── test_prompt_injection.py
 │   ├── unit/
+│   │   ├── ai/knowledge/cache/embeddings/
+│   │   │   ├── test_key.py                  # build_embedding_cache_key() — stable key derivation
+│   │   │   ├── test_null.py                 # NullEmbeddingCache — always-miss get_many, no-op set_many
+│   │   │   └── test_valkey.py               # ValkeyEmbeddingCache — hit/miss decoding, fail-open on Redis errors, corrupt-entry handling, TTL on write
+│   │   ├── ai/knowledge/cache/query_embeddings/
+│   │   │   ├── test_null.py                 # NullQueryEmbeddingCache — always-miss get, no-op set
+│   │   │   └── test_valkey.py               # ValkeyQueryEmbeddingCache — hit/miss decoding, fail-open on Redis errors, corrupt-entry handling, TTL on write
 │   │   ├── ai/knowledge/embeddings/
 │   │   │   ├── artifacts/
 │   │   │   │   ├── test_builder.py          # EmbeddingArtifactBuilder — statistics aggregation, metadata derivation, empty-collection guard
@@ -670,6 +711,13 @@ ResearchMind-AI/
 │   │   │   ├── test_factory.py              # EmbeddingFactory — provenance/statistics/vector mapping from a Chunk
 │   │   │   ├── test_registry.py             # EmbeddingRegistry registration, lookup, deduplication
 │   │   │   └── test_service.py              # EmbeddingService orchestration — delegation and validation failures
+│   │   ├── ai/knowledge/retrieval/
+│   │   │   ├── providers/
+│   │   │   │   └── test_qdrant.py           # QdrantRetrievalProvider — named dense-vector query, missing-optional-field defaults, empty results, malformed-payload KeyError
+│   │   │   ├── query/
+│   │   │   │   └── test_dense_service.py    # QueryEmbeddingService — cache hit/miss, Voyage/OpenAI branches, unsupported-provider NotImplementedError
+│   │   │   ├── test_registry.py             # RetrievalRegistry — get/has/providers, not-found error
+│   │   │   └── test_service.py              # RetrievalService — search() happy path + validation edge cases, provider-not-found propagation
 │   │   ├── ai/knowledge/processing/
 │   │   │   ├── metadata/
 │   │   │   │   └── test_service.py          # MetadataEnrichmentService — regression coverage (PDF provider vs. non-PDF formats)
@@ -684,6 +732,9 @@ ResearchMind-AI/
 │   │   │   └── test_validators.py           # UploadValidator — invalid file rejection rules
 │   │   ├── infrastructure/storage/
 │   │   │   └── test_s3_storage.py           # S3StorageService — boto3 ClientError → typed StorageError mapping
+│   │   ├── benchmarks/retrieval/
+│   │   │   ├── test_dataset.py              # load_retrieval_queries() — well-formed dataset, missing-file error
+│   │   │   └── test_metrics.py              # recall_at_k / precision_at_k / reciprocal_rank — dedup-by-document semantics, window boundaries, empty inputs
 │   │   ├── services/
 │   │   │   └── test_document_processing_service.py  # DocumentProcessingService lifecycle persistence
 │   │   ├── test_prompt_builder.py
@@ -710,6 +761,7 @@ ResearchMind-AI/
 ├── docker-compose.yml           # Local dev stack (PostgreSQL, Valkey, Qdrant)
 ├── FILES.md                     # Complete file and folder map
 ├── LICENSE
+├── phase-3-ai-runtime-roadmap.md  # Frozen v1.0 — Retrieval & AI Runtime roadmap (Phase 3.1–3.10), progress tracked inline
 ├── PROJECT_STATUS.md            # Current project status and progress
 ├── pyproject.toml               # Python project config, deps, and tool settings
 ├── README.md                    # Project overview and quickstart
@@ -732,9 +784,10 @@ ResearchMind-AI/
 | Embedding pipeline | `apps/api/app/ai/knowledge/embeddings/` | Transforms a `ChunkArtifact` into vector `Embedding`s via a registry-based provider strategy (Sentence Transformers, Voyage AI, and OpenAI implemented), builds/persists the canonical `EmbeddingArtifact` (`embeddings.json`) |
 | Indexing Platform | `apps/api/app/ai/knowledge/indexing/` | Transforms an `EmbeddingArtifact` + `ChunkArtifact` into dense+sparse `VectorStoreRecord`s (sparse via FastEmbed SPLADE), upserts into Qdrant, builds/persists the canonical `IndexingArtifact` (`indexing.json`) — ADR-018, ADR-019 |
 | Vector Store Platform | `apps/api/app/ai/knowledge/vectorstores/` | Provider-independent vector database abstraction; Qdrant is the only implemented provider, using named dense+sparse vectors per point for native hybrid retrieval |
+| Retrieval Platform | `apps/api/app/ai/knowledge/retrieval/` | Queries the hybrid Qdrant index: dense search, sparse (SPLADE) search, and hybrid search via Reciprocal Rank Fusion (`fusion/`); query validation/normalization, Voyage/FastEmbed query embedding (cached), `/retrieve`, `/retrieve/sparse`, `/retrieve/hybrid` — ADR-018, ADR-019, ADR-020, ADR-021. Metadata filtering, reranking, Parent/Child retrieval, and query decomposition are not yet implemented |
 | Upload pipeline | `apps/api/app/ai/knowledge/upload/` | File validation, duplicate detection, S3 upload, checksum hashing, enqueues async processing job |
 | Async worker | `apps/worker/` | Standalone process consuming the queue, running `DocumentProcessingService` per job, retry/dead-letter handling |
-| Engineering benchmarks | `benchmarks/` | Offline, manually-run comparison of competing AI implementations (currently: chunking strategies, embedding providers) against version-controlled datasets — independent from tests and from production infrastructure |
+| Engineering benchmarks | `benchmarks/` | Offline, manually-run comparison of competing AI implementations (chunking strategies, embedding providers, dense/sparse/hybrid retrieval) against version-controlled datasets — independent from tests and from production infrastructure |
 | Infrastructure | `apps/api/app/infrastructure/` | S3 storage, SHA-256 hashing, metrics adapters, queue abstraction (Valkey/SQS-backed) |
 | Composition roots | `apps/api/app/bootstrap/` | Builds shared object graphs (e.g. the worker) used by multiple entry points |
 | Application services | `apps/api/app/services/` | Auth, user lifecycle, document processing orchestration, queued-job processing |

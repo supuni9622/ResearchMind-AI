@@ -229,9 +229,7 @@ Needs richer document analysis.
 
 Move until after chunking.
 
-⏳ Phase 2.3 — Chunking Platform
-
-Once the Processing Quality Pass is complete:
+✅ Phase 2.3 — Chunking Platform (Complete)
 
 Markdown
 
@@ -251,9 +249,12 @@ Chunk Metadata
 
 Chunk Persistence
 
-This is where we'll build the document intelligence that powers RAG.
+Implemented strategies: Fixed, Recursive, Markdown. Benchmarked via
+`benchmarks/chunking/`. Semantic/Parent-child/Agentic chunking deferred.
 
-⏳ Phase 2.4 — Embedding Platform
+Status: COMPLETE
+
+✅ Phase 2.4 — Embedding Platform (Complete)
 Chunks
 
 ↓
@@ -267,20 +268,45 @@ Batch Embedding
 ↓
 
 Qdrant
-⏳ Phase 2.5 — Retrieval Platform
-Hybrid Search
+
+Providers: Sentence Transformers, Voyage AI, OpenAI. Valkey-backed
+embedding cache with TTL. Benchmarked via `benchmarks/embeddings/`.
+
+Status: COMPLETE
+
+🟨 Phase 2.5 — Retrieval Platform (Foundation Complete)
+Hybrid Search ✅
 
 ↓
 
-Metadata Filters
+Metadata Filters ❌
 
 ↓
 
-Reranking
+Reranking ❌
 
 ↓
 
-Context Builder
+Context Builder ❌
+
+Implemented: query validation/normalization, dense (Voyage AI) search,
+sparse (SPLADE) search, hybrid search via Reciprocal Rank Fusion,
+query embedding cache (Valkey), retrieval evaluation (Recall@K,
+Precision@K, MRR, latency, cost — `benchmarks/retrieval/`, ADR-020).
+
+Not started: metadata filtering (`document_id`, `filename`, `owner_id`,
+`tags` — recommended next), Voyage/CrossEncoder reranking, Parent/Child
+retrieval, Query Decomposition, NDCG.
+
+APIs: `POST /retrieve`, `POST /retrieve/sparse`, `POST /retrieve/hybrid`.
+
+Benchmark finding: on the current 5-document/20-query corpus, hybrid did
+not outperform dense or sparse (Recall@5/10/20 identical; hybrid MRR
+slightly lower). Corpus is too small to be conclusive — see the dataset
+TODO in the root `README.md`.
+
+Status: IN PROGRESS
+
 ⏳ Phase 2.6 — RAG Engine
 Retriever
 

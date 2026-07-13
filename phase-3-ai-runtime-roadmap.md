@@ -1,9 +1,9 @@
 # ResearchMind AI — Phase 3 Roadmap
 ## Retrieval & AI Runtime Roadmap (MVP)
 
-**Status:** Frozen (v1.0)
+**Status:** Frozen (v1.0) — architecture frozen; progress tracked inline below
 
-**Last Updated:** 2026-07-08
+**Last Updated:** 2026-07-13
 
 ---
 
@@ -86,6 +86,8 @@ This roadmap follows the project's established engineering philosophy.
 
 # Phase 3.1 — Retrieval Foundation
 
+**Status:** ✅ Complete
+
 ## Goal
 
 Build the first production-ready semantic retrieval pipeline.
@@ -157,6 +159,8 @@ Returns
 
 # Phase 3.2 — Sparse Retrieval
 
+**Status:** ✅ Complete
+
 ## Goal
 
 Add lexical retrieval using FastEmbed SPLADE.
@@ -191,6 +195,8 @@ Top-K Results
 
 # Phase 3.3 — Hybrid Retrieval
 
+**Status:** ✅ Complete
+
 ## Goal
 
 Combine dense and sparse retrieval.
@@ -216,13 +222,22 @@ Top Results
 
 ## Deliverables
 
-- Hybrid retrieval
-- RRF
-- Hybrid evaluation
+- ✅ Hybrid retrieval
+- ✅ RRF
+- ✅ Hybrid evaluation (`benchmarks/retrieval/` — dense vs. sparse vs. hybrid, ADR-020 metrics)
+
+**Finding:** on the current 5-document/20-query benchmark corpus, hybrid did not
+outperform dense or sparse — Recall@5/10/20 identical across all three, and
+hybrid's MRR (0.925) was slightly lower than dense (0.95) or sparse (0.975)
+alone. The dataset is too small to give RRF genuine ranking disagreement to
+resolve. See `README.md`'s retrieval benchmark TODO for the dataset-scaling
+plan before treating this as conclusive.
 
 ---
 
 # Phase 3.4 — Retrieval Strategies
+
+**Status:** ❌ Not started
 
 ## Goal
 
@@ -308,6 +323,8 @@ Merge Results
 
 # Phase 3.5 — Result Processing
 
+**Status:** 🟡 In Progress
+
 ## Goal
 
 Improve retrieval quality before reranking.
@@ -316,9 +333,11 @@ Improve retrieval quality before reranking.
 
 ## Features
 
-### Metadata Filtering
+### Metadata Filtering ❌
 
-Support
+Not started. `QdrantRetrievalProvider._build_filter` already exists as the
+integration point but is currently a stub that always returns `None`.
+Recommended next milestone — support
 
 - owner_id
 - workspace_id
@@ -329,13 +348,13 @@ Support
 
 ---
 
-### Reciprocal Rank Fusion (RRF)
+### Reciprocal Rank Fusion (RRF) ✅
 
-Merge multiple retrieval strategies.
+Merge multiple retrieval strategies. Implemented as part of Phase 3.3.
 
 ---
 
-### Top-K Selection
+### Top-K Selection ✅
 
 Reduce
 
@@ -357,13 +376,15 @@ before reranking.
 
 ## Deliverables
 
-- Metadata filtering
-- Top-K selection
-- Result processing pipeline
+- ❌ Metadata filtering
+- ✅ Top-K selection
+- 🟡 Result processing pipeline (RRF + Top-K done; filtering pending)
 
 ---
 
 # Phase 3.6 — Reranking Platform
+
+**Status:** ❌ Not started
 
 ## Goal
 
@@ -411,6 +432,8 @@ Top 5 Results
 ---
 
 # Phase 3.7 — Context Building Platform
+
+**Status:** ❌ Not started
 
 ## Goal
 
@@ -474,6 +497,8 @@ Prompt Context
 
 # Phase 3.8 — Generation Platform
 
+**Status:** ❌ Not started
+
 ## Goal
 
 Generate answers from retrieved context.
@@ -517,14 +542,18 @@ Generated Answer
 
 # Phase 3.9 — Research APIs
 
+**Status:** 🟡 In Progress (Retrieval API done; Research/Streaming/Citations not started)
+
 This is the first stage where ResearchMind becomes useful to end users.
 
 ---
 
-## Retrieval API
+## Retrieval API ✅
 
 ```
 POST /retrieve
+POST /retrieve/sparse
+POST /retrieve/hybrid
 ```
 
 Returns retrieved chunks.
@@ -533,7 +562,7 @@ Useful for debugging and evaluation.
 
 ---
 
-## Research API
+## Research API ❌
 
 ```
 POST /research
@@ -563,7 +592,7 @@ Answer
 
 ---
 
-## Streaming API
+## Streaming API ❌
 
 ```
 POST /research/stream
@@ -573,7 +602,7 @@ Streams tokens as they are generated.
 
 ---
 
-## Citation API
+## Citation API ❌
 
 ```
 POST /research/citations
@@ -589,6 +618,8 @@ Returns
 
 # Phase 3.10 — Evaluation Platform
 
+**Status:** 🟡 In Progress (Retrieval evaluation done; Reranker/Generation evaluation not started)
+
 ## Goal
 
 Measure AI quality continuously.
@@ -597,11 +628,11 @@ Measure AI quality continuously.
 
 ## Offline Evaluation
 
-- Golden datasets
-- Retrieval benchmarks
-- Embedding comparison
-- Chunk evaluation
-- Reranker benchmarks
+- ❌ Golden datasets (beyond the 20-query retrieval set)
+- ✅ Retrieval benchmarks (`benchmarks/retrieval/`, dense/sparse/hybrid, ADR-020)
+- ✅ Embedding comparison (`benchmarks/embeddings/`)
+- ✅ Chunk evaluation (`benchmarks/chunking/`)
+- ❌ Reranker benchmarks
 
 ---
 
@@ -609,22 +640,22 @@ Measure AI quality continuously.
 
 ### Retrieval
 
-- Recall@K
-- Precision@K
-- MRR
-- NDCG
+- ✅ Recall@K
+- ✅ Precision@K
+- ✅ MRR
+- ❌ NDCG
 
 ### Runtime
 
-- Latency
-- Cost
+- ✅ Latency
+- 🟡 Cost (qualitative for retrieval; no $ pricing calculator yet)
 
 ### Generation
 
-- Faithfulness
-- Groundedness
-- Hallucination detection
-- Citation accuracy
+- ❌ Faithfulness
+- ❌ Groundedness
+- ❌ Hallucination detection
+- ❌ Citation accuracy
 
 ---
 
@@ -724,18 +755,18 @@ Features
 
 # MVP Implementation Order
 
-| Milestone | Platform | Deliverables |
-|------------|----------|--------------|
-| 3.1 | Retrieval Foundation | Query processing, dense retrieval, `/retrieve` |
-| 3.2 | Sparse Retrieval | SPLADE query vectors, sparse search |
-| 3.3 | Hybrid Retrieval | Dense + Sparse + RRF |
-| 3.4 | Retrieval Strategies | Parent/Child, Parallel Retrieval, Query Decomposition |
-| 3.5 | Result Processing | Metadata filtering, Top-K |
-| 3.6 | Reranking Platform | Voyage AI, CrossEncoder |
-| 3.7 | Context Building Platform | Deduplication, Compression, Token Budgeting |
-| 3.8 | Generation Platform | Prompting, LLM Runtime, Streaming |
-| 3.9 | Research APIs | `/retrieve`, `/research`, `/research/stream`, `/research/citations` |
-| 3.10 | Evaluation Platform | Retrieval benchmarks, Hallucination testing, Latency, Cost |
+| Milestone | Platform | Deliverables | Status |
+|------------|----------|--------------|--------|
+| 3.1 | Retrieval Foundation | Query processing, dense retrieval, `/retrieve` | ✅ Complete |
+| 3.2 | Sparse Retrieval | SPLADE query vectors, sparse search | ✅ Complete |
+| 3.3 | Hybrid Retrieval | Dense + Sparse + RRF | ✅ Complete |
+| 3.4 | Retrieval Strategies | Parent/Child, Parallel Retrieval, Query Decomposition | ❌ Not started |
+| 3.5 | Result Processing | Metadata filtering, Top-K | 🟡 Top-K + RRF done; filtering pending |
+| 3.6 | Reranking Platform | Voyage AI, CrossEncoder | ❌ Not started |
+| 3.7 | Context Building Platform | Deduplication, Compression, Token Budgeting | ❌ Not started |
+| 3.8 | Generation Platform | Prompting, LLM Runtime, Streaming | ❌ Not started |
+| 3.9 | Research APIs | `/retrieve`, `/research`, `/research/stream`, `/research/citations` | 🟡 `/retrieve` (+sparse/hybrid) done |
+| 3.10 | Evaluation Platform | Retrieval benchmarks, Hallucination testing, Latency, Cost | 🟡 Retrieval benchmarks done |
 
 ---
 

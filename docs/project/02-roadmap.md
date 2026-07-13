@@ -136,11 +136,11 @@ Authenticated document upload pipeline.
 
 ---
 
-## 2.2 Document Processing ⏳
+## 2.2 Document Processing ✅
 
 ### Status
 
-Next Milestone
+Completed
 
 ### Engineering
 
@@ -164,16 +164,17 @@ Normalized document content ready for chunking.
 
 ---
 
-## 2.3 Chunking Platform ⏳
+## 2.3 Chunking Platform ✅
 
 ### Engineering
 
-Implement multiple chunking strategies.
+Implemented chunking strategies.
 
+* Fixed
 * Recursive
-* Semantic
-* Parent-child
-* Agentic chunking
+* Markdown
+
+Deferred: Semantic, Parent-child, Agentic chunking.
 
 ### AI Learning
 
@@ -184,32 +185,32 @@ Implement multiple chunking strategies.
 
 ### Evaluation
 
-Compare chunking strategies using retrieval quality.
+Chunking Benchmark compares strategies (`benchmarks/chunking/`).
 
 ### Deliverable
 
-Modular chunking platform.
+Modular chunking platform. ✅ Complete
 
 ---
 
-## 2.4 Embedding Platform ⏳
+## 2.4 Embedding Platform ✅
 
 ### Engineering
 
 * Embedding service
 * Batching
 * Retry handling
-* Caching
+* Caching (Valkey-backed, TTL-based)
 
 ### Models
 
-Compare
+Implemented
 
-* BGE
-* E5
-* Nomic
-* Instructor
+* Sentence Transformers
+* Voyage AI
 * OpenAI
+
+Deferred: BGE, E5, Nomic, Instructor.
 
 ### AI Learning
 
@@ -220,15 +221,15 @@ Compare
 
 ### Deliverable
 
-Provider-independent embedding platform.
+Provider-independent embedding platform. ✅ Complete
 
 ---
 
-## 2.5 Vector Platform ⏳
+## 2.5 Vector Platform ✅
 
 ### Engineering
 
-* Qdrant collections
+* Qdrant collections (named dense + sparse vectors, ADR-019)
 * Payloads
 * Metadata
 * Indexes
@@ -242,29 +243,75 @@ Provider-independent embedding platform.
 
 ### Deliverable
 
-Production vector store.
+Production vector store. ✅ Complete
 
 ---
 
-## 2.6 Retrieval Platform ⏳
+## 2.6 Retrieval Platform 🟡
 
-### Engineering
+### Status
 
-* Semantic search
-* Hybrid search
-* BM25
-* MMR
-* Metadata filters
+Foundation Complete — see Milestone 2.7 in `PROJECT_STATUS.md` for full detail.
+
+### Query Processing
+
+* ✅ Validation
+* ✅ Normalization
+
+### Search Engines
+
+* ✅ Semantic (dense) search
+* ✅ Sparse search
+* ✅ Hybrid search
+
+### Retrieval Strategies
+
+* ✅ Standard retrieval
+* ❌ Parallel retrieval
+* ❌ Parent/Child retrieval
+* ❌ Query decomposition
+
+### Result Processing
+
+* ✅ RRF fusion
+* ❌ Metadata filtering (next milestone)
+* ❌ Voyage reranking
+* ❌ CrossEncoder reranking
+* ✅ Top-K selection
+
+### Performance
+
+* ✅ Query embedding cache
+* ❌ Retrieval cache
+
+### Evaluation
+
+* ✅ Recall@K
+* ✅ Precision@K
+* ✅ MRR
+* ✅ Latency
+* ✅ Cost (qualitative)
+* ❌ NDCG
+
+### Research APIs
+
+* ✅ `POST /retrieve`
+* ✅ `POST /retrieve/sparse`
+* ✅ `POST /retrieve/hybrid`
+* ❌ `POST /research`
+* ❌ Streaming chat
+* ❌ Citations
 
 ### AI Learning
 
 * Recall
 * Precision
 * Retrieval quality
+* Reciprocal Rank Fusion
 
 ### Deliverable
 
-Production retrieval engine.
+Production retrieval engine. 🟡 In Progress — dense/sparse/hybrid search and evaluation done; metadata filtering, reranking, and advanced retrieval strategies remain.
 
 ---
 
@@ -287,22 +334,26 @@ Production reranking pipeline.
 
 ---
 
-## 2.8 Knowledge Evaluation ⏳
+## 2.8 Knowledge Evaluation 🟡
 
 ### Engineering
 
 Evaluate
 
-* Precision
-* Recall
-* NDCG
-* MRR
-* Latency
-* Cost
+* ✅ Precision
+* ✅ Recall
+* ❌ NDCG
+* ✅ MRR
+* ✅ Latency
+* ✅ Cost (qualitative)
+
+Retrieval-side metrics are implemented via the Retrieval Benchmark
+(`benchmarks/retrieval/`, ADR-020). Reranking, generation, and
+end-to-end pipeline evaluation are not yet started.
 
 ### Deliverable
 
-Evaluation-driven RAG platform.
+Evaluation-driven RAG platform. 🟡 In Progress — retrieval evaluation done.
 
 ---
 

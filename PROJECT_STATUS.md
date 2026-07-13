@@ -1,6 +1,6 @@
 # ResearchMind AI — Project Status
 
-**Last Updated:** 2026-07-08
+**Last Updated:** 2026-07-13
 
 ---
 
@@ -489,6 +489,74 @@ Documentation
 
 ---
 
+# Milestone 2.7 — Retrieval Platform
+
+**Status:** 🟡 In Progress (Foundation Complete)
+
+ResearchMind can now query the hybrid Qdrant index built in Milestone 2.6. Dense, sparse, and hybrid (RRF-fused) retrieval are implemented, benchmarked, and exposed via API. Metadata filtering, reranking, and the advanced retrieval strategies remain open.
+
+## Query Processing
+
+Implemented
+
+- Query validation — empty/whitespace query, max length, `top_k` bounds
+- Query normalization — whitespace collapsing
+- Dense query embedding (Voyage AI), Valkey-backed cache with TTL and settings-gated enable/disable
+- Sparse query embedding (FastEmbed SPLADE)
+
+## Search Engines
+
+- ✅ Semantic (dense) search
+- ✅ Sparse search
+- ✅ Hybrid search — Reciprocal Rank Fusion of dense + sparse (`k=60`, matching Elasticsearch/Azure AI Search defaults)
+
+## Retrieval Strategies
+
+- ✅ Standard retrieval (top-k similarity search)
+- ❌ Parallel retrieval
+- ❌ Parent/Child retrieval
+- ❌ Query decomposition
+
+## Result Processing
+
+- ✅ Reciprocal Rank Fusion (RRF)
+- ✅ Top-K selection
+- ❌ Metadata filtering — `_build_filter` exists on the Qdrant provider but is currently a stub that always returns `None`; **recommended next milestone** (document_id, filename, owner_id, tags)
+- ❌ Voyage AI reranking
+- ❌ CrossEncoder reranking
+
+## Performance
+
+- ✅ Query embedding cache — Valkey-backed, TTL-based expiry, toggleable via `QUERY_EMBEDDING_CACHE_ENABLED`
+- ❌ Retrieval result cache
+
+## APIs
+
+- ✅ `POST /api/v1/retrieve` — dense
+- ✅ `POST /api/v1/retrieve/sparse` — sparse
+- ✅ `POST /api/v1/retrieve/hybrid` — hybrid (RRF)
+- ❌ `POST /research`
+- ❌ Streaming chat
+- ❌ Citations
+
+## Retrieval Evaluation
+
+Implemented
+
+- `RetrievalBenchmark` — evaluates dense, sparse, and hybrid against a dedicated, reproducible Qdrant collection (`benchmark_retrieval`, dropped/recreated every run, never touches production data)
+- Metrics: Recall@5/10/20, Precision@5/10, MRR, avg/P95/P99 latency, qualitative cost model — matches the ADR-020 required metric set
+- 20-query hand-curated ground-truth dataset (`benchmarks/datasets/research-papers/retrieval_queries.json`), document-level relevance, 4 query categories (semantic, acronym, exact-keyword, code-entity)
+- ❌ NDCG — explicitly deferred per ADR-020
+
+**Finding:** on the current 5-document benchmark corpus, dense, sparse, and hybrid are statistically indistinguishable — Recall@5/10/20 = 1.0 for all three, and hybrid's MRR (0.925) was actually slightly *lower* than dense (0.95) or sparse (0.975) alone. The corpus is too small (5 documents, 20 queries, document-level relevance) to meaningfully stress any retriever or give RRF real ranking disagreement to resolve. This does not mean Hybrid Retrieval is ineffective — it means the benchmark can't yet answer that question. See the dataset-scaling and chunk-level-relevance TODO in `README.md`.
+
+Documentation
+
+- ADR-020 — Retrieval Evaluation First Development
+- `docs/architecture/retrieval-benchmarking-strategy.md` — benchmark methodology, query categories, decision gate
+
+---
+
 # Engineering Benchmark Platform
 
 **Status:** ✅ Foundation Complete
@@ -504,14 +572,7 @@ Implemented
 - Chunking Benchmark
 - Embedding Benchmark
 - Pipeline Benchmark — end-to-end ingestion benchmark (real Chunking → Embedding → Indexing), now reports dense + sparse vector counts per document; re-run after the hybrid indexing change confirmed indexing (SPLADE inference) is the new dominant per-document latency cost, ahead of embedding
-
-Deferred
-
-- Retrieval Benchmark
-
-Reason
-
-The Retrieval Platform itself has not been implemented yet.
+- Retrieval Benchmark — benchmarks dense, sparse, and hybrid (RRF) retrieval against a dedicated, reproducible Qdrant collection (`benchmark_retrieval`, dropped/recreated per run, never touches production data); reports Recall@5/10/20, Precision@5/10, MRR, avg/P95/P99 latency, and a qualitative cost model per ADR-020
 
 ---
 
@@ -551,6 +612,10 @@ Indexing (dense + sparse)
 ↓
 
 Qdrant (hybrid — dense + sparse vectors, same collection)
+
+↓
+
+Retrieval (dense + sparse + hybrid RRF fusion)
 ```
 
 ---
@@ -568,11 +633,18 @@ Qdrant (hybrid — dense + sparse vectors, same collection)
 | Observability Platform | 🚧 Deferred |
 | Phase 2.5 — Vector Store Platform | ✅ Complete |
 | Phase 2.6 — Indexing Platform (Hybrid Retrieval) | ✅ Complete |
-| Benchmark Platform | ✅ Foundation Complete |
+| Phase 2.7 — Retrieval Platform | 🟡 In Progress (Foundation Complete) |
+| Benchmark Platform | ✅ Foundation Complete (incl. Retrieval Benchmark) |
 
 ---
 
 # Recently Completed
+
+✅ Retrieval Platform foundation (dense, sparse, hybrid RRF search + `/retrieve`, `/retrieve/sparse`, `/retrieve/hybrid`)
+
+✅ Query embedding cache (Valkey-backed, TTL-based)
+
+✅ Retrieval Benchmark (dense vs. sparse vs. hybrid, ADR-020 metrics)
 
 ✅ Vector Store Platform (Qdrant provider)
 
@@ -602,29 +674,39 @@ Qdrant (hybrid — dense + sparse vectors, same collection)
 
 # Current Focus
 
-## Phase 2.7 — Retrieval Platform
+## Phase 2.7 — Retrieval Platform (continued)
 
-With hybrid indexing complete, the next milestone builds the query side: retrieving from the dense+sparse vectors already indexed in Qdrant.
+Semantic, sparse, and hybrid retrieval are implemented, benchmarked, and exposed via API (see Milestone 2.7 above). The remaining scope from ADR-019 splits into two candidate directions:
 
-Planned scope (per ADR-019)
+### Option A — Metadata Filtering (recommended next)
 
-- Semantic Retrieval
-- Sparse Retrieval
-- Hybrid Retrieval (Qdrant fusion of dense + sparse)
-- Metadata Filtering
-- Voyage Reranker
+Support filtering retrieval by:
+
+- `document_id`
+- `filename`
+- `owner_id`
+- `tags`
+
+`QdrantRetrievalProvider._build_filter` already exists as the integration point but is currently a stub that always returns `None`. This is what makes retrieval production-ready for multi-tenant/multi-document use (e.g. "search only within this workspace" or "search only this document").
+
+### Also remaining
+
+- Voyage AI Reranker / CrossEncoder reranking
 - Parent/Child Retrieval
 - Query Decomposition
-- Retrieval Evaluation
-
-`ai/knowledge/retrieval/` is currently an empty package.
+- Retrieval result cache
+- Scaling the retrieval benchmark dataset (5 → 20-50 documents, 20 → 100 queries, chunk-level relevance) — see `README.md` TODO
 
 ---
 
 # Immediate Roadmap
 
 ```
-Retrieval
+Retrieval (dense + sparse + hybrid) ✅
+
+↓
+
+Metadata Filtering
 
 ↓
 

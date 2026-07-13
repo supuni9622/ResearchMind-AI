@@ -15,6 +15,9 @@ from app.ai.knowledge.cache.query_embeddings.create import (
 from app.ai.knowledge.embeddings.create import (
     create_embedding_registry,
 )
+from app.ai.knowledge.indexing.create import (
+    create_sparse_embedding_provider,
+)
 from app.ai.knowledge.retrieval.config import (
     QdrantRetrievalConfig,
 )
@@ -26,6 +29,9 @@ from app.ai.knowledge.retrieval.providers.qdrant import (
 )
 from app.ai.knowledge.retrieval.query.dense_service import (
     QueryEmbeddingService,
+)
+from app.ai.knowledge.retrieval.query.sparse_service import (
+    SparseQueryEmbeddingService,
 )
 from app.ai.knowledge.retrieval.registry import (
     RetrievalRegistry,
@@ -69,6 +75,16 @@ def create_query_embedding_service() -> QueryEmbeddingService:
     )
 
 
+def create_sparse_query_embedding_service() -> SparseQueryEmbeddingService:
+    """
+    Create sparse query embedding service.
+    """
+
+    return SparseQueryEmbeddingService(
+        provider=create_sparse_embedding_provider(),
+    )
+
+
 def create_retrieval_service() -> RetrievalService:
     """
     Create a fully configured RetrievalService.
@@ -77,4 +93,5 @@ def create_retrieval_service() -> RetrievalService:
     return RetrievalService(
         registry=create_retrieval_registry(),
         query_embedding_service=create_query_embedding_service(),
+        sparse_query_embedding_service=create_sparse_query_embedding_service(),
     )

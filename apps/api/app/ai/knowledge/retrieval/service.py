@@ -22,6 +22,7 @@ from time import perf_counter
 
 from app.ai.knowledge.retrieval.enums import (
     RetrievalProvider,
+    RetrievalStrategy,
 )
 from app.ai.knowledge.retrieval.exceptions import (
     RetrievalValidationError,
@@ -32,6 +33,7 @@ from app.ai.knowledge.retrieval.models import (
     RetrievalResult,
     RetrievalStatistics,
 )
+from app.ai.knowledge.retrieval.query.sparse_service import SparseQueryEmbeddingService
 from app.ai.knowledge.retrieval.registry import (
     RetrievalRegistry,
 )
@@ -49,9 +51,11 @@ class RetrievalService:
         *,
         registry: RetrievalRegistry,
         query_embedding_service,
+        sparse_query_embedding_service: (SparseQueryEmbeddingService),
     ) -> None:
         self._registry = registry
         self._query_embedding_service = query_embedding_service
+        self._sparse_query_embedding_service = sparse_query_embedding_service
 
     async def search(
         self,
@@ -171,3 +175,57 @@ class RetrievalService:
                 "query": normalized,
             }
         )
+
+    async def search_sparse(
+        self,
+        *,
+        provider: RetrievalProvider,
+        query: RetrievalQuery,
+    ) -> RetrievalResult:
+        """
+        Execute sparse retrieval.
+        """
+
+        self._validate_query(
+            query,
+        )
+
+        normalized_query = self._normalize_query(
+            query,
+        )
+
+        retrieval_provider = self._registry.get(
+            provider,
+        )
+
+        execution = RetrievalExecution()
+
+        started = perf_counter()
+
+        sparse_query = await self._sparse_query_embedding_service.embed(
+            normalized_query.query,
+        )
+
+        result = await retrieval_provider.search_sparse(
+            query=normalized_query,
+            sparse_query=sparse_query,
+        )
+
+        duration_ms = (perf_counter() - started) * 1000
+
+        execution.completed_at = datetime.now(
+            UTC,
+        )
+
+        result.execution = execution
+
+        result.statistics = RetrievalStatistics(
+            provider=provider,
+            strategy=(RetrievalStrategy.SPARSE),
+            duration_ms=duration_ms,
+            returned_chunks=len(
+                result.chunks,
+            ),
+        )
+
+        return result

@@ -31,10 +31,15 @@ from app.ai.knowledge.retrieval.models import (
     RetrievalResult,
     RetrievedChunk,
 )
+from app.ai.knowledge.retrieval.query.models import (
+    SparseQueryEmbedding,
+)
 from app.ai.knowledge.vectorstores.providers.qdrant import (
     DENSE_VECTOR_NAME,
+    SPARSE_VECTOR_NAME,
 )
 from qdrant_client import AsyncQdrantClient
+from qdrant_client.http import models as qdrant
 from qdrant_client.models import (
     Filter,
 )
@@ -85,9 +90,29 @@ class QdrantRetrievalProvider(
             score_threshold=self._config.score_threshold,
         )
 
+        return RetrievalResult(
+            query=query,
+            execution=RetrievalExecution(
+                completed_at=datetime.now(
+                    UTC,
+                ),
+            ),
+            chunks=self._map_points(
+                response.points,
+            ),
+        )
+
+    @staticmethod
+    def _map_points(
+        points: list,
+    ) -> list[RetrievedChunk]:
+        """
+        Map Qdrant points into canonical RetrievedChunk models.
+        """
+
         chunks: list[RetrievedChunk] = []
 
-        for point in response.points:
+        for point in points:
             payload = point.payload or {}
 
             chunk = RetrievedChunk(
@@ -118,15 +143,7 @@ class QdrantRetrievalProvider(
 
             chunks.append(chunk)
 
-        return RetrievalResult(
-            query=query,
-            execution=RetrievalExecution(
-                completed_at=datetime.now(
-                    UTC,
-                ),
-            ),
-            chunks=chunks,
-        )
+        return chunks
 
     def _build_filter(
         self,
@@ -155,3 +172,41 @@ class QdrantRetrievalProvider(
         #
 
         return None
+
+    async def search_sparse(
+        self,
+        query: RetrievalQuery,
+        sparse_query: SparseQueryEmbedding,
+    ) -> RetrievalResult:
+        """
+        Execute sparse retrieval.
+
+        Uses SPLADE sparse vectors stored in Qdrant.
+        """
+
+        response = await self._client.query_points(
+            collection_name=self._config.collection_name,
+            query=qdrant.SparseVector(
+                indices=sparse_query.indices,
+                values=sparse_query.values,
+            ),
+            using=SPARSE_VECTOR_NAME,
+            query_filter=self._build_filter(
+                query.filters,
+            ),
+            limit=query.top_k,
+            with_payload=self._config.with_payload,
+            with_vectors=False,
+        )
+
+        return RetrievalResult(
+            query=query,
+            execution=RetrievalExecution(
+                completed_at=datetime.now(
+                    UTC,
+                ),
+            ),
+            chunks=self._map_points(
+                response.points,
+            ),
+        )

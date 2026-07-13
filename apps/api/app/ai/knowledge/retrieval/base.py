@@ -9,7 +9,7 @@ implementing RetrievalProviderInterface directly.
 
 from __future__ import annotations
 
-from abc import ABC
+from abc import ABC, abstractmethod
 from typing import Final, Generic, TypeVar
 
 from app.ai.knowledge.retrieval.config import (
@@ -17,6 +17,13 @@ from app.ai.knowledge.retrieval.config import (
 )
 from app.ai.knowledge.retrieval.interfaces import (
     RetrievalProviderInterface,
+)
+from app.ai.knowledge.retrieval.models import (
+    RetrievalQuery,
+    RetrievalResult,
+)
+from app.ai.knowledge.retrieval.query.models import (
+    SparseQueryEmbedding,
 )
 
 ConfigT = TypeVar("ConfigT", bound=BaseRetrievalConfig)
@@ -76,3 +83,11 @@ class BaseRetrievalProvider(
         """
 
         return self._config.model_dump_json()
+
+    @abstractmethod
+    async def search_sparse(
+        self,
+        query: RetrievalQuery,
+        sparse_query: SparseQueryEmbedding,
+    ) -> RetrievalResult:
+        raise NotImplementedError

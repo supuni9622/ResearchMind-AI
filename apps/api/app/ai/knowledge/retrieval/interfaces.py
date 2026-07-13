@@ -16,6 +16,9 @@ from app.ai.knowledge.retrieval.models import (
     RetrievalQuery,
     RetrievalResult,
 )
+from app.ai.knowledge.retrieval.query.models import (
+    SparseQueryEmbedding,
+)
 
 
 class RetrievalProviderInterface(ABC):
@@ -57,3 +60,21 @@ class RetrievalProviderInterface(ABC):
         """
         Execute retrieval.
         """
+
+    @abstractmethod
+    async def search_sparse(
+        self,
+        query: RetrievalQuery,
+        sparse_query: SparseQueryEmbedding,
+    ) -> RetrievalResult:
+        """
+        Execute sparse retrieval.
+
+        Uses sparse neural vectors
+        (FastEmbed SPLADE).
+
+        Future:
+            This becomes one branch
+            of Hybrid Retrieval.
+        """
+        raise NotImplementedError

@@ -74,6 +74,18 @@ def _make_query_embedding_service(vector: list[float] | None = None) -> AsyncMoc
     return service
 
 
+def _make_service(
+    *,
+    registry: RetrievalRegistry,
+    query_embedding_service: AsyncMock | None = None,
+) -> RetrievalService:
+    return RetrievalService(
+        registry=registry,
+        query_embedding_service=(query_embedding_service or _make_query_embedding_service()),
+        sparse_query_embedding_service=AsyncMock(),
+    )
+
+
 async def test_search_returns_result_with_statistics_populated_from_provider() -> None:
     chunk = _make_chunk()
     provider = _make_provider(
@@ -86,7 +98,7 @@ async def test_search_returns_result_with_statistics_populated_from_provider() -
     )
     query_embedding_service = _make_query_embedding_service([0.4, 0.5])
     registry = RetrievalRegistry([provider])
-    service = RetrievalService(
+    service = _make_service(
         registry=registry,
         query_embedding_service=query_embedding_service,
     )
@@ -113,7 +125,7 @@ async def test_search_normalizes_whitespace_in_query() -> None:
     provider = _make_provider()
     query_embedding_service = _make_query_embedding_service()
     registry = RetrievalRegistry([provider])
-    service = RetrievalService(
+    service = _make_service(
         registry=registry,
         query_embedding_service=query_embedding_service,
     )
@@ -135,10 +147,7 @@ async def test_search_normalizes_whitespace_in_query() -> None:
 async def test_search_raises_on_empty_or_whitespace_only_query(query_text: str) -> None:
     provider = _make_provider()
     registry = RetrievalRegistry([provider])
-    service = RetrievalService(
-        registry=registry,
-        query_embedding_service=_make_query_embedding_service(),
-    )
+    service = _make_service(registry=registry)
 
     # RetrievalQuery enforces min_length=1 at construction, so an empty
     # string is built via model_copy (which skips validation) to reach
@@ -157,10 +166,7 @@ async def test_search_raises_on_empty_or_whitespace_only_query(query_text: str) 
 async def test_search_raises_when_query_exceeds_max_length() -> None:
     provider = _make_provider()
     registry = RetrievalRegistry([provider])
-    service = RetrievalService(
-        registry=registry,
-        query_embedding_service=_make_query_embedding_service(),
-    )
+    service = _make_service(registry=registry)
     long_query = "a" * (RetrievalService.MAX_QUERY_LENGTH + 1)
 
     with pytest.raises(RetrievalValidationError, match="maximum length"):
@@ -175,10 +181,7 @@ async def test_search_raises_when_query_exceeds_max_length() -> None:
 async def test_search_raises_when_top_k_is_not_positive() -> None:
     provider = _make_provider()
     registry = RetrievalRegistry([provider])
-    service = RetrievalService(
-        registry=registry,
-        query_embedding_service=_make_query_embedding_service(),
-    )
+    service = _make_service(registry=registry)
 
     with pytest.raises(RetrievalValidationError, match="top_k"):
         await service.search(
@@ -190,10 +193,7 @@ async def test_search_raises_when_top_k_is_not_positive() -> None:
 
 
 async def test_search_raises_when_provider_not_registered() -> None:
-    service = RetrievalService(
-        registry=RetrievalRegistry([]),
-        query_embedding_service=_make_query_embedding_service(),
-    )
+    service = _make_service(registry=RetrievalRegistry([]))
 
     with pytest.raises(RetrievalProviderNotFoundError):
         await service.search(

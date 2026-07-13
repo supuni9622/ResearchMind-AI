@@ -71,3 +71,47 @@ async def retrieve(
             for chunk in result.chunks
         ],
     )
+
+
+@router.post(
+    "/sparse",
+    response_model=RetrieveResponse,
+)
+async def retrieve_sparse(
+    request: RetrieveRequest,
+    retrieval_service: RetrievalService = Depends(
+        get_retrieval_service,
+    ),
+) -> RetrieveResponse:
+    """
+    Sparse retrieval using SPLADE.
+    """
+
+    result = await retrieval_service.search_sparse(
+        provider=(RetrievalProvider.QDRANT),
+        query=RetrievalQuery(
+            query=request.query,
+            top_k=request.top_k,
+        ),
+    )
+
+    assert result.statistics is not None
+
+    return RetrieveResponse(
+        query=result.query.query,
+        total_chunks=len(
+            result.chunks,
+        ),
+        duration_ms=result.statistics.duration_ms,
+        chunks=[
+            RetrievedChunkResponse(
+                chunk_id=chunk.chunk_id,
+                document_id=chunk.document_id,
+                filename=chunk.filename,
+                chunk_index=chunk.chunk_index,
+                content=chunk.content,
+                score=chunk.score,
+            )
+            for chunk in result.chunks
+        ],
+    )

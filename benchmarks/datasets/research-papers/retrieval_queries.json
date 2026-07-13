@@ -1,0 +1,127 @@
+{
+  "version": "1.0",
+  "relevance_level": "document",
+  "notes": "Document-level relevance judgments for the research-papers benchmark corpus. A chunk is treated as a hit for a query if its source document's filename appears in relevant_documents. Categories follow the Retrieval Evaluation v1 matrix: semantic, acronym, exact_keyword, code_entity.",
+  "queries": [
+    {
+      "query_id": "q1",
+      "query": "What are the main challenges practitioners face when preparing data for fine-tuning language models?",
+      "category": "semantic",
+      "relevant_documents": ["data engineering .pdf"]
+    },
+    {
+      "query_id": "q2",
+      "query": "How can AI agent systems be governed to avoid unreliable or unbounded execution loops?",
+      "category": "semantic",
+      "relevant_documents": ["Loop_Engineering_Revised.pdf"]
+    },
+    {
+      "query_id": "q3",
+      "query": "What recent advances and open challenges exist in the development of large language models?",
+      "category": "semantic",
+      "relevant_documents": ["LLM_RESEARCH.pdf"]
+    },
+    {
+      "query_id": "q4",
+      "query": "How can researchers detect that a new job role is emerging in the labor market before it becomes formally recognized?",
+      "category": "semantic",
+      "relevant_documents": ["Noise_is_Signal_Density-Based_Outliers_as_Leading_.pdf"]
+    },
+    {
+      "query_id": "q5",
+      "query": "Why is early detection important for improving breast cancer outcomes in young women?",
+      "category": "semantic",
+      "relevant_documents": ["151__CRC.pdfrevised.pdf"]
+    },
+    {
+      "query_id": "q6",
+      "query": "What is BSE?",
+      "category": "acronym",
+      "relevant_documents": ["151__CRC.pdfrevised.pdf"]
+    },
+    {
+      "query_id": "q7",
+      "query": "What does EOS stand for in this research?",
+      "category": "acronym",
+      "relevant_documents": ["Noise_is_Signal_Density-Based_Outliers_as_Leading_.pdf"]
+    },
+    {
+      "query_id": "q8",
+      "query": "What is O*NET?",
+      "category": "acronym",
+      "relevant_documents": ["Noise_is_Signal_Density-Based_Outliers_as_Leading_.pdf"]
+    },
+    {
+      "query_id": "q9",
+      "query": "What does RAG stand for?",
+      "category": "acronym",
+      "relevant_documents": ["LLM_RESEARCH.pdf"]
+    },
+    {
+      "query_id": "q10",
+      "query": "What does ReAct refer to in AI agent architectures?",
+      "category": "acronym",
+      "relevant_documents": ["Loop_Engineering_Revised.pdf"]
+    },
+    {
+      "query_id": "q11",
+      "query": "Emergence-Density Inversion hypothesis",
+      "category": "exact_keyword",
+      "relevant_documents": ["Noise_is_Signal_Density-Based_Outliers_as_Leading_.pdf"]
+    },
+    {
+      "query_id": "q12",
+      "query": "structured PowerPoint-based educational intervention for breast self-examination",
+      "category": "exact_keyword",
+      "relevant_documents": ["151__CRC.pdfrevised.pdf"]
+    },
+    {
+      "query_id": "q13",
+      "query": "Reflexion AutoGen LangGraph agent orchestration frameworks",
+      "category": "exact_keyword",
+      "relevant_documents": ["Loop_Engineering_Revised.pdf"]
+    },
+    {
+      "query_id": "q14",
+      "query": "self-instruct synthetic data generation from documents",
+      "category": "exact_keyword",
+      "relevant_documents": ["data engineering .pdf"]
+    },
+    {
+      "query_id": "q15",
+      "query": "Emerging Occupation Score Temporal Velocity Cross-Platform Convergence",
+      "category": "exact_keyword",
+      "relevant_documents": ["Noise_is_Signal_Density-Based_Outliers_as_Leading_.pdf"]
+    },
+    {
+      "query_id": "q16",
+      "query": "How do you use the Anthropic Python client to generate synthetic training examples?",
+      "category": "code_entity",
+      "relevant_documents": ["data engineering .pdf"]
+    },
+    {
+      "query_id": "q17",
+      "query": "Microsoft Agent Framework successor to AutoGen",
+      "category": "code_entity",
+      "relevant_documents": ["Loop_Engineering_Revised.pdf"]
+    },
+    {
+      "query_id": "q18",
+      "query": "Isolation Forest LOF GLOSH BERTrend baseline comparison",
+      "category": "code_entity",
+      "relevant_documents": ["Noise_is_Signal_Density-Based_Outliers_as_Leading_.pdf"]
+    },
+    {
+      "query_id": "q19",
+      "query": "chatGPT multimodal LLM benchmarking datasets",
+      "category": "code_entity",
+      "relevant_documents": ["LLM_RESEARCH.pdf"]
+    },
+    {
+      "query_id": "q20",
+      "query": "paired t-test Fisher's exact test statistical analysis",
+      "category": "code_entity",
+      "relevant_documents": ["151__CRC.pdfrevised.pdf"]
+    }
+  ]
+}

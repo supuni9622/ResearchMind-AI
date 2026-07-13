@@ -406,6 +406,54 @@ uv run python -m benchmarks.runner chunking --dataset benchmarks/datasets/resear
 # optionally: --output benchmarks/chunking/reports
 ```
 
+2. Retrieval (dense vs. sparse)
+```
+uv run python -m benchmarks.runner retrieval --dataset benchmarks/datasets/research-papers
+```
+
+Builds a dedicated `benchmark_retrieval` Qdrant collection from the
+benchmark corpus (dropped and recreated on every run, so it never
+touches production data), then evaluates dense (Voyage AI) and sparse
+(SPLADE) retrieval against the 20-query ground truth set in
+`benchmarks/datasets/research-papers/retrieval_queries.json`, reporting
+Recall@5/10/20, Precision@5/10, MRR, and avg/P95/P99 latency per ADR-020.
+Requires a reachable Qdrant instance and a configured Voyage AI API key,
+and makes real embedding API calls — unlike the chunking benchmark, it
+is not a purely offline/local run. Report written to
+`benchmarks/reports/retrieval/`.
+
+**Current results (5 documents, 20 queries) are not conclusive.** Both
+dense and sparse hit Recall@5/10/20 = 1.0 on every query, which means
+the dataset is too small/easy to actually stress either retriever — it
+validates that the pipeline works, not which retriever is better.
+
+### TODO: Improve the retrieval benchmark dataset
+
+- **Increase documents:** 5 → 20-50. A 5-document corpus makes it
+  trivial to find the right document regardless of retrieval strategy.
+- **Increase queries:** 20 → 100.
+- **Add harder query categories** — the current set is too easy:
+  - *Semantic, no lexical overlap* — e.g. "How can retrieval systems
+    improve factual grounding?" where the source document never uses
+    the phrase "factual grounding." Dense should win.
+  - *Exact/rare acronym* — e.g. "BM42." Sparse should win.
+  - *Multi-hop* — e.g. "Compare sparse and dense retrieval tradeoffs."
+    Both retrievers may struggle; useful for spotting real weaknesses.
+  - *Broad/architectural* — e.g. "Explain modern RAG architectures."
+    Dense should dominate.
+- **Most important improvement: move to chunk-level relevance**
+  (`relevant_chunk_ids` instead of `relevant_documents`, per
+  `docs/architecture/retrieval-benchmarking-strategy.md`'s Dataset
+  Format v2). Document-level relevance inflates scores whenever a query
+  has only a handful of candidate documents to choose from, exactly
+  what's happening now.
+
+**This should not block Hybrid Retrieval.** Even with a weak benchmark,
+dense and sparse retrieval behave differently in real systems (see
+MRR/latency split above), which is enough signal to justify
+implementing and then properly benchmarking Hybrid — the dataset
+improvements above should happen in parallel, not as a gate.
+
 ---
 
 ## Authentication (AWS Cognito)

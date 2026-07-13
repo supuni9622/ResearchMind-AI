@@ -222,11 +222,11 @@ Current:
 
 - Chunking
 - Embeddings
+- Retrieval (dense vs. sparse)
 
 Planned:
 
 - Vector Stores
-- Retrieval
 - Reranking
 - End-to-End AI Pipeline
 
@@ -264,13 +264,18 @@ Run a benchmark:
 ```bash
 uv run python -m benchmarks.runner chunking --dataset benchmarks/datasets/research-papers
 uv run python -m benchmarks.runner embeddings --dataset benchmarks/datasets/research-papers
+uv run python -m benchmarks.runner retrieval --dataset benchmarks/datasets/research-papers
 ```
 
-Future:
-
-```bash
-uv run python -m benchmarks.runner retrieval --dataset ...
-```
+The retrieval benchmark builds a dedicated Qdrant collection
+(`benchmark_retrieval`, dropped and recreated on every run) from the
+benchmark corpus, then evaluates dense (Voyage AI) and sparse (SPLADE)
+retrieval against the hand-curated query set in
+`benchmarks/datasets/research-papers/retrieval_queries.json`, reporting
+Recall@5, Recall@10, Precision@5, MRR, and latency for each candidate.
+It requires a reachable Qdrant instance and configured Voyage AI
+credentials, and makes real embedding API calls, unlike the chunking and
+embeddings benchmarks.
 
 ---
 

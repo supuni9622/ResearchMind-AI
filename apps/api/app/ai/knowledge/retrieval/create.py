@@ -24,7 +24,7 @@ from app.ai.knowledge.retrieval.interfaces import (
 from app.ai.knowledge.retrieval.providers.qdrant import (
     QdrantRetrievalProvider,
 )
-from app.ai.knowledge.retrieval.query.service import (
+from app.ai.knowledge.retrieval.query.dense_service import (
     QueryEmbeddingService,
 )
 from app.ai.knowledge.retrieval.registry import (

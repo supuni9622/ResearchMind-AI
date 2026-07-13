@@ -65,6 +65,7 @@ def _make_record(*, sparse: SparseVector | None = None, chunk_index: int = 0) ->
             document_id=_DOCUMENT_ID,
             chunk_id=uuid.uuid4(),
             filename="test.pdf",
+            content="test chunk content",
             owner_id="owner-1",
             chunk_index=chunk_index,
         ),

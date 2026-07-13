@@ -267,6 +267,7 @@ class IndexingService(IndexingServiceInterface):
                         document_id=embedding.provenance.document_id,
                         chunk_id=embedding.provenance.chunk_id,
                         filename=embedding.provenance.filename,
+                        content=chunk.content.text,
                         owner_id=request.owner_id,
                         chunk_index=chunk.index,
                         language=None,

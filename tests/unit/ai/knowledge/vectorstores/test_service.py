@@ -51,6 +51,7 @@ def _make_record(*, vector: list[float] | None = None) -> VectorStoreRecord:
             document_id=_DOCUMENT_ID,
             chunk_id=uuid.uuid4(),
             filename="test.pdf",
+            content="test chunk content",
             owner_id="owner-1",
             chunk_index=0,
         ),

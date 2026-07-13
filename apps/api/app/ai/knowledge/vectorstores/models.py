@@ -50,6 +50,10 @@ class VectorPayload(BaseModel):
         description="Original filename.",
     )
 
+    content: str = Field(
+        description="Chunk text.",
+    )
+
     owner_id: str = Field(
         description="Owner of the indexed document.",
     )

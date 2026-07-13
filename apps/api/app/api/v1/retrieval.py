@@ -115,3 +115,53 @@ async def retrieve_sparse(
             for chunk in result.chunks
         ],
     )
+
+
+@router.post(
+    "/hybrid",
+    response_model=RetrieveResponse,
+)
+async def retrieve_hybrid(
+    request: RetrieveRequest,
+    retrieval_service: RetrievalService = Depends(
+        get_retrieval_service,
+    ),
+) -> RetrieveResponse:
+    """
+    Hybrid retrieval using:
+
+    Dense Search
+            +
+    Sparse Search
+            ↓
+    Reciprocal Rank Fusion (RRF)
+    """
+
+    result = await retrieval_service.search_hybrid(
+        provider=RetrievalProvider.QDRANT,
+        query=RetrievalQuery(
+            query=request.query,
+            top_k=request.top_k,
+        ),
+    )
+
+    assert result.statistics is not None
+
+    return RetrieveResponse(
+        query=result.query.query,
+        total_chunks=len(
+            result.chunks,
+        ),
+        duration_ms=(result.statistics.duration_ms),
+        chunks=[
+            RetrievedChunkResponse(
+                chunk_id=chunk.chunk_id,
+                document_id=chunk.document_id,
+                filename=chunk.filename,
+                chunk_index=chunk.chunk_index,
+                content=chunk.content,
+                score=chunk.score,
+            )
+            for chunk in result.chunks
+        ],
+    )

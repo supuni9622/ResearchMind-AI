@@ -83,6 +83,7 @@ def _make_service(
         registry=registry,
         query_embedding_service=(query_embedding_service or _make_query_embedding_service()),
         sparse_query_embedding_service=AsyncMock(),
+        fusion_service=AsyncMock(),
     )
 
 

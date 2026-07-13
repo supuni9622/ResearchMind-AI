@@ -1,6 +1,6 @@
 {
   "benchmark_name": "Retrieval",
-  "generated_at": "2026-07-13T14:31:38.759902Z",
+  "generated_at": "2026-07-13T15:28:46.813776Z",
   "dataset": {
     "name": "research-papers",
     "document_count": 5
@@ -17,9 +17,9 @@
         "precision_at_5": 0.2,
         "precision_at_10": 0.1,
         "mrr": 0.95,
-        "avg_latency_ms": 322.44,
-        "p95_latency_ms": 419.01,
-        "p99_latency_ms": 419.01
+        "avg_latency_ms": 316.84,
+        "p95_latency_ms": 440.41,
+        "p99_latency_ms": 440.41
       },
       "notes": {
         "top_k_evaluated": 20,
@@ -43,13 +43,39 @@
         "precision_at_5": 0.2,
         "precision_at_10": 0.1,
         "mrr": 0.975,
-        "avg_latency_ms": 11.65,
-        "p95_latency_ms": 22.84,
-        "p99_latency_ms": 22.84
+        "avg_latency_ms": 10.53,
+        "p95_latency_ms": 29.28,
+        "p99_latency_ms": 29.28
       },
       "notes": {
         "top_k_evaluated": 20,
         "cost_model": "FastEmbed SPLADE: local CPU inference, no marginal cost.",
+        "recall_at_10_by_category": {
+          "semantic": 1.0,
+          "acronym": 1.0,
+          "exact_keyword": 1.0,
+          "code_entity": 1.0
+        }
+      }
+    },
+    {
+      "name": "hybrid",
+      "version": null,
+      "metrics": {
+        "queries_evaluated": 20,
+        "recall_at_5": 1.0,
+        "recall_at_10": 1.0,
+        "recall_at_20": 1.0,
+        "precision_at_5": 0.2,
+        "precision_at_10": 0.1,
+        "mrr": 0.925,
+        "avg_latency_ms": 324.42,
+        "p95_latency_ms": 522.82,
+        "p99_latency_ms": 522.82
+      },
+      "notes": {
+        "top_k_evaluated": 20,
+        "cost_model": "Voyage AI + FastEmbed SPLADE (dense API cost plus local sparse inference), fused in-process via RRF.",
         "recall_at_10_by_category": {
           "semantic": 1.0,
           "acronym": 1.0,

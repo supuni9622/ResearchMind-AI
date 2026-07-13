@@ -1,9 +1,10 @@
 """
 Retrieval benchmark.
 
-Benchmarks dense (Voyage AI) and sparse (SPLADE) retrieval against a
-shared, dedicated Qdrant collection built from the benchmark corpus, and
-produces a canonical BenchmarkReport.
+Benchmarks dense (Voyage AI), sparse (SPLADE), and hybrid (Reciprocal
+Rank Fusion of dense + sparse) retrieval against a shared, dedicated
+Qdrant collection built from the benchmark corpus, and produces a
+canonical BenchmarkReport.
 
 Relevance is judged at document level using a hand-curated query set
 (benchmarks/datasets/research-papers/retrieval_queries.json). See that
@@ -21,6 +22,7 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 
+from app.ai.knowledge.retrieval.fusion.service import RetrievalFusionService
 from app.ai.knowledge.retrieval.models import RetrievalQuery
 from app.ai.knowledge.retrieval.providers.qdrant import QdrantRetrievalProvider
 from app.ai.knowledge.retrieval.query.dense_service import QueryEmbeddingService
@@ -78,12 +80,14 @@ class RetrievalBenchmark(Benchmark):
         retrieval_provider: QdrantRetrievalProvider,
         query_embedding_service: QueryEmbeddingService,
         sparse_query_embedding_service: SparseQueryEmbeddingService,
+        fusion_service: RetrievalFusionService,
     ) -> None:
         self._dataset_loader = dataset_loader
         self._indexer = indexer
         self._retrieval_provider = retrieval_provider
         self._query_embedding_service = query_embedding_service
         self._sparse_query_embedding_service = sparse_query_embedding_service
+        self._fusion_service = fusion_service
 
     @property
     def name(self) -> str:
@@ -128,6 +132,15 @@ class RetrievalBenchmark(Benchmark):
                 queries=query_dataset.queries,
                 search=self._search_sparse,
                 cost_model="FastEmbed SPLADE: local CPU inference, no marginal cost.",
+            ),
+            await self._evaluate(
+                name="hybrid",
+                queries=query_dataset.queries,
+                search=self._search_hybrid,
+                cost_model=(
+                    "Voyage AI + FastEmbed SPLADE (dense API cost plus local "
+                    "sparse inference), fused in-process via RRF."
+                ),
             ),
         ]
 
@@ -179,6 +192,46 @@ class RetrievalBenchmark(Benchmark):
             )
 
         return [chunk.filename for chunk in result.chunks], timer.elapsed_milliseconds
+
+    async def _search_hybrid(
+        self,
+        query_text: str,
+        top_k: int,
+    ) -> tuple[list[str], float]:
+        # Mirrors RetrievalService.search_hybrid: retrieve a larger
+        # candidate pool from each retriever so RRF has enough overlap
+        # to fuse meaningfully, then fuse back down to top_k.
+        candidate_query = RetrievalQuery(
+            query=query_text,
+            top_k=top_k * 2,
+        )
+
+        with Timer() as timer:
+            query_vector = await self._query_embedding_service.embed(
+                query_text,
+            )
+
+            dense_result = await self._retrieval_provider.search(
+                query=candidate_query,
+                query_vector=query_vector,
+            )
+
+            sparse_query = await self._sparse_query_embedding_service.embed(
+                query_text,
+            )
+
+            sparse_result = await self._retrieval_provider.search_sparse(
+                query=candidate_query,
+                sparse_query=sparse_query,
+            )
+
+            fused = await self._fusion_service.fuse(
+                dense=dense_result,
+                sparse=sparse_result,
+                top_k=top_k,
+            )
+
+        return [chunk.filename for chunk in fused.chunks], timer.elapsed_milliseconds
 
     async def _evaluate(
         self,

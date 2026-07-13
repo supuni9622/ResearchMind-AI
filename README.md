@@ -406,15 +406,16 @@ uv run python -m benchmarks.runner chunking --dataset benchmarks/datasets/resear
 # optionally: --output benchmarks/chunking/reports
 ```
 
-2. Retrieval (dense vs. sparse)
+2. Retrieval (dense vs. sparse vs. hybrid)
 ```
 uv run python -m benchmarks.runner retrieval --dataset benchmarks/datasets/research-papers
 ```
 
 Builds a dedicated `benchmark_retrieval` Qdrant collection from the
 benchmark corpus (dropped and recreated on every run, so it never
-touches production data), then evaluates dense (Voyage AI) and sparse
-(SPLADE) retrieval against the 20-query ground truth set in
+touches production data), then evaluates dense (Voyage AI), sparse
+(SPLADE), and hybrid (Reciprocal Rank Fusion of dense + sparse)
+retrieval against the 20-query ground truth set in
 `benchmarks/datasets/research-papers/retrieval_queries.json`, reporting
 Recall@5/10/20, Precision@5/10, MRR, and avg/P95/P99 latency per ADR-020.
 Requires a reachable Qdrant instance and a configured Voyage AI API key,
@@ -422,10 +423,19 @@ and makes real embedding API calls — unlike the chunking benchmark, it
 is not a purely offline/local run. Report written to
 `benchmarks/reports/retrieval/`.
 
-**Current results (5 documents, 20 queries) are not conclusive.** Both
-dense and sparse hit Recall@5/10/20 = 1.0 on every query, which means
-the dataset is too small/easy to actually stress either retriever — it
-validates that the pipeline works, not which retriever is better.
+**Current results (5 documents, 20 queries) are not conclusive, and RRF
+did not improve anything on this dataset.** Dense, sparse, and hybrid
+all hit Recall@5/10/20 = 1.0 and Precision@5/10 = 0.2/0.1 identically.
+Hybrid's MRR (0.925) was actually slightly *lower* than both dense
+(0.95) and sparse (0.975) alone, and its latency (~324ms avg) is
+dominated by the dense leg since hybrid still pays the Voyage API call
+plus local sparse inference plus fusion overhead. This is exactly the
+outcome ADR-020's Decision Gate warns about: with only 5 topically
+distinct documents, every query has one obviously-correct answer, so
+there's no ranking ambiguity for RRF to actually resolve — fusing two
+retrievers that already agree can only add latency, not lift. See the
+TODO below; this does **not** mean Hybrid is a dead end, it means this
+dataset can't yet tell us whether it is.
 
 ### TODO: Improve the retrieval benchmark dataset
 
@@ -448,11 +458,11 @@ validates that the pipeline works, not which retriever is better.
   has only a handful of candidate documents to choose from, exactly
   what's happening now.
 
-**This should not block Hybrid Retrieval.** Even with a weak benchmark,
-dense and sparse retrieval behave differently in real systems (see
-MRR/latency split above), which is enough signal to justify
-implementing and then properly benchmarking Hybrid — the dataset
-improvements above should happen in parallel, not as a gate.
+**Hybrid Retrieval (RRF fusion) is now implemented** (`/api/v1/retrieve/hybrid`,
+`RetrievalService.search_hybrid`), so this is no longer a build decision —
+it's a tuning question. The dataset improvements above are what's needed
+to find out whether RRF actually helps in this system, and if so, under
+which query categories.
 
 ---
 

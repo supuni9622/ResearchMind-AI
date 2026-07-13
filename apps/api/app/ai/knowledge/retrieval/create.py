@@ -21,6 +21,9 @@ from app.ai.knowledge.indexing.create import (
 from app.ai.knowledge.retrieval.config import (
     QdrantRetrievalConfig,
 )
+from app.ai.knowledge.retrieval.fusion.service import (
+    RetrievalFusionService,
+)
 from app.ai.knowledge.retrieval.interfaces import (
     RetrievalProviderInterface,
 )
@@ -56,22 +59,24 @@ def create_retrieval_registry() -> RetrievalRegistry:
         QdrantRetrievalProvider(
             client=qdrant_client,
             config=QdrantRetrievalConfig(
-                collection_name=settings.qdrant_collection_name,
+                collection_name=(settings.qdrant_collection_name),
             ),
         ),
     ]
 
-    return RetrievalRegistry(providers)
+    return RetrievalRegistry(
+        providers,
+    )
 
 
 def create_query_embedding_service() -> QueryEmbeddingService:
     """
-    Create query embedding service.
+    Create dense query embedding service.
     """
 
     return QueryEmbeddingService(
-        registry=create_embedding_registry(),
-        cache=create_query_embedding_cache(),
+        registry=(create_embedding_registry()),
+        cache=(create_query_embedding_cache()),
     )
 
 
@@ -81,8 +86,26 @@ def create_sparse_query_embedding_service() -> SparseQueryEmbeddingService:
     """
 
     return SparseQueryEmbeddingService(
-        provider=create_sparse_embedding_provider(),
+        provider=(create_sparse_embedding_provider()),
     )
+
+
+def create_fusion_service() -> RetrievalFusionService:
+    """
+    Create retrieval fusion service.
+
+    Currently uses:
+
+    - Reciprocal Rank Fusion (RRF)
+
+    Future:
+
+    - Weighted RRF
+    - Relative Score Fusion
+    - Score Fusion
+    """
+
+    return RetrievalFusionService()
 
 
 def create_retrieval_service() -> RetrievalService:
@@ -91,7 +114,8 @@ def create_retrieval_service() -> RetrievalService:
     """
 
     return RetrievalService(
-        registry=create_retrieval_registry(),
-        query_embedding_service=create_query_embedding_service(),
-        sparse_query_embedding_service=create_sparse_query_embedding_service(),
+        registry=(create_retrieval_registry()),
+        query_embedding_service=(create_query_embedding_service()),
+        sparse_query_embedding_service=(create_sparse_query_embedding_service()),
+        fusion_service=(create_fusion_service()),
     )

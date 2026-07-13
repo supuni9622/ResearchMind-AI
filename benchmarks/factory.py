@@ -29,6 +29,9 @@ from app.ai.knowledge.indexing.create import (
     create_sparse_embedding_provider,
 )
 from app.ai.knowledge.retrieval.config import QdrantRetrievalConfig
+from app.ai.knowledge.retrieval.fusion.service import (
+    RetrievalFusionService,
+)
 from app.ai.knowledge.retrieval.providers.qdrant import (
     QdrantRetrievalProvider,
 )
@@ -111,6 +114,7 @@ def create_benchmark_registry() -> BenchmarkRegistry:
             sparse_query_embedding_service=SparseQueryEmbeddingService(
                 provider=sparse_embedding_provider,
             ),
+            fusion_service=RetrievalFusionService(),
         )
     )
 

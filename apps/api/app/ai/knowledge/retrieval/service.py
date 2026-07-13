@@ -27,6 +27,9 @@ from app.ai.knowledge.retrieval.enums import (
 from app.ai.knowledge.retrieval.exceptions import (
     RetrievalValidationError,
 )
+from app.ai.knowledge.retrieval.fusion.service import (
+    RetrievalFusionService,
+)
 from app.ai.knowledge.retrieval.models import (
     RetrievalExecution,
     RetrievalQuery,
@@ -52,10 +55,12 @@ class RetrievalService:
         registry: RetrievalRegistry,
         query_embedding_service,
         sparse_query_embedding_service: (SparseQueryEmbeddingService),
+        fusion_service: (RetrievalFusionService),
     ) -> None:
         self._registry = registry
         self._query_embedding_service = query_embedding_service
         self._sparse_query_embedding_service = sparse_query_embedding_service
+        self._fusion_service = fusion_service
 
     async def search(
         self,
@@ -222,6 +227,107 @@ class RetrievalService:
         result.statistics = RetrievalStatistics(
             provider=provider,
             strategy=(RetrievalStrategy.SPARSE),
+            duration_ms=duration_ms,
+            returned_chunks=len(
+                result.chunks,
+            ),
+        )
+
+        return result
+
+    async def search_hybrid(
+        self,
+        *,
+        provider: RetrievalProvider,
+        query: RetrievalQuery,
+    ) -> RetrievalResult:
+        """
+        Execute hybrid retrieval.
+
+        Workflow
+
+        Query
+        ↓
+        Dense Retrieval
+        ↓
+        Sparse Retrieval
+        ↓
+        Reciprocal Rank Fusion
+        ↓
+        Top K Results
+        """
+
+        self._validate_query(
+            query,
+        )
+
+        normalized_query = self._normalize_query(
+            query,
+        )
+
+        #
+        # Hybrid needs a larger candidate pool.
+        #
+        # Example:
+        #
+        # user requests:
+        #
+        # top_k = 5
+        #
+        # internally retrieve:
+        #
+        # top_k = 10
+        #
+        # to allow meaningful fusion.
+        #
+
+        retrieval_query = normalized_query.model_copy(
+            update={
+                "top_k": (normalized_query.top_k * 2),
+            }
+        )
+
+        started = perf_counter()
+
+        #
+        # Dense retrieval
+        #
+
+        dense_result = await self.search(
+            provider=provider,
+            query=retrieval_query,
+        )
+
+        #
+        # Sparse retrieval
+        #
+
+        sparse_result = await self.search_sparse(
+            provider=provider,
+            query=retrieval_query,
+        )
+
+        #
+        # Fusion
+        #
+
+        result = await self._fusion_service.fuse(
+            dense=dense_result,
+            sparse=sparse_result,
+            top_k=query.top_k,
+        )
+
+        duration_ms = (perf_counter() - started) * 1000
+
+        result.execution = RetrievalExecution(
+            completed_at=datetime.now(
+                UTC,
+            ),
+        )
+
+        result.statistics = RetrievalStatistics(
+            provider=provider,
+            strategy=(RetrievalStrategy.HYBRID),
             duration_ms=duration_ms,
             returned_chunks=len(
                 result.chunks,

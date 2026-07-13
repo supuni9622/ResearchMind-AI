@@ -99,6 +99,13 @@ class Settings(BaseSettings):
     embedding_cache_ttl_seconds: int = 60 * 60 * 24 * 30
 
     # ==========================================================================
+    # Query Embedding Cache
+    # ==========================================================================
+
+    query_embedding_cache_enabled: bool = True
+    query_embedding_cache_ttl_seconds: int = 60 * 60 * 24
+
+    # ==========================================================================
     # Sparse Embeddings (Hybrid Retrieval)
     # ==========================================================================
 

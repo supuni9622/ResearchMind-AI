@@ -45,10 +45,6 @@ class BaseRetrievalConfig(BaseModel):
         description="Retrieval strategy.",
     )
 
-    enable_query_embedding_cache: bool = Field(
-        default=True,
-        description="Enable query embedding cache.",
-    )
     enable_runtime_metrics: bool = Field(
         default=True,
         description="Collect retrieval runtime metrics.",

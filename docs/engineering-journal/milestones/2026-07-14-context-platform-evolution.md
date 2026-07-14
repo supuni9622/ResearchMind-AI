@@ -420,3 +420,19 @@ Evaluation Platform
 7.
 
 Research Runtime
+
+## Major Architectural Decision
+
+Prompt formatting is strategy-based.
+
+Different consumers require different knowledge representations.
+
+ResearchMind therefore supports:
+
+- DEFAULT
+- NOTEBOOKLM
+- PERPLEXITY
+- RESEARCH
+- AGENT
+
+Prompt formatting remains a Context concern and should not be mixed with Generation prompt templates.

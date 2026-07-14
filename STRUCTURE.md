@@ -36,9 +36,9 @@ ResearchMind-AI/
 │   │       ├── ai/              # AI subsystem
 │   │       │   ├── config/
 │   │       │   │   └── settings.py          # AI-specific configuration
-│   │       │   ├── guardrails/
-│   │       │   │   ├── policies.py          # Content policy definitions
-│   │       │   │   └── scanners.py          # Input/output scanners
+│   │       │   ├── guardrails/              # (empty) — unused scaffold, superseded by ai/knowledge/context/guardrails/
+│   │       │   │   ├── policies.py          # (empty)
+│   │       │   │   └── scanners.py          # (empty)
 │   │       │   ├── knowledge/               # RAG knowledge pipeline
 │   │       │   │   ├── cache/               # Embedding + query-embedding caches
 │   │       │   │   │   ├── embeddings/
@@ -75,6 +75,60 @@ ResearchMind-AI/
 │   │       │   │   │   ├── models.py               # Chunk + sub-models (content, structure, statistics, provenance, experiment)
 │   │       │   │   │   ├── registry.py             # ChunkingRegistry — strategy → provider resolution
 │   │       │   │   │   └── service.py              # ChunkingService — validates document, delegates to provider
+│   │       │   │   ├── context/             # Context Platform — Retrieval/Reranking → Generation (~90% complete)
+│   │       │   │   │   ├── artifacts/
+│   │       │   │   │   │   ├── create.py           # create_chunk_artifact_reader() — composition root
+│   │       │   │   │   │   └── reader.py           # ChunkArtifactReader — loads a persisted ChunkArtifact from storage by owner/document/strategy/artifact id
+│   │       │   │   │   ├── builders/
+│   │       │   │   │   │   ├── adjacent_merge.py   # AdjacentMergeService — merges consecutive same-document chunks into one block
+│   │       │   │   │   │   ├── compression.py      # CompressionService — legacy no-op stub, superseded by compression/service.py
+│   │       │   │   │   │   ├── deduplication.py    # DeduplicationService — drops repeat chunk_ids, keeps first occurrence
+│   │       │   │   │   │   ├── ordering.py         # ContextOrderingService — sorts by score desc, chunk_index asc tiebreak
+│   │       │   │   │   │   └── parent_expansion.py # ParentExpansionService — resolves parent_chunk_id via ChunkArtifactReader, enriches with parent_content/page_numbers/heading
+│   │       │   │   │   ├── citations/
+│   │       │   │   │   │   ├── create.py           # create_citation_service() — composition root
+│   │       │   │   │   │   ├── interfaces.py       # CitationServiceInterface ABC
+│   │       │   │   │   │   ├── models.py           # Citation, CitationResult
+│   │       │   │   │   │   └── service.py          # CitationService — numbers chunks S1/S2/..., builds one Citation per chunk
+│   │       │   │   │   ├── compression/            # Compression Platform (V1–V4)
+│   │       │   │   │   │   ├── providers/
+│   │       │   │   │   │   │   ├── embedding.py        # EmbeddingCompressionProvider (V2) — drops near-duplicate chunks via cosine similarity ≥ 0.95
+│   │       │   │   │   │   │   ├── langchain.py        # LangChainCompressionProvider (V3) — raise NotImplementedError
+│   │       │   │   │   │   │   ├── llm.py              # LLMCompressionProvider (V4) — raise NotImplementedError
+│   │       │   │   │   │   │   └── token_budget.py     # TokenBudgetCompressionProvider (V1) — greedy score-sorted packing into a token budget
+│   │       │   │   │   │   ├── create.py           # create_compression_service() — registers all four strategies
+│   │       │   │   │   │   ├── enums.py            # CompressionStrategy (token_budget/embedding_redundancy/langchain_contextual/llm)
+│   │       │   │   │   │   ├── interfaces.py       # CompressionProvider ABC
+│   │       │   │   │   │   ├── models.py           # CompressionRequest, CompressionStatistics, CompressionResult
+│   │       │   │   │   │   ├── registry.py         # CompressionRegistry — strategy → provider resolution
+│   │       │   │   │   │   └── service.py          # CompressionService — resolves strategy, delegates
+│   │       │   │   │   ├── formatter/               # Prompt Formatter — strategy-based knowledge representation
+│   │       │   │   │   │   ├── providers/
+│   │       │   │   │   │   │   ├── agent.py            # AgentFormatterProvider — FACTS/EVIDENCE machine-oriented output
+│   │       │   │   │   │   │   ├── default.py          # DefaultPromptFormatterProvider — NotebookLM-style sectioned output
+│   │       │   │   │   │   │   ├── notebooklm.py       # NotebookLMFormatterProvider — divider-wrapped sectioned output
+│   │       │   │   │   │   │   ├── perplexity.py       # PerplexityFormatterProvider — compact truncated evidence blocks
+│   │       │   │   │   │   │   └── research.py         # ResearchFormatterProvider — groups chunks by heading into TOPIC sections
+│   │       │   │   │   │   ├── create.py           # create_prompt_formatter_service() — registers all five strategies
+│   │       │   │   │   │   ├── enums.py            # PromptFormatStrategy (default/notebooklm/perplexity/research/agent)
+│   │       │   │   │   │   ├── interfaces.py       # PromptFormatterProvider ABC
+│   │       │   │   │   │   ├── models.py           # PromptFormattingResult
+│   │       │   │   │   │   ├── registry.py         # PromptFormatterRegistry — strategy → provider resolution
+│   │       │   │   │   │   └── service.py          # PromptFormatterService — resolves strategy, delegates
+│   │       │   │   │   ├── guardrails/              # Context Guardrails V1
+│   │       │   │   │   │   ├── providers/
+│   │       │   │   │   │   │   └── rule_based.py       # RuleBasedGuardrailProvider — regex prompt-injection/jailbreak detection, risk scoring
+│   │       │   │   │   │   ├── create.py           # create_context_guardrail_service() — registers RuleBasedGuardrailProvider
+│   │       │   │   │   │   ├── enums.py            # ChunkRiskLevel, GuardrailStrategy (rule_based implemented; llama_guard/nemo/lakera reserved)
+│   │       │   │   │   │   ├── interfaces.py       # GuardrailProvider ABC
+│   │       │   │   │   │   ├── models.py           # GuardrailStatistics, GuardrailResult
+│   │       │   │   │   │   ├── registry.py         # GuardrailRegistry — strategy → provider resolution
+│   │       │   │   │   │   └── service.py          # ContextGuardrailService — resolves strategy, delegates
+│   │       │   │   │   ├── create.py               # create_parent_expansion_service() / create_context_builder() — composition root
+│   │       │   │   │   ├── enums.py                # (empty) — strategy enums live in each sub-package
+│   │       │   │   │   ├── interfaces.py           # ContextBuilderInterface ABC
+│   │       │   │   │   ├── models.py               # ContextChunk, PromptContext, ContextStatistics, ContextResult
+│   │       │   │   │   └── service.py              # ContextBuilderService — dedupe → parent expansion → adjacent merge → ordering → compression → guardrails → citations → prompt formatting
 │   │       │   │   ├── embeddings/          # Embedding generation pipeline
 │   │       │   │   │   ├── artifacts/
 │   │       │   │   │   │   ├── builder.py          # EmbeddingArtifactBuilder — builds EmbeddingArtifact from a ChunkArtifact + generated embeddings
@@ -154,7 +208,7 @@ ResearchMind-AI/
 │   │       │   │   │   ├── models.py               # RerankingRequest, RerankedChunk, RerankingResult
 │   │       │   │   │   ├── registry.py             # RerankingRegistry — provider → implementation resolution, has()
 │   │       │   │   │   └── service.py              # RerankingService — validates request, delegates to provider
-│   │       │   │   ├── retrieval/           # Retrieval Platform — dense, sparse, hybrid, metadata filtering (ADR-018, ADR-019, ADR-020, ADR-021, ADR-022)
+│   │       │   │   ├── retrieval/           # Retrieval Platform — dense, sparse, hybrid, parallel, metadata filtering (ADR-018, ADR-019, ADR-020, ADR-021, ADR-022)
 │   │       │   │   │   ├── fusion/
 │   │       │   │   │   │   ├── interfaces.py       # FusionStrategy ABC
 │   │       │   │   │   │   ├── models.py           # FusionResult (unused scaffold — RRF returns RetrievalResult directly)
@@ -228,10 +282,11 @@ ResearchMind-AI/
 │   │       │   │   ├── streaming/
 │   │       │   │   └── structured_output/
 │   │       │   └── shared/                  # Shared AI types and interfaces
-│   │       │       ├── exceptions.py        # AI-specific exceptions
-│   │       │       ├── interfaces.py        # Abstract AI interfaces
-│   │       │       ├── models.py            # Shared AI data models
-│   │       │       └── types.py             # Shared type definitions
+│   │       │       ├── exceptions.py        # (empty)
+│   │       │       ├── interfaces.py        # (empty)
+│   │       │       ├── local_embeddings.py  # get_local_embedding_model() — cached sentence-transformers/all-MiniLM-L6-v2, used by EmbeddingCompressionProvider
+│   │       │       ├── models.py            # (empty)
+│   │       │       └── types.py             # (empty)
 │   │       │
 │   │       ├── api/             # Route layer
 │   │       │   ├── deps.py              # Shared route dependencies
@@ -721,6 +776,26 @@ ResearchMind-AI/
 │   │   ├── ai/knowledge/cache/query_embeddings/
 │   │   │   ├── test_null.py                 # NullQueryEmbeddingCache — always-miss get, no-op set
 │   │   │   └── test_valkey.py               # ValkeyQueryEmbeddingCache — hit/miss decoding, fail-open on Redis errors, corrupt-entry handling, TTL on write
+│   │   ├── ai/knowledge/context/             # Context Platform tests — guardrails/ and formatter/ not yet covered
+│   │   │   ├── artifacts/
+│   │   │   │   └── test_reader.py           # ChunkArtifactReader — storage key layout, payload parsing, error propagation
+│   │   │   ├── builders/
+│   │   │   │   ├── test_adjacent_merge.py   # AdjacentMergeService — chaining, document/index-gap boundaries
+│   │   │   │   ├── test_deduplication.py    # DeduplicationService — collapse repeats, preserve order
+│   │   │   │   ├── test_ordering.py         # ContextOrderingService — score desc, chunk_index tiebreak
+│   │   │   │   └── test_parent_expansion.py # ParentExpansionService — grouped artifact loads, enrichment, unresolvable parents
+│   │   │   ├── citations/
+│   │   │   │   └── test_service.py          # CitationService — numbering, citation_id write-back, merged_chunk_ids handling
+│   │   │   ├── compression/
+│   │   │   │   ├── providers/
+│   │   │   │   │   ├── test_embedding.py        # EmbeddingCompressionProvider — near-duplicate dropping, threshold, statistics
+│   │   │   │   │   ├── test_stub_providers.py   # LangChain/LLM providers still raise NotImplementedError
+│   │   │   │   │   └── test_token_budget.py     # TokenBudgetCompressionProvider — packing, budget overflow, defaults
+│   │   │   │   ├── test_create.py           # create_compression_service() registers all four strategies
+│   │   │   │   ├── test_registry.py         # CompressionRegistry — get/register/overwrite
+│   │   │   │   └── test_service.py          # CompressionService — delegates to resolved provider
+│   │   │   ├── factories.py                 # make_context_chunk() — shared test factory (not a test module)
+│   │   │   └── test_service.py              # ContextBuilderService.build() — full pipeline ordering and output shape
 │   │   ├── ai/knowledge/embeddings/
 │   │   │   ├── artifacts/
 │   │   │   │   ├── test_builder.py          # EmbeddingArtifactBuilder — statistics aggregation, metadata derivation, empty-collection guard
@@ -812,8 +887,9 @@ ResearchMind-AI/
 | Embedding pipeline | `apps/api/app/ai/knowledge/embeddings/` | Transforms a `ChunkArtifact` into vector `Embedding`s via a registry-based provider strategy (Sentence Transformers, Voyage AI, and OpenAI implemented), builds/persists the canonical `EmbeddingArtifact` (`embeddings.json`) |
 | Indexing Platform | `apps/api/app/ai/knowledge/indexing/` | Transforms an `EmbeddingArtifact` + `ChunkArtifact` into dense+sparse `VectorStoreRecord`s (sparse via FastEmbed SPLADE), upserts into Qdrant, builds/persists the canonical `IndexingArtifact` (`indexing.json`) — ADR-018, ADR-019 |
 | Vector Store Platform | `apps/api/app/ai/knowledge/vectorstores/` | Provider-independent vector database abstraction; Qdrant is the only implemented provider, using named dense+sparse vectors per point for native hybrid retrieval |
-| Retrieval Platform | `apps/api/app/ai/knowledge/retrieval/` | Queries the hybrid Qdrant index: dense search, sparse (SPLADE) search, hybrid search via Reciprocal Rank Fusion (`fusion/`), and metadata filtering (`owner_id`/`document_id`/`filename`/`language`); query validation/normalization, Voyage/FastEmbed query embedding (cached), `/retrieve`, `/retrieve/sparse`, `/retrieve/hybrid` (all three auth-protected, server-scoped to `owner_id`) — ADR-018, ADR-019, ADR-020, ADR-021. Parent/Child retrieval and query decomposition are not yet implemented |
+| Retrieval Platform | `apps/api/app/ai/knowledge/retrieval/` | Queries the hybrid Qdrant index: dense search, sparse (SPLADE) search, hybrid search via Reciprocal Rank Fusion (`fusion/`), parallel dense+sparse execution (`asyncio.gather`), and metadata filtering (`owner_id`/`document_id`/`filename`/`language`); query validation/normalization, Voyage/FastEmbed query embedding (cached), `/retrieve`, `/retrieve/sparse`, `/retrieve/hybrid` (all three auth-protected, server-scoped to `owner_id`) — ADR-018, ADR-019, ADR-020, ADR-021. Parent/Child retrieval was reclassified into the Context Platform; query decomposition is deferred to the future Research Runtime |
 | Reranking Platform | `apps/api/app/ai/knowledge/reranking/` | Reorders a hybrid candidate pool using deeper (query, chunk) relevance scoring: `VoyageReranker` (Voyage AI `rerank-2`) and `CrossEncoderReranker` (local `BAAI/bge-reranker-base`), behind a shared provider abstraction/registry/service. Wired into `RetrievalService.search_hybrid(rerank=True)` by default — ADR-022 |
+| Context Platform | `apps/api/app/ai/knowledge/context/` | Turns a `RetrievalResult` into a `PromptContext`: dedup → Parent Expansion (`ChunkArtifactReader`) → Adjacent Merge → ordering → Compression (Token Budget + Embedding Redundancy implemented; LangChain + LLM stubs raise `NotImplementedError`) → Guardrails V1 (`RuleBasedGuardrailProvider`, regex-based prompt-injection detection) → Citation Platform → strategy-based Prompt Formatter (`DEFAULT`/`NOTEBOOKLM`/`PERPLEXITY`/`RESEARCH`/`AGENT`). ~90% complete; not yet wired into a dependency provider or API route |
 | Upload pipeline | `apps/api/app/ai/knowledge/upload/` | File validation, duplicate detection, S3 upload, checksum hashing, enqueues async processing job |
 | Async worker | `apps/worker/` | Standalone process consuming the queue, running `DocumentProcessingService` per job, retry/dead-letter handling |
 | Engineering benchmarks | `benchmarks/` | Offline, manually-run comparison of competing AI implementations (chunking strategies, embedding providers, dense/sparse/hybrid retrieval) against version-controlled datasets — independent from tests and from production infrastructure |

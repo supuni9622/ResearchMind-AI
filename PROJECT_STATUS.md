@@ -2,6 +2,8 @@
 
 **Last Updated:** 2026-07-14
 
+**Current Maturity:** NotebookLM++ + Perplexity Foundation — Hybrid Retrieval, Reranking, Parent Expansion, Compression, Guardrails, and Prompt Formatter strategies are all in place, putting the platform ahead of NotebookLM and closing in on a Perplexity v1 experience. Maturity ladder: `NotebookLM++ → Perplexity v1 (almost here) → Open Deep Research → Manus / Glean`.
+
 ---
 
 # Phase 1 — Identity Platform
@@ -513,9 +515,9 @@ Implemented
 ## Retrieval Strategies
 
 - ✅ Standard retrieval (top-k similarity search)
-- ❌ Parallel retrieval
-- ❌ Parent/Child retrieval
-- ❌ Query decomposition
+- ✅ Parallel retrieval — dense + sparse search executed concurrently via `asyncio.gather`
+- 🔄 Parent/Child retrieval — reclassified out of the Retrieval Platform into the Context Platform (see Milestone 2.8 below); implemented there as Parent Expansion + Adjacent Merge
+- ❌ Query decomposition — moved to the future Research Runtime (Phase 7)
 
 ## Result Processing
 
@@ -604,6 +606,128 @@ Documentation
 
 ---
 
+# Milestone 2.8 — Context Platform
+
+**Status:** 🟡 ~90% Complete
+
+The Context Platform sits between Retrieval/Reranking and Generation. It enriches, deduplicates, compresses, guards, cites, and formats retrieved knowledge before it reaches an LLM. A key architectural realization this milestone: parent/child expansion was reclassified out of the Retrieval Platform and into the Context Platform, since ResearchMind's persisted chunk artifacts (not the vector index) are the source of truth for parent resolution.
+
+Pipeline
+
+```
+Retrieved Chunks
+        ↓
+Deduplicate
+        ↓
+Parent Expansion
+        ↓
+Adjacent Merge
+        ↓
+Ordering
+        ↓
+Compression (Token Budget / Embedding)
+        ↓
+Guardrails
+        ↓
+Citation Building
+        ↓
+Prompt Formatting
+        ↓
+Prompt Context
+```
+
+## 2.8.1 Parent Expansion
+
+**Status:** ✅ Complete
+
+Implemented
+
+- `ChunkArtifactReader` — loads persisted `ChunkArtifact`s from storage so parent chunks can be resolved without S3 object listing
+- `ParentExpansionService` — resolves `parent_chunk_id` from retrieved child chunks into full parent context
+- Vector payload extended with `chunk_artifact_id`, `chunking_strategy`, `parent_chunk_id`
+
+## 2.8.2 Adjacent Merge
+
+**Status:** ✅ Complete
+
+Implemented
+
+- `AdjacentMergeService` — merges adjacent chunks (e.g. chunk 15/16/17) into a single richer context block, NotebookLM-style
+
+## 2.8.3 Compression Platform
+
+**Status:** 🟡 In Progress
+
+Implemented
+
+- Provider architecture (`context/compression/interfaces.py`, `models.py`, `enums.py`, `service.py`, `registry.py`, `create.py`)
+- ✅ Token Budget Provider — sorts by score, fits into token budget (V1)
+- ✅ Embedding Compression Provider — drops redundant chunks by embedding similarity (V2)
+
+Remaining
+
+- ❌ LangChain Provider — `ContextualCompressionRetriever` (V3)
+- ❌ LLM Compression Provider — chunk-level relevant-summary compression (V4)
+
+## 2.8.4 Context Guardrails
+
+**Status:** ✅ V1 Complete
+
+Implemented
+
+- Provider architecture for retrieved-context guardrails
+- `RuleBasedGuardrailProvider`
+- Risk scoring
+- Guardrail statistics
+
+Future
+
+- LlamaGuard
+- NeMo Guardrails
+- Lakera
+
+## 2.8.5 Citation Platform
+
+**Status:** ✅ Complete
+
+Implemented
+
+- Citation IDs
+- Page numbers
+- Headings / heading paths
+- Chunk IDs
+
+Future
+
+- Inline citations
+- Source highlighting
+- Citation evaluation
+
+## 2.8.6 Prompt Formatter
+
+**Status:** ✅ Complete
+
+Implemented — strategy-based prompt formatting, since different downstream consumers need different knowledge representations. Prompt formatting is a Context Platform concern and intentionally stays separate from Generation Platform prompt templates.
+
+Providers
+
+- `DEFAULT`
+- `NOTEBOOKLM`
+- `PERPLEXITY`
+- `RESEARCH`
+- `AGENT`
+
+## Context Platform Status
+
+~90% complete.
+
+Remaining before Milestone 2.8 closes:
+
+- LangChain compression provider (V3)
+- LLM compression provider (V4)
+
+---
+
 # Engineering Benchmark Platform
 
 **Status:** ✅ Foundation Complete
@@ -664,11 +788,15 @@ Qdrant (hybrid — dense + sparse vectors, same collection)
 
 ↓
 
-Retrieval (dense + sparse + hybrid RRF fusion, metadata-filtered, owner-scoped)
+Retrieval (dense + sparse + hybrid RRF fusion, metadata-filtered, owner-scoped, parallel dense+sparse execution)
 
 ↓
 
 Reranking (optional, Voyage AI by default for hybrid)
+
+↓
+
+Context Platform (parent expansion, adjacent merge, compression, guardrails, citations, prompt formatting)
 ```
 
 ---
@@ -686,12 +814,26 @@ Reranking (optional, Voyage AI by default for hybrid)
 | Observability Platform | 🚧 Deferred |
 | Phase 2.5 — Vector Store Platform | ✅ Complete |
 | Phase 2.6 — Indexing Platform (Hybrid Retrieval) | ✅ Complete |
-| Phase 2.7 — Retrieval Platform | ✅ Complete (incl. Metadata Filtering + Reranking) |
+| Phase 2.7 — Retrieval Platform | ✅ Complete (incl. Metadata Filtering + Reranking + Parallel Retrieval) |
+| Phase 2.8 — Context Platform | 🟡 ~90% Complete (Parent Expansion, Adjacent Merge, Compression V1/V2, Guardrails V1, Citations, Prompt Formatter done; LangChain + LLM compression remain) |
+| Phase 2.9 — Generation Platform | ❌ Not Started — next major milestone |
 | Benchmark Platform | ✅ Foundation Complete (incl. Retrieval, Metadata Filtering, Reranking Benchmarks) |
 
 ---
 
 # Recently Completed
+
+✅ Context Platform foundation — ChunkArtifactReader, ParentExpansionService, AdjacentMergeService (~90% of Milestone 2.8 complete)
+
+✅ Compression Platform — Token Budget Provider (V1) + Embedding Compression Provider (V2, drops chunks above similarity threshold)
+
+✅ Context Guardrails V1 — provider architecture, `RuleBasedGuardrailProvider`, risk scoring, statistics
+
+✅ Citation Platform — citation IDs, page numbers, headings/heading paths, chunk IDs
+
+✅ Prompt Formatter — strategy-based formatting (`DEFAULT`, `NOTEBOOKLM`, `PERPLEXITY`, `RESEARCH`, `AGENT`)
+
+✅ Parallel Retrieval — dense + sparse search executed concurrently via `asyncio.gather`
 
 ✅ Metadata Filtering (`owner_id`, `document_id`, `filename`, `language`) across dense, sparse, and hybrid retrieval
 
@@ -739,22 +881,24 @@ Reranking (optional, Voyage AI by default for hybrid)
 
 # Current Focus
 
-## Phase 2.7 — Retrieval Platform (wrapping up)
+## Phase 2.8 — Context Platform (wrapping up) → Phase 2.9 — Generation Platform (next)
 
-Semantic, sparse, and hybrid retrieval, metadata filtering, and reranking are all implemented, benchmarked, and exposed via API (see Milestone 2.7 above). Remaining scope before moving on to Context Building / Research APIs:
+Parent Expansion, Adjacent Merge, Token Budget + Embedding Compression, Guardrails V1, Citations, and Prompt Formatter are all implemented (see Milestone 2.8 above), bringing the Context Platform to ~90% complete. Remaining scope before moving fully into Generation:
 
+- LangChain compression provider (V3 — `ContextualCompressionRetriever`)
+- LLM compression provider (V4 — chunk-level relevant-summary compression)
 - Forward `HybridRetrieveRequest.rerank` from the `/retrieve/hybrid` endpoint into `RetrievalService.search_hybrid` (it currently always uses the service's `rerank=True` default regardless of the request body)
-- Parent/Child Retrieval
-- Query Decomposition
 - Retrieval result cache
 - Scaling the retrieval benchmark dataset (5 → 20-50 documents, 20 → 100 queries, chunk-level relevance) — see `README.md` TODO
+
+The next major milestone is the **Generation Platform** (Milestone 5.1 — highest priority): LLM providers (Groq, OpenAI, Claude, Gemini, Ollama), prompt templates, streaming, and the `/research` API. LangChain adoption for prompt templates/LCEL/output parsers/streaming (Milestone 5.2) follows, then Evaluation Platform expansion (Milestone 6) and a LangGraph-based Research Runtime (Milestone 7).
 
 ---
 
 # Immediate Roadmap
 
 ```
-Retrieval (dense + sparse + hybrid) ✅
+Retrieval (dense + sparse + hybrid + parallel) ✅
 
 ↓
 
@@ -766,11 +910,17 @@ Reranking ✅
 
 ↓
 
-Context Building Platform
+Context Platform (~90%) 🟡
+  Parent Expansion ✅
+  Adjacent Merge ✅
+  Compression (Token Budget + Embedding) ✅ — LangChain / LLM compression ⏳
+  Guardrails V1 ✅
+  Citation Platform ✅
+  Prompt Formatter ✅
 
 ↓
 
-Research API
+Generation Platform ❌ (LLM providers, prompt templates, streaming, /research API)
 
 ↓
 
@@ -778,7 +928,15 @@ Chat
 
 ↓
 
-Citations
+Evaluation Platform Expansion (NDCG, Groundedness, Faithfulness, Hallucinations, Citation Accuracy, E2E, Security)
+
+↓
+
+Research Runtime (Query Decomposition, Planner, Agents, Reviewer, Summarizer, LangGraph)
+
+↓
+
+Long-Term Platform (Research Sessions, Memory, MCP, Feedback Learning)
 ```
 
 ---

@@ -108,8 +108,8 @@ AI subsystem. Document processing, metadata/statistics enrichment, and upload (i
 | File | Description |
 |------|-------------|
 | `__init__.py` | (empty) |
-| `policies.py` | (empty) |
-| `scanners.py` | (empty) |
+| `policies.py` | (empty) — unused scaffold, superseded by `ai/knowledge/context/guardrails/` (the real, registered Context Guardrails implementation) |
+| `scanners.py` | (empty) — unused scaffold, superseded by `ai/knowledge/context/guardrails/` |
 
 ##### `ai/knowledge/`
 
@@ -117,11 +117,12 @@ AI subsystem. Document processing, metadata/statistics enrichment, and upload (i
 |-----------|--------|
 | `cache/` | **Implemented** — Valkey-backed embedding cache + query-embedding cache, see below |
 | `chunking/` | **Implemented** — see below |
+| `context/` | **~90% Implemented** — Context Platform: parent expansion, adjacent merge, compression, guardrails, citations, prompt formatter; see below |
 | `embeddings/` | **Implemented** — see below |
 | `indexing/` | **Implemented** — see below |
 | `processing/` | **Implemented** — see below |
 | `reranking/` | **Implemented** — Voyage AI + CrossEncoder providers; see below |
-| `retrieval/` | **Implemented** — dense, sparse, hybrid (RRF), metadata filtering; see below |
+| `retrieval/` | **Implemented** — dense, sparse, hybrid (RRF), metadata filtering, parallel retrieval; see below |
 | `upload/` | **Implemented** — see below |
 | `vectorstores/` | **Implemented** — see below |
 
@@ -168,6 +169,58 @@ Chunking pipeline. Transforms a canonical `ProcessedDocument` into retrieval-rea
 | `artifacts/builder.py` | `ChunkArtifactBuilder` — builds a `ChunkArtifact` from a list of `Chunk`s |
 | `artifacts/writer.py` | `ChunkArtifactWriter` — persists a `ChunkArtifact` to storage under `documents/{owner_id}/{document_id}/chunking/{strategy}/{artifact_id}/chunks.json` |
 | `evaluators/` | (empty) — planned chunk quality evaluators |
+
+##### `ai/knowledge/context/` — **~90% Implemented**
+
+Context Platform. Sits between Retrieval/Reranking and Generation: takes a `RetrievalResult` and produces a `PromptContext` ready to send to an LLM. Parent/child expansion was deliberately reclassified here from the Retrieval Platform, since ResearchMind's persisted `ChunkArtifact`s — not the vector index — are the source of truth for parent resolution. `ContextBuilderService.build()` runs the full pipeline: dedupe → parent expansion → adjacent merge → ordering → embedding-redundancy compression → token-budget compression → guardrails → citations → prompt formatting. Not yet wired into a dependency provider or API route — `create_context_builder()` exists but nothing outside the package calls it yet. Test coverage: `builders/`, `artifacts/`, `citations/`, and `compression/` all have unit tests (see `tests/unit/ai/knowledge/context/`); `guardrails/` and `formatter/` do not yet.
+
+| File | Description |
+|------|-------------|
+| `__init__.py` | (empty) |
+| `interfaces.py` | `ContextBuilderInterface` ABC — `build(retrieval: RetrievalResult) -> ContextResult` |
+| `models.py` | `ContextChunk` (canonical context unit — retrieval fields + parent-expansion fields + citation fields + `risk_level`/`risk_reasons` + `merged_chunk_ids`), `PromptContext` (`context`, `chunks`, `citations`), `ContextStatistics` (input/output/compressed chunk counts, `total_tokens`, `duration_ms`, `suspicious_chunks`, `malicious_chunks`, `security_warnings`), `ContextResult` |
+| `enums.py` | (empty) — no context-level enums yet; strategy enums live in each sub-package (`compression/enums.py`, `guardrails/enums.py`, `formatter/enums.py`) |
+| `service.py` | `ContextBuilderService` — orchestrates the full pipeline described above; always applies `EMBEDDING_REDUNDANCY` then `TOKEN_BUDGET` compression (max 6000 tokens), `RULE_BASED` guardrails, and `DEFAULT` prompt formatting (strategy selection isn't yet exposed to callers) |
+| `create.py` | `create_parent_expansion_service()` / `create_context_builder()` — composition root wiring every sub-package's own `create_*` function into one `ContextBuilderService` |
+| `artifacts/reader.py` | `ChunkArtifactReader` — loads a persisted `ChunkArtifact` from storage by `owner_id`/`document_id`/`strategy`/`artifact_id`; deliberately knows nothing about retrieval or context building |
+| `artifacts/create.py` | `create_chunk_artifact_reader()` — composition root |
+| `builders/deduplication.py` | `DeduplicationService` — drops repeat `chunk_id`s, keeping first occurrence |
+| `builders/parent_expansion.py` | `ParentExpansionService` — groups chunks by `(owner_id, document_id, chunking_strategy, chunk_artifact_id)` metadata, loads each artifact once via `ChunkArtifactReader`, and enriches chunks with `parent_content`/`page_numbers`/`heading`/`heading_path` from the resolved parent |
+| `builders/adjacent_merge.py` | `AdjacentMergeService` — sorts by `(document_id, chunk_index)` and merges runs of consecutive same-document chunks into one block, tracking `merged_chunk_ids` and taking the max score |
+| `builders/ordering.py` | `ContextOrderingService` — sorts final chunks by score descending, chunk index ascending as tiebreaker |
+| `builders/compression.py` | `CompressionService` — legacy no-op stub (`compress()` returns its input unchanged); superseded by `compression/service.py`, not called by `ContextBuilderService` |
+| `citations/models.py` | `Citation` (`citation_id`, `filename`, `document_id`, `page_numbers`, `heading`, `heading_path`, `chunk_ids`), `CitationResult` |
+| `citations/interfaces.py` | `CitationServiceInterface` ABC — `build(chunks) -> CitationResult` |
+| `citations/service.py` | `CitationService` — numbers chunks `S1`, `S2`, ... in order, writes `citation_id` back onto each chunk, and builds one `Citation` per chunk (`chunk_ids` uses `merged_chunk_ids` when the chunk came from Adjacent Merge, else its own id) |
+| `citations/create.py` | `create_citation_service()` — composition root |
+| `compression/enums.py` | `CompressionStrategy` — `TOKEN_BUDGET`, `EMBEDDING_REDUNDANCY`, `LANGCHAIN_CONTEXTUAL`, `LLM` |
+| `compression/interfaces.py` | `CompressionProvider` ABC — `compress(request) -> CompressionResult` |
+| `compression/models.py` | `CompressionRequest` (`chunks`, `query`, `top_k`, `max_tokens`, `similarity_threshold`), `CompressionStatistics`, `CompressionResult` |
+| `compression/registry.py` | `CompressionRegistry` — strategy → provider resolution |
+| `compression/service.py` | `CompressionService` — resolves the strategy from the registry, delegates |
+| `compression/create.py` | `create_compression_service()` — registers all four providers (Token Budget, Embedding, LangChain, LLM) |
+| `compression/providers/token_budget.py` | `TokenBudgetCompressionProvider` (V1) — sorts by score descending, greedily packs chunks into a token budget (default 6000, `len(content)//4` heuristic), skipping any chunk that would overflow it |
+| `compression/providers/embedding.py` | `EmbeddingCompressionProvider` (V2) — encodes chunk text with the local `sentence-transformers/all-MiniLM-L6-v2` model (`get_local_embedding_model()`), computes a cosine-similarity matrix, and drops later chunks whose similarity to an earlier kept chunk is ≥ 0.95 (configurable) |
+| `compression/providers/langchain.py` | `LangChainCompressionProvider` (V3) — scaffolded, `compress()` `raise NotImplementedError` |
+| `compression/providers/llm.py` | `LLMCompressionProvider` (V4) — scaffolded, `compress()` `raise NotImplementedError` |
+| `guardrails/enums.py` | `ChunkRiskLevel` (safe/suspicious/malicious), `GuardrailStrategy` (`RULE_BASED` implemented; `LLAMA_GUARD`/`NEMO`/`LAKERA` reserved for future providers) |
+| `guardrails/interfaces.py` | `GuardrailProvider` ABC — `validate(chunks) -> GuardrailResult` |
+| `guardrails/models.py` | `GuardrailStatistics` (safe/suspicious/malicious counts), `GuardrailResult` (`chunks`, `removed_chunks`, `warnings`, `statistics`) |
+| `guardrails/registry.py` | `GuardrailRegistry` — strategy → provider resolution |
+| `guardrails/service.py` | `ContextGuardrailService` — resolves the strategy from the registry, delegates |
+| `guardrails/create.py` | `create_context_guardrail_service()` — registers `RuleBasedGuardrailProvider` under `RULE_BASED` |
+| `guardrails/providers/rule_based.py` | `RuleBasedGuardrailProvider` — regex-based prompt-injection/jailbreak detection over chunk content (11 patterns: ignore-instructions, system/developer/assistant-instructions, reveal-hidden-prompt, tool/function call, execute-code, browse, send-email, jailbreak); 0 matches → `SAFE`, 1 match → `SUSPICIOUS`, 2+ matches → `MALICIOUS` (adds a warning) |
+| `formatter/enums.py` | `PromptFormatStrategy` — `DEFAULT`, `NOTEBOOKLM`, `PERPLEXITY`, `RESEARCH`, `AGENT` |
+| `formatter/interfaces.py` | `PromptFormatterProvider` ABC — `format(context: PromptContext) -> PromptFormattingResult` |
+| `formatter/models.py` | `PromptFormattingResult` (`formatted_context`) |
+| `formatter/registry.py` | `PromptFormatterRegistry` — strategy → provider resolution |
+| `formatter/service.py` | `PromptFormatterService` — resolves the strategy from the registry, delegates |
+| `formatter/create.py` | `create_prompt_formatter_service()` — registers all five providers |
+| `formatter/providers/default.py` | `DefaultPromptFormatterProvider` — one `====`-delimited section per chunk: source id, document, heading, pages, parent context, content |
+| `formatter/providers/notebooklm.py` | `NotebookLMFormatterProvider` — near-identical to Default but wraps each section top-and-bottom with `====` dividers and an uppercase `SOURCE [Sx]` label |
+| `formatter/providers/perplexity.py` | `PerplexityFormatterProvider` — compact "Evidence [Sx]" blocks, newline-flattened content truncated to 1000 characters |
+| `formatter/providers/research.py` | `ResearchFormatterProvider` — groups chunks by `heading` (falling back to `filename`) into `TOPIC:` sections, each listing its sources |
+| `formatter/providers/agent.py` | `AgentFormatterProvider` — machine-oriented `FACTS` / `EVIDENCE` two-block output, each fact truncated to 500 characters and tagged with its citation id |
 
 ##### `ai/knowledge/embeddings/` — **Implemented**
 
@@ -284,7 +337,7 @@ Reranking Platform (ADR-022). Reorders a candidate pool of `RetrievedChunk`s usi
 
 ##### `ai/knowledge/retrieval/` — **Implemented**
 
-Retrieval Platform (ADR-018, ADR-019, ADR-020, ADR-021). Queries the hybrid Qdrant index built by the Indexing Platform. Dense (Voyage AI), sparse (FastEmbed SPLADE), hybrid (Reciprocal Rank Fusion of dense + sparse), and metadata filtering are all implemented, benchmarked (`benchmarks/retrieval/`), and exposed via API (`/retrieve`, `/retrieve/sparse`, `/retrieve/hybrid`) — all three endpoints now require authentication and force `owner_id` from the authenticated user rather than the request body. Parent/Child retrieval and Query Decomposition are not yet implemented — see `PROJECT_STATUS.md` Milestone 2.7.
+Retrieval Platform (ADR-018, ADR-019, ADR-020, ADR-021). Queries the hybrid Qdrant index built by the Indexing Platform. Dense (Voyage AI), sparse (FastEmbed SPLADE), hybrid (Reciprocal Rank Fusion of dense + sparse), parallel dense+sparse execution, and metadata filtering are all implemented, benchmarked (`benchmarks/retrieval/`), and exposed via API (`/retrieve`, `/retrieve/sparse`, `/retrieve/hybrid`) — all three endpoints now require authentication and force `owner_id` from the authenticated user rather than the request body. Parent/Child retrieval was reclassified into the Context Platform (`ai/knowledge/context/builders/parent_expansion.py`) rather than implemented here — see `PROJECT_STATUS.md` Milestone 2.8. Query Decomposition is not yet implemented (deferred to the future Research Runtime).
 
 | File | Description |
 |------|-------------|
@@ -397,12 +450,13 @@ All subdirectories empty — planned inference runtime.
 
 ##### `ai/shared/`
 
-All files empty — planned shared AI types and interfaces.
+Mostly empty — planned shared AI types and interfaces. `local_embeddings.py` is a real, implemented exception: a shared local embedding model used outside the Embedding Platform proper.
 
 | File | Purpose |
 |------|---------|
 | `exceptions.py` | (empty) |
 | `interfaces.py` | (empty) |
+| `local_embeddings.py` | `get_local_embedding_model()` — `@lru_cache`d singleton loading `sentence-transformers/all-MiniLM-L6-v2`; used by `EmbeddingCompressionProvider` (`ai/knowledge/context/compression/providers/embedding.py`) to score chunk-similarity for compression, independent of the Embedding Platform's own provider registry |
 | `models.py` | (empty) |
 | `types.py` | (empty) |
 
@@ -1129,6 +1183,26 @@ All empty — planned cross-cutting code.
 | `unit/ai/knowledge/cache/query_embeddings/__init__.py` | Package marker |
 | `unit/ai/knowledge/cache/query_embeddings/test_null.py` | `NullQueryEmbeddingCache` — `get` always reports a miss, `set` is a no-op |
 | `unit/ai/knowledge/cache/query_embeddings/test_valkey.py` | `ValkeyQueryEmbeddingCache` — hit/miss decoding, fail-open on Redis errors, corrupt-entry handling, `set` writes with the configured TTL |
+| `unit/ai/knowledge/context/__init__.py` | Package marker |
+| `unit/ai/knowledge/context/factories.py` | Not a test module — shared `make_context_chunk()` factory imported by the tests below |
+| `unit/ai/knowledge/context/test_service.py` | `ContextBuilderService.build()` — dedup runs before anything downstream, final `PromptContext` is populated from the formatted result, adjacent same-document chunks are merged, output is ordered by score descending, one numbered citation is produced per final chunk, `retrieval_strategy` is set from (or left `None` without) `RetrievalResult.statistics`, `parent_chunk_id` is parsed out of chunk metadata before parent expansion runs |
+| `unit/ai/knowledge/context/artifacts/__init__.py` | Package marker |
+| `unit/ai/knowledge/context/artifacts/test_reader.py` | `ChunkArtifactReader.load()` — builds the expected `documents/{owner_id}/{document_id}/chunking/{strategy}/{artifact_id}/chunks.json` storage key, parses the downloaded payload into a canonical `ChunkArtifact`, propagates storage errors untouched |
+| `unit/ai/knowledge/context/builders/__init__.py` | Package marker |
+| `unit/ai/knowledge/context/builders/test_deduplication.py` | `DeduplicationService` — collapses repeated `chunk_id`s, preserves first-occurrence order, no-op when there are no duplicates or the input is empty |
+| `unit/ai/knowledge/context/builders/test_ordering.py` | `ContextOrderingService` — sorts by score descending, breaks ties by ascending `chunk_index`, empty input returns empty |
+| `unit/ai/knowledge/context/builders/test_adjacent_merge.py` | `AdjacentMergeService` — empty input is a no-op, a single chunk still gains `merged_chunk_ids`, two/three consecutive same-document chunks are combined into one block, a gap in `chunk_index` is not bridged, chunks from different documents are never merged |
+| `unit/ai/knowledge/context/builders/test_parent_expansion.py` | `ParentExpansionService.expand()` — empty input never calls the reader; chunks missing artifact metadata are skipped; the artifact is loaded even when no chunk has a `parent_chunk_id`; a resolvable parent enriches the chunk; an unresolvable `parent_chunk_id` leaves the chunk unenriched; the artifact is loaded once per shared `(owner_id, document_id, strategy, artifact_id)` group and separately per distinct group |
+| `unit/ai/knowledge/context/citations/__init__.py` | Package marker |
+| `unit/ai/knowledge/context/citations/test_service.py` | `CitationService.build()` — citations are numbered starting at `S1`, the `citation_id` is written back onto the source chunk, citation fields are mapped from the chunk, `chunk_ids` uses the chunk's own id when it wasn't merged and `merged_chunk_ids` when it was, empty input returns an empty result |
+| `unit/ai/knowledge/context/compression/__init__.py` | Package marker |
+| `unit/ai/knowledge/context/compression/test_registry.py` | `CompressionRegistry` — `get` resolves a registered provider / raises for an unregistered strategy, `register` overwrites the previous provider for a strategy |
+| `unit/ai/knowledge/context/compression/test_service.py` | `CompressionService` — delegates to the resolved provider, raises when the strategy isn't registered |
+| `unit/ai/knowledge/context/compression/test_create.py` | `create_compression_service()` — registers all four strategies (Token Budget, Embedding Redundancy, LangChain, LLM) |
+| `unit/ai/knowledge/context/compression/providers/__init__.py` | Package marker |
+| `unit/ai/knowledge/context/compression/providers/test_token_budget.py` | `TokenBudgetCompressionProvider` — prefers highest score first, keeps every chunk that fits the budget, skips an oversized chunk while continuing to pack smaller ones, falls back to the default budget when `max_tokens` is `None`, reports accurate statistics, empty input returns an empty result |
+| `unit/ai/knowledge/context/compression/providers/test_embedding.py` | `EmbeddingCompressionProvider` — zero or one chunk never calls the model, a later near-duplicate chunk is dropped, dissimilar chunks are kept, a custom `similarity_threshold` is honored, statistics are accurate, every chunk's content text is encoded |
+| `unit/ai/knowledge/context/compression/providers/test_stub_providers.py` | `LangChainCompressionProvider` / `LLMCompressionProvider` — both confirmed to still `raise NotImplementedError` (V3/V4 not built yet) |
 | `unit/ai/knowledge/embeddings/__init__.py` | Package marker |
 | `unit/ai/knowledge/embeddings/test_registry.py` | `EmbeddingRegistry` registration, lookup, duplicate rejection, unregister/clear, defensive `providers` copy |
 | `unit/ai/knowledge/embeddings/test_service.py` | `EmbeddingService` — delegates to the resolved provider; raises on unknown provider, empty chunk artifact, and blank-text chunks |

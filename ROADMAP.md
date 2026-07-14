@@ -2,6 +2,8 @@
 
 **Last Updated:** 2026-07-14
 
+**Current Maturity:** NotebookLM++ + Perplexity Foundation. Hybrid Retrieval, Reranking, Parent Expansion, Compression, Guardrails, and strategy-based Prompt Formatting are all in place — beyond a plain NotebookLM clone. Maturity ladder: `NotebookLM++ → Perplexity v1 (almost here) → Open Deep Research → Manus / Glean`.
+
 ---
 
 # Vision
@@ -756,8 +758,9 @@ The Retrieval Platform retrieves relevant knowledge from vector stores using mul
 - ✅ Dense Retrieval
 - ✅ Hybrid Retrieval (Reciprocal Rank Fusion of dense + sparse)
 - ✅ Metadata Filtering (`owner_id`, `document_id`, `filename`, `language`; server-enforced `owner_id` scoping from the authenticated user)
-- ❌ Parent Retrieval
-- ❌ Citation Retrieval
+- ✅ Parallel Retrieval (dense + sparse executed concurrently via `asyncio.gather`)
+- 🔄 Parent Retrieval — reclassified into the Context Platform (Milestone 2.8) as Parent Expansion + Adjacent Merge; chunk artifacts, not the vector index, are the source of truth for parent resolution
+- ✅ Citation Retrieval — implemented as the Context Platform's Citation Platform (Milestone 2.8): citation IDs, pages, headings, chunk IDs
 
 ---
 
@@ -766,8 +769,9 @@ The Retrieval Platform retrieves relevant knowledge from vector stores using mul
 - ✅ Dense Vector Search
 - ✅ Hybrid Search
 - ✅ Metadata Filtering
-- ❌ Parent Document Retrieval
-- ❌ Multi-query Retrieval
+- ✅ Parallel Retrieval
+- 🔄 Parent Document Retrieval — moved to Context Platform
+- ❌ Multi-query Retrieval — moved to future Research Runtime (query decomposition)
 
 ---
 
@@ -876,7 +880,104 @@ RerankingArtifact
 
 ---
 
-## Milestone 2.8 — Conversation Memory Platform
+## Milestone 2.8 — Context Platform
+
+**Status:** 🟡 ~90% Complete
+
+The Context Platform sits between Reranking and Generation. It enriches, deduplicates, compresses, guards, cites, and formats retrieved knowledge before it reaches an LLM. Parent/child expansion was reclassified here from the Retrieval Platform once it became clear that ResearchMind's persisted chunk artifacts — not the vector index — are the source of truth for parent resolution.
+
+---
+
+### Responsibilities
+
+- ✅ Parent Expansion
+- ✅ Adjacent Merge
+- 🟡 Compression (Token Budget + Embedding done; LangChain + LLM compression remain)
+- ✅ Context Guardrails (V1)
+- ✅ Citation Building
+- ✅ Prompt Formatting (strategy-based)
+
+---
+
+### 2.8.1 Parent Expansion
+
+**Status:** ✅ Complete
+
+- `ChunkArtifactReader` — loads persisted chunk artifacts from storage
+- `ParentExpansionService` — resolves `parent_chunk_id` into full parent context
+- Vector payload extended with `chunk_artifact_id`, `chunking_strategy`, `parent_chunk_id`
+
+---
+
+### 2.8.2 Adjacent Merge
+
+**Status:** ✅ Complete
+
+- `AdjacentMergeService` — merges adjacent chunks into a single richer context block (NotebookLM-style)
+
+---
+
+### 2.8.3 Compression Platform
+
+**Status:** 🟡 In Progress
+
+Implemented
+
+- ✅ Token Budget Provider (V1) — sort by score, fit into token budget
+- ✅ Embedding Compression Provider (V2) — drop chunks above a similarity threshold
+
+Remaining
+
+- ❌ LangChain Provider (V3) — `ContextualCompressionRetriever`
+- ❌ LLM Compression Provider (V4) — chunk-level relevant-summary compression
+
+---
+
+### 2.8.4 Context Guardrails
+
+**Status:** ✅ V1 Complete
+
+- Provider architecture
+- `RuleBasedGuardrailProvider`
+- Risk scoring
+- Guardrail statistics
+
+Future: LlamaGuard, NeMo Guardrails, Lakera.
+
+---
+
+### 2.8.5 Citation Platform
+
+**Status:** ✅ Complete
+
+- Citation IDs, page numbers, headings/heading paths, chunk IDs
+
+Future: inline citations, source highlighting, citation evaluation.
+
+---
+
+### 2.8.6 Prompt Formatter
+
+**Status:** ✅ Complete
+
+Strategy-based prompt formatting — different downstream consumers need different knowledge representations. Stays a Context Platform concern, separate from Generation Platform prompt templates.
+
+Providers: `DEFAULT`, `NOTEBOOKLM`, `PERPLEXITY`, `RESEARCH`, `AGENT`.
+
+---
+
+### Exit Criteria
+
+- ✅ Parent Expansion operational
+- ✅ Adjacent Merge operational
+- 🟡 Compression Platform (2 of 4 providers complete)
+- ✅ Guardrails V1 operational
+- ✅ Citation Platform operational
+- ✅ Prompt Formatter operational
+
+---
+
+## Milestone 2.9 — Conversation Memory Platform
 
 **Status:** Planned
 
@@ -903,7 +1004,7 @@ Provides conversational memory capabilities for downstream AI systems.
 
 ---
 
-## Milestone 2.9 — Knowledge Service
+## Milestone 2.10 — Knowledge Service
 
 **Status:** Planned
 
@@ -963,13 +1064,74 @@ The Research Engine consumes the Knowledge Platform and generates trustworthy re
 
 Unlike the Knowledge Platform, which prepares knowledge, the Research Engine reasons over that knowledge.
 
+Context Assembly and the Citation Engine are already delivered by the Context Platform (Milestone 2.8). The immediate priority inside Phase 3 is the Generation Platform.
+
 ---
 
-## Responsibilities
+## Milestone 3.1 — Generation Platform
 
-- Retrieval-Augmented Generation (RAG)
-- Context Assembly
-- Citation Engine
+**Status:** ❌ Not Started — **highest-priority next milestone**
+
+### Goal
+
+Own all LLM interactions, consuming the Context Platform's `Prompt Context` output.
+
+### Architecture
+
+```text
+generation/
+
+    interfaces.py
+    models.py
+    service.py
+    registry.py
+    create.py
+
+    providers/
+
+        groq.py
+        openai.py
+        claude.py
+        gemini.py
+        ollama.py
+```
+
+### Milestones
+
+- Generation Core (interfaces, models, service, registry, composition root)
+- Providers — Groq, OpenAI, Claude, Gemini, Ollama
+- Prompt Templates (candidate: LangChain — Milestone 3.2)
+- Output Parsers (candidate: LangChain — Milestone 3.2)
+- Streaming
+- `POST /research` API
+- Streaming Chat API
+
+### Deliverable
+
+Provider-independent generation runtime powering the first end-to-end research answers.
+
+---
+
+## Milestone 3.2 — LangChain Adoption for Generation
+
+**Status:** ❌ Not Started
+
+Introduce LangChain for:
+
+- Prompt Templates
+- LCEL
+- Output Parsers
+- Streaming
+
+Frameworks remain implementation details behind the Generation Platform's provider interfaces.
+
+---
+
+## Research Capabilities
+
+**Status:** ❌ Not Started
+
+- Retrieval-Augmented Generation (RAG) — now Generation Platform + Context Platform combined
 - Research Sessions
 - Report Generation
 - Research History
@@ -1507,11 +1669,14 @@ The major AI Engineering platforms interact as follows.
 | Phase 2.3 — Embedding Platform | ✅ Complete |
 | Phase 2.4 — Observability Platform (Runtime Metrics Foundation) | 🚧 Runtime Metrics Foundation Complete |
 | Phase 2.5 — Vector Store Platform | ✅ Complete |
-| Phase 2.6 — Retrieval Platform | ✅ Complete (Foundation + Metadata Filtering + Reranking) |
+| Phase 2.6 — Retrieval Platform | ✅ Complete (Foundation + Metadata Filtering + Reranking + Parallel Retrieval) |
 | Phase 2.7 — Reranking Platform | ✅ Complete (Foundation) |
-| Phase 2.8 — Conversation Memory Platform | ⏳ Planned |
-| Phase 2.9 — Knowledge Service | ⏳ Planned |
-| Phase 3 — Research Engine | ⏳ Planned |
+| Phase 2.8 — Context Platform | 🟡 ~90% Complete (Parent Expansion, Adjacent Merge, Compression V1/V2, Guardrails V1, Citations, Prompt Formatter done; LangChain + LLM compression remain) |
+| Phase 2.9 — Conversation Memory Platform | ⏳ Planned |
+| Phase 2.10 — Knowledge Service | ⏳ Planned |
+| Phase 3.1 — Generation Platform | ❌ Not Started — next major milestone |
+| Phase 3.2 — LangChain Adoption for Generation | ⏳ Planned |
+| Phase 3 — Research Engine (broader) | ⏳ Planned |
 | Phase 4 — Agentic AI Platform | ⏳ Planned |
 | Phase 5 — Experimentation Platform | ⏳ Planned |
 | Phase 6 — MCP Ecosystem | ⏳ Planned |
@@ -1521,17 +1686,17 @@ The major AI Engineering platforms interact as follows.
 
 # Current Focus
 
-## Phase 2.8 — Conversation Memory Platform / Phase 2.9 — Knowledge Service
+## Phase 2.8 — Context Platform (wrapping up) → Phase 3.1 — Generation Platform (next)
 
-Vector Store, Retrieval (dense/sparse/hybrid), Metadata Filtering, and Reranking are all complete (Phases 2.5–2.7). The Knowledge Platform's remaining gap before it can support the Research Engine is context assembly and conversation memory, not retrieval quality.
+Vector Store, Retrieval (dense/sparse/hybrid/parallel), Metadata Filtering, and Reranking are all complete (Phases 2.5–2.7). The Context Platform (Phase 2.8) is now ~90% complete: Parent Expansion, Adjacent Merge, Token Budget + Embedding Compression, Guardrails V1, Citation Platform, and Prompt Formatter are all implemented. The Knowledge Platform's remaining gap before it can support the Research Engine is Generation, not retrieval or context quality.
 
-Remaining before Phase 3 — Research Engine:
+Remaining before Phase 3.1 — Generation Platform is fully scoped:
 
-- Conversation Memory Platform (Phase 2.8)
-- Knowledge Service — unified orchestration API (Phase 2.9)
-- Context Building (deduplication, compression, token budgeting — see `phase-3-ai-runtime-roadmap.md` Phase 3.7)
+- LangChain compression provider (V3) and LLM compression provider (V4) — closes out Phase 2.8
+- Conversation Memory Platform (Phase 2.9)
+- Knowledge Service — unified orchestration API (Phase 2.10)
 - Forward `HybridRetrieveRequest.rerank` from `/retrieve/hybrid` into `RetrievalService.search_hybrid` (currently always uses the service's `rerank=True` default)
-- Advanced retrieval strategies: Parent/Child Retrieval, Multi-query Retrieval
+- Multi-query Retrieval (query decomposition moved to the future Research Runtime)
 
 ---
 
@@ -1542,13 +1707,15 @@ This project intentionally prioritizes completing the production AI platform (Ti
 1. ~~Vector Store Platform (Phase 2.5)~~ ✅
 2. ~~Retrieval Platform (Phase 2.6)~~ ✅
 3. ~~Reranking Platform (Phase 2.7)~~ ✅
-4. Conversation Memory Platform (Phase 2.8)
-5. Knowledge Service (Phase 2.9)
-6. Research API (Phase 3)
-7. Chat Platform
-8. Citation Platform
-9. Research Engine
-10. Agentic AI Platform
+4. ~~Context Platform (Phase 2.8) — Parent Expansion, Adjacent Merge, Guardrails V1, Citations, Prompt Formatter~~ ✅ (~90%, compression V3/V4 remain)
+5. **Generation Platform (Phase 3.1) — highest priority**
+6. LangChain Adoption for Generation (Phase 3.2)
+7. Conversation Memory Platform (Phase 2.9)
+8. Knowledge Service (Phase 2.10)
+9. Evaluation Platform expansion (NDCG, Groundedness, Faithfulness, Hallucinations, Citation Accuracy, End-to-End, Security Evaluation)
+10. Research Runtime — Query Decomposition, Planner, Research Agents, Reviewer, Summarizer, LangGraph
+11. Agentic AI Platform
+12. Long-Term Platform — Research Sessions, Memory, MCP, Feedback Learning
 11. Advanced Observability, Experimentation Platform (deferred until the core RAG pipeline is complete)
 
 ---

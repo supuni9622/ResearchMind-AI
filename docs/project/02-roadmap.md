@@ -247,11 +247,11 @@ Production vector store. ✅ Complete
 
 ---
 
-## 2.6 Retrieval Platform 🟡
+## 2.6 Retrieval Platform ✅
 
 ### Status
 
-Foundation Complete — see Milestone 2.7 in `PROJECT_STATUS.md` for full detail.
+Complete — see Milestone 2.7 in `PROJECT_STATUS.md` for full detail.
 
 ### Query Processing
 
@@ -267,16 +267,16 @@ Foundation Complete — see Milestone 2.7 in `PROJECT_STATUS.md` for full detail
 ### Retrieval Strategies
 
 * ✅ Standard retrieval
-* ❌ Parallel retrieval
-* ❌ Parent/Child retrieval
-* ❌ Query decomposition
+* ✅ Parallel retrieval (dense + sparse via `asyncio.gather`)
+* 🔄 Parent/Child retrieval — reclassified into the Context Platform (2.9), implemented as Parent Expansion + Adjacent Merge
+* ❌ Query decomposition — moved to the future Research Runtime
 
 ### Result Processing
 
 * ✅ RRF fusion
-* ❌ Metadata filtering (next milestone)
-* ❌ Voyage reranking
-* ❌ CrossEncoder reranking
+* ✅ Metadata filtering (`owner_id`, `document_id`, `filename`, `language`; server-enforced `owner_id`)
+* ✅ Voyage reranking
+* ✅ CrossEncoder reranking
 * ✅ Top-K selection
 
 ### Performance
@@ -289,18 +289,18 @@ Foundation Complete — see Milestone 2.7 in `PROJECT_STATUS.md` for full detail
 * ✅ Recall@K
 * ✅ Precision@K
 * ✅ MRR
+* ✅ NDCG@K
 * ✅ Latency
 * ✅ Cost (qualitative)
-* ❌ NDCG
 
 ### Research APIs
 
 * ✅ `POST /retrieve`
 * ✅ `POST /retrieve/sparse`
 * ✅ `POST /retrieve/hybrid`
-* ❌ `POST /research`
+* ❌ `POST /research` — pending Generation Platform (see Phase 3 note below)
 * ❌ Streaming chat
-* ❌ Citations
+* ✅ Citations — delivered by the Context Platform's Citation Platform (2.9)
 
 ### AI Learning
 
@@ -311,17 +311,17 @@ Foundation Complete — see Milestone 2.7 in `PROJECT_STATUS.md` for full detail
 
 ### Deliverable
 
-Production retrieval engine. 🟡 In Progress — dense/sparse/hybrid search and evaluation done; metadata filtering, reranking, and advanced retrieval strategies remain.
+Production retrieval engine. ✅ Complete — dense/sparse/hybrid/parallel search, metadata filtering, reranking, and evaluation all done.
 
 ---
 
-## 2.7 Reranking ⏳
+## 2.7 Reranking ✅
 
 ### Engineering
 
-* Cross Encoder
-* Late Interaction
-* ColBERT research
+* ✅ Voyage AI (`rerank-2`)
+* ✅ Cross Encoder (local `BAAI/bge-reranker-base`)
+* Late Interaction / ColBERT — future research topic, not started
 
 ### AI Learning
 
@@ -330,7 +330,7 @@ Production retrieval engine. 🟡 In Progress — dense/sparse/hybrid search and
 
 ### Deliverable
 
-Production reranking pipeline.
+Production reranking pipeline. ✅ Complete — wired into `RetrievalService.search_hybrid(rerank=True)` by default.
 
 ---
 
@@ -342,22 +342,59 @@ Evaluate
 
 * ✅ Precision
 * ✅ Recall
-* ❌ NDCG
+* ✅ NDCG
 * ✅ MRR
 * ✅ Latency
 * ✅ Cost (qualitative)
 
-Retrieval-side metrics are implemented via the Retrieval Benchmark
-(`benchmarks/retrieval/`, ADR-020). Reranking, generation, and
-end-to-end pipeline evaluation are not yet started.
+Retrieval and reranking metrics are implemented via the Retrieval and
+Reranking Benchmarks (`benchmarks/retrieval/`, `benchmarks/reranking/`,
+ADR-020). Generation and end-to-end pipeline evaluation
+(Groundedness, Faithfulness, Hallucinations, Citation Accuracy,
+Security Evaluation) are not yet started — see Phase 7 below.
 
 ### Deliverable
 
-Evaluation-driven RAG platform. 🟡 In Progress — retrieval evaluation done.
+Evaluation-driven RAG platform. 🟡 In Progress — retrieval and reranking evaluation done; generation-side evaluation pending the Generation Platform.
+
+---
+
+## 2.9 Context Platform 🟡
+
+### Status
+
+~90% Complete
+
+### Engineering
+
+* ✅ Parent Expansion (`ChunkArtifactReader`, `ParentExpansionService`)
+* ✅ Adjacent Merge (`AdjacentMergeService`)
+* 🟡 Compression — Token Budget (V1) ✅, Embedding Redundancy (V2) ✅, LangChain (V3) ❌, LLM Compression (V4) ❌
+* ✅ Context Guardrails V1 — provider architecture, `RuleBasedGuardrailProvider`, risk scoring, statistics
+* ✅ Citation Platform — citation IDs, pages, headings, chunk IDs
+* ✅ Prompt Formatter — strategy-based (`DEFAULT`, `NOTEBOOKLM`, `PERPLEXITY`, `RESEARCH`, `AGENT`)
+
+A key architectural decision this milestone: parent/child retrieval was
+reclassified out of the Retrieval Platform (2.6) into the Context
+Platform, since ResearchMind's persisted chunk artifacts — not the
+vector index — are the source of truth for parent resolution.
+
+### AI Learning
+
+* Context assembly
+* Compression trade-offs
+* Guardrail risk scoring
+* Prompt strategy design
+
+### Deliverable
+
+Production context-building pipeline feeding the Generation Platform. 🟡 In Progress — LangChain and LLM compression remain before this milestone closes.
 
 ---
 
 # Phase 3 — Conversation Platform
+
+**Note:** Before Conversation Platform milestones below, a **Generation Platform** (multi-provider LLM runtime — Groq, OpenAI, Claude, Gemini, Ollama; prompt templates; streaming; `/research` API) must be built as the highest-priority next milestone. It is the direct consumer of the Context Platform's `Prompt Context` output and status is tracked in `phase-3-ai-runtime-roadmap.md` (Phase 3.8) and `ROADMAP.md` (Phase 3.1).
 
 ## Goal
 

@@ -4,6 +4,8 @@ Version: 2.0
 
 Status: Active
 
+**Current Maturity (2026-07-14):** NotebookLM++ + Perplexity Foundation. Hybrid Retrieval, Reranking, Parent Expansion, Compression, Guardrails, and strategy-based Prompt Formatting are all implemented — beyond a plain NotebookLM clone and closing in on Perplexity v1. Ladder: `NotebookLM++ → Perplexity v1 (almost here) → Open Deep Research → Manus / Glean`. See `PROJECT_STATUS.md` and `ROADMAP.md` for the authoritative, continuously-updated status; this document tracks the frozen technology decisions and long-range vision.
+
 ---
 
 # 1. Vision
@@ -1028,13 +1030,14 @@ Deliverable
 
 Retrieval benchmark suite.
 
-2.6 Retrieval Platform
+2.6 Retrieval Platform ✅ Complete
 
     • ✅ Query Processing
     • ✅ Semantic Search (dense)
     • ✅ Sparse Search (Qdrant native sparse vectors, FastEmbed SPLADE — see ADR-019; no separate BM25 engine)
     • ✅ Hybrid Search (Qdrant fusion of dense + sparse)
-    • 🟡 Retrieval Strategies (standard search done; parent/child, multi-query not started)
+    • ✅ Parallel Retrieval (dense + sparse via `asyncio.gather`)
+    • 🔄 Retrieval Strategies — Parent/Child reclassified into the Context Platform (2.9); multi-query moved to the future Research Runtime
     • ✅ Fusion (Reciprocal Rank Fusion)
     • ✅ Metadata Filtering
     • ✅ Evaluation (Recall@K, Precision@K, MRR, NDCG@K, latency)
@@ -1042,6 +1045,22 @@ Retrieval benchmark suite.
 2.7 Reranking Platform ✅ Complete (Foundation)
 
 2.8 Knowledge Platform Integration 🚧 In Progress
+
+2.9 Context Platform 🟡 ~90% Complete
+
+    • ✅ Parent Expansion (`ChunkArtifactReader`, `ParentExpansionService`)
+    • ✅ Adjacent Merge (`AdjacentMergeService`)
+    • 🟡 Compression — Token Budget (V1) ✅, Embedding Redundancy (V2) ✅, LangChain (V3) ❌, LLM Compression (V4) ❌
+    • ✅ Context Guardrails V1 (`RuleBasedGuardrailProvider`, risk scoring, statistics)
+    • ✅ Citation Platform (citation IDs, pages, headings, chunk IDs)
+    • ✅ Prompt Formatter (`DEFAULT`, `NOTEBOOKLM`, `PERPLEXITY`, `RESEARCH`, `AGENT`)
+
+    Architectural decision: parent/child retrieval was reclassified out of the
+    Retrieval Platform (2.6) into the Context Platform, since ResearchMind's
+    persisted chunk artifacts — not the vector index — are the source of
+    truth for parent resolution.
+
+    Remaining: LangChain compression provider (V3), LLM compression provider (V4).
 
 ---
 
@@ -1182,17 +1201,21 @@ Status
 
 # Phase 3 — AI Runtime Platform
 
+**Status:** ❌ Not Started — **highest-priority next milestone** now that the Context Platform (2.9) is ~90% complete. Tracked in day-to-day docs as the "Generation Platform" (see `ROADMAP.md` Phase 3.1, `phase-3-ai-runtime-roadmap.md` Phase 3.8).
+
 ## Goal
 
 Provide a unified runtime for all LLM interactions.
 
 This platform owns generation.
 
-Knowledge retrieval remains inside the Knowledge Platform.
+Knowledge retrieval remains inside the Knowledge Platform. Context assembly (compression, guardrails, citations, prompt formatting) remains inside the Context Platform (2.9) and feeds this platform's `Prompt Context` input.
 
 ---
 
 ## Phase 3.1 — LLM Provider Platform
+
+**Status:** ❌ Not Started — highest priority
 
 ### Goal
 
@@ -1202,13 +1225,32 @@ Primary
 
 - Groq
 
-Future
+Planned (per the current `generation/providers/` architecture)
 
 - OpenAI
-- Anthropic
+- Claude
 - Gemini
-- Azure OpenAI
 - Ollama
+
+Architecture
+
+```text
+generation/
+
+    interfaces.py
+    models.py
+    service.py
+    registry.py
+    create.py
+
+    providers/
+
+        groq.py
+        openai.py
+        claude.py
+        gemini.py
+        ollama.py
+```
 
 Features
 
@@ -1227,6 +1269,8 @@ Provider-independent LLM runtime.
 ---
 
 ## Phase 3.2 — Prompt Platform
+
+**Status:** ❌ Not Started — candidate for LangChain adoption (Prompt Templates, LCEL, Output Parsers, Streaming). Frameworks remain implementation details behind this platform's interfaces.
 
 Purpose
 
@@ -2812,8 +2856,14 @@ Indexing (dense + sparse — FastEmbed SPLADE)
 Vector Store (Qdrant, native hybrid) ✅
    │
    ▼
-Retrieval (dense + sparse + hybrid RRF, metadata-filtered) ✅
+Retrieval (dense + sparse + hybrid RRF, metadata-filtered, parallel) ✅
    │
    ▼
 Reranking (Voyage AI + CrossEncoder) ✅
+   │
+   ▼
+Context Platform (Parent Expansion, Adjacent Merge, Compression, Guardrails, Citations, Prompt Formatter) 🟡 ~90%
+   │
+   ▼
+Generation Platform (LLM providers, streaming, /research API) ❌ Not Started — next
 ```

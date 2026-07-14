@@ -23,13 +23,20 @@ Current State:
 
 ```text
 NotebookLM++
+    +
+Perplexity Foundation
 ```
+
+Hybrid Retrieval, Reranking, Parent Expansion, Compression, Guardrails, and strategy-based Prompt Formatting are all implemented — beyond a plain NotebookLM clone and closing in on Perplexity v1.
 
 Current Focus:
 
 ```text
-Phase 4
-Context Platform
+Phase 3.7
+Context Building Platform (~90% complete — closing out)
+    ↓
+Phase 3.8
+Generation Platform (highest priority — next)
 ```
 
 ---
@@ -234,7 +241,7 @@ Likely Framework:
 
 # Phase 3.7 — Context Building Platform
 
-**Status:** 🟡 In Progress
+**Status:** 🟡 ~90% Complete
 
 ---
 
@@ -260,15 +267,18 @@ Context Building prepares knowledge.
 - ✅ Parent Expansion
 - ✅ Adjacent Chunk Merge
 - ✅ Compression Platform Foundation
-- ✅ Token Budget Compression
+- ✅ Token Budget Compression (V1)
+- ✅ Embedding Redundancy Compression (V2)
+- ✅ Context Guardrails (V1) — provider architecture, `RuleBasedGuardrailProvider`, risk scoring, statistics
+- ✅ Citation Platform — citation IDs, pages, headings, chunk IDs
+- ✅ Prompt Formatter — strategy-based (`DEFAULT`, `NOTEBOOKLM`, `PERPLEXITY`, `RESEARCH`, `AGENT`)
 
 ### Future
 
-- Embedding redundancy compression
-- LangChain contextual compression
-- LLM compression
-- Citation preparation
-- Prompt formatting
+- LangChain contextual compression (V3)
+- LLM compression (V4)
+- Inline citations, source highlighting, citation evaluation
+- LlamaGuard, NeMo Guardrails, Lakera (Guardrails V2)
 
 ---
 
@@ -285,7 +295,9 @@ Adjacent Merge
         ↓
 Ordering
         ↓
-Token Budget Compression
+Compression (Token Budget + Embedding)
+        ↓
+Guardrails
         ↓
 Citation Building
         ↓
@@ -324,6 +336,10 @@ Chunk similarity > 0.95
 Drop duplicate chunks
 ```
 
+Status:
+
+✅ Complete
+
 ---
 
 ### V3
@@ -358,17 +374,19 @@ Compressed Chunk
 - ✅ ChunkArtifactReader
 - ✅ ParentExpansionService
 - ✅ AdjacentMergeService
-- ✅ Compression Platform
-- ✅ Token Budget Compression
+- ✅ Compression Platform (Token Budget + Embedding, V1/V2)
+- ✅ Context Guardrails (V1)
+- ✅ Citation Platform
+- ✅ Prompt Formatter
 
 ### Remaining
 
-- ❌ Citation Platform
-- ❌ Prompt Formatter
+- ❌ LangChain Compression Provider (V3)
+- ❌ LLM Compression Provider (V4)
 
 # Phase 3.8 — Generation Platform
 
-**Status:** ❌ Not Started
+**Status:** ❌ Not Started — **highest-priority next milestone**
 
 ---
 
@@ -500,11 +518,11 @@ Milestone	Platform	Deliverables	Status
 3.1	Retrieval Foundation	Query processing, dense retrieval	✅ Complete
 3.2	Sparse Retrieval	SPLADE, sparse search	✅ Complete
 3.3	Hybrid Retrieval	Dense + Sparse + RRF	✅ Complete
-3.4	Retrieval Strategies	Parallel Retrieval, Runtime Query Decomposition	🟡 Parallel Retrieval complete
+3.4	Retrieval Strategies	Parallel Retrieval, Runtime Query Decomposition	✅ Parallel Retrieval complete (Query Decomposition moved to 3.11)
 3.5	Result Processing	Metadata filtering, Top-K	✅ Complete
 3.6	Reranking Platform	Voyage, CrossEncoder	✅ Complete
-3.7	Context Building Platform	Parent Expansion, Merge, Compression	🟡 In Progress
-3.8	Generation Platform	Multi-provider LLM runtime	❌ Not Started
+3.7	Context Building Platform	Parent Expansion, Merge, Compression, Guardrails, Citations, Prompt Formatter	🟡 ~90% Complete (LangChain + LLM compression remain)
+3.8	Generation Platform	Multi-provider LLM runtime	❌ Not Started — highest priority
 3.9	Research APIs	/research, streaming, citations	❌ Not Started
 3.10	Evaluation Platform	Groundedness, Hallucinations, Citation Accuracy	🟡 Retrieval evaluation complete
 3.11	Research Runtime	Planner, Query Decomposition, Agents	❌ Not Started

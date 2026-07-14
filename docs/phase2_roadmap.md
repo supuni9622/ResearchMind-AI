@@ -274,54 +274,93 @@ embedding cache with TTL. Benchmarked via `benchmarks/embeddings/`.
 
 Status: COMPLETE
 
-🟨 Phase 2.5 — Retrieval Platform (Foundation Complete)
+✅ Phase 2.5 — Retrieval Platform (Complete)
 Hybrid Search ✅
 
 ↓
 
-Metadata Filters ❌
+Metadata Filters ✅
 
 ↓
 
-Reranking ❌
+Reranking ✅ (Voyage AI + CrossEncoder)
 
 ↓
 
-Context Builder ❌
+Parallel Retrieval ✅ (dense + sparse via `asyncio.gather`)
 
 Implemented: query validation/normalization, dense (Voyage AI) search,
 sparse (SPLADE) search, hybrid search via Reciprocal Rank Fusion,
-query embedding cache (Valkey), retrieval evaluation (Recall@K,
-Precision@K, MRR, latency, cost — `benchmarks/retrieval/`, ADR-020).
+query embedding cache (Valkey), metadata filtering (`document_id`,
+`filename`, `owner_id`, `language`, server-enforced `owner_id`),
+Voyage AI + CrossEncoder reranking, parallel dense+sparse execution,
+retrieval evaluation (Recall@K, Precision@K, MRR, NDCG@K, latency,
+cost — `benchmarks/retrieval/`, `benchmarks/reranking/`, ADR-020).
 
-Not started: metadata filtering (`document_id`, `filename`, `owner_id`,
-`tags` — recommended next), Voyage/CrossEncoder reranking, Parent/Child
-retrieval, Query Decomposition, NDCG.
+Reclassified: Parent/Child retrieval moved out of this platform into
+the Context Platform below (2.6), since persisted chunk artifacts —
+not the vector index — are the source of truth for parent resolution.
+Query Decomposition moved to the future Research Runtime.
 
 APIs: `POST /retrieve`, `POST /retrieve/sparse`, `POST /retrieve/hybrid`.
 
-Benchmark finding: on the current 5-document/20-query corpus, hybrid did
-not outperform dense or sparse (Recall@5/10/20 identical; hybrid MRR
-slightly lower). Corpus is too small to be conclusive — see the dataset
-TODO in the root `README.md`.
+Status: COMPLETE
+
+🟨 Phase 2.6 — Context Platform (~90% Complete)
+Parent Expansion ✅
+
+↓
+
+Adjacent Merge ✅
+
+↓
+
+Compression (Token Budget + Embedding) ✅ — LangChain + LLM compression ❌
+
+↓
+
+Guardrails V1 ✅
+
+↓
+
+Citation Platform ✅
+
+↓
+
+Prompt Formatter ✅
+
+Implemented: `ChunkArtifactReader`, `ParentExpansionService`,
+`AdjacentMergeService`, Token Budget + Embedding Compression providers,
+`RuleBasedGuardrailProvider` with risk scoring, citation IDs/pages/
+headings/chunk IDs, and strategy-based prompt formatting (`DEFAULT`,
+`NOTEBOOKLM`, `PERPLEXITY`, `RESEARCH`, `AGENT`).
+
+Not started: LangChain contextual compression (V3), LLM compression (V4).
 
 Status: IN PROGRESS
 
-⏳ Phase 2.6 — RAG Engine
-Retriever
+⏳ Phase 2.7 — Generation Platform (Not Started — highest priority next)
+Prompt Context
 
 ↓
 
-Context
+Generation Service
 
 ↓
 
-Prompt Builder
+LLM Provider (Groq, OpenAI, Claude, Gemini, Ollama)
 
 ↓
 
-LLM
-⏳ Phase 2.7 — Queue & Workers
+Generated Answer
+
+This replaces the earlier "RAG Engine" placeholder now that Retrieval
+and Context are done — Generation is the next platform to build, per
+`ROADMAP.md` (Phase 3.1) and `phase-3-ai-runtime-roadmap.md` (Phase 3.8).
+
+Status: NOT STARTED
+
+⏳ Phase 2.8 — Queue & Workers
 
 This stays exactly where we agreed.
 

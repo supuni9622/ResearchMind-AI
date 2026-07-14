@@ -3,7 +3,7 @@
 
 **Status:** Frozen (v1.0) — architecture frozen; progress tracked inline below
 
-**Last Updated:** 2026-07-13
+**Last Updated:** 2026-07-14
 
 ---
 
@@ -233,6 +233,11 @@ alone. The dataset is too small to give RRF genuine ranking disagreement to
 resolve. See `README.md`'s retrieval benchmark TODO for the dataset-scaling
 plan before treating this as conclusive.
 
+Reranking (Phase 3.6) closes exactly this gap: the Reranking Benchmark shows
+that adding a reranker on top of hybrid's fused pool raises MRR from 0.925 to
+1.0 (CrossEncoder) or 0.95 (Voyage), without moving Recall@5 at all — see
+Phase 3.6 below.
+
 ---
 
 # Phase 3.4 — Retrieval Strategies
@@ -323,7 +328,7 @@ Merge Results
 
 # Phase 3.5 — Result Processing
 
-**Status:** 🟡 In Progress
+**Status:** ✅ Complete (owner_id/document_id/filename/language); workspace_id and tags remain future filters
 
 ## Goal
 
@@ -333,18 +338,32 @@ Improve retrieval quality before reranking.
 
 ## Features
 
-### Metadata Filtering ❌
+### Metadata Filtering ✅
 
-Not started. `QdrantRetrievalProvider._build_filter` already exists as the
-integration point but is currently a stub that always returns `None`.
-Recommended next milestone — support
+`QdrantRetrievalProvider._build_filter` translates canonical
+`RetrievalQuery.filters` into Qdrant payload filters, applied uniformly
+across dense, sparse, and hybrid search. `owner_id` is always injected
+server-side from the authenticated user (`current_user.id`) rather than
+trusted from the request body, closing a prior gap where the retrieval
+endpoints had no auth dependency at all and a caller could spoof another
+user's `owner_id`.
 
-- owner_id
-- workspace_id
-- document_id
-- filename
-- language
-- tags
+Supported today
+
+- ✅ owner_id (server-enforced)
+- ✅ document_id
+- ✅ filename
+- ✅ language
+
+Still future
+
+- ❌ workspace_id
+- ❌ tags
+
+Validated by `MetadataFilteringBenchmark`
+(`benchmarks/retrieval/metadata_filtering_benchmark.py`): `leakage_rate:
+0.0` for every filtered candidate (dense/sparse/hybrid), MRR raised to
+1.0. See `docs/architecture/metadata-filtering.md`.
 
 ---
 
@@ -376,15 +395,15 @@ before reranking.
 
 ## Deliverables
 
-- ❌ Metadata filtering
+- ✅ Metadata filtering
 - ✅ Top-K selection
-- 🟡 Result processing pipeline (RRF + Top-K done; filtering pending)
+- ✅ Result processing pipeline (RRF + Top-K + filtering)
 
 ---
 
 # Phase 3.6 — Reranking Platform
 
-**Status:** ❌ Not started
+**Status:** ✅ Complete (Foundation)
 
 ## Goal
 
@@ -394,13 +413,13 @@ Improve ranking quality.
 
 ## Providers
 
-### MVP
+### Implemented
 
-- Voyage AI Reranker
+- ✅ Voyage AI Reranker (`rerank-2`)
+- ✅ CrossEncoder (local `BAAI/bge-reranker-base`, sentence-transformers — built ahead of the original MVP/Future split below)
 
 ### Future
 
-- CrossEncoder
 - Cohere
 - Jina
 
@@ -420,14 +439,35 @@ Reranker
 Top 5 Results
 ```
 
+Implemented inside `RetrievalService.search_hybrid(rerank=True)`
+(default): fuse dense+sparse down to `top_k`, then rerank via Voyage AI.
+`HybridRetrieveRequest.rerank` exists on the API schema but the
+`/retrieve/hybrid` endpoint does not yet forward it to the service —
+the service's `rerank=True` default always applies.
+
 ---
 
 ## Deliverables
 
-- Provider abstraction
-- Voyage provider
-- CrossEncoder provider
-- Reranking service
+- ✅ Provider abstraction
+- ✅ Voyage provider
+- ✅ CrossEncoder provider
+- ✅ Reranking service
+
+## Evaluation
+
+`RerankingBenchmark` (`benchmarks/reranking/benchmark.py`) compares
+`hybrid_only` vs. `hybrid_cross_encoder` vs. `hybrid_voyage` on the same
+hybrid candidate pool per query. Metrics: Recall@5, MRR, NDCG@5,
+latency, qualitative cost model.
+
+**Finding:** Recall@5 was unchanged by reranking (already 1.0 for
+`hybrid_only`), while MRR (0.925 → 1.0 CrossEncoder / → 0.95 Voyage) and
+NDCG@5 (0.9446 → 1.0 CrossEncoder / → 0.9631 Voyage) both improved
+substantially — exactly the effect reranking is expected to have, since
+it reorders an already-good candidate pool rather than expanding it. On
+this small corpus, the free local CrossEncoder outperformed paid Voyage
+reranking on both quality and latency.
 
 ---
 
@@ -556,7 +596,11 @@ POST /retrieve/sparse
 POST /retrieve/hybrid
 ```
 
-Returns retrieved chunks.
+Returns retrieved chunks. `/retrieve/hybrid` reranks via Voyage AI by
+default. All three endpoints now require authentication
+(`Depends(get_current_user)`) and force `owner_id` from the
+authenticated user rather than the request body — previously these
+endpoints had no auth dependency at all.
 
 Useful for debugging and evaluation.
 
@@ -618,7 +662,7 @@ Returns
 
 # Phase 3.10 — Evaluation Platform
 
-**Status:** 🟡 In Progress (Retrieval evaluation done; Reranker/Generation evaluation not started)
+**Status:** 🟡 In Progress (Retrieval + Reranker evaluation done; Generation evaluation not started)
 
 ## Goal
 
@@ -630,9 +674,10 @@ Measure AI quality continuously.
 
 - ❌ Golden datasets (beyond the 20-query retrieval set)
 - ✅ Retrieval benchmarks (`benchmarks/retrieval/`, dense/sparse/hybrid, ADR-020)
+- ✅ Metadata filtering benchmark (`benchmarks/retrieval/metadata_filtering_benchmark.py`, `leakage_rate` correctness signal)
 - ✅ Embedding comparison (`benchmarks/embeddings/`)
 - ✅ Chunk evaluation (`benchmarks/chunking/`)
-- ❌ Reranker benchmarks
+- ✅ Reranker benchmarks (`benchmarks/reranking/`, hybrid-only vs. +CrossEncoder vs. +Voyage AI)
 
 ---
 
@@ -643,7 +688,7 @@ Measure AI quality continuously.
 - ✅ Recall@K
 - ✅ Precision@K
 - ✅ MRR
-- ❌ NDCG
+- ✅ NDCG@K (`benchmarks/retrieval/metrics.py::ndcg_at_k`)
 
 ### Runtime
 
@@ -761,12 +806,12 @@ Features
 | 3.2 | Sparse Retrieval | SPLADE query vectors, sparse search | ✅ Complete |
 | 3.3 | Hybrid Retrieval | Dense + Sparse + RRF | ✅ Complete |
 | 3.4 | Retrieval Strategies | Parent/Child, Parallel Retrieval, Query Decomposition | ❌ Not started |
-| 3.5 | Result Processing | Metadata filtering, Top-K | 🟡 Top-K + RRF done; filtering pending |
-| 3.6 | Reranking Platform | Voyage AI, CrossEncoder | ❌ Not started |
+| 3.5 | Result Processing | Metadata filtering, Top-K | ✅ Complete |
+| 3.6 | Reranking Platform | Voyage AI, CrossEncoder | ✅ Complete (Foundation) |
 | 3.7 | Context Building Platform | Deduplication, Compression, Token Budgeting | ❌ Not started |
 | 3.8 | Generation Platform | Prompting, LLM Runtime, Streaming | ❌ Not started |
-| 3.9 | Research APIs | `/retrieve`, `/research`, `/research/stream`, `/research/citations` | 🟡 `/retrieve` (+sparse/hybrid) done |
-| 3.10 | Evaluation Platform | Retrieval benchmarks, Hallucination testing, Latency, Cost | 🟡 Retrieval benchmarks done |
+| 3.9 | Research APIs | `/retrieve`, `/research`, `/research/stream`, `/research/citations` | 🟡 `/retrieve` (+sparse/hybrid, auth-protected, owner-scoped) done |
+| 3.10 | Evaluation Platform | Retrieval benchmarks, Hallucination testing, Latency, Cost | 🟡 Retrieval + Reranking benchmarks done |
 
 ---
 

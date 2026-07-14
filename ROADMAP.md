@@ -1,6 +1,6 @@
 # ResearchMind AI Roadmap
 
-**Last Updated:** 2026-07-07
+**Last Updated:** 2026-07-14
 
 ---
 
@@ -683,7 +683,7 @@ Roadmap
 
 ## Milestone 2.5 — Vector Store Platform
 
-**Status:** ⏳ Next — Immediate Focus
+**Status:** ✅ Completed
 
 The Vector Store Platform transforms canonical embeddings into searchable vector indexes.
 
@@ -701,13 +701,9 @@ It abstracts vector database providers behind a common interface while exposing 
 
 ---
 
-### Planned Providers
+### Providers
 
-- ChromaDB
-- pgvector
-- Qdrant
-- Pinecone
-- Weaviate
+Implemented: **Qdrant** (see ADR-017 — Vector Store Platform Architecture). ChromaDB/pgvector/Pinecone/Weaviate were candidates considered but not built.
 
 ---
 
@@ -749,7 +745,7 @@ VectorStoreArtifact
 
 ## Milestone 2.6 — Retrieval Platform
 
-**Status:** Planned
+**Status:** ✅ Completed (Foundation + Metadata Filtering + Reranking); advanced strategies still planned
 
 The Retrieval Platform retrieves relevant knowledge from vector stores using multiple retrieval strategies.
 
@@ -757,21 +753,21 @@ The Retrieval Platform retrieves relevant knowledge from vector stores using mul
 
 ### Responsibilities
 
-- Dense Retrieval
-- Hybrid Retrieval
-- Metadata Filtering
-- Parent Retrieval
-- Citation Retrieval
+- ✅ Dense Retrieval
+- ✅ Hybrid Retrieval (Reciprocal Rank Fusion of dense + sparse)
+- ✅ Metadata Filtering (`owner_id`, `document_id`, `filename`, `language`; server-enforced `owner_id` scoping from the authenticated user)
+- ❌ Parent Retrieval
+- ❌ Citation Retrieval
 
 ---
 
-### Planned Strategies
+### Strategies
 
-- Dense Vector Search
-- Hybrid Search
-- Metadata Filtering
-- Parent Document Retrieval
-- Multi-query Retrieval
+- ✅ Dense Vector Search
+- ✅ Hybrid Search
+- ✅ Metadata Filtering
+- ❌ Parent Document Retrieval
+- ❌ Multi-query Retrieval
 
 ---
 
@@ -813,7 +809,7 @@ RetrievalArtifact
 
 ## Milestone 2.7 — Reranking Platform
 
-**Status:** Planned
+**Status:** ✅ Completed (Foundation)
 
 The Reranking Platform improves retrieval quality by reordering retrieved documents before they are supplied to downstream language models.
 
@@ -821,20 +817,26 @@ The Reranking Platform improves retrieval quality by reordering retrieved docume
 
 ### Responsibilities
 
-- Candidate reranking
-- Multi-stage retrieval
-- Provider abstraction
-- Score normalization
+- ✅ Candidate reranking
+- ❌ Multi-stage retrieval
+- ✅ Provider abstraction (`RerankingProviderInterface`, registry, service)
+- ❌ Score normalization
 
 ---
 
-### Planned Providers
+### Providers
+
+Implemented
+
+- ✅ Voyage AI (`rerank-2`) — wired into `RetrievalService.search_hybrid(rerank=True)` by default
+- ✅ Cross Encoder (local `BAAI/bge-reranker-base`, sentence-transformers)
+
+Future
 
 - Jina AI
 - Cohere
-- Voyage AI
-- Cross Encoders
-- BGE Reranker
+
+**Finding** (see `benchmarks/reranking/`): on the current benchmark corpus, reranking left Recall@5 unchanged (already 1.0) while lifting MRR and NDCG@5 substantially — exactly the effect reranking is expected to have, since it improves ordering rather than recall. The free local CrossEncoder outperformed paid Voyage AI reranking on this small corpus.
 
 ---
 
@@ -1405,6 +1407,10 @@ Benchmarks
 
 - Chunking Benchmark
 - Embedding Benchmark
+- Retrieval Benchmark (dense vs. sparse vs. hybrid RRF, ADR-020 metrics)
+- Metadata Filtering Benchmark (`leakage_rate` correctness signal, unfiltered vs. owner-filtered)
+- Reranking Benchmark (hybrid-only vs. +CrossEncoder vs. +Voyage AI; Recall@5, MRR, NDCG@5, latency, cost)
+- Pipeline Benchmark (end-to-end ingestion)
 
 Dataset
 
@@ -1415,9 +1421,7 @@ Dataset
 ## Planned
 
 - Vector Store Benchmark
-- Retrieval Benchmark
-- Reranking Benchmark
-- End-to-End Pipeline Benchmark
+- End-to-End Pipeline Benchmark (RAG-level, post Context Building / Generation)
 
 
 ---
@@ -1502,9 +1506,9 @@ The major AI Engineering platforms interact as follows.
 | Phase 2.2 — Chunking Platform | ✅ Complete |
 | Phase 2.3 — Embedding Platform | ✅ Complete |
 | Phase 2.4 — Observability Platform (Runtime Metrics Foundation) | 🚧 Runtime Metrics Foundation Complete |
-| Phase 2.5 — Vector Store Platform | ⏳ Next |
-| Phase 2.6 — Retrieval Platform | ⏳ Planned |
-| Phase 2.7 — Reranking Platform | ⏳ Planned |
+| Phase 2.5 — Vector Store Platform | ✅ Complete |
+| Phase 2.6 — Retrieval Platform | ✅ Complete (Foundation + Metadata Filtering + Reranking) |
+| Phase 2.7 — Reranking Platform | ✅ Complete (Foundation) |
 | Phase 2.8 — Conversation Memory Platform | ⏳ Planned |
 | Phase 2.9 — Knowledge Service | ⏳ Planned |
 | Phase 3 — Research Engine | ⏳ Planned |
@@ -1517,65 +1521,17 @@ The major AI Engineering platforms interact as follows.
 
 # Current Focus
 
-## Phase 2.5 — Vector Store Platform
+## Phase 2.8 — Conversation Memory Platform / Phase 2.9 — Knowledge Service
 
-The Embedding Platform is considered stable and frozen unless bugs are discovered. Runtime Metrics Foundation satisfies current observability needs, so the full Observability Platform remains deferred.
+Vector Store, Retrieval (dense/sparse/hybrid), Metadata Filtering, and Reranking are all complete (Phases 2.5–2.7). The Knowledge Platform's remaining gap before it can support the Research Engine is context assembly and conversation memory, not retrieval quality.
 
-Objective: transform canonical embeddings into searchable vector indexes while maintaining the provider-driven architecture established throughout the Knowledge Platform, following the same architectural principles used by the Chunking and Embedding platforms. The initial provider will be **ChromaDB**.
+Remaining before Phase 3 — Research Engine:
 
-Implementation order
-
-```text
-Models
-
-↓
-
-Interfaces
-
-↓
-
-Provider Abstraction
-
-↓
-
-Registry
-
-↓
-
-Factory
-
-↓
-
-ChromaDB Provider
-
-↓
-
-VectorStoreArtifact
-
-↓
-
-Service
-
-↓
-
-Processing Integration
-
-↓
-
-Manual Verification
-
-↓
-
-Architecture Documentation
-
-↓
-
-Engineering Journal
-
-↓
-
-Roadmap Update
-```
+- Conversation Memory Platform (Phase 2.8)
+- Knowledge Service — unified orchestration API (Phase 2.9)
+- Context Building (deduplication, compression, token budgeting — see `phase-3-ai-runtime-roadmap.md` Phase 3.7)
+- Forward `HybridRetrieveRequest.rerank` from `/retrieve/hybrid` into `RetrievalService.search_hybrid` (currently always uses the service's `rerank=True` default)
+- Advanced retrieval strategies: Parent/Child Retrieval, Multi-query Retrieval
 
 ---
 
@@ -1583,16 +1539,17 @@ Roadmap Update
 
 This project intentionally prioritizes completing the production AI platform (Tier 1) before expanding engineering tooling (Tier 2/3 — Observability, Benchmarking, Experimentation).
 
-1. Vector Store Platform (Phase 2.5)
-2. Retrieval Platform (Phase 2.6)
-3. Reranking Platform (Phase 2.7)
-4. Research API (Phase 2.8 / Phase 3)
-5. Chat Platform
-6. Citation Platform
-7. Knowledge Service
-8. Research Engine
-9. Agentic AI Platform
-10. Advanced Observability, Embedding Benchmark, Experimentation Platform (deferred until the core RAG pipeline is complete)
+1. ~~Vector Store Platform (Phase 2.5)~~ ✅
+2. ~~Retrieval Platform (Phase 2.6)~~ ✅
+3. ~~Reranking Platform (Phase 2.7)~~ ✅
+4. Conversation Memory Platform (Phase 2.8)
+5. Knowledge Service (Phase 2.9)
+6. Research API (Phase 3)
+7. Chat Platform
+8. Citation Platform
+9. Research Engine
+10. Agentic AI Platform
+11. Advanced Observability, Experimentation Platform (deferred until the core RAG pipeline is complete)
 
 ---
 

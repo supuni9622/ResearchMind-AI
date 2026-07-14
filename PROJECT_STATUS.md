@@ -1,6 +1,6 @@
 # ResearchMind AI — Project Status
 
-**Last Updated:** 2026-07-13
+**Last Updated:** 2026-07-14
 
 ---
 
@@ -491,9 +491,9 @@ Documentation
 
 # Milestone 2.7 — Retrieval Platform
 
-**Status:** 🟡 In Progress (Foundation Complete)
+**Status:** ✅ Complete (Foundation + Metadata Filtering + Reranking)
 
-ResearchMind can now query the hybrid Qdrant index built in Milestone 2.6. Dense, sparse, and hybrid (RRF-fused) retrieval are implemented, benchmarked, and exposed via API. Metadata filtering, reranking, and the advanced retrieval strategies remain open.
+ResearchMind can now query the hybrid Qdrant index built in Milestone 2.6. Dense, sparse, and hybrid (RRF-fused) retrieval are implemented, benchmarked, and exposed via API. Metadata filtering and reranking are now implemented end-to-end; only the advanced retrieval strategies (parent/child, query decomposition, multi-query) and a retrieval result cache remain open.
 
 ## Query Processing
 
@@ -521,9 +521,55 @@ Implemented
 
 - ✅ Reciprocal Rank Fusion (RRF)
 - ✅ Top-K selection
-- ❌ Metadata filtering — `_build_filter` exists on the Qdrant provider but is currently a stub that always returns `None`; **recommended next milestone** (document_id, filename, owner_id, tags)
-- ❌ Voyage AI reranking
-- ❌ CrossEncoder reranking
+- ✅ Metadata filtering — `QdrantRetrievalProvider._build_filter` supports `owner_id`, `document_id`, `filename`, `language`; enforced across dense, sparse, and hybrid search
+- ✅ Voyage AI reranking — `VoyageReranker` (Voyage AI `rerank-2`), wired into `RetrievalService.search_hybrid(rerank=True)` by default
+- ✅ CrossEncoder reranking — `CrossEncoderReranker` (local `BAAI/bge-reranker-base`, sentence-transformers)
+
+## Metadata Filtering
+
+**Status:** ✅ Complete
+
+Implemented
+
+- `QdrantRetrievalProvider._build_filter` — translates canonical `RetrievalQuery.filters` into Qdrant payload filters (`owner_id`, `document_id`, `filename`, `language`); unsupported keys and falsy values are ignored rather than raising
+- Applied uniformly across dense, sparse, and hybrid search
+- `owner_id` is always injected server-side from the authenticated user (`current_user.id`), never trusted from the request body — see APIs section below
+
+Validated
+
+- Unit tests (`tests/unit/ai/knowledge/retrieval/providers/test_qdrant_filters.py`) — empty/single/multiple filters, `document_id` UUID coercion, unsupported/falsy values ignored
+- Integration tests (`tests/api/test_retrieval_filters.py`) — 401 without auth, retrieval scoped to the authenticated user, a spoofed `owner_id` in the request body is ignored
+- `MetadataFilteringBenchmark` (`benchmarks/retrieval/metadata_filtering_benchmark.py`) — assigns each benchmark document a distinct synthetic owner and compares unfiltered vs. owner-filtered dense/sparse/hybrid search against a dedicated `benchmark_retrieval_filtering` Qdrant collection
+
+**Finding:** filtering eliminates cross-owner leakage entirely (`leakage_rate: 0.0` for every filtered candidate, down from 0.16–0.21 unfiltered) and raises MRR to a perfect 1.0 across dense, sparse, and hybrid (up from 0.925–0.975 unfiltered) — narrowing the candidate pool to the correct owner means the relevant document always ranks first. Precision@5/10 show no delta, which is a metric-definition artifact of this benchmark corpus (one relevant document per query, so precision@k is capped at `1/k` regardless of filtering) rather than a filtering weakness.
+
+Documentation
+
+- `docs/architecture/metadata-filtering.md`
+
+## Reranking
+
+**Status:** ✅ Complete (Foundation)
+
+Implemented
+
+- Provider abstraction (`RerankingProviderInterface`, `BaseRerankingProvider`), registry, service (`RerankingService`), composition root (`app/ai/knowledge/reranking/create.py`)
+- `VoyageReranker` — Voyage AI `rerank-2`
+- `CrossEncoderReranker` — local `BAAI/bge-reranker-base` via sentence-transformers, no marginal cost
+- Wired into `RetrievalService.search_hybrid(rerank=True)` (default): fuses dense+sparse down to `top_k`, then reranks via Voyage AI before returning
+- `HybridRetrieveRequest.rerank` field exists on the API schema, though the `/retrieve/hybrid` endpoint does not yet forward it to the service (always uses the service's `rerank=True` default) — small follow-up item
+
+Validated
+
+- `tests/unit/ai/knowledge/reranking/test_registry.py`
+- `RerankingBenchmark` (`benchmarks/reranking/benchmark.py`) — compares `hybrid_only` vs. `hybrid_cross_encoder` vs. `hybrid_voyage` on the *same* hybrid candidate pool per query, reporting Recall@5, MRR, NDCG@5, latency, and a qualitative cost model
+
+**Finding:** exactly the pattern reranking is supposed to produce — Recall@5 was already 1.0 for `hybrid_only` and didn't move for either reranker, while MRR and NDCG@5 both improved (MRR: 0.925 → 1.0 with CrossEncoder, → 0.95 with Voyage; NDCG@5: 0.9446 → 1.0 with CrossEncoder, → 0.9631 with Voyage). On this small benchmark corpus, the free local CrossEncoder outperformed the paid Voyage reranker on both quality and latency, though this shouldn't be over-generalized from 5 documents / 20 queries.
+
+Documentation
+
+- ADR-022 — Reranking Platform
+- `docs/architecture/reranking-platform.md`
 
 ## Performance
 
@@ -534,7 +580,8 @@ Implemented
 
 - ✅ `POST /api/v1/retrieve` — dense
 - ✅ `POST /api/v1/retrieve/sparse` — sparse
-- ✅ `POST /api/v1/retrieve/hybrid` — hybrid (RRF)
+- ✅ `POST /api/v1/retrieve/hybrid` — hybrid (RRF), reranks via Voyage AI by default
+- ✅ All three endpoints now require authentication (`Depends(get_current_user)`) and force `owner_id` from the authenticated user, never from the request body — closes a gap where an unauthenticated or spoofed request could read another user's documents
 - ❌ `POST /research`
 - ❌ Streaming chat
 - ❌ Citations
@@ -546,7 +593,7 @@ Implemented
 - `RetrievalBenchmark` — evaluates dense, sparse, and hybrid against a dedicated, reproducible Qdrant collection (`benchmark_retrieval`, dropped/recreated every run, never touches production data)
 - Metrics: Recall@5/10/20, Precision@5/10, MRR, avg/P95/P99 latency, qualitative cost model — matches the ADR-020 required metric set
 - 20-query hand-curated ground-truth dataset (`benchmarks/datasets/research-papers/retrieval_queries.json`), document-level relevance, 4 query categories (semantic, acronym, exact-keyword, code-entity)
-- ❌ NDCG — explicitly deferred per ADR-020
+- ✅ NDCG — `ndcg_at_k` implemented in `benchmarks/retrieval/metrics.py` (binary relevance, standard DCG/IDCG), used by the Reranking Benchmark below
 
 **Finding:** on the current 5-document benchmark corpus, dense, sparse, and hybrid are statistically indistinguishable — Recall@5/10/20 = 1.0 for all three, and hybrid's MRR (0.925) was actually slightly *lower* than dense (0.95) or sparse (0.975) alone. The corpus is too small (5 documents, 20 queries, document-level relevance) to meaningfully stress any retriever or give RRF real ranking disagreement to resolve. This does not mean Hybrid Retrieval is ineffective — it means the benchmark can't yet answer that question. See the dataset-scaling and chunk-level-relevance TODO in `README.md`.
 
@@ -573,6 +620,8 @@ Implemented
 - Embedding Benchmark
 - Pipeline Benchmark — end-to-end ingestion benchmark (real Chunking → Embedding → Indexing), now reports dense + sparse vector counts per document; re-run after the hybrid indexing change confirmed indexing (SPLADE inference) is the new dominant per-document latency cost, ahead of embedding
 - Retrieval Benchmark — benchmarks dense, sparse, and hybrid (RRF) retrieval against a dedicated, reproducible Qdrant collection (`benchmark_retrieval`, dropped/recreated per run, never touches production data); reports Recall@5/10/20, Precision@5/10, MRR, avg/P95/P99 latency, and a qualitative cost model per ADR-020
+- Metadata Filtering Benchmark — validates `owner_id` filtering against a dedicated `benchmark_retrieval_filtering` collection with a distinct synthetic owner per document; reports Recall@K/Precision@K/MRR plus a `leakage_rate` correctness signal (0.0 for every filtered candidate)
+- Reranking Benchmark — compares `hybrid_only` vs. `hybrid_cross_encoder` vs. `hybrid_voyage` on the same hybrid candidate pool per query against a dedicated `benchmark_reranking` collection; reports Recall@5, MRR, NDCG@5, latency, and a qualitative cost model
 
 ---
 
@@ -615,7 +664,11 @@ Qdrant (hybrid — dense + sparse vectors, same collection)
 
 ↓
 
-Retrieval (dense + sparse + hybrid RRF fusion)
+Retrieval (dense + sparse + hybrid RRF fusion, metadata-filtered, owner-scoped)
+
+↓
+
+Reranking (optional, Voyage AI by default for hybrid)
 ```
 
 ---
@@ -633,12 +686,24 @@ Retrieval (dense + sparse + hybrid RRF fusion)
 | Observability Platform | 🚧 Deferred |
 | Phase 2.5 — Vector Store Platform | ✅ Complete |
 | Phase 2.6 — Indexing Platform (Hybrid Retrieval) | ✅ Complete |
-| Phase 2.7 — Retrieval Platform | 🟡 In Progress (Foundation Complete) |
-| Benchmark Platform | ✅ Foundation Complete (incl. Retrieval Benchmark) |
+| Phase 2.7 — Retrieval Platform | ✅ Complete (incl. Metadata Filtering + Reranking) |
+| Benchmark Platform | ✅ Foundation Complete (incl. Retrieval, Metadata Filtering, Reranking Benchmarks) |
 
 ---
 
 # Recently Completed
+
+✅ Metadata Filtering (`owner_id`, `document_id`, `filename`, `language`) across dense, sparse, and hybrid retrieval
+
+✅ Retrieval API authentication + server-enforced `owner_id` scoping (fixed a gap where requests worked without a bearer token and could spoof another user's `owner_id`)
+
+✅ Reranking Platform (Voyage AI `rerank-2` + local CrossEncoder `BAAI/bge-reranker-base`), wired into hybrid retrieval by default
+
+✅ Metadata Filtering Benchmark (`leakage_rate` correctness signal, MRR uplift)
+
+✅ Reranking Benchmark (hybrid-only vs. +CrossEncoder vs. +Voyage AI; Recall@5, MRR, NDCG@5, latency, cost)
+
+✅ NDCG@K metric added to the retrieval benchmark suite
 
 ✅ Retrieval Platform foundation (dense, sparse, hybrid RRF search + `/retrieve`, `/retrieve/sparse`, `/retrieve/hybrid`)
 
@@ -674,24 +739,11 @@ Retrieval (dense + sparse + hybrid RRF fusion)
 
 # Current Focus
 
-## Phase 2.7 — Retrieval Platform (continued)
+## Phase 2.7 — Retrieval Platform (wrapping up)
 
-Semantic, sparse, and hybrid retrieval are implemented, benchmarked, and exposed via API (see Milestone 2.7 above). The remaining scope from ADR-019 splits into two candidate directions:
+Semantic, sparse, and hybrid retrieval, metadata filtering, and reranking are all implemented, benchmarked, and exposed via API (see Milestone 2.7 above). Remaining scope before moving on to Context Building / Research APIs:
 
-### Option A — Metadata Filtering (recommended next)
-
-Support filtering retrieval by:
-
-- `document_id`
-- `filename`
-- `owner_id`
-- `tags`
-
-`QdrantRetrievalProvider._build_filter` already exists as the integration point but is currently a stub that always returns `None`. This is what makes retrieval production-ready for multi-tenant/multi-document use (e.g. "search only within this workspace" or "search only this document").
-
-### Also remaining
-
-- Voyage AI Reranker / CrossEncoder reranking
+- Forward `HybridRetrieveRequest.rerank` from the `/retrieve/hybrid` endpoint into `RetrievalService.search_hybrid` (it currently always uses the service's `rerank=True` default regardless of the request body)
 - Parent/Child Retrieval
 - Query Decomposition
 - Retrieval result cache
@@ -706,11 +758,15 @@ Retrieval (dense + sparse + hybrid) ✅
 
 ↓
 
-Metadata Filtering
+Metadata Filtering ✅
 
 ↓
 
-Reranking
+Reranking ✅
+
+↓
+
+Context Building Platform
 
 ↓
 

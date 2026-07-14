@@ -966,18 +966,20 @@ Features
 
 #### 2.6.2 Metadata Filtering
 
+**Status:** ✅ Complete (owner_id, document_id, filename, language)
+
 Support filters
 
-- owner_id
-- workspace_id
-- document_id
-- filename
-- language
-- tags
+- ✅ owner_id — server-enforced from the authenticated user, never trusted from the request body
+- ❌ workspace_id
+- ✅ document_id
+- ✅ filename
+- ✅ language
+- ❌ tags
 
 Deliverable
 
-Filtered retrieval.
+Filtered retrieval. Validated by `MetadataFilteringBenchmark` (`benchmarks/retrieval/metadata_filtering_benchmark.py`): `leakage_rate: 0.0` for every filtered candidate (dense/sparse/hybrid) and MRR raised to 1.0. See `docs/architecture/metadata-filtering.md`.
 
 ---
 
@@ -1028,31 +1030,33 @@ Retrieval benchmark suite.
 
 2.6 Retrieval Platform
 
-    • Query Processing
-    • Semantic Search (dense)
-    • Sparse Search (Qdrant native sparse vectors, FastEmbed SPLADE — see ADR-019; no separate BM25 engine)
-    • Hybrid Search (Qdrant fusion of dense + sparse)
-    • Retrieval Strategies
-    • Fusion
-    • Metadata Filtering
-    • Evaluation
+    • ✅ Query Processing
+    • ✅ Semantic Search (dense)
+    • ✅ Sparse Search (Qdrant native sparse vectors, FastEmbed SPLADE — see ADR-019; no separate BM25 engine)
+    • ✅ Hybrid Search (Qdrant fusion of dense + sparse)
+    • 🟡 Retrieval Strategies (standard search done; parent/child, multi-query not started)
+    • ✅ Fusion (Reciprocal Rank Fusion)
+    • ✅ Metadata Filtering
+    • ✅ Evaluation (Recall@K, Precision@K, MRR, NDCG@K, latency)
 
-2.7 Reranking Platform
+2.7 Reranking Platform ✅ Complete (Foundation)
 
-2.8 Knowledge Platform Integration
+2.8 Knowledge Platform Integration 🚧 In Progress
 
 ---
 
 ### Exit Criteria
 
-- Retrieval operational
-- Metadata filters supported
-- Evaluation completed
-- Cache operational
+- ✅ Retrieval operational
+- ✅ Metadata filters supported
+- ✅ Evaluation completed
+- ✅ Cache operational (query embedding cache, Valkey-backed)
 
 ---
 
 ## Phase 2.7 — Reranking Platform
+
+**Status:** ✅ Complete (Foundation)
 
 ### Goal
 
@@ -1064,40 +1068,52 @@ Improve retrieval quality by reordering retrieved documents.
 
 #### 2.7.1 Platform Foundation
 
-- Provider abstraction
-- Registry
-- Service
-- Artifacts
+**Status:** ✅ Complete
+
+- ✅ Provider abstraction (`RerankingProviderInterface`, `BaseRerankingProvider`)
+- ✅ Registry (`RerankingRegistry`, incl. `has()` for optional-provider checks)
+- ✅ Service (`RerankingService`)
+- ✅ Canonical models (`RerankingRequest`, `RerankedChunk`, `RerankingResult`)
 
 ---
 
 #### 2.7.2 Voyage AI Reranker
 
-Primary provider.
+**Status:** ✅ Complete
+
+`VoyageReranker` (Voyage AI `rerank-2`). Also implemented ahead of schedule:
+
+- ✅ CrossEncoder (`BAAI/bge-reranker-base`, local sentence-transformers, no marginal cost)
+
+Wired into `RetrievalService.search_hybrid(rerank=True)` by default.
 
 Future
 
 - Cohere
 - Jina
-- BGE Cross Encoder
 
 ---
 
 #### 2.7.3 Reranking Evaluation
 
+**Status:** ✅ Complete
+
 Metrics
 
-- Precision improvement
-- MRR improvement
-- Latency
-- Cost
+- ✅ Recall@5 (baseline comparison)
+- ✅ MRR improvement
+- ✅ NDCG@5 improvement
+- ✅ Latency
+- ✅ Cost (qualitative cost_model per candidate — no $ pricing engine exists yet)
+
+`RerankingBenchmark` (`benchmarks/reranking/benchmark.py`) compares `hybrid_only` vs. `hybrid_cross_encoder` vs. `hybrid_voyage` on the same hybrid candidate pool per query. **Finding:** Recall@5 was unchanged by reranking (already 1.0), while MRR and NDCG@5 both improved substantially (MRR 0.925 → 1.0 CrossEncoder / → 0.95 Voyage) — confirming reranking's expected effect on ranking quality rather than recall.
 
 ---
 
 ### Exit Criteria
 
-- Reranking operational
-- Evaluation completed
+- ✅ Reranking operational
+- ✅ Evaluation completed
 
 ---
 
@@ -2796,8 +2812,8 @@ Indexing (dense + sparse — FastEmbed SPLADE)
 Vector Store (Qdrant, native hybrid) ✅
    │
    ▼
-Retrieval (not yet implemented)
+Retrieval (dense + sparse + hybrid RRF, metadata-filtered) ✅
    │
    ▼
-Reranking
+Reranking (Voyage AI + CrossEncoder) ✅
 ```

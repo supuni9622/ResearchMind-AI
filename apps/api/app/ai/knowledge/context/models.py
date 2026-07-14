@@ -6,6 +6,9 @@ from uuid import UUID
 from app.ai.knowledge.context.citations.models import (
     Citation,
 )
+from app.ai.knowledge.context.guardrails.enums import (
+    ChunkRiskLevel,
+)
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -61,6 +64,9 @@ class ContextChunk(BaseModel):
     )
 
     citation_id: str | None = None
+    risk_level: ChunkRiskLevel = ChunkRiskLevel.SAFE
+
+    risk_reasons: list[str] = Field(default_factory=list)
     merged_chunk_ids: list[UUID] = Field(
         default_factory=list,
     )

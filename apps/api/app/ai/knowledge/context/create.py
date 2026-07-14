@@ -10,6 +10,9 @@ from app.ai.knowledge.context.citations.create import (
 from app.ai.knowledge.context.compression.create import (
     create_compression_service,
 )
+from app.ai.knowledge.context.guardrails.create import (
+    create_context_guardrail_service,
+)
 from app.ai.knowledge.context.service import (
     ContextBuilderService,
 )
@@ -26,4 +29,5 @@ def create_context_builder() -> ContextBuilderService:
         parent_expansion_service=(create_parent_expansion_service()),
         compression_service=(create_compression_service()),
         citation_service=(create_citation_service()),
+        guardrail_service=(create_context_guardrail_service()),
     )

@@ -42,6 +42,7 @@ import numpy as np
 import pytest
 from app.ai.knowledge.context.citations.service import CitationService
 from app.ai.knowledge.context.compression.create import create_compression_service
+from app.ai.knowledge.context.guardrails.service import ContextGuardrailService
 from app.ai.knowledge.context.models import ContextChunk
 from app.ai.knowledge.context.service import ContextBuilderService
 from app.ai.knowledge.retrieval.enums import RetrievalProvider, RetrievalStrategy
@@ -101,6 +102,7 @@ def _make_service(*, parent_expansion=None) -> ContextBuilderService:
         parent_expansion_service=(parent_expansion or _identity_parent_expansion()),
         compression_service=create_compression_service(),
         citation_service=CitationService(),
+        guardrail_service=ContextGuardrailService(),
     )
 
 

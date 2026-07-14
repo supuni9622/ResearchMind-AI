@@ -27,6 +27,7 @@ from app.ai.knowledge.context.compression.models import (
 from app.ai.knowledge.context.compression.service import (
     CompressionService,
 )
+from app.ai.knowledge.context.guardrails.service import ContextGuardrailService
 from app.ai.knowledge.context.interfaces import (
     ContextBuilderInterface,
 )
@@ -49,6 +50,7 @@ class ContextBuilderService(
         parent_expansion_service: ParentExpansionService,
         compression_service: CompressionService,
         citation_service: CitationService,
+        guardrail_service: ContextGuardrailService,
     ) -> None:
         self._parent_expansion = parent_expansion_service
         self._dedup = DeduplicationService()
@@ -59,6 +61,7 @@ class ContextBuilderService(
 
         self._citations = citation_service
         self._merge = AdjacentMergeService()
+        self._guardrails = guardrail_service
 
     async def build(
         self,
@@ -125,6 +128,15 @@ class ContextBuilderService(
         )
 
         chunks = compression_result.chunks
+
+        # Guardrails
+        guardrail_result = await self._guardrails.validate(
+            chunks,
+        )
+
+        chunks = guardrail_result.chunks
+
+        # citation
 
         citation_result = await self._citations.build(
             chunks,

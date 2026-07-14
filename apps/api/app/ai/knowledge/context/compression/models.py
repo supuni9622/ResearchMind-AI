@@ -19,6 +19,7 @@ class CompressionRequest(BaseModel):
     top_k: int | None = None
 
     max_tokens: int | None = None
+    similarity_threshold: float | None = None
 
 
 class CompressionStatistics(BaseModel):

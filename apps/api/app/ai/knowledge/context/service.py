@@ -102,6 +102,17 @@ class ContextBuilderService(
             chunks,
         )
 
+        embedding_result = await self._compression.compress(
+            strategy=(CompressionStrategy.EMBEDDING_REDUNDANCY),
+            request=(
+                CompressionRequest(
+                    chunks=chunks,
+                )
+            ),
+        )
+
+        chunks = embedding_result.chunks
+
         compression_result = await self._compression.compress(
             strategy=(CompressionStrategy.TOKEN_BUDGET),
             request=(
@@ -128,7 +139,10 @@ class ContextBuilderService(
             statistics=ContextStatistics(
                 input_chunks=len(retrieval.chunks),
                 output_chunks=len(chunks),
-                compressed_chunks=(compression_result.statistics.removed_chunks),
+                compressed_chunks=(
+                    embedding_result.statistics.removed_chunks
+                    + compression_result.statistics.removed_chunks
+                ),
                 total_tokens=(sum(len(chunk.content) // 4 for chunk in chunks)),
                 duration_ms=duration_ms,
             ),

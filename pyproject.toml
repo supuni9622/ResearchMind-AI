@@ -29,6 +29,7 @@ dependencies = [
     "python-multipart>=0.0.32",
     "qdrant-client>=1.18.0",
     "redis>=8.0.1",
+    "scikit-learn>=1.9.0",
     "sentence-transformers>=5.6.0",
     "sqlalchemy>=2.0.51",
     "structlog>=26.1.0",
@@ -98,6 +99,10 @@ exclude = "^alembic/"
 
 [[tool.mypy.overrides]]
 module = "langdetect.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "sklearn.*"
 ignore_missing_imports = true
 
 [tool.coverage.run]

@@ -3,6 +3,9 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from uuid import UUID
 
+from app.ai.knowledge.context.citations.models import (
+    Citation,
+)
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -77,6 +80,9 @@ class PromptContext(BaseModel):
     context: str
 
     chunks: list[ContextChunk]
+    citations: list[Citation] = Field(
+        default_factory=list,
+    )
 
 
 class ContextStatistics(BaseModel):

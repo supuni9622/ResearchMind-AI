@@ -5,31 +5,42 @@ Exercises the real pipeline the service wires together internally
 (dedup -> parent expansion -> adjacent merge -> ordering -> compression
 -> citations), using a fake for parent expansion (already covered on
 its own in test_parent_expansion.py, and it needs storage/S3 to do
-anything real) and the real composition-root compression service, so
-this test is the actual end-to-end contract for the Context Platform's
-"main scenario": turning a RetrievalResult into a PromptContext.
+anything real), the real composition-root compression service, and the
+real CitationService, so this test is the actual end-to-end contract
+for the Context Platform's "main scenario": turning a RetrievalResult
+into a PromptContext.
+
+The local embedding model backing embedding-redundancy compression is
+mocked to always return orthogonal (never-similar) vectors -- this
+pipeline stage is unit-tested on its own in
+compression/providers/test_embedding.py, and letting it run for real
+here would make these tests slow and semantically flaky (two short,
+generic test strings can legitimately embed as "similar").
 
 Covers:
 - Duplicate chunks are collapsed before anything downstream sees them
 - Adjacent chunks from the same document are merged into one block
 - Final chunks are ordered by score (post-merge)
-- Citations context contains one numbered "[Source N]" section per
-  final chunk
+- One citation is produced per final chunk, numbered "S1", "S2", ...
 - input_chunks reflects the raw retrieval count; output_chunks
   reflects the post-pipeline count
 - retrieval_strategy is copied from retrieval.statistics when present,
   and is None when retrieval.statistics is None (no crash)
 - parent_chunk_id is parsed out of chunk.metadata into a real UUID
   before being handed to parent expansion
-- Compression's removed-chunk count surfaces on
+- Compression's removed-chunk count (summed across both the
+  embedding-redundancy and token-budget passes) surfaces on
   ContextStatistics.compressed_chunks
 """
 
 from __future__ import annotations
 
 import uuid
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
+import numpy as np
+import pytest
+from app.ai.knowledge.context.citations.service import CitationService
 from app.ai.knowledge.context.compression.create import create_compression_service
 from app.ai.knowledge.context.models import ContextChunk
 from app.ai.knowledge.context.service import ContextBuilderService
@@ -41,6 +52,21 @@ from app.ai.knowledge.retrieval.models import (
     RetrievalStatistics,
     RetrievedChunk,
 )
+
+
+@pytest.fixture(autouse=True)
+def _mock_embedding_model():
+    # Distinct one-hot vectors per text -> cosine similarity 0.0 between
+    # any two chunks, so embedding-redundancy compression never removes
+    # anything in these tests regardless of chunk content.
+    model = MagicMock()
+    model.encode = MagicMock(side_effect=lambda texts, **kwargs: np.eye(len(texts)))
+
+    with patch(
+        "app.ai.knowledge.context.compression.providers.embedding.get_local_embedding_model",
+        return_value=model,
+    ):
+        yield
 
 
 def _make_chunk(
@@ -74,6 +100,7 @@ def _make_service(*, parent_expansion=None) -> ContextBuilderService:
     return ContextBuilderService(
         parent_expansion_service=(parent_expansion or _identity_parent_expansion()),
         compression_service=create_compression_service(),
+        citation_service=CitationService(),
     )
 
 
@@ -133,9 +160,8 @@ async def test_build_produces_one_numbered_citation_per_final_chunk() -> None:
 
     result = await service.build(_make_retrieval_result([first, second]))
 
-    context = result.prompt_context.context
-    assert "[Source 1]" in context
-    assert "[Source 2]" in context
+    citation_ids = [citation.citation_id for citation in result.prompt_context.citations]
+    assert citation_ids == ["S1", "S2"]
 
 
 async def test_build_sets_retrieval_strategy_from_statistics() -> None:

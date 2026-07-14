@@ -6,9 +6,6 @@ from uuid import UUID
 from app.ai.knowledge.context.builders.adjacent_merge import (
     AdjacentMergeService,
 )
-from app.ai.knowledge.context.builders.citations import (
-    CitationService,
-)
 from app.ai.knowledge.context.builders.deduplication import (
     DeduplicationService,
 )
@@ -17,6 +14,9 @@ from app.ai.knowledge.context.builders.ordering import (
 )
 from app.ai.knowledge.context.builders.parent_expansion import (
     ParentExpansionService,
+)
+from app.ai.knowledge.context.citations.service import (
+    CitationService,
 )
 from app.ai.knowledge.context.compression.enums import (
     CompressionStrategy,
@@ -48,6 +48,7 @@ class ContextBuilderService(
         self,
         parent_expansion_service: ParentExpansionService,
         compression_service: CompressionService,
+        citation_service: CitationService,
     ) -> None:
         self._parent_expansion = parent_expansion_service
         self._dedup = DeduplicationService()
@@ -56,7 +57,7 @@ class ContextBuilderService(
 
         self._compression = compression_service
 
-        self._citations = CitationService()
+        self._citations = citation_service
         self._merge = AdjacentMergeService()
 
     async def build(
@@ -125,7 +126,7 @@ class ContextBuilderService(
 
         chunks = compression_result.chunks
 
-        context = self._citations.build(
+        citation_result = await self._citations.build(
             chunks,
         )
 
@@ -133,8 +134,9 @@ class ContextBuilderService(
 
         return ContextResult(
             prompt_context=PromptContext(
-                context=context,
+                context="",
                 chunks=chunks,
+                citations=(citation_result.citations),
             ),
             statistics=ContextStatistics(
                 input_chunks=len(retrieval.chunks),

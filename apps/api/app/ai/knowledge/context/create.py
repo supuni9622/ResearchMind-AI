@@ -10,6 +10,9 @@ from app.ai.knowledge.context.citations.create import (
 from app.ai.knowledge.context.compression.create import (
     create_compression_service,
 )
+from app.ai.knowledge.context.formatter.create import (
+    create_prompt_formatter_service,
+)
 from app.ai.knowledge.context.guardrails.create import (
     create_context_guardrail_service,
 )
@@ -30,4 +33,5 @@ def create_context_builder() -> ContextBuilderService:
         compression_service=(create_compression_service()),
         citation_service=(create_citation_service()),
         guardrail_service=(create_context_guardrail_service()),
+        prompt_formatter=(create_prompt_formatter_service()),
     )

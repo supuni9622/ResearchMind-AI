@@ -42,7 +42,8 @@ import numpy as np
 import pytest
 from app.ai.knowledge.context.citations.service import CitationService
 from app.ai.knowledge.context.compression.create import create_compression_service
-from app.ai.knowledge.context.guardrails.service import ContextGuardrailService
+from app.ai.knowledge.context.formatter.create import create_prompt_formatter_service
+from app.ai.knowledge.context.guardrails.create import create_context_guardrail_service
 from app.ai.knowledge.context.models import ContextChunk
 from app.ai.knowledge.context.service import ContextBuilderService
 from app.ai.knowledge.retrieval.enums import RetrievalProvider, RetrievalStrategy
@@ -102,7 +103,8 @@ def _make_service(*, parent_expansion=None) -> ContextBuilderService:
         parent_expansion_service=(parent_expansion or _identity_parent_expansion()),
         compression_service=create_compression_service(),
         citation_service=CitationService(),
-        guardrail_service=ContextGuardrailService(),
+        guardrail_service=create_context_guardrail_service(),
+        prompt_formatter=create_prompt_formatter_service(),
     )
 
 
@@ -129,6 +131,21 @@ async def test_build_deduplicates_before_anything_downstream() -> None:
 
     assert result.statistics.input_chunks == 2
     assert len(result.prompt_context.chunks) == 1
+
+
+async def test_build_populates_context_with_the_formatted_result() -> None:
+    # Regression test: build() used to construct the returned
+    # PromptContext from scratch with context="" after formatting,
+    # silently discarding the formatter's output instead of returning
+    # the prompt_context variable it had just populated.
+    chunk = _make_chunk(content="unique payload text")
+    service = _make_service()
+
+    result = await service.build(_make_retrieval_result([chunk]))
+
+    assert result.prompt_context.context != ""
+    assert "paper.pdf" in result.prompt_context.context
+    assert "unique payload text" in result.prompt_context.context
 
 
 async def test_build_merges_adjacent_chunks_from_the_same_document() -> None:

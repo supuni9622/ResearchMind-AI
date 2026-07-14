@@ -27,6 +27,11 @@ from app.ai.knowledge.context.compression.models import (
 from app.ai.knowledge.context.compression.service import (
     CompressionService,
 )
+from app.ai.knowledge.context.formatter.enums import PromptFormatStrategy
+from app.ai.knowledge.context.formatter.service import PromptFormatterService
+from app.ai.knowledge.context.guardrails.enums import (
+    GuardrailStrategy,
+)
 from app.ai.knowledge.context.guardrails.service import ContextGuardrailService
 from app.ai.knowledge.context.interfaces import (
     ContextBuilderInterface,
@@ -51,6 +56,7 @@ class ContextBuilderService(
         compression_service: CompressionService,
         citation_service: CitationService,
         guardrail_service: ContextGuardrailService,
+        prompt_formatter: PromptFormatterService,
     ) -> None:
         self._parent_expansion = parent_expansion_service
         self._dedup = DeduplicationService()
@@ -62,6 +68,7 @@ class ContextBuilderService(
         self._citations = citation_service
         self._merge = AdjacentMergeService()
         self._guardrails = guardrail_service
+        self._formatter = prompt_formatter
 
     async def build(
         self,
@@ -131,7 +138,8 @@ class ContextBuilderService(
 
         # Guardrails
         guardrail_result = await self._guardrails.validate(
-            chunks,
+            strategy=(GuardrailStrategy.RULE_BASED),
+            chunks=chunks,
         )
 
         chunks = guardrail_result.chunks
@@ -142,22 +150,32 @@ class ContextBuilderService(
             chunks,
         )
 
+        prompt_context = PromptContext(
+            context="",
+            chunks=chunks,
+            citations=(citation_result.citations),
+        )
+        formatting_result = await self._formatter.format(
+            strategy=(PromptFormatStrategy.DEFAULT),
+            context=(prompt_context),
+        )
+        prompt_context.context = formatting_result.formatted_context
+
         duration_ms = (perf_counter() - started) * 1000
 
         return ContextResult(
-            prompt_context=PromptContext(
-                context="",
-                chunks=chunks,
-                citations=(citation_result.citations),
-            ),
+            prompt_context=prompt_context,
             statistics=ContextStatistics(
-                input_chunks=len(retrieval.chunks),
-                output_chunks=len(chunks),
+                input_chunks=(len(retrieval.chunks)),
+                output_chunks=(len(chunks)),
                 compressed_chunks=(
                     embedding_result.statistics.removed_chunks
                     + compression_result.statistics.removed_chunks
                 ),
                 total_tokens=(sum(len(chunk.content) // 4 for chunk in chunks)),
-                duration_ms=duration_ms,
+                duration_ms=(duration_ms),
+                suspicious_chunks=(guardrail_result.statistics.suspicious_chunks),
+                malicious_chunks=(guardrail_result.statistics.malicious_chunks),
+                security_warnings=(guardrail_result.warnings),
             ),
         )

@@ -11,7 +11,7 @@ from app.ai.knowledge.context.models import (
 )
 
 
-class ContextGuardrailInterface(
+class GuardrailProvider(
     ABC,
 ):
     @abstractmethod

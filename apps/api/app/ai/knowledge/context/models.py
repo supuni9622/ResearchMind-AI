@@ -103,6 +103,11 @@ class ContextStatistics(BaseModel):
     total_tokens: int = 0
 
     duration_ms: float = 0
+    suspicious_chunks: int = 0
+    malicious_chunks: int = 0
+    security_warnings: list[str] = Field(
+        default_factory=list,
+    )
 
 
 class ContextResult(BaseModel):

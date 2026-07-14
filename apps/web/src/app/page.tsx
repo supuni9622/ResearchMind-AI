@@ -1,5 +1,8 @@
 import type { Metadata } from 'next';
 import { LoginButton } from '@/components/auth/login-button';
+import { Hero } from '@/components/landing/hero';
+import { FeaturesSection } from '@/components/landing/features-section';
+import { ArchitectureSection } from '@/components/landing/architecture-section';
 
 export const metadata: Metadata = {
   title: 'ResearchMind — AI Research Intelligence',
@@ -23,7 +26,7 @@ function LogoMark() {
 export default function LandingPage() {
   return (
     <div className="min-h-screen bg-ink-950 flex flex-col">
-      <header className="flex items-center justify-between px-8 py-5 border-b border-ink-600/60">
+      <header className="flex items-center justify-between px-8 py-5 border-b border-ink-600/60 sticky top-0 bg-ink-950/85 backdrop-blur-sm z-10">
         <div className="flex items-center gap-2.5">
           <LogoMark />
           <span className="text-stone-200 text-[13px] font-medium tracking-wide">
@@ -34,49 +37,26 @@ export default function LandingPage() {
       </header>
 
       <main className="flex-1 flex flex-col">
-        <section className="flex-1 flex flex-col items-center justify-center px-6 py-24 text-center">
-          <div className="max-w-3xl mx-auto">
-            <p className="font-mono text-sage-500 text-[11px] tracking-[0.22em] uppercase mb-8">
-              AI Research Intelligence Platform
-            </p>
+        <Hero />
+        <FeaturesSection />
+        <ArchitectureSection />
 
-            <h1
-              className="font-display text-stone-100 leading-[1.04] tracking-tight mb-6 text-balance"
-              style={{
-                fontSize: 'clamp(2.5rem, 7.5vw, 5.25rem)',
-                fontVariationSettings: "'opsz' 72, 'SOFT' 0, 'WONK' 0",
-              }}
-            >
-              Research that thinks
-              <br />
-              <span className="text-sage-400">with you.</span>
-            </h1>
-
-            <p className="text-stone-400 text-lg leading-relaxed max-w-md mx-auto mb-12">
-              Upload your documents. Ask precise questions. Get answers
-              grounded in your sources, with citations you can verify.
-            </p>
-
-            <LoginButton variant="primary" />
-          </div>
+        <section className="border-t border-ink-600/60 px-8 py-16 text-center">
+          <p
+            className="font-display text-stone-100 mb-6"
+            style={{ fontSize: '1.75rem', fontVariationSettings: "'opsz' 40, 'SOFT' 0" }}
+          >
+            Start your first research session.
+          </p>
+          <LoginButton variant="primary" />
         </section>
 
-        <section className="border-t border-ink-600/60 px-8 py-5">
-          <div className="max-w-3xl mx-auto flex flex-wrap items-center justify-center gap-x-10 gap-y-3">
-            {[
-              { label: 'Upload', sub: 'PDF · DOCX · TXT' },
-              { label: 'Query', sub: 'Natural language' },
-              { label: 'Cite', sub: 'Source-grounded' },
-              { label: 'Synthesize', sub: 'Cross-document' },
-            ].map(({ label, sub }) => (
-              <div key={label} className="flex items-center gap-2">
-                <span className="text-stone-200 text-sm font-medium">{label}</span>
-                <span className="text-ink-500">·</span>
-                <span className="font-mono text-stone-500 text-[11px]">{sub}</span>
-              </div>
-            ))}
-          </div>
-        </section>
+        <footer className="border-t border-ink-600/60 px-8 py-5 flex items-center justify-between">
+          <span className="font-mono text-stone-700 text-[11px]">
+            © {new Date().getFullYear()} ResearchMind
+          </span>
+          <span className="font-mono text-stone-700 text-[11px]">Research Operating System</span>
+        </footer>
       </main>
     </div>
   );

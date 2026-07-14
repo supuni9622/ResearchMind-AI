@@ -223,6 +223,7 @@ Current:
 - Chunking
 - Embeddings
 - Retrieval (dense vs. sparse)
+- Metadata Filtering
 
 Planned:
 
@@ -265,6 +266,7 @@ Run a benchmark:
 uv run python -m benchmarks.runner chunking --dataset benchmarks/datasets/research-papers
 uv run python -m benchmarks.runner embeddings --dataset benchmarks/datasets/research-papers
 uv run python -m benchmarks.runner retrieval --dataset benchmarks/datasets/research-papers
+uv run python -m benchmarks.runner metadatafiltering --dataset benchmarks/datasets/research-papers
 ```
 
 The retrieval benchmark builds a dedicated Qdrant collection
@@ -276,6 +278,18 @@ Recall@5, Recall@10, Precision@5, MRR, and latency for each candidate.
 It requires a reachable Qdrant instance and configured Voyage AI
 credentials, and makes real embedding API calls, unlike the chunking and
 embeddings benchmarks.
+
+The metadata filtering benchmark (see
+[docs/architecture/metadata-filtering.md](../docs/architecture/metadata-filtering.md))
+validates `owner_id` payload filtering against its own dedicated
+collection (`benchmark_retrieval_filtering`), assigning each benchmark
+document a distinct synthetic owner. For dense, sparse, and hybrid
+retrieval it compares an unfiltered baseline against a run filtered to
+the owner of each query's relevant document, reporting Recall@K,
+Precision@K, MRR, and latency for both, plus a `leakage_rate` metric
+(the fraction of returned chunks belonging to the wrong owner — expected
+to be exactly 0.0). It requires the same Qdrant/Voyage AI setup as the
+retrieval benchmark.
 
 ---
 

@@ -41,7 +41,9 @@ from app.ai.knowledge.vectorstores.providers.qdrant import (
 from qdrant_client import AsyncQdrantClient
 from qdrant_client.http import models as qdrant
 from qdrant_client.models import (
+    FieldCondition,
     Filter,
+    MatchValue,
 )
 
 
@@ -150,28 +152,83 @@ class QdrantRetrievalProvider(
         filters: dict,
     ) -> Filter | None:
         """
-        Build Qdrant filter.
+        Build Qdrant metadata filters.
 
-        Currently unused.
+        Supported filters:
 
-        Will support:
-
-        - document_id
         - owner_id
+        - document_id
         - filename
-        - tags
         - language
         """
 
         if not filters:
             return None
 
-        #
-        # Metadata filtering will be implemented
-        # in Milestone 3.5.
-        #
+        must_conditions = []
 
-        return None
+        owner_id = filters.get(
+            "owner_id",
+        )
+
+        if owner_id:
+            must_conditions.append(
+                FieldCondition(
+                    key="owner_id",
+                    match=MatchValue(
+                        value=owner_id,
+                    ),
+                )
+            )
+
+        document_id = filters.get(
+            "document_id",
+        )
+
+        if document_id:
+            must_conditions.append(
+                FieldCondition(
+                    key="document_id",
+                    match=MatchValue(
+                        value=str(document_id),
+                    ),
+                )
+            )
+
+        filename = filters.get(
+            "filename",
+        )
+
+        if filename:
+            must_conditions.append(
+                FieldCondition(
+                    key="filename",
+                    match=MatchValue(
+                        value=filename,
+                    ),
+                )
+            )
+
+        language = filters.get(
+            "language",
+        )
+
+        if language:
+            must_conditions.append(
+                FieldCondition(
+                    key="language",
+                    match=MatchValue(
+                        value=language,
+                    ),
+                )
+            )
+
+        if not must_conditions:
+            return None
+
+        return Filter(
+            must=must_conditions,
+        )
 
     async def search_sparse(
         self,

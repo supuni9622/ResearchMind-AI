@@ -55,6 +55,12 @@ from benchmarks.retrieval.benchmark import (
     RetrievalBenchmark,
 )
 from benchmarks.retrieval.indexer import BenchmarkRetrievalIndexer
+from benchmarks.retrieval.metadata_filtering_benchmark import (
+    BENCHMARK_COLLECTION_NAME as METADATA_FILTERING_COLLECTION_NAME,
+)
+from benchmarks.retrieval.metadata_filtering_benchmark import (
+    MetadataFilteringBenchmark,
+)
 
 
 def create_benchmark_registry() -> BenchmarkRegistry:
@@ -105,6 +111,36 @@ def create_benchmark_registry() -> BenchmarkRegistry:
                 client=qdrant_client,
                 config=QdrantRetrievalConfig(
                     collection_name=BENCHMARK_COLLECTION_NAME,
+                ),
+            ),
+            query_embedding_service=QueryEmbeddingService(
+                registry=embedding_registry,
+                cache=NullQueryEmbeddingCache(),
+            ),
+            sparse_query_embedding_service=SparseQueryEmbeddingService(
+                provider=sparse_embedding_provider,
+            ),
+            fusion_service=RetrievalFusionService(),
+        )
+    )
+
+    registry.register(
+        MetadataFilteringBenchmark(
+            dataset_loader=dataset_loader,
+            indexer=BenchmarkRetrievalIndexer(
+                chunking_service=create_chunking_service(),
+                chunking_strategy=ChunkingStrategy.RECURSIVE,
+                chunk_artifact_builder=ChunkArtifactBuilder(),
+                embedding_registry=embedding_registry,
+                sparse_embedding_provider=sparse_embedding_provider,
+                vectorstore_service=create_vectorstore_service(),
+                qdrant_client=qdrant_client,
+                collection_name=METADATA_FILTERING_COLLECTION_NAME,
+            ),
+            retrieval_provider=QdrantRetrievalProvider(
+                client=qdrant_client,
+                config=QdrantRetrievalConfig(
+                    collection_name=METADATA_FILTERING_COLLECTION_NAME,
                 ),
             ),
             query_embedding_service=QueryEmbeddingService(

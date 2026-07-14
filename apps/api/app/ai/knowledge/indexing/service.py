@@ -270,8 +270,16 @@ class IndexingService(IndexingServiceInterface):
                         content=chunk.content.text,
                         owner_id=request.owner_id,
                         chunk_index=chunk.index,
+                        #
+                        # Metadata filtering v1
+                        #
                         language=None,
-                        additional_metadata={},
+                        additional_metadata={
+                            "embedding_provider": (artifact.execution.provider.value),
+                            "embedding_model": (artifact.execution.model),
+                            "chunking_strategy": (artifact.chunking.strategy.value),
+                            "parser": (artifact.document.parser),
+                        },
                     ),
                 )
             )

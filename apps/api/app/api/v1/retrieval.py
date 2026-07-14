@@ -48,6 +48,7 @@ async def retrieve(
         query=RetrievalQuery(
             query=request.query,
             top_k=request.top_k,
+            filters=request.filters,
         ),
     )
 
@@ -92,6 +93,7 @@ async def retrieve_sparse(
         query=RetrievalQuery(
             query=request.query,
             top_k=request.top_k,
+            filters=request.filters,
         ),
     )
 
@@ -142,6 +144,7 @@ async def retrieve_hybrid(
         query=RetrievalQuery(
             query=request.query,
             top_k=request.top_k,
+            filters=request.filters,
         ),
     )
 

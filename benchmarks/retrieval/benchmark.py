@@ -31,6 +31,7 @@ from app.ai.knowledge.retrieval.query.sparse_service import (
 )
 
 from benchmarks.common.dataset_loader import DatasetLoader
+from benchmarks.common.metrics import average, percentile
 from benchmarks.common.timer import Timer
 from benchmarks.interfaces.benchmark import Benchmark
 from benchmarks.models.report import (
@@ -295,21 +296,21 @@ class RetrievalBenchmark(Benchmark):
         }
 
         for k in RECALL_KS:
-            metrics[f"recall_at_{k}"] = _average(recall_scores[k])
+            metrics[f"recall_at_{k}"] = average(recall_scores[k])
 
         for k in PRECISION_KS:
-            metrics[f"precision_at_{k}"] = _average(precision_scores[k])
+            metrics[f"precision_at_{k}"] = average(precision_scores[k])
 
-        metrics["mrr"] = _average(reciprocal_ranks)
-        metrics["avg_latency_ms"] = round(_average(latencies_ms), 2)
-        metrics["p95_latency_ms"] = round(_percentile(latencies_ms, 0.95), 2)
-        metrics["p99_latency_ms"] = round(_percentile(latencies_ms, 0.99), 2)
+        metrics["mrr"] = average(reciprocal_ranks)
+        metrics["avg_latency_ms"] = round(average(latencies_ms), 2)
+        metrics["p95_latency_ms"] = round(percentile(latencies_ms, 0.95), 2)
+        metrics["p99_latency_ms"] = round(percentile(latencies_ms, 0.99), 2)
 
         notes: dict[str, object] = {
             "top_k_evaluated": TOP_K,
             "cost_model": cost_model,
             "recall_at_10_by_category": {
-                category: round(_average(scores), 4)
+                category: round(average(scores), 4)
                 for category, scores in recall_at_10_by_category.items()
             },
         }
@@ -322,26 +323,3 @@ class RetrievalBenchmark(Benchmark):
             metrics=metrics,
             notes=notes,
         )
-
-
-def _average(values: list[float]) -> float:
-    if not values:
-        return 0.0
-
-    return round(sum(values) / len(values), 4)
-
-
-def _percentile(
-    values: list[float],
-    percentile: float,
-) -> float:
-    if not values:
-        return 0.0
-
-    ordered = sorted(values)
-    index = min(
-        int(len(ordered) * percentile),
-        len(ordered) - 1,
-    )
-
-    return ordered[index]

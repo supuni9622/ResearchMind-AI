@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -19,6 +20,10 @@ class RetrieveRequest(BaseModel):
         default=5,
         ge=1,
         le=100,
+    )
+    filters: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Metadata filters.",
     )
 
 

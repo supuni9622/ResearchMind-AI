@@ -17,6 +17,8 @@ stay reproducible against the current state of the benchmark corpus.
 
 from __future__ import annotations
 
+from uuid import UUID
+
 from app.ai.knowledge.chunking.artifacts.builder import ChunkArtifactBuilder
 from app.ai.knowledge.chunking.enums import ChunkingStrategy
 from app.ai.knowledge.chunking.service import ChunkingService
@@ -69,9 +71,22 @@ class BenchmarkRetrievalIndexer:
     async def index(
         self,
         documents: list[ProcessedDocument],
+        *,
+        owner_ids_by_document_id: dict[UUID, str] | None = None,
     ) -> int:
         """
         Chunk, embed, and upsert the benchmark corpus.
+
+        Args:
+            documents:
+                Benchmark documents to index.
+
+            owner_ids_by_document_id:
+                Optional per-document owner_id override, keyed by
+                ProcessedDocument.document_id. Documents missing from
+                the mapping (or when the mapping itself is omitted) fall
+                back to the shared "benchmark" owner, preserving the
+                default single-tenant behaviour used by RetrievalBenchmark.
 
         Returns:
             Number of vector records indexed.
@@ -85,6 +100,11 @@ class BenchmarkRetrievalIndexer:
         dimensions = 0
 
         for document in documents:
+            owner_id = (owner_ids_by_document_id or {}).get(
+                document.document_id,
+                "benchmark",
+            )
+
             chunks = await self._chunking_service.chunk(
                 document=document,
                 strategy=self._chunking_strategy,
@@ -121,7 +141,7 @@ class BenchmarkRetrievalIndexer:
                             chunk_id=embedding.provenance.chunk_id,
                             filename=embedding.provenance.filename,
                             content=chunk.content.text,
-                            owner_id="benchmark",
+                            owner_id=owner_id,
                             chunk_index=chunk.index,
                         ),
                     )

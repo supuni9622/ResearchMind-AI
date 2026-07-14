@@ -10,11 +10,17 @@ Covers:
 - Reciprocal rank finds the first relevant document by rank, and returns
   0.0 when nothing relevant was retrieved
 - Empty inputs do not raise (no relevant documents, no retrieved chunks)
+- NDCG@K is 1.0 when relevant documents occupy the top ranks (matching
+  the ideal ordering), drops when a relevant document is pushed down in
+  rank, and is more sensitive to ordering than recall/precision
 """
 
 from __future__ import annotations
 
+import pytest
+
 from benchmarks.retrieval.metrics import (
+    ndcg_at_k,
     precision_at_k,
     recall_at_k,
     reciprocal_rank,
@@ -91,3 +97,41 @@ def test_reciprocal_rank_returns_zero_when_nothing_relevant_retrieved() -> None:
 
 def test_reciprocal_rank_with_no_retrieved_documents_is_zero() -> None:
     assert reciprocal_rank([], {"a.pdf"}) == 0.0
+
+
+def test_ndcg_at_k_is_perfect_when_relevant_documents_lead() -> None:
+    retrieved = ["a.pdf", "b.pdf", "x.pdf", "y.pdf"]
+    relevant = {"a.pdf", "b.pdf"}
+
+    assert ndcg_at_k(retrieved, relevant, k=4) == pytest.approx(1.0)
+
+
+def test_ndcg_at_k_penalizes_relevant_documents_ranked_lower() -> None:
+    leading = ndcg_at_k(["a.pdf", "x.pdf"], {"a.pdf"}, k=2)
+    trailing = ndcg_at_k(["x.pdf", "a.pdf"], {"a.pdf"}, k=2)
+
+    assert leading == pytest.approx(1.0)
+    assert trailing < leading
+
+
+def test_ndcg_at_k_is_more_rank_sensitive_than_recall() -> None:
+    # Same top-k set (so recall@k is identical for both orderings), but
+    # the relevant document is ranked higher in `better`.
+    better = ["a.pdf", "x.pdf", "y.pdf"]
+    worse = ["x.pdf", "y.pdf", "a.pdf"]
+    relevant = {"a.pdf"}
+
+    assert recall_at_k(better, relevant, k=3) == recall_at_k(worse, relevant, k=3)
+    assert ndcg_at_k(better, relevant, k=3) > ndcg_at_k(worse, relevant, k=3)
+
+
+def test_ndcg_at_k_with_no_relevant_documents_is_zero() -> None:
+    assert ndcg_at_k(["a.pdf"], set(), k=5) == 0.0
+
+
+def test_ndcg_at_k_with_zero_k_is_zero() -> None:
+    assert ndcg_at_k(["a.pdf"], {"a.pdf"}, k=0) == 0.0
+
+
+def test_ndcg_at_k_returns_zero_when_nothing_relevant_retrieved() -> None:
+    assert ndcg_at_k(["x.pdf", "y.pdf"], {"a.pdf"}, k=5) == 0.0

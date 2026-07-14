@@ -111,5 +111,13 @@ class Settings(BaseSettings):
 
     sparse_embedding_model: str = "prithivida/Splade_PP_en_v1"
 
+    # ==========================================================================
+    # Reranking
+    # ==========================================================================
+
+    cross_encoder_model: str = "BAAI/bge-reranker-base"
+
+    voyage_reranker_model: str = "rerank-2"
+
 
 settings = Settings()  # pyright: ignore[reportCallIssue]

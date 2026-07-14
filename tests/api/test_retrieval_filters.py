@@ -1,13 +1,14 @@
 """
-Integration tests for owner_id filter enforcement across the retrieval API.
+Integration tests for auth and owner_id scoping on the retrieval API.
 
 Covers:
-- POST /retrieve, /retrieve/sparse, /retrieve/hybrid all forward
-  `filters` from the request body into the RetrievalQuery handed to
-  RetrievalService
-- When an owner_id filter is supplied, only chunks belonging to that
-  owner are returned
-- With no filters, chunks from every owner are returned
+- POST /retrieve, /retrieve/sparse, /retrieve/hybrid all require
+  authentication (401 without a bearer token)
+- Retrieval is always scoped to the authenticated user: owner_id is
+  derived from current_user.id, never from the request body
+- A client-supplied owner_id in `filters` is ignored/overridden rather
+  than trusted, closing the IDOR where a caller could otherwise read
+  another user's documents by spoofing the filter
 
 RetrievedChunkResponse does not expose `owner_id` (see
 app/schemas/retrieval.py), so ownership is asserted via each chunk's
@@ -17,9 +18,9 @@ fake chunk pool below.
 
 from __future__ import annotations
 
+import uuid
 from collections.abc import Iterator
 from datetime import UTC, datetime
-from uuid import uuid4
 
 import pytest
 from app.ai.knowledge.retrieval.enums import RetrievalProvider, RetrievalStrategy
@@ -30,28 +31,30 @@ from app.ai.knowledge.retrieval.models import (
     RetrievalStatistics,
     RetrievedChunk,
 )
+from app.auth.dependencies import get_current_user
 from app.dependencies.retrieval import get_retrieval_service
 from app.main import app
+from app.models.user import User
 from fastapi.testclient import TestClient
 
-_OWNER_1 = "owner-1"
-_OWNER_2 = "owner-2"
+_OWNER_1_ID = str(uuid.uuid4())
+_OWNER_2_ID = str(uuid.uuid4())
 
 _CHUNK_POOL = [
     RetrievedChunk(
-        chunk_id=uuid4(),
-        document_id=uuid4(),
-        filename=f"{_OWNER_1}-report.pdf",
-        owner_id=_OWNER_1,
+        chunk_id=uuid.uuid4(),
+        document_id=uuid.uuid4(),
+        filename="owner-1-report.pdf",
+        owner_id=_OWNER_1_ID,
         chunk_index=0,
         content="owner-1 chunk content",
         score=0.9,
     ),
     RetrievedChunk(
-        chunk_id=uuid4(),
-        document_id=uuid4(),
-        filename=f"{_OWNER_2}-report.pdf",
-        owner_id=_OWNER_2,
+        chunk_id=uuid.uuid4(),
+        document_id=uuid.uuid4(),
+        filename="owner-2-report.pdf",
+        owner_id=_OWNER_2_ID,
         chunk_index=0,
         content="owner-2 chunk content",
         score=0.8,
@@ -115,6 +118,19 @@ class _FakeRetrievalService:
         return self._result_for(query, RetrievalStrategy.HYBRID)
 
 
+def _fake_user(owner_id: str) -> User:
+    return User(
+        id=uuid.UUID(owner_id),
+        auth_provider="test",
+        provider_user_id=owner_id,
+        email=f"{owner_id}@example.com",
+    )
+
+
+def _authenticate_as(owner_id: str) -> None:
+    app.dependency_overrides[get_current_user] = lambda: _fake_user(owner_id)
+
+
 @pytest.fixture
 def fake_retrieval_service() -> Iterator[_FakeRetrievalService]:
     service = _FakeRetrievalService(list(_CHUNK_POOL))
@@ -123,41 +139,14 @@ def fake_retrieval_service() -> Iterator[_FakeRetrievalService]:
     yield service
 
     app.dependency_overrides.pop(get_retrieval_service, None)
+    app.dependency_overrides.pop(get_current_user, None)
 
 
 @pytest.mark.parametrize(
     "endpoint",
     ["/retrieve", "/retrieve/sparse", "/retrieve/hybrid"],
 )
-def test_owner_filter_only_returns_chunks_for_that_owner(
-    client: TestClient,
-    fake_retrieval_service: _FakeRetrievalService,
-    endpoint: str,
-) -> None:
-    response = client.post(
-        f"/api/v1{endpoint}",
-        json={
-            "query": "what is rag?",
-            "filters": {"owner_id": _OWNER_1},
-        },
-    )
-
-    assert response.status_code == 200
-    body = response.json()
-
-    assert body["total_chunks"] == 1
-    for chunk in body["chunks"]:
-        assert chunk["filename"].startswith(_OWNER_1)
-
-    forwarded_query = fake_retrieval_service.received_queries[-1]
-    assert forwarded_query.filters == {"owner_id": _OWNER_1}
-
-
-@pytest.mark.parametrize(
-    "endpoint",
-    ["/retrieve", "/retrieve/sparse", "/retrieve/hybrid"],
-)
-def test_no_filters_returns_chunks_from_every_owner(
+def test_missing_authentication_returns_401(
     client: TestClient,
     fake_retrieval_service: _FakeRetrievalService,
     endpoint: str,
@@ -167,36 +156,64 @@ def test_no_filters_returns_chunks_from_every_owner(
         json={"query": "what is rag?"},
     )
 
-    assert response.status_code == 200
-    body = response.json()
-
-    assert body["total_chunks"] == len(_CHUNK_POOL)
-    filenames = {chunk["filename"] for chunk in body["chunks"]}
-    assert filenames == {chunk.filename for chunk in _CHUNK_POOL}
-
-    forwarded_query = fake_retrieval_service.received_queries[-1]
-    assert forwarded_query.filters == {}
+    assert response.status_code == 401
+    assert response.json()["error"]["code"] == "UNAUTHORIZED"
+    assert fake_retrieval_service.received_queries == []
 
 
 @pytest.mark.parametrize(
     "endpoint",
     ["/retrieve", "/retrieve/sparse", "/retrieve/hybrid"],
 )
-def test_owner_filter_excludes_other_owners_chunk(
+def test_retrieval_is_scoped_to_the_authenticated_user(
     client: TestClient,
     fake_retrieval_service: _FakeRetrievalService,
     endpoint: str,
 ) -> None:
+    _authenticate_as(_OWNER_1_ID)
+
+    response = client.post(
+        f"/api/v1{endpoint}",
+        json={"query": "what is rag?"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+
+    assert body["total_chunks"] == 1
+    assert body["chunks"][0]["filename"] == "owner-1-report.pdf"
+
+    forwarded_query = fake_retrieval_service.received_queries[-1]
+    assert forwarded_query.filters == {"owner_id": _OWNER_1_ID}
+
+
+@pytest.mark.parametrize(
+    "endpoint",
+    ["/retrieve", "/retrieve/sparse", "/retrieve/hybrid"],
+)
+def test_client_supplied_owner_id_filter_is_ignored(
+    client: TestClient,
+    fake_retrieval_service: _FakeRetrievalService,
+    endpoint: str,
+) -> None:
+    # Authenticated as owner 1, but the request body tries to spoof
+    # owner 2's filter. The server must override it with the
+    # authenticated user's id rather than trusting the client.
+    _authenticate_as(_OWNER_1_ID)
+
     response = client.post(
         f"/api/v1{endpoint}",
         json={
             "query": "what is rag?",
-            "filters": {"owner_id": _OWNER_2},
+            "filters": {"owner_id": _OWNER_2_ID},
         },
     )
 
     assert response.status_code == 200
     body = response.json()
 
-    filenames = {chunk["filename"] for chunk in body["chunks"]}
-    assert f"{_OWNER_1}-report.pdf" not in filenames
+    assert body["total_chunks"] == 1
+    assert body["chunks"][0]["filename"] == "owner-1-report.pdf"
+
+    forwarded_query = fake_retrieval_service.received_queries[-1]
+    assert forwarded_query.filters == {"owner_id": _OWNER_1_ID}

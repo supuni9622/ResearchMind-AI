@@ -56,11 +56,13 @@ class RetrievalService:
         query_embedding_service,
         sparse_query_embedding_service: (SparseQueryEmbeddingService),
         fusion_service: (RetrievalFusionService),
+        reranking_service=None,
     ) -> None:
         self._registry = registry
         self._query_embedding_service = query_embedding_service
         self._sparse_query_embedding_service = sparse_query_embedding_service
         self._fusion_service = fusion_service
+        self._reranking_service = reranking_service
 
     async def search(
         self,
@@ -240,6 +242,7 @@ class RetrievalService:
         *,
         provider: RetrievalProvider,
         query: RetrievalQuery,
+        rerank: bool = True,
     ) -> RetrievalResult:
         """
         Execute hybrid retrieval.
@@ -283,7 +286,10 @@ class RetrievalService:
 
         retrieval_query = normalized_query.model_copy(
             update={
-                "top_k": (normalized_query.top_k * 2),
+                "top_k": min(
+                    normalized_query.top_k * 5,
+                    50,
+                ),
             }
         )
 
@@ -316,6 +322,27 @@ class RetrievalService:
             sparse=sparse_result,
             top_k=query.top_k,
         )
+
+        if rerank and self._reranking_service and result.chunks:
+            from app.ai.knowledge.reranking.enums import (
+                RerankingProvider,
+            )
+            from app.ai.knowledge.reranking.models import (
+                RerankingRequest,
+            )
+
+            reranked = await self._reranking_service.rerank(
+                provider=(RerankingProvider.VOYAGE_AI),
+                request=(
+                    RerankingRequest(
+                        query=query.query,
+                        chunks=result.chunks,
+                        top_k=query.top_k,
+                    )
+                ),
+            )
+
+        result.chunks = [chunk.chunk for chunk in (reranked.chunks)]
 
         duration_ms = (perf_counter() - started) * 1000
 

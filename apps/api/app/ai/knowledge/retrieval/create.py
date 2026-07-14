@@ -18,6 +18,9 @@ from app.ai.knowledge.embeddings.create import (
 from app.ai.knowledge.indexing.create import (
     create_sparse_embedding_provider,
 )
+from app.ai.knowledge.reranking.create import (
+    create_reranking_service,
+)
 from app.ai.knowledge.retrieval.config import (
     QdrantRetrievalConfig,
 )
@@ -118,4 +121,5 @@ def create_retrieval_service() -> RetrievalService:
         query_embedding_service=(create_query_embedding_service()),
         sparse_query_embedding_service=(create_sparse_query_embedding_service()),
         fusion_service=(create_fusion_service()),
+        reranking_service=(create_reranking_service()),
     )

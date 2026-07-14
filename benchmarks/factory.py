@@ -28,6 +28,9 @@ from app.ai.knowledge.embeddings.create import create_embedding_registry
 from app.ai.knowledge.indexing.create import (
     create_sparse_embedding_provider,
 )
+from app.ai.knowledge.reranking.create import (
+    create_reranking_registry,
+)
 from app.ai.knowledge.retrieval.config import QdrantRetrievalConfig
 from app.ai.knowledge.retrieval.fusion.service import (
     RetrievalFusionService,
@@ -50,6 +53,12 @@ from benchmarks.chunking.benchmark import ChunkingBenchmark
 from benchmarks.common.dataset_loader import DatasetLoader
 from benchmarks.embeddings.benchmark import EmbeddingBenchmark
 from benchmarks.registry import BenchmarkRegistry
+from benchmarks.reranking.benchmark import (
+    BENCHMARK_COLLECTION_NAME as RERANKING_COLLECTION_NAME,
+)
+from benchmarks.reranking.benchmark import (
+    RerankingBenchmark,
+)
 from benchmarks.retrieval.benchmark import (
     BENCHMARK_COLLECTION_NAME,
     RetrievalBenchmark,
@@ -151,6 +160,37 @@ def create_benchmark_registry() -> BenchmarkRegistry:
                 provider=sparse_embedding_provider,
             ),
             fusion_service=RetrievalFusionService(),
+        )
+    )
+
+    registry.register(
+        RerankingBenchmark(
+            dataset_loader=dataset_loader,
+            indexer=BenchmarkRetrievalIndexer(
+                chunking_service=create_chunking_service(),
+                chunking_strategy=ChunkingStrategy.RECURSIVE,
+                chunk_artifact_builder=ChunkArtifactBuilder(),
+                embedding_registry=embedding_registry,
+                sparse_embedding_provider=sparse_embedding_provider,
+                vectorstore_service=create_vectorstore_service(),
+                qdrant_client=qdrant_client,
+                collection_name=RERANKING_COLLECTION_NAME,
+            ),
+            retrieval_provider=QdrantRetrievalProvider(
+                client=qdrant_client,
+                config=QdrantRetrievalConfig(
+                    collection_name=RERANKING_COLLECTION_NAME,
+                ),
+            ),
+            query_embedding_service=QueryEmbeddingService(
+                registry=embedding_registry,
+                cache=NullQueryEmbeddingCache(),
+            ),
+            sparse_query_embedding_service=SparseQueryEmbeddingService(
+                provider=sparse_embedding_provider,
+            ),
+            fusion_service=RetrievalFusionService(),
+            reranking_registry=create_reranking_registry(),
         )
     )
 

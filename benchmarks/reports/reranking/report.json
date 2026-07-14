@@ -1,0 +1,74 @@
+{
+  "benchmark_name": "Reranking",
+  "generated_at": "2026-07-14T09:47:56.583746Z",
+  "dataset": {
+    "name": "research-papers",
+    "document_count": 5
+  },
+  "candidates": [
+    {
+      "name": "hybrid_only",
+      "version": null,
+      "metrics": {
+        "queries_evaluated": 20,
+        "recall_at_5": 1.0,
+        "mrr": 0.925,
+        "ndcg_at_5": 0.9446,
+        "avg_latency_ms": 381.36,
+        "p95_latency_ms": 547.83,
+        "p99_latency_ms": 547.83
+      },
+      "notes": {
+        "final_k": 5,
+        "pool_size": 20,
+        "cost_model": "Voyage AI dense query embedding (paid, per-token) + FastEmbed SPLADE sparse embedding (local CPU, free); fused in-process via RRF."
+      }
+    },
+    {
+      "name": "hybrid_cross_encoder",
+      "version": null,
+      "metrics": {
+        "queries_evaluated": 20,
+        "recall_at_5": 1.0,
+        "mrr": 1.0,
+        "ndcg_at_5": 1.0,
+        "avg_latency_ms": 625.37,
+        "p95_latency_ms": 1100.08,
+        "p99_latency_ms": 1100.08
+      },
+      "notes": {
+        "final_k": 5,
+        "pool_size": 20,
+        "cost_model": "Voyage AI dense query embedding (paid, per-token) + FastEmbed SPLADE sparse embedding (local CPU, free); fused in-process via RRF. Reranked via BAAI/bge-reranker-base: local CPU inference, no marginal cost."
+      }
+    },
+    {
+      "name": "hybrid_voyage",
+      "version": null,
+      "metrics": {
+        "queries_evaluated": 20,
+        "recall_at_5": 1.0,
+        "mrr": 0.95,
+        "ndcg_at_5": 0.9631,
+        "avg_latency_ms": 753.86,
+        "p95_latency_ms": 922.9,
+        "p99_latency_ms": 922.9
+      },
+      "notes": {
+        "final_k": 5,
+        "pool_size": 20,
+        "cost_model": "Voyage AI dense query embedding (paid, per-token) + FastEmbed SPLADE sparse embedding (local CPU, free); fused in-process via RRF. Reranked via Voyage AI rerank-2: paid, per-token API call."
+      }
+    }
+  ],
+  "summary": {
+    "hybrid_cross_encoder_recall_at_5_delta": 0.0,
+    "hybrid_cross_encoder_mrr_delta": 0.075,
+    "hybrid_cross_encoder_ndcg_at_5_delta": 0.0554,
+    "hybrid_cross_encoder_latency_overhead_ms": 244.01,
+    "hybrid_voyage_recall_at_5_delta": 0.0,
+    "hybrid_voyage_mrr_delta": 0.025,
+    "hybrid_voyage_ndcg_at_5_delta": 0.0185,
+    "hybrid_voyage_latency_overhead_ms": 372.5
+  }
+}

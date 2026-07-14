@@ -14,14 +14,40 @@ from app.ai.knowledge.retrieval.models import (
 from app.ai.knowledge.retrieval.service import (
     RetrievalService,
 )
+from app.auth.dependencies import (
+    get_current_user,
+)
 from app.dependencies.retrieval import (
     get_retrieval_service,
 )
+from app.models.user import User
 from app.schemas.retrieval import (
+    BaseRetrieveRequest,
+    DenseRetrieveRequest,
+    HybridRetrieveRequest,
     RetrievedChunkResponse,
-    RetrieveRequest,
     RetrieveResponse,
+    SparseRetrieveRequest,
 )
+
+
+def _scoped_filters(
+    request: BaseRetrieveRequest,
+    current_user: User,
+) -> dict[str, object]:
+    """
+    Scope retrieval filters to the authenticated user.
+
+    owner_id is always overridden by the authenticated user's id, never
+    trusted from the request body -- otherwise a caller could pass
+    another user's owner_id and read their documents.
+    """
+
+    return {
+        **request.filters,
+        "owner_id": str(current_user.id),
+    }
+
 
 router = APIRouter(
     prefix="/retrieve",
@@ -34,7 +60,8 @@ router = APIRouter(
     response_model=RetrieveResponse,
 )
 async def retrieve(
-    request: RetrieveRequest,
+    request: DenseRetrieveRequest,
+    current_user: User = Depends(get_current_user),
     retrieval_service: RetrievalService = Depends(
         get_retrieval_service,
     ),
@@ -48,7 +75,7 @@ async def retrieve(
         query=RetrievalQuery(
             query=request.query,
             top_k=request.top_k,
-            filters=request.filters,
+            filters=_scoped_filters(request, current_user),
         ),
     )
 
@@ -79,7 +106,8 @@ async def retrieve(
     response_model=RetrieveResponse,
 )
 async def retrieve_sparse(
-    request: RetrieveRequest,
+    request: SparseRetrieveRequest,
+    current_user: User = Depends(get_current_user),
     retrieval_service: RetrievalService = Depends(
         get_retrieval_service,
     ),
@@ -93,7 +121,7 @@ async def retrieve_sparse(
         query=RetrievalQuery(
             query=request.query,
             top_k=request.top_k,
-            filters=request.filters,
+            filters=_scoped_filters(request, current_user),
         ),
     )
 
@@ -124,7 +152,8 @@ async def retrieve_sparse(
     response_model=RetrieveResponse,
 )
 async def retrieve_hybrid(
-    request: RetrieveRequest,
+    request: HybridRetrieveRequest,
+    current_user: User = Depends(get_current_user),
     retrieval_service: RetrievalService = Depends(
         get_retrieval_service,
     ),
@@ -144,7 +173,7 @@ async def retrieve_hybrid(
         query=RetrievalQuery(
             query=request.query,
             top_k=request.top_k,
-            filters=request.filters,
+            filters=_scoped_filters(request, current_user),
         ),
     )
 

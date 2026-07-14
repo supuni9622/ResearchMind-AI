@@ -13,6 +13,8 @@ tested without a running retrieval stack.
 
 from __future__ import annotations
 
+import math
+
 
 def _ranked_unique_documents(
     retrieved_filenames: list[str],
@@ -86,3 +88,40 @@ def reciprocal_rank(
             return 1.0 / rank
 
     return 0.0
+
+
+def ndcg_at_k(
+    retrieved_filenames: list[str],
+    relevant_filenames: set[str],
+    k: int,
+) -> float:
+    """
+    Normalized Discounted Cumulative Gain within the top-k retrieved
+    documents, using binary relevance (a document is either relevant or
+    it isn't -- this dataset has no graded relevance judgments).
+
+    Unlike recall/precision, NDCG is rank-sensitive: a relevant document
+    at rank 1 contributes more than the same document at rank 5. This is
+    what makes it (along with MRR) the right metric for measuring a
+    reranker's effect on ordering, as opposed to recall, which only
+    cares whether a relevant document is present in the top-k at all.
+    """
+
+    if not relevant_filenames or k <= 0:
+        return 0.0
+
+    ranked = _ranked_unique_documents(retrieved_filenames)[:k]
+
+    dcg = sum(
+        1.0 / math.log2(rank + 1)
+        for rank, filename in enumerate(ranked, start=1)
+        if filename in relevant_filenames
+    )
+
+    ideal_hits = min(len(relevant_filenames), k)
+    idcg = sum(1.0 / math.log2(rank + 1) for rank in range(1, ideal_hits + 1))
+
+    if idcg == 0:
+        return 0.0
+
+    return dcg / idcg

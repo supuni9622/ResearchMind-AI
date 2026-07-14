@@ -5,10 +5,14 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
+# ==========================================================
+# Base Requests
+# ==========================================================
 
-class RetrieveRequest(BaseModel):
+
+class BaseRetrieveRequest(BaseModel):
     """
-    Retrieval request.
+    Base retrieval request.
     """
 
     query: str = Field(
@@ -20,16 +24,74 @@ class RetrieveRequest(BaseModel):
         default=5,
         ge=1,
         le=100,
+        description="Maximum number of chunks to return.",
     )
+
     filters: dict[str, Any] = Field(
         default_factory=dict,
         description="Metadata filters.",
     )
 
 
+# ==========================================================
+# Dense Retrieval
+# ==========================================================
+
+
+class DenseRetrieveRequest(
+    BaseRetrieveRequest,
+):
+    """
+    Dense retrieval request.
+    """
+
+
+# ==========================================================
+# Sparse Retrieval
+# ==========================================================
+
+
+class SparseRetrieveRequest(
+    BaseRetrieveRequest,
+):
+    """
+    Sparse retrieval request.
+    """
+
+
+# ==========================================================
+# Hybrid Retrieval
+# ==========================================================
+
+
+class HybridRetrieveRequest(
+    BaseRetrieveRequest,
+):
+    """
+    Hybrid retrieval request.
+    """
+
+    rerank: bool = Field(
+        default=True,
+        description=("Apply reranking after hybrid fusion."),
+    )
+    # reranking_provider: str | None = None
+
+    # candidate_multiplier: int = Field(
+    #     default=5,
+    #     ge=1,
+    #     le=20,
+    # )
+
+
+# ==========================================================
+# Responses
+# ==========================================================
+
+
 class RetrievedChunkResponse(BaseModel):
     """
-    Retrieved chunk.
+    Retrieved chunk response.
     """
 
     model_config = ConfigDict(

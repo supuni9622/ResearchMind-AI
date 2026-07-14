@@ -9,6 +9,13 @@ Covers:
 - Validation edge cases: empty query, whitespace-only query, over-length
   query, and non-positive top_k all raise before any provider is touched
 - Provider resolution failure propagates from the registry
+- search_hybrid: dense and sparse search both run (in parallel, via
+  asyncio.gather) and are handed to the fusion service; reranking is
+  applied by default and skipped when rerank=False, when no reranking
+  service is configured, or when fusion produced no chunks -- these are
+  regression tests for a bug where result.chunks was only ever
+  reassigned from the reranked result unconditionally, so any of those
+  three "don't rerank" paths crashed with an UnboundLocalError
 """
 
 from __future__ import annotations
@@ -18,6 +25,8 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
+from app.ai.knowledge.reranking.enums import RerankingProvider
+from app.ai.knowledge.reranking.models import RerankedChunk, RerankingResult
 from app.ai.knowledge.retrieval.enums import RetrievalProvider, RetrievalStrategy
 from app.ai.knowledge.retrieval.exceptions import (
     RetrievalProviderNotFoundError,
@@ -48,6 +57,7 @@ def _make_chunk() -> RetrievedChunk:
 def _make_provider(
     *,
     result: RetrievalResult | None = None,
+    sparse_result: RetrievalResult | None = None,
     strategy: RetrievalStrategy = RetrievalStrategy.DENSE,
 ) -> AsyncMock:
     provider = AsyncMock()
@@ -65,6 +75,17 @@ def _make_provider(
             )
         )
 
+    if sparse_result is not None:
+        provider.search_sparse = AsyncMock(return_value=sparse_result)
+    else:
+        provider.search_sparse = AsyncMock(
+            side_effect=lambda **kwargs: RetrievalResult(
+                query=kwargs["query"],
+                execution=RetrievalExecution(),
+                chunks=[_make_chunk()],
+            )
+        )
+
     return provider
 
 
@@ -74,16 +95,41 @@ def _make_query_embedding_service(vector: list[float] | None = None) -> AsyncMoc
     return service
 
 
+def _make_sparse_query_embedding_service() -> AsyncMock:
+    service = AsyncMock()
+    service.embed = AsyncMock(return_value=SimpleNamespace(indices=[1, 2], values=[0.1, 0.2]))
+    return service
+
+
+def _make_fusion_service(fused: RetrievalResult | None = None) -> AsyncMock:
+    service = AsyncMock()
+    if fused is not None:
+        service.fuse = AsyncMock(return_value=fused)
+    else:
+        service.fuse = AsyncMock(
+            side_effect=lambda *, dense, sparse, top_k: RetrievalResult(
+                query=dense.query,
+                execution=RetrievalExecution(),
+                chunks=(dense.chunks + sparse.chunks)[:top_k],
+            )
+        )
+    return service
+
+
 def _make_service(
     *,
     registry: RetrievalRegistry,
     query_embedding_service: AsyncMock | None = None,
+    sparse_query_embedding_service: AsyncMock | None = None,
+    fusion_service: AsyncMock | None = None,
+    reranking_service: AsyncMock | None = None,
 ) -> RetrievalService:
     return RetrievalService(
         registry=registry,
         query_embedding_service=(query_embedding_service or _make_query_embedding_service()),
-        sparse_query_embedding_service=AsyncMock(),
-        fusion_service=AsyncMock(),
+        sparse_query_embedding_service=(sparse_query_embedding_service or AsyncMock()),
+        fusion_service=(fusion_service or AsyncMock()),
+        reranking_service=reranking_service,
     )
 
 
@@ -201,3 +247,155 @@ async def test_search_raises_when_provider_not_registered() -> None:
             provider=RetrievalProvider.QDRANT,
             query=RetrievalQuery(query="rag"),
         )
+
+
+def _make_reranking_service(reranked_order: list[RetrievedChunk]) -> AsyncMock:
+    service = AsyncMock()
+    service.rerank = AsyncMock(
+        return_value=RerankingResult(
+            chunks=[RerankedChunk(chunk=chunk, rerank_score=1.0) for chunk in reranked_order],
+            duration_ms=1.0,
+        )
+    )
+    return service
+
+
+async def test_search_hybrid_runs_dense_and_sparse_then_fuses() -> None:
+    dense_chunk = _make_chunk()
+    sparse_chunk = _make_chunk()
+    provider = _make_provider(
+        result=RetrievalResult(
+            query=RetrievalQuery(query="rag"),
+            execution=RetrievalExecution(),
+            chunks=[dense_chunk],
+        ),
+        sparse_result=RetrievalResult(
+            query=RetrievalQuery(query="rag"),
+            execution=RetrievalExecution(),
+            chunks=[sparse_chunk],
+        ),
+    )
+    fusion_service = _make_fusion_service()
+    registry = RetrievalRegistry([provider])
+    service = _make_service(registry=registry, fusion_service=fusion_service)
+
+    result = await service.search_hybrid(
+        provider=RetrievalProvider.QDRANT,
+        query=RetrievalQuery(query="rag", top_k=5),
+    )
+
+    provider.search.assert_awaited_once()
+    provider.search_sparse.assert_awaited_once()
+    fusion_service.fuse.assert_awaited_once()
+    assert result.chunks == [dense_chunk, sparse_chunk]
+    assert result.statistics is not None
+    assert result.statistics.strategy == RetrievalStrategy.HYBRID
+
+
+async def test_search_hybrid_reranks_by_default_when_configured() -> None:
+    fused_chunk = _make_chunk()
+    reranked_chunk = _make_chunk()
+    provider = _make_provider()
+    fusion_service = _make_fusion_service(
+        RetrievalResult(
+            query=RetrievalQuery(query="rag"),
+            execution=RetrievalExecution(),
+            chunks=[fused_chunk],
+        )
+    )
+    reranking_service = _make_reranking_service([reranked_chunk])
+    registry = RetrievalRegistry([provider])
+    service = _make_service(
+        registry=registry,
+        fusion_service=fusion_service,
+        reranking_service=reranking_service,
+    )
+
+    result = await service.search_hybrid(
+        provider=RetrievalProvider.QDRANT,
+        query=RetrievalQuery(query="rag", top_k=5),
+    )
+
+    reranking_service.rerank.assert_awaited_once()
+    assert reranking_service.rerank.await_args.kwargs["provider"] == RerankingProvider.VOYAGE_AI
+    assert reranking_service.rerank.await_args.kwargs["request"].chunks == [fused_chunk]
+    assert result.chunks == [reranked_chunk]
+
+
+async def test_search_hybrid_skips_reranking_when_rerank_is_false() -> None:
+    fused_chunk = _make_chunk()
+    provider = _make_provider()
+    fusion_service = _make_fusion_service(
+        RetrievalResult(
+            query=RetrievalQuery(query="rag"),
+            execution=RetrievalExecution(),
+            chunks=[fused_chunk],
+        )
+    )
+    reranking_service = _make_reranking_service([_make_chunk()])
+    registry = RetrievalRegistry([provider])
+    service = _make_service(
+        registry=registry,
+        fusion_service=fusion_service,
+        reranking_service=reranking_service,
+    )
+
+    result = await service.search_hybrid(
+        provider=RetrievalProvider.QDRANT,
+        query=RetrievalQuery(query="rag", top_k=5),
+        rerank=False,
+    )
+
+    reranking_service.rerank.assert_not_awaited()
+    assert result.chunks == [fused_chunk]
+
+
+async def test_search_hybrid_skips_reranking_when_no_reranking_service_configured() -> None:
+    fused_chunk = _make_chunk()
+    provider = _make_provider()
+    fusion_service = _make_fusion_service(
+        RetrievalResult(
+            query=RetrievalQuery(query="rag"),
+            execution=RetrievalExecution(),
+            chunks=[fused_chunk],
+        )
+    )
+    registry = RetrievalRegistry([provider])
+    service = _make_service(
+        registry=registry,
+        fusion_service=fusion_service,
+        reranking_service=None,
+    )
+
+    result = await service.search_hybrid(
+        provider=RetrievalProvider.QDRANT,
+        query=RetrievalQuery(query="rag", top_k=5),
+    )
+
+    assert result.chunks == [fused_chunk]
+
+
+async def test_search_hybrid_skips_reranking_when_fusion_returns_no_chunks() -> None:
+    provider = _make_provider()
+    fusion_service = _make_fusion_service(
+        RetrievalResult(
+            query=RetrievalQuery(query="rag"),
+            execution=RetrievalExecution(),
+            chunks=[],
+        )
+    )
+    reranking_service = _make_reranking_service([_make_chunk()])
+    registry = RetrievalRegistry([provider])
+    service = _make_service(
+        registry=registry,
+        fusion_service=fusion_service,
+        reranking_service=reranking_service,
+    )
+
+    result = await service.search_hybrid(
+        provider=RetrievalProvider.QDRANT,
+        query=RetrievalQuery(query="rag", top_k=5),
+    )
+
+    reranking_service.rerank.assert_not_awaited()
+    assert result.chunks == []

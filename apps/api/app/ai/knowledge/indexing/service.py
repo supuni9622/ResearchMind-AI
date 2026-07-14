@@ -275,9 +275,27 @@ class IndexingService(IndexingServiceInterface):
                         #
                         language=None,
                         additional_metadata={
+                            #
+                            # Embedding metadata
+                            #
                             "embedding_provider": (artifact.execution.provider.value),
                             "embedding_model": (artifact.execution.model),
+                            #
+                            # Chunking metadata
+                            #
                             "chunking_strategy": (artifact.chunking.strategy.value),
+                            "chunk_artifact_id": str(request.chunk_artifact.artifact_id),
+                            #
+                            # Parent context expansion
+                            #
+                            "parent_chunk_id": (
+                                str(chunk.structure.parent_chunk_id)
+                                if chunk.structure.parent_chunk_id
+                                else None
+                            ),
+                            #
+                            # Future metadata
+                            #
                             "parser": (artifact.document.parser),
                         },
                     ),

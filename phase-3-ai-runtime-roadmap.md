@@ -1,9 +1,36 @@
-# ResearchMind AI — Phase 3 Roadmap
-## Retrieval & AI Runtime Roadmap (MVP)
+# ResearchMind AI — Roadmap
+## Retrieval, Context, Generation & Research Runtime
 
-**Status:** Frozen (v1.0) — architecture frozen; progress tracked inline below
+**Status:** Frozen (v2.0)
 
 **Last Updated:** 2026-07-14
+
+---
+
+# ResearchMind Maturity Vision
+
+```text
+NotebookLM++
+      ↓
+Perplexity v1
+      ↓
+Open Deep Research
+      ↓
+Manus / Glean
+```
+
+Current State:
+
+```text
+NotebookLM++
+```
+
+Current Focus:
+
+```text
+Phase 4
+Context Platform
+```
 
 ---
 
@@ -11,29 +38,27 @@
 
 The Knowledge Ingestion Platform is now complete.
 
-```
+```text
 Upload
 ↓
 Processing
 ↓
 Chunking
 ↓
-Embedding
+Embeddings
 ↓
 Indexing
 ↓
-Vector Store (Qdrant)
+Vector Store
 ```
 
-ResearchMind now transitions from a **Knowledge Ingestion Platform** into an **AI Research Platform**.
+ResearchMind now transitions into an AI Research Platform.
 
-The next stages focus on consuming knowledge rather than producing it.
+The next stages focus on consuming, enriching, reasoning over, and generating knowledge.
 
 ---
 
 # Engineering Principles
-
-This roadmap follows the project's established engineering philosophy.
 
 - Build complete vertical slices.
 - Every platform owns one business capability.
@@ -42,13 +67,12 @@ This roadmap follows the project's established engineering philosophy.
 - Production-first engineering.
 - Evaluation-driven development.
 - Documentation-first.
-- Freeze architectural decisions once validated.
-
----
+- Freeze architecture after validation.
+- Frameworks remain implementation details.
 
 # Overall AI Pipeline
 
-```
+```text
                     Upload Platform
                           │
                           ▼
@@ -79,411 +103,148 @@ This roadmap follows the project's established engineering philosophy.
                 Evaluation Platform
                           │
                           ▼
-                Agentic AI Platform
+                Research Runtime
+                          │
+                          ▼
+                 Long-Term Platform
 ```
-
----
-
-# Phase 3.1 — Retrieval Foundation
-
-**Status:** ✅ Complete
-
-## Goal
-
-Build the first production-ready semantic retrieval pipeline.
-
-## Responsibilities
-
-### Query Processing
-
-- Query validation
-- Query normalization
-- Query embedding
-
-### Search Engine
-
-- Dense semantic retrieval
-
-### Retrieval Strategy
-
-- Standard similarity search
-
----
-
-## Workflow
-
-```
-Question
-      │
-      ▼
-Query Processing
-      │
-      ▼
-Voyage Query Embedding
-      │
-      ▼
-Qdrant Dense Search
-      │
-      ▼
-Top-K Results
-```
-
----
-
-## Deliverables
-
-- Retrieval models
-- Retrieval service
-- Qdrant retrieval provider
-- Registry
-- Composition root
-- Dense retrieval API
-- Tests
-- Documentation
-
----
-
-## API
-
-```
-POST /retrieve
-```
-
-Returns
-
-- Retrieved chunks
-- Scores
-- Metadata
-
----
-
-# Phase 3.2 — Sparse Retrieval
-
-**Status:** ✅ Complete
-
-## Goal
-
-Add lexical retrieval using FastEmbed SPLADE.
-
----
-
-## Workflow
-
-```
-Question
-      │
-      ▼
-SPLADE Query Embedding
-      │
-      ▼
-Qdrant Sparse Search
-      │
-      ▼
-Top-K Results
-```
-
----
-
-## Deliverables
-
-- Sparse retriever
-- Sparse query embedding
-- Sparse search
-- Evaluation
-
----
-
-# Phase 3.3 — Hybrid Retrieval
-
-**Status:** ✅ Complete
-
-## Goal
-
-Combine dense and sparse retrieval.
-
----
-
-## Workflow
-
-```
-Dense Search
-      +
-
-Sparse Search
-      │
-      ▼
-Reciprocal Rank Fusion (RRF)
-      │
-      ▼
-Top Results
-```
-
----
-
-## Deliverables
-
-- ✅ Hybrid retrieval
-- ✅ RRF
-- ✅ Hybrid evaluation (`benchmarks/retrieval/` — dense vs. sparse vs. hybrid, ADR-020 metrics)
-
-**Finding:** on the current 5-document/20-query benchmark corpus, hybrid did not
-outperform dense or sparse — Recall@5/10/20 identical across all three, and
-hybrid's MRR (0.925) was slightly lower than dense (0.95) or sparse (0.975)
-alone. The dataset is too small to give RRF genuine ranking disagreement to
-resolve. See `README.md`'s retrieval benchmark TODO for the dataset-scaling
-plan before treating this as conclusive.
-
-Reranking (Phase 3.6) closes exactly this gap: the Reranking Benchmark shows
-that adding a reranker on top of hybrid's fused pool raises MRR from 0.925 to
-1.0 (CrossEncoder) or 0.95 (Voyage), without moving Recall@5 at all — see
-Phase 3.6 below.
-
----
 
 # Phase 3.4 — Retrieval Strategies
 
-**Status:** ❌ Not started
-
-## Goal
-
-Support advanced retrieval strategies.
+**Status:** 🟡 In Progress
 
 ---
 
-## Standard Retrieval
+## Parallel Retrieval
 
+### Status: ✅ Complete
+
+Implemented:
+
+```python
+asyncio.gather(
+    dense_search(),
+    sparse_search(),
+)
 ```
-Query
 
-↓
+Current workflow:
 
-Vector Search
+```text
+Dense Retrieval
+        │
+Sparse Retrieval
+        │
+        ▼
+Parallel Execution
+        │
+        ▼
+Fusion
+```
 
-↓
+Future:
 
-Top-K
+```python
+asyncio.gather(
+    dense,
+    sparse,
+    metadata,
+)
 ```
 
 ---
 
 ## Parent / Child Retrieval
 
+### Status: 🔄 Reclassified
+
+Originally planned under Retrieval.
+
+After architecture validation, Parent/Child retrieval has been moved into the Context Platform.
+
+Reason:
+
+ResearchMind persists canonical chunk artifacts.
+
+Retrieval should find knowledge.
+
+Context Building should enrich knowledge.
+
+Workflow:
+
+```text
+Retriever
+      ↓
+Retrieved Child Chunks
+      ↓
+Parent Expansion
+      ↓
+Prompt Context
 ```
-Parent Documents
 
-↓
+Implemented Foundations:
 
-Child Chunks
-
-↓
-
-Retrieve Parents
-```
-
----
-
-## Parallel Retrieval
-
-```
-Query
-
-↓
-
-Multiple Retrieval Pipelines
-
-↓
-
-Merge Results
-```
+- ChunkArtifactReader
+- ParentExpansionService
+- AdjacentMergeService
 
 ---
 
 ## Query Decomposition
 
-```
-Complex Question
+### Status: ❌ Not Started
 
-↓
+Moved to:
 
+### Research Runtime Platform
+
+Workflow:
+
+```text
+Question
+      ↓
+Planner
+      ↓
 Sub Questions
-
-↓
-
-Retrieve Separately
-
-↓
-
-Merge Results
+      ↓
+Parallel Retrieval
+      ↓
+Merge
 ```
+
+Likely Framework:
+
+- LangGraph
 
 ---
 
 ## Deliverables
 
-- Parent/Child retrieval
-- Parallel retrieval
-- Query decomposition
+### Complete
 
----
+- ✅ Parallel Retrieval
 
-# Phase 3.5 — Result Processing
+### Context Platform
 
-**Status:** ✅ Complete (owner_id/document_id/filename/language); workspace_id and tags remain future filters
+- 🔄 Parent Expansion
 
-## Goal
+### Runtime Platform
 
-Improve retrieval quality before reranking.
-
----
-
-## Features
-
-### Metadata Filtering ✅
-
-`QdrantRetrievalProvider._build_filter` translates canonical
-`RetrievalQuery.filters` into Qdrant payload filters, applied uniformly
-across dense, sparse, and hybrid search. `owner_id` is always injected
-server-side from the authenticated user (`current_user.id`) rather than
-trusted from the request body, closing a prior gap where the retrieval
-endpoints had no auth dependency at all and a caller could spoof another
-user's `owner_id`.
-
-Supported today
-
-- ✅ owner_id (server-enforced)
-- ✅ document_id
-- ✅ filename
-- ✅ language
-
-Still future
-
-- ❌ workspace_id
-- ❌ tags
-
-Validated by `MetadataFilteringBenchmark`
-(`benchmarks/retrieval/metadata_filtering_benchmark.py`): `leakage_rate:
-0.0` for every filtered candidate (dense/sparse/hybrid), MRR raised to
-1.0. See `docs/architecture/metadata-filtering.md`.
-
----
-
-### Reciprocal Rank Fusion (RRF) ✅
-
-Merge multiple retrieval strategies. Implemented as part of Phase 3.3.
-
----
-
-### Top-K Selection ✅
-
-Reduce
-
-```
-100
-
-↓
-
-50
-
-↓
-
-20
-```
-
-before reranking.
-
----
-
-## Deliverables
-
-- ✅ Metadata filtering
-- ✅ Top-K selection
-- ✅ Result processing pipeline (RRF + Top-K + filtering)
-
----
-
-# Phase 3.6 — Reranking Platform
-
-**Status:** ✅ Complete (Foundation)
-
-## Goal
-
-Improve ranking quality.
-
----
-
-## Providers
-
-### Implemented
-
-- ✅ Voyage AI Reranker (`rerank-2`)
-- ✅ CrossEncoder (local `BAAI/bge-reranker-base`, sentence-transformers — built ahead of the original MVP/Future split below)
-
-### Future
-
-- Cohere
-- Jina
-
----
-
-## Workflow
-
-```
-Top 50 Results
-
-↓
-
-Reranker
-
-↓
-
-Top 5 Results
-```
-
-Implemented inside `RetrievalService.search_hybrid(rerank=True)`
-(default): fuse dense+sparse down to `top_k`, then rerank via Voyage AI.
-`HybridRetrieveRequest.rerank` exists on the API schema but the
-`/retrieve/hybrid` endpoint does not yet forward it to the service —
-the service's `rerank=True` default always applies.
-
----
-
-## Deliverables
-
-- ✅ Provider abstraction
-- ✅ Voyage provider
-- ✅ CrossEncoder provider
-- ✅ Reranking service
-
-## Evaluation
-
-`RerankingBenchmark` (`benchmarks/reranking/benchmark.py`) compares
-`hybrid_only` vs. `hybrid_cross_encoder` vs. `hybrid_voyage` on the same
-hybrid candidate pool per query. Metrics: Recall@5, MRR, NDCG@5,
-latency, qualitative cost model.
-
-**Finding:** Recall@5 was unchanged by reranking (already 1.0 for
-`hybrid_only`), while MRR (0.925 → 1.0 CrossEncoder / → 0.95 Voyage) and
-NDCG@5 (0.9446 → 1.0 CrossEncoder / → 0.9631 Voyage) both improved
-substantially — exactly the effect reranking is expected to have, since
-it reorders an already-good candidate pool rather than expanding it. On
-this small corpus, the free local CrossEncoder outperformed paid Voyage
-reranking on both quality and latency.
-
----
+- ❌ Query Decomposition
 
 # Phase 3.7 — Context Building Platform
 
-**Status:** ❌ Not started
+**Status:** 🟡 In Progress
+
+---
 
 ## Goal
 
-Prepare retrieved knowledge for the LLM.
+Prepare retrieved knowledge for LLM consumption.
 
 ---
 
 ## Architectural Decision
-
-Context Compression belongs to the **Context Building Platform**, not the Retrieval Platform.
 
 Retrieval finds knowledge.
 
@@ -493,55 +254,127 @@ Context Building prepares knowledge.
 
 ## Responsibilities
 
-- Deduplicate chunks
-- Remove overlaps
-- Context compression
-- Token budgeting
-- Context ordering
+### Implemented
+
+- ✅ Deduplication
+- ✅ Parent Expansion
+- ✅ Adjacent Chunk Merge
+- ✅ Compression Platform Foundation
+- ✅ Token Budget Compression
+
+### Future
+
+- Embedding redundancy compression
+- LangChain contextual compression
+- LLM compression
 - Citation preparation
+- Prompt formatting
 
 ---
 
 ## Workflow
 
-```
+```text
 Retrieved Chunks
-
-↓
-
+        ↓
 Deduplicate
-
-↓
-
-Compress
-
-↓
-
-Token Budget
-
-↓
-
+        ↓
+Parent Expansion
+        ↓
+Adjacent Merge
+        ↓
+Ordering
+        ↓
+Token Budget Compression
+        ↓
+Citation Building
+        ↓
+Prompt Formatting
+        ↓
 Prompt Context
+```
+
+---
+
+## Compression Roadmap
+
+### V1
+
+```text
+Top 20
+↓
+Sort by score
+↓
+Fit token budget
+↓
+Top 5-10
+```
+
+Status:
+
+✅ Complete
+
+---
+
+### V2
+
+```text
+Chunk similarity > 0.95
+↓
+Drop duplicate chunks
+```
+
+---
+
+### V3
+
+LangChain
+
+```text
+ContextualCompressionRetriever
+```
+
+---
+
+### V4
+
+LLM Compression
+
+```text
+Chunk
+↓
+Relevant Summary
+↓
+Compressed Chunk
 ```
 
 ---
 
 ## Deliverables
 
-- Context builder
-- Compression
-- Token budgeting
-- Citation preparation
+### Complete
 
----
+- ✅ Context Models
+- ✅ ChunkArtifactReader
+- ✅ ParentExpansionService
+- ✅ AdjacentMergeService
+- ✅ Compression Platform
+- ✅ Token Budget Compression
+
+### Remaining
+
+- ❌ Citation Platform
+- ❌ Prompt Formatter
 
 # Phase 3.8 — Generation Platform
 
-**Status:** ❌ Not started
+**Status:** ❌ Not Started
+
+---
 
 ## Goal
 
-Generate answers from retrieved context.
+Generate answers from prepared context.
 
 ---
 
@@ -552,223 +385,80 @@ Generate answers from retrieved context.
 - LLM provider abstraction
 - Streaming
 - Structured output
+- Research chains
+
+---
+
+## Supported Providers
+
+- Groq
+- OpenAI
+- Claude
+- Gemini
+- Ollama
+
+---
+
+## Architecture
+
+```text
+generation/
+
+    models.py
+    interfaces.py
+    service.py
+    registry.py
+    create.py
+
+    providers/
+
+        groq.py
+        openai.py
+        claude.py
+        gemini.py
+        ollama.py
+```
 
 ---
 
 ## Workflow
 
-```
+```text
 Prompt Context
-
-↓
-
-LLM
-
-↓
-
+        ↓
+Generation Service
+        ↓
+LLM Provider
+        ↓
 Generated Answer
 ```
+
+---
+
+## Future LangChain Usage
+
+Potential:
+
+- LCEL
+- Prompt Templates
+- Output Parsers
+- Streaming
+
+Frameworks remain implementation details.
 
 ---
 
 ## Deliverables
 
 - Generation service
+- Provider abstraction
 - Prompt platform
 - Streaming support
 - Structured output
 
----
-
-# Phase 3.9 — Research APIs
-
-**Status:** 🟡 In Progress (Retrieval API done; Research/Streaming/Citations not started)
-
-This is the first stage where ResearchMind becomes useful to end users.
-
----
-
-## Retrieval API ✅
-
-```
-POST /retrieve
-POST /retrieve/sparse
-POST /retrieve/hybrid
-```
-
-Returns retrieved chunks. `/retrieve/hybrid` reranks via Voyage AI by
-default. All three endpoints now require authentication
-(`Depends(get_current_user)`) and force `owner_id` from the
-authenticated user rather than the request body — previously these
-endpoints had no auth dependency at all.
-
-Useful for debugging and evaluation.
-
----
-
-## Research API ❌
-
-```
-POST /research
-```
-
-Workflow
-
-```
-Question
-
-↓
-
-Retrieval
-
-↓
-
-Context Builder
-
-↓
-
-LLM
-
-↓
-
-Answer
-```
-
----
-
-## Streaming API ❌
-
-```
-POST /research/stream
-```
-
-Streams tokens as they are generated.
-
----
-
-## Citation API ❌
-
-```
-POST /research/citations
-```
-
-Returns
-
-- Answer
-- Citations
-- Source metadata
-
----
-
-# Phase 3.10 — Evaluation Platform
-
-**Status:** 🟡 In Progress (Retrieval + Reranker evaluation done; Generation evaluation not started)
-
-## Goal
-
-Measure AI quality continuously.
-
----
-
-## Offline Evaluation
-
-- ❌ Golden datasets (beyond the 20-query retrieval set)
-- ✅ Retrieval benchmarks (`benchmarks/retrieval/`, dense/sparse/hybrid, ADR-020)
-- ✅ Metadata filtering benchmark (`benchmarks/retrieval/metadata_filtering_benchmark.py`, `leakage_rate` correctness signal)
-- ✅ Embedding comparison (`benchmarks/embeddings/`)
-- ✅ Chunk evaluation (`benchmarks/chunking/`)
-- ✅ Reranker benchmarks (`benchmarks/reranking/`, hybrid-only vs. +CrossEncoder vs. +Voyage AI)
-
----
-
-## Metrics
-
-### Retrieval
-
-- ✅ Recall@K
-- ✅ Precision@K
-- ✅ MRR
-- ✅ NDCG@K (`benchmarks/retrieval/metrics.py::ndcg_at_k`)
-
-### Runtime
-
-- ✅ Latency
-- 🟡 Cost (qualitative for retrieval; no $ pricing calculator yet)
-
-### Generation
-
-- ❌ Faithfulness
-- ❌ Groundedness
-- ❌ Hallucination detection
-- ❌ Citation accuracy
-
----
-
-# Future Platforms
-
----
-
-# Research Platform
-
-User-facing research workspace.
-
-Features
-
-- Research Sessions
-- Conversations
-- Memory
-- Notebooks
-- Projects
-- Knowledge Bases
-
----
-
-# AI Platform
-
-Production AI runtime.
-
-Features
-
-- RAG
-- LangGraph
-- Agents
-- Tool Calling
-- Memory
-
----
-
-# MCP Platform
-
-External integrations.
-
-Examples
-
-- Research Papers
-- NASA
-- GitHub
-- Climate
-- Earthquake
-- Domain-specific MCP servers
-
----
-
-# Production Platform
-
-Production readiness.
-
-Features
-
-- Deployment
-- Monitoring
-- Scaling
-- Security
-- Performance
-
----
-
 # Final MVP Pipeline
 
-```
+```text
                     User Query
                          │
           ┌──────────────┴──────────────┐
@@ -778,49 +468,57 @@ Features
        Top 50                        Top 50
           └──────────────┬──────────────┘
                          │
+                  Parallel Execution
+                         │
                   Reciprocal Rank Fusion
                          │
                      Top 20 Results
                          │
-                     Voyage Reranker
+                     Reranker
                          │
                       Top 5 Results
                          │
                   Context Builder
                          │
-                  Context Compression
+                  Parent Expansion
                          │
-                         LLM
+                  Adjacent Merge
+                         │
+               Token Budget Compression
+                         │
+                  Citation Builder
+                         │
+                  Prompt Formatter
+                         │
+                 Generation Platform
                          │
                     Final Answer
                     + Citations
 ```
 
----
-
-# MVP Implementation Order
-
-| Milestone | Platform | Deliverables | Status |
-|------------|----------|--------------|--------|
-| 3.1 | Retrieval Foundation | Query processing, dense retrieval, `/retrieve` | ✅ Complete |
-| 3.2 | Sparse Retrieval | SPLADE query vectors, sparse search | ✅ Complete |
-| 3.3 | Hybrid Retrieval | Dense + Sparse + RRF | ✅ Complete |
-| 3.4 | Retrieval Strategies | Parent/Child, Parallel Retrieval, Query Decomposition | ❌ Not started |
-| 3.5 | Result Processing | Metadata filtering, Top-K | ✅ Complete |
-| 3.6 | Reranking Platform | Voyage AI, CrossEncoder | ✅ Complete (Foundation) |
-| 3.7 | Context Building Platform | Deduplication, Compression, Token Budgeting | ❌ Not started |
-| 3.8 | Generation Platform | Prompting, LLM Runtime, Streaming | ❌ Not started |
-| 3.9 | Research APIs | `/retrieve`, `/research`, `/research/stream`, `/research/citations` | 🟡 `/retrieve` (+sparse/hybrid, auth-protected, owner-scoped) done |
-| 3.10 | Evaluation Platform | Retrieval benchmarks, Hallucination testing, Latency, Cost | 🟡 Retrieval + Reranking benchmarks done |
-
----
+Milestone	Platform	Deliverables	Status
+3.1	Retrieval Foundation	Query processing, dense retrieval	✅ Complete
+3.2	Sparse Retrieval	SPLADE, sparse search	✅ Complete
+3.3	Hybrid Retrieval	Dense + Sparse + RRF	✅ Complete
+3.4	Retrieval Strategies	Parallel Retrieval, Runtime Query Decomposition	🟡 Parallel Retrieval complete
+3.5	Result Processing	Metadata filtering, Top-K	✅ Complete
+3.6	Reranking Platform	Voyage, CrossEncoder	✅ Complete
+3.7	Context Building Platform	Parent Expansion, Merge, Compression	🟡 In Progress
+3.8	Generation Platform	Multi-provider LLM runtime	❌ Not Started
+3.9	Research APIs	/research, streaming, citations	❌ Not Started
+3.10	Evaluation Platform	Groundedness, Hallucinations, Citation Accuracy	🟡 Retrieval evaluation complete
+3.11	Research Runtime	Planner, Query Decomposition, Agents	❌ Not Started
+3.12	Long-Term Platform	Research Sessions, Memory, MCP	❌ Not Started
 
 # Architecture Principles
 
 - Retrieval is responsible only for finding knowledge.
 - Reranking improves ordering.
-- Context Building prepares knowledge for the LLM.
+- Context Building prepares knowledge for LLM consumption.
 - Generation owns all LLM interactions.
-- Evaluation measures every AI improvement.
-- Every platform is independently testable and replaceable.
+- Evaluation measures every improvement.
+- Runtime owns planning and reasoning.
+- Artifacts remain the source of truth.
+- Vector databases are acceleration mechanisms only.
+- Frameworks remain implementation details.
 - Provider SDKs never leak outside provider implementations.

@@ -52,9 +52,26 @@ class Settings(BaseSettings):
     # AI Services
     # ==========================================================================
 
-    groq_api_key: str | None = None
     openai_api_key: str | None = None
+    anthropic_api_key: str | None = None
+    gemini_api_key: str | None = None
+    groq_api_key: str | None = None
+    ollama_host: str = "http://localhost:11434"
     langsmith_api_key: str | None = None
+
+    # ============================================================================
+    # Default Models
+    # ============================================================================
+
+    openai_model: str = "gpt-5-mini"
+
+    claude_model: str = "claude-sonnet-4"
+
+    gemini_model: str = "gemini-2.5-flash"
+
+    groq_model: str = "llama-3.3-70b-versatile"
+
+    ollama_model: str = "qwen3:latest"
 
     # ==========================================================================
     # AWS (Future)

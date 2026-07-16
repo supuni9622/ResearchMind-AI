@@ -17,10 +17,14 @@ from app.ai.runtime.generation.enums import (
     PromptStrategy,
     ResponseFormat,
 )
+from app.ai.runtime.generation.validation.models import (
+    ValidationResult,
+)
 from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
+    model_validator,
 )
 
 
@@ -61,6 +65,35 @@ class GenerationRequest(BaseModel):
 
     output_schema: dict[str, Any] | None = None
 
+    max_regeneration_attempts: int = Field(
+        default=1,
+        ge=0,
+    )
+    """
+    Opt-in retry-on-invalid-output budget (default 0 — no regeneration,
+    matches prior behavior for every existing caller).
+
+    When >0, `GenerationService.generate()` re-calls the provider (with a
+    corrective instruction appended describing what was wrong) up to this
+    many extra times if the initial attempt's `parsed_output` is `None`
+    (parsing failed) or `ValidationResult.valid` is `False` (schema
+    mismatch, fabricated citation, ...). See `GenerationResult.regeneration_attempts`.
+    """
+
+    output_model: type[BaseModel] | None = None
+    """
+    Convenience alternative to `output_schema`.
+
+    When set and `output_schema` is not explicitly provided, the JSON
+    Schema is derived from this model via `model_json_schema()`. After
+    generation, `GenerationResult.parsed_output` is validated back into
+    an instance of this model (see `GenerationService.generate`).
+
+    For strict schema compliance across providers (OpenAI, Groq), the
+    model should set `model_config = ConfigDict(extra="forbid")` so the
+    generated schema includes `additionalProperties: false`.
+    """
+
     conversation_id: UUID | None = None
 
     session_id: UUID | None = None
@@ -68,6 +101,14 @@ class GenerationRequest(BaseModel):
     request_id: UUID = Field(default_factory=uuid4)
 
     metadata: dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def _derive_output_schema_from_model(self) -> GenerationRequest:
+
+        if self.output_schema is None and self.output_model is not None:
+            self.output_schema = self.output_model.model_json_schema()
+
+        return self
 
 
 class ProviderCapabilities(
@@ -208,3 +249,20 @@ class GenerationResult(
     reasoning: str | None = None
 
     raw_response: dict[str, Any] | None = None
+
+    validation: ValidationResult | None = None
+    """
+    Populated by `GenerationService.generate()` via `ValidationService`
+    (see `generation/validation/`) — schema and citation checks against
+    `parsed_output` / `content`. `None` when no `ValidationService` was
+    wired into `GenerationService` (see `generation/create.py`).
+    """
+
+    regeneration_attempts: int = 0
+    """
+    How many extra provider calls `GenerationService.generate()` made
+    beyond the first, retrying with corrective feedback because the
+    prior attempt's output failed to parse or failed validation. 0 means
+    the first attempt was accepted (or `request.max_regeneration_attempts`
+    was 0). This result reflects the *last* attempt made.
+    """

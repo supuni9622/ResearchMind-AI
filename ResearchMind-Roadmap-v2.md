@@ -4,7 +4,7 @@ Version: 2.0
 
 Status: Active
 
-**Current Maturity (2026-07-14):** NotebookLM++ + Perplexity Foundation. Hybrid Retrieval, Reranking, Parent Expansion, Compression, Guardrails, and strategy-based Prompt Formatting are all implemented — beyond a plain NotebookLM clone and closing in on Perplexity v1. Ladder: `NotebookLM++ → Perplexity v1 (almost here) → Open Deep Research → Manus / Glean`. See `PROJECT_STATUS.md` and `ROADMAP.md` for the authoritative, continuously-updated status; this document tracks the frozen technology decisions and long-range vision.
+**Current Maturity (2026-07-16):** NotebookLM++ + Perplexity Foundation. Hybrid Retrieval, Reranking, Parent Expansion, Compression, Guardrails, and strategy-based Prompt Formatting are all implemented — beyond a plain NotebookLM clone and closing in on Perplexity v1. The AI Runtime Platform (Phase 3) is now ~60% complete: Provider Structured Output Integration, Output Validation, regeneration, and Prompt Platform bridging are done (see Phase 3.1/3.2 below and `docs/architecture/structured-output-platform.md`). Ladder: `NotebookLM++ → Perplexity v1 (almost here) → Open Deep Research → Manus / Glean`. See `PROJECT_STATUS.md` and `ROADMAP.md` for the authoritative, continuously-updated status; this document tracks the frozen technology decisions and long-range vision.
 
 ---
 
@@ -1201,7 +1201,13 @@ Status
 
 # Phase 3 — AI Runtime Platform
 
-**Status:** ❌ Not Started — **highest-priority next milestone** now that the Context Platform (2.9) is ~90% complete. Tracked in day-to-day docs as the "Generation Platform" (see `ROADMAP.md` Phase 3.1, `phase-3-ai-runtime-roadmap.md` Phase 3.8).
+**Status:** 🟡 ~60% Complete — Provider Structured Output Integration,
+Output Validation, regeneration, and Prompt Platform bridging are done.
+Capability-based routing, caching, and artifacts remain. Tracked in
+day-to-day docs as the "Generation Platform" (see `ROADMAP.md` Phase
+3.1, `phase-3-ai-runtime-roadmap.md` Phase 3.8,
+`docs/architecture/structured-output-platform.md` for the detailed,
+continuously-updated breakdown).
 
 ## Goal
 
@@ -1215,22 +1221,20 @@ Knowledge retrieval remains inside the Knowledge Platform. Context assembly (com
 
 ## Phase 3.1 — LLM Provider Platform
 
-**Status:** ❌ Not Started — highest priority
+**Status:** ✅ Provider abstraction complete; 🟡 structured output,
+routing, caching sub-scopes at varying completion (see below)
 
 ### Goal
 
 Abstract LLM providers.
 
-Primary
+Implemented (all five, per the current `generation/providers/` architecture)
 
-- Groq
-
-Planned (per the current `generation/providers/` architecture)
-
-- OpenAI
-- Claude
-- Gemini
-- Ollama
+- ✅ Groq
+- ✅ OpenAI
+- ✅ Claude
+- ✅ Gemini
+- ✅ Ollama
 
 Architecture
 
@@ -1250,17 +1254,28 @@ generation/
         claude.py
         gemini.py
         ollama.py
+
+    structured_output/   # registry, parsers, repair
+    validation/            # schema + citation validation
+    langchain/              # with_structured_output() (4/5 providers)
+    prompts/                 # template platform, bridged in
 ```
 
 Features
 
-- Provider registry
-- Model registry
-- Model routing
-- Streaming
-- Retries
-- Timeouts
-- Structured output
+- ✅ Provider registry
+- ❌ Model registry (per-model catalog exists in `catalog/models.py`;
+  not exposed as a runtime registry endpoint)
+- 🟡 Model routing — `ProviderCapabilities` flags + a capability-mismatch
+  guard exist; no selection engine (`generation/routing/` is empty stubs)
+- ✅ Streaming
+- ✅ Retries (request-level, exponential backoff)
+- ✅ Timeouts
+- ✅ Structured output — native decoding (all 5 providers), parser/repair
+  fallback, Markdown/XML parser-registry connection, optional LangChain
+  `with_structured_output()` path (OpenAI/Claude/Gemini/Ollama — Groq
+  excluded, `langchain-groq` incompatible with the pinned `groq` SDK),
+  regenerate-on-invalid-output loop with corrective feedback
 
 Deliverable
 
@@ -1270,7 +1285,9 @@ Provider-independent LLM runtime.
 
 ## Phase 3.2 — Prompt Platform
 
-**Status:** ❌ Not Started — candidate for LangChain adoption (Prompt Templates, LCEL, Output Parsers, Streaming). Frameworks remain implementation details behind this platform's interfaces.
+**Status:** ✅ Substantially complete (pre-existing) and now bridged into
+Generation. LangChain adoption (Prompt Templates, Output Parsers) is
+done; LCEL is not adopted.
 
 Purpose
 
@@ -1278,12 +1295,17 @@ Treat prompts as production artifacts.
 
 Features
 
-- Prompt templates
-- Prompt registry
-- Versioning
-- Variables
-- Evaluation
-- A/B testing
+- ✅ Prompt templates — disk-loaded (`prompt.md` + `metadata.yaml` +
+  `examples.json`), rendered via LangChain `ChatPromptTemplate`
+- ✅ Prompt registry — `PromptRegistry`
+- ✅ Versioning — templates carry a `version`; registry resolves by name+version
+- ✅ Variables — `{variable}` extraction and validation
+- ✅ Generation bridge — `GenerationService.generate_from_template()`
+  renders a template, flattens it into `GenerationRequest`, and appends
+  schema-aware format instructions (`PydanticOutputParser.get_format_instructions()`)
+  when `output_model` is set
+- ❌ Evaluation
+- ❌ A/B testing
 
 Deliverable
 
@@ -2865,5 +2887,5 @@ Reranking (Voyage AI + CrossEncoder) ✅
 Context Platform (Parent Expansion, Adjacent Merge, Compression, Guardrails, Citations, Prompt Formatter) 🟡 ~90%
    │
    ▼
-Generation Platform (LLM providers, streaming, /research API) ❌ Not Started — next
+Generation Platform (LLM providers, structured output, validation, regeneration, prompt bridge) 🟡 ~60% — /research API, routing, caching remain
 ```

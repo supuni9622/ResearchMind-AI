@@ -26,6 +26,8 @@ class ResponseFormat(StrEnum):
 
     MARKDOWN = "markdown"
 
+    XML = "xml"
+
     STRUCTURED = "structured"
 
 

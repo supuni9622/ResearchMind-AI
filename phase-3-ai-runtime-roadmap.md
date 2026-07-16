@@ -3,7 +3,7 @@
 
 **Status:** Frozen (v2.0)
 
-**Last Updated:** 2026-07-14
+**Last Updated:** 2026-07-16
 
 ---
 
@@ -36,7 +36,8 @@ Phase 3.7
 Context Building Platform (~90% complete — closing out)
     ↓
 Phase 3.8
-Generation Platform (highest priority — next)
+Generation Platform (~60% complete — structured output, validation,
+regeneration, prompt bridge done; routing/caching/artifacts remain)
 ```
 
 ---
@@ -386,7 +387,9 @@ Compressed Chunk
 
 # Phase 3.8 — Generation Platform
 
-**Status:** ❌ Not Started — **highest-priority next milestone**
+**Status:** 🟡 ~60% Complete — structured output, output validation,
+regeneration, and prompt-template integration are done; capability-based
+routing, caching, generation-level guardrails, and artifacts remain.
 
 ---
 
@@ -398,12 +401,21 @@ Generate answers from prepared context.
 
 ## Responsibilities
 
-- Prompt templates
-- Prompt registry
-- LLM provider abstraction
-- Streaming
-- Structured output
-- Research chains
+- ✅ Prompt templates — `generation/prompts/` (pre-existing, substantial:
+  disk-loaded templates, variable rendering, few-shot examples,
+  versioning) now bridged into Generation via
+  `GenerationService.generate_from_template()`
+- ✅ Prompt registry — `PromptRegistry` (pre-existing)
+- ✅ LLM provider abstraction — all five providers implemented
+- ✅ Streaming — per-provider `stream()`
+- ✅ Structured output — native decoding (all 5 providers) + parser/repair
+  fallback + Markdown/XML registry + optional LangChain
+  `with_structured_output()` path (4/5 providers) + regenerate-on-invalid
+  loop with corrective feedback
+- 🟡 Output validation — schema (`jsonschema`) + citation
+  (fabricated-citation detection) implemented; hallucination/groundedness
+  and completeness validators remain empty stubs
+- ❌ Research chains — not started
 
 ---
 
@@ -435,6 +447,11 @@ generation/
         claude.py
         gemini.py
         ollama.py
+
+    structured_output/      # registry, parsers, repair — connected end-to-end
+    validation/              # ValidationService, SchemaValidator, CitationValidator
+    langchain/                # with_structured_output() bridge (4/5 providers)
+    prompts/                  # pre-existing template platform, now bridged in
 ```
 
 ---
@@ -442,25 +459,37 @@ generation/
 ## Workflow
 
 ```text
-Prompt Context
+Prompt Context (+ optional PromptService template rendering)
         ↓
 Generation Service
         ↓
-LLM Provider
+LLM Provider — native structured output → parser fallback
+        ↓
+Output Validation (schema + citation)
+        ↓
+Regeneration (opt-in, corrective feedback) if needed
         ↓
 Generated Answer
 ```
 
+See `docs/architecture/structured-output-platform.md` for the detailed,
+continuously-updated breakdown of this subsystem.
+
 ---
 
-## Future LangChain Usage
+## LangChain Usage (Implemented)
 
-Potential:
+- `with_structured_output()` — `generation/langchain/output_parsers.py`,
+  a standalone alternative to the native-SDK path for OpenAI, Claude,
+  Gemini, and Ollama (not Groq — `langchain-groq` has no release
+  compatible with the pinned `groq>=1.5.0` SDK floor)
+- `PydanticOutputParser` / `JsonOutputParser` — power the Structured
+  Output Platform's `PydanticParser`/`JsonParser` and the
+  `generate_from_template()` format-instructions step
+- `ChatPromptTemplate` / few-shot prompt templates — power the
+  pre-existing Prompt Platform
 
-- LCEL
-- Prompt Templates
-- Output Parsers
-- Streaming
+Still potential future usage: LCEL composition.
 
 Frameworks remain implementation details.
 
@@ -468,11 +497,15 @@ Frameworks remain implementation details.
 
 ## Deliverables
 
-- Generation service
-- Provider abstraction
-- Prompt platform
-- Streaming support
-- Structured output
+- ✅ Generation service
+- ✅ Provider abstraction
+- ✅ Prompt platform (bridged in)
+- ✅ Streaming support
+- ✅ Structured output (native + fallback + registry + LangChain + regeneration)
+- 🟡 Output validation (schema + citation done; hallucination/completeness remain)
+- ❌ Capability-based routing engine
+- ❌ Caching
+- ❌ Artifacts
 
 # Final MVP Pipeline
 
@@ -522,7 +555,7 @@ Milestone	Platform	Deliverables	Status
 3.5	Result Processing	Metadata filtering, Top-K	✅ Complete
 3.6	Reranking Platform	Voyage, CrossEncoder	✅ Complete
 3.7	Context Building Platform	Parent Expansion, Merge, Compression, Guardrails, Citations, Prompt Formatter	🟡 ~90% Complete (LangChain + LLM compression remain)
-3.8	Generation Platform	Multi-provider LLM runtime	❌ Not Started — highest priority
+3.8	Generation Platform	Multi-provider LLM runtime, structured output, validation, regeneration	🟡 ~60% Complete — routing/caching/artifacts remain
 3.9	Research APIs	/research, streaming, citations	❌ Not Started
 3.10	Evaluation Platform	Groundedness, Hallucinations, Citation Accuracy	🟡 Retrieval evaluation complete
 3.11	Research Runtime	Planner, Query Decomposition, Agents	❌ Not Started

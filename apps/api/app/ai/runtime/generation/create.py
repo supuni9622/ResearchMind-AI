@@ -30,6 +30,9 @@ from app.ai.runtime.generation.config import (
 from app.ai.runtime.generation.interfaces import (
     GenerationProviderInterface,
 )
+from app.ai.runtime.generation.prompts.create import (
+    get_prompt_service,
+)
 from app.ai.runtime.generation.providers.claude import (
     ClaudeProvider,
 )
@@ -50,6 +53,12 @@ from app.ai.runtime.generation.registry import (
 )
 from app.ai.runtime.generation.service import (
     GenerationService,
+)
+from app.ai.runtime.generation.structured_output.create import (
+    get_structured_output_registry,
+)
+from app.ai.runtime.generation.validation.create import (
+    get_validation_service,
 )
 from app.core.settings import settings
 
@@ -214,4 +223,7 @@ def create_generation_service() -> GenerationService:
 
     return GenerationService(
         registry=create_generation_registry(),
+        structured_output_registry=get_structured_output_registry(),
+        validation_service=get_validation_service(),
+        prompt_service=get_prompt_service(),
     )

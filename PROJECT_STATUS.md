@@ -1,6 +1,6 @@
 # ResearchMind AI — Project Status
 
-**Last Updated:** 2026-07-14
+**Last Updated:** 2026-07-16
 
 **Current Maturity:** NotebookLM++ + Perplexity Foundation — Hybrid Retrieval, Reranking, Parent Expansion, Compression, Guardrails, and Prompt Formatter strategies are all in place, putting the platform ahead of NotebookLM and closing in on a Perplexity v1 experience. Maturity ladder: `NotebookLM++ → Perplexity v1 (almost here) → Open Deep Research → Manus / Glean`.
 
@@ -728,6 +728,120 @@ Remaining before Milestone 2.8 closes:
 
 ---
 
+# Milestone 2.9 — Generation Platform
+
+**Status:** 🟡 ~60% Complete
+
+The Generation Platform owns all LLM interactions, consuming the Context Platform's `Prompt Context` output. Provider abstraction (all five providers), Structured Output Integration, Output Validation, a regenerate-on-invalid-output loop, and a Prompt Platform bridge are all implemented this milestone. Detail: `docs/architecture/structured-output-platform.md` (the continuously-updated architecture doc for this subsystem).
+
+Pipeline
+
+```
+GenerationRequest (+ optional PromptService template rendering)
+        ↓
+GenerationService — routes to generate_structured() when a schema/JSON/STRUCTURED response is requested
+        ↓
+Provider (Groq, OpenAI, Claude, Gemini, Ollama) — native structured decoding
+        ↓
+Parser Fallback (json.loads → StructuredOutputRepair) / Markdown-XML Parser Registry
+        ↓
+Output Validation (schema + citation)
+        ↓
+Regeneration (opt-in, corrective feedback) if parsing or validation failed
+        ↓
+GenerationResult (content, parsed_output, validation, regeneration_attempts)
+```
+
+## 2.9.1 Provider Abstraction
+
+**Status:** ✅ Complete
+
+Implemented
+
+- `GenerationProviderInterface`, `BaseGenerationProvider`, `GenerationRegistry`, composition root (`generation/create.py`)
+- Five providers: Groq, OpenAI, Claude, Gemini, Ollama
+- Per-provider `generate()`, `generate_structured()`, `stream()`
+- Request-level retry with exponential backoff (`_execute_with_retry`)
+- `ProviderCapabilities` flags (`structured_output`, `json_mode`, `tool_calling`, `streaming`, `reasoning`, `vision`, ...) and `supports_*` accessors — pre-date this milestone
+- Per-model catalog with capabilities + cost (`catalog/models.py`)
+
+## 2.9.2 Provider Structured Output Integration
+
+**Status:** ✅ Complete
+
+Implemented
+
+- Native schema-constrained decoding for all five providers: OpenAI (`text.format` json_schema), Gemini (`response_json_schema` — not `response_schema`, which expects Gemini's restricted OpenAPI-subset type), Claude (`output_config.format`, the modern Structured Outputs API — supersedes the older tool-calling-only approach), Groq (`response_format.json_schema`), Ollama (schema-constrained `format`)
+- Parser/repair fallback (`BaseGenerationProvider.parse_structured_output` — `json.loads` → `StructuredOutputRepair`) used consistently across all providers
+- `GenerationRequest.output_model` — convenience field; auto-derives `output_schema` via `model_json_schema()`, and `GenerationService` validates `parsed_output` back into the Pydantic instance
+- Markdown/XML response formats routed through the (pre-existing but previously disconnected) `StructuredOutputRegistry` (`MarkdownParser`/`XMLParser`) via `GenerationService._parse_via_registry`
+- `ResponseFormat.XML` added — previously there was no way to request XML output at all
+
+## 2.9.3 LangChain `with_structured_output()` Integration
+
+**Status:** ✅ Complete (4 of 5 providers)
+
+Implemented
+
+- `generation/langchain/output_parsers.py` — standalone alternative to the native-SDK path, for callers who want LangChain's one-call provider-formatting + parsing + validation without the full platform's routing/observability
+- Supported: OpenAI (`ChatOpenAI`), Claude (`ChatAnthropic`), Gemini (`ChatGoogleGenerativeAI`), Ollama (`ChatOllama`, added `langchain-ollama` dependency)
+- Not supported: Groq — no released `langchain-groq` version (including pre-releases) is compatible with the pinned `groq>=1.5.0` SDK floor the native `GroqProvider` requires; adding it would force a downgrade risking the native integration
+
+## 2.9.4 Output Validation
+
+**Status:** 🟡 In Progress (schema + citation done; hallucination/completeness remain)
+
+Implemented (`generation/validation/` — was entirely empty stubs before this milestone)
+
+- `ValidationService`, `OutputValidatorInterface`, `ValidationResult`/`ValidationIssue` models
+- `SchemaValidator` — validates `parsed_output` against `request.output_schema` via `jsonschema` (added `jsonschema` + `types-jsonschema` dependencies); independent of `output_model` re-validation, catches drift on providers without guaranteed native enforcement
+- `CitationValidator` — scans generated content for bracketed citation markers (`[S1]`, the convention `CitationService.build()` and the Context Platform's prompt formatters already use) and flags any not present in the retrieved context, catching fabricated citations; skips entirely when there are no known citations, so it never false-positives on ungrounded generations
+- Wired into `GenerationService.generate()` as the final post-processing step; `GenerationResult.validation` field
+
+Remaining
+
+- ❌ Hallucination / groundedness validation — needs an LLM-as-judge call or a retrieval-overlap heuristic (a real design decision, not just wiring)
+- ❌ Completeness validation
+- ❌ Input-side validators (`generation/validation/input/` — empty stubs)
+
+## 2.9.5 Regeneration Strategy
+
+**Status:** ✅ Complete
+
+Implemented
+
+- `GenerationRequest.max_regeneration_attempts` — opt-in, default preserves prior behavior
+- `GenerationService` regenerates (up to the budget) when the latest attempt's `parsed_output` is `None` for a structured request, or `ValidationResult.valid` is `False`
+- Each retry appends corrective feedback to `system_prompt`, built fresh from the latest failure only (not accumulated) — combines JSON-formatting guidance and specific validation-issue messages when both apply, rather than picking one
+- `GenerationResult.regeneration_attempts` records how many extra calls were made; exhausting the budget is not an error — the last attempt is returned as-is
+
+## 2.9.6 Provider Capability Flags
+
+**Status:** 🟡 Guard implemented; no selection engine
+
+- `ProviderCapabilities` and `supports_*` accessors pre-date this milestone
+- New: `GenerationService._check_capability_support()` — a best-effort guard that logs `generation.capability_mismatch` when the caller's explicitly-chosen provider doesn't declare support for what the request needs; never blocks the call
+- Not built: `generation/routing/` (capability-based provider selection, cost/latency/quality strategies) remains entirely empty stubs — every caller still names an explicit provider
+
+## 2.9.7 Prompt Platform Integration
+
+**Status:** ✅ Complete
+
+- `generation/prompts/` (template loading from disk, `ChatPromptTemplate` rendering, few-shot examples, versioning) pre-dates this milestone and was previously fully disconnected from Generation
+- `GenerationService.generate_from_template()` — renders a named template via `PromptService`, flattens the resulting messages into `GenerationRequest.system_prompt`/`user_prompt`, and — when `output_model` is set — appends schema-aware format instructions (`PydanticOutputParser(pydantic_object=output_model).get_format_instructions()`) that reinforce (not replace) native provider structured output
+- Composition root (`generation/create.py`) now wires `structured_output_registry`, `validation_service`, and `prompt_service` together into `GenerationService`
+
+## Not Yet Built
+
+- ❌ `POST /research` API, streaming chat API
+- ❌ Capability-based routing/selection engine
+- ❌ Caching (`generation/caching/` scaffolding exists, not wired)
+- ❌ Generation-level guardrails (distinct from the Context Platform's retrieval-time guardrails)
+- ❌ Artifact persistence
+- ❌ Test suite (no pytest coverage for any of the Generation Platform yet, despite `pytest`/`pytest-asyncio` being dev dependencies)
+
+---
+
 # Engineering Benchmark Platform
 
 **Status:** ✅ Foundation Complete
@@ -797,6 +911,10 @@ Reranking (optional, Voyage AI by default for hybrid)
 ↓
 
 Context Platform (parent expansion, adjacent merge, compression, guardrails, citations, prompt formatting)
+
+↓
+
+Generation Platform (native structured output → parser fallback → output validation → regeneration)
 ```
 
 ---
@@ -816,12 +934,24 @@ Context Platform (parent expansion, adjacent merge, compression, guardrails, cit
 | Phase 2.6 — Indexing Platform (Hybrid Retrieval) | ✅ Complete |
 | Phase 2.7 — Retrieval Platform | ✅ Complete (incl. Metadata Filtering + Reranking + Parallel Retrieval) |
 | Phase 2.8 — Context Platform | 🟡 ~90% Complete (Parent Expansion, Adjacent Merge, Compression V1/V2, Guardrails V1, Citations, Prompt Formatter done; LangChain + LLM compression remain) |
-| Phase 2.9 — Generation Platform | ❌ Not Started — next major milestone |
+| Phase 2.9 — Generation Platform | 🟡 ~60% Complete (Structured Output Integration, Output Validation, Regeneration, Prompt Platform bridge done; routing engine, caching, artifacts, /research API remain) |
 | Benchmark Platform | ✅ Foundation Complete (incl. Retrieval, Metadata Filtering, Reranking Benchmarks) |
 
 ---
 
 # Recently Completed
+
+✅ Generation Platform — Provider Structured Output Integration: native schema-constrained decoding for all five providers (OpenAI, Claude, Gemini, Groq, Ollama), parser/repair fallback, Markdown/XML parser-registry connection, `ResponseFormat.XML` added
+
+✅ Generation Platform — LangChain `with_structured_output()` bridge (OpenAI, Claude, Gemini, Ollama — `generation/langchain/output_parsers.py`; Groq excluded, `langchain-groq` incompatible with the pinned `groq` SDK)
+
+✅ Generation Platform — Output Validation (`generation/validation/`, previously empty stubs): `ValidationService`, `SchemaValidator` (`jsonschema`), `CitationValidator` (fabricated-citation detection), wired into `GenerationService`
+
+✅ Generation Platform — Regeneration Strategy: opt-in regenerate-on-invalid-output loop with corrective feedback (`max_regeneration_attempts`, `GenerationResult.regeneration_attempts`)
+
+✅ Generation Platform — Provider Capability Flags: capability-mismatch guard (`generation.capability_mismatch` logging) on top of the pre-existing `ProviderCapabilities`/`supports_*` accessors
+
+✅ Generation Platform — Prompt Platform Integration: `GenerationService.generate_from_template()` bridges the pre-existing `generation/prompts/` template platform into Generation, with schema-aware format instructions (`PydanticOutputParser.get_format_instructions()`)
 
 ✅ Context Platform foundation — ChunkArtifactReader, ParentExpansionService, AdjacentMergeService (~90% of Milestone 2.8 complete)
 
@@ -881,9 +1011,9 @@ Context Platform (parent expansion, adjacent merge, compression, guardrails, cit
 
 # Current Focus
 
-## Phase 2.8 — Context Platform (wrapping up) → Phase 2.9 — Generation Platform (next)
+## Phase 2.8 — Context Platform (wrapping up) + Phase 2.9 — Generation Platform (~60% complete, in progress)
 
-Parent Expansion, Adjacent Merge, Token Budget + Embedding Compression, Guardrails V1, Citations, and Prompt Formatter are all implemented (see Milestone 2.8 above), bringing the Context Platform to ~90% complete. Remaining scope before moving fully into Generation:
+Parent Expansion, Adjacent Merge, Token Budget + Embedding Compression, Guardrails V1, Citations, and Prompt Formatter are all implemented (see Milestone 2.8 above), bringing the Context Platform to ~90% complete. Remaining scope to close it out:
 
 - LangChain compression provider (V3 — `ContextualCompressionRetriever`)
 - LLM compression provider (V4 — chunk-level relevant-summary compression)
@@ -891,7 +1021,7 @@ Parent Expansion, Adjacent Merge, Token Budget + Embedding Compression, Guardrai
 - Retrieval result cache
 - Scaling the retrieval benchmark dataset (5 → 20-50 documents, 20 → 100 queries, chunk-level relevance) — see `README.md` TODO
 
-The next major milestone is the **Generation Platform** (Milestone 5.1 — highest priority): LLM providers (Groq, OpenAI, Claude, Gemini, Ollama), prompt templates, streaming, and the `/research` API. LangChain adoption for prompt templates/LCEL/output parsers/streaming (Milestone 5.2) follows, then Evaluation Platform expansion (Milestone 6) and a LangGraph-based Research Runtime (Milestone 7).
+The **Generation Platform** (Milestone 2.9) is now ~60% complete (see Milestone 2.9 above): provider abstraction, Structured Output Integration (native decoding + parser fallback + Markdown/XML registry + LangChain `with_structured_output()`), Output Validation (schema + citation), Regeneration Strategy, a provider-capability guard, and Prompt Platform integration are all done. Remaining before it's complete: `/research` API, streaming chat API, a capability-based routing/selection engine, caching, generation-level guardrails, artifact persistence, hallucination/completeness validators, and a test suite. Then Evaluation Platform expansion (Milestone 6) and a LangGraph-based Research Runtime (Milestone 7) follow.
 
 ---
 
@@ -920,7 +1050,14 @@ Context Platform (~90%) 🟡
 
 ↓
 
-Generation Platform ❌ (LLM providers, prompt templates, streaming, /research API)
+Generation Platform (~60%) 🟡
+  Provider Abstraction (5 providers) ✅
+  Structured Output Integration (native + fallback + registry + LangChain) ✅
+  Output Validation (schema + citation) 🟡 — hallucination/completeness ⏳
+  Regeneration Strategy ✅
+  Provider Capability Guard ✅ — routing/selection engine ⏳
+  Prompt Platform Integration ✅
+  /research API, streaming chat, caching, artifacts ❌
 
 ↓
 

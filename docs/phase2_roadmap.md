@@ -339,12 +339,12 @@ Not started: LangChain contextual compression (V3), LLM compression (V4).
 
 Status: IN PROGRESS
 
-⏳ Phase 2.7 — Generation Platform (Not Started — highest priority next)
+🟨 Phase 2.7 — Generation Platform (~60% complete — structured output, validation, regeneration, prompt bridge done; routing/caching/artifacts remain)
 Prompt Context
 
 ↓
 
-Generation Service
+Generation Service (native structured output → parser fallback → validation → regeneration)
 
 ↓
 
@@ -355,10 +355,21 @@ LLM Provider (Groq, OpenAI, Claude, Gemini, Ollama)
 Generated Answer
 
 This replaces the earlier "RAG Engine" placeholder now that Retrieval
-and Context are done — Generation is the next platform to build, per
-`ROADMAP.md` (Phase 3.1) and `phase-3-ai-runtime-roadmap.md` (Phase 3.8).
+and Context are done. Provider Structured Output Integration is
+complete for all five providers (native schema-constrained decoding,
+parser/repair fallback, Markdown/XML registry), plus an optional
+LangChain `with_structured_output()` path (OpenAI/Claude/Gemini/Ollama),
+Output Validation (schema + citation, `generation/validation/`), a
+regenerate-on-invalid-output loop (`max_regeneration_attempts`), a
+provider-capability-mismatch guard, and `generate_from_template()`
+bridging the existing Prompt Platform into Generation with schema-aware
+format instructions. Detail: `docs/architecture/structured-output-platform.md`.
 
-Status: NOT STARTED
+Not yet built: capability-based provider routing/selection (flags exist,
+no selection engine), caching, generation-level guardrails, artifact
+persistence, hallucination/completeness validators, and a test suite.
+
+Status: IN PROGRESS (~60%)
 
 ⏳ Phase 2.8 — Queue & Workers
 

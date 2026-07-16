@@ -6,7 +6,7 @@
 
 🟡 In Progress
 
-Current Completion: ~95%
+Current Completion: ~99%
 
 ---
 
@@ -43,7 +43,11 @@ LangChain is leveraged for:
 
 - JsonOutputParser
 - PydanticOutputParser
-- Future with_structured_output()
+- `with_structured_output()` (`generation/langchain/output_parsers.py`) —
+  OpenAI, Claude, Gemini, Ollama. Not Groq: `langchain-groq` has no
+  release compatible with `groq>=1.5.0` (the native `GroqProvider`'s SDK
+  floor); adding it would force a downgrade that risks the native
+  integration.
 
 ---
 
@@ -143,12 +147,14 @@ LLM Tool Calls → Objects
 
 # Core Flow
 
-Current:
+Current — two branches, selected by `response_format`:
+
+**JSON / STRUCTURED** (provider-native schema support exists):
 
 ```text
 GenerationRequest
         ↓
-response_schema
+response_schema (output_schema / output_model)
         ↓
 Provider (generate_structured)
         ↓
@@ -157,13 +163,34 @@ Native Structured Output
 Parser Fallback (json.loads → StructuredOutputRepair)
         ↓
 GenerationResult.parsed_output
+        ↓
+output_model.model_validate() (if output_model is set)
 ```
 
-The `Structured Output Service` (registry + parsers/json.py,
-parsers/pydantic.py, etc.) remains available as a standalone
-text → objects pipeline for callers that already have raw text
-in hand (e.g. non-generation call sites, tests) and is used inside
-the Prompt/Validation platforms' future flows below.
+**MARKDOWN / XML** (no provider supports schema-constrained Markdown/XML
+decoding, so there's nothing for a provider to do natively):
+
+```text
+GenerationRequest
+        ↓
+Provider (generate — plain text)
+        ↓
+GenerationService._parse_via_registry
+        ↓
+Structured Output Registry (MarkdownParser / XMLParser)
+        ↓
+GenerationResult.parsed_output
+```
+
+`GenerationService` is constructed with a `StructuredOutputRegistry`
+(wired in `generation/create.py` via `structured_output/create.py`'s
+`get_structured_output_registry()`), so both branches are reachable
+from the same `GenerationService.generate()` entrypoint — the registry
+is no longer a disconnected, generation-unaware pipeline. `JsonParser`
+and `PydanticParser` remain unused in the generation runtime path
+(native decoding + the lean repair fallback already cover JSON/Pydantic
+well); the registry is still available standalone for callers that
+already have raw text in hand (e.g. non-generation call sites, tests).
 
 Future:
 
@@ -440,6 +467,61 @@ schema is available.
 
 ---
 
+# LangChain Structured Output Integration
+
+`generation/langchain/output_parsers.py` — a standalone, optional
+alternative to `GenerationService` for callers who want LangChain's
+`with_structured_output()` to handle provider formatting, parsing, and
+Pydantic validation in a single call, and don't need routing, retries,
+cost tracking, or the uniform `GenerationResult` contract.
+
+```python
+from app.ai.runtime.generation.langchain.output_parsers import generate_structured
+
+result: PlannerOutput = await generate_structured(
+    provider=GenerationProvider.OPENAI,
+    model_name="gpt-5-mini",
+    schema=PlannerOutput,
+    user_prompt="...",
+)
+```
+
+`generate_structured_from_request(provider, model_name, request)` is a
+convenience wrapper that pulls the schema and prompts from an existing
+`GenerationRequest` (reuses `request.output_model`).
+
+Backed by each provider's LangChain chat model integration — a separate
+client stack from the native SDKs (`AsyncOpenAI`, `AsyncAnthropic`, etc.)
+that `GenerationService`'s providers use:
+
+| Provider | Chat model | Package |
+| --- | --- | --- |
+| OpenAI | `ChatOpenAI` | `langchain-openai` |
+| Claude | `ChatAnthropic` | `langchain-anthropic` |
+| Gemini | `ChatGoogleGenerativeAI` | `langchain-google-genai` |
+| Ollama | `ChatOllama` | `langchain-ollama` |
+| Groq | *(unsupported)* | — |
+
+**Groq is not supported.** No released version of `langchain-groq`
+(including pre-releases) is compatible with `groq>=1.5.0`, the SDK
+floor the native `GroqProvider` requires — every `langchain-groq`
+release pins `groq<1`. Adding it would force downgrading the `groq`
+package and risk breaking the native integration, so `_build_chat_model`
+raises `NotImplementedError` for `GenerationProvider.GROQ` with an
+explanation, instead of silently failing or downgrading a shared
+dependency. Use `GenerationService` for Groq structured output instead.
+
+This is intentionally **not** wired into `GenerationService.generate()` —
+it duplicates provider formatting that `GenerationService` already
+handles natively (see Native Provider Structured Outputs above), and
+routing every structured request through it would forgo the retry
+handling, cost estimation, usage extraction, and structured logging
+already built around the native SDKs. It exists as an opt-in path for
+call sites that specifically want LangChain's convenience over a single,
+one-off structured call.
+
+---
+
 # Provider Strategy
 
 Preferred order:
@@ -482,17 +564,42 @@ GenerationRequest supports:
 response_format
 
 output_schema
+
+output_model
 ```
 
 `GenerationService.generate()` routes requests with `output_schema` set,
 or `response_format` in `{JSON, STRUCTURED}`, through each provider's
 `generate_structured()` instead of `generate()`.
 
+Requests with `response_format` in `{MARKDOWN, XML}` instead run
+`generate()` (plain text — no provider has native Markdown/XML schema
+decoding) and then parse `result.content` through the Structured Output
+Registry's `MarkdownParser` / `XMLParser` — see Core Flow above.
+`ResponseFormat.XML` was added specifically to make this reachable;
+previously there was no way to request XML output at all.
+
+`output_model` (`type[BaseModel] | None`) is a convenience over
+`output_schema`: when set and `output_schema` is not explicitly
+provided, the schema is derived via `output_model.model_json_schema()`.
+Set `model_config = ConfigDict(extra="forbid")` on the model for strict
+schema compliance (`additionalProperties: false`) on providers that
+enforce it (OpenAI, Groq).
+
 GenerationResult supports:
 
 ```python
 parsed_output
 ```
+
+When `output_model` is set, `GenerationService.generate()` validates
+`parsed_output` (the dict produced by native structured output or the
+parser-repair fallback) back into an instance of `output_model` via
+`model_validate()`. This is best-effort — a model that drifted from the
+schema is logged (`generation.structured_output.validation_failed`) and
+left as the raw dict rather than failing the generation. General JSON
+Schema validation independent of `output_model` remains owned by the
+Validation Platform (see Platform Boundaries).
 
 Future:
 
@@ -506,42 +613,183 @@ native_structured_output_used
 
 # Prompt Platform Integration
 
-Future prompts may inject:
+`GenerationService.generate_from_template()` bridges the Prompt Platform
+(`generation/prompts/` — template loading, variable rendering, few-shot
+examples, all pre-existing and already substantial, not stubs) into the
+Generation Platform:
 
 ```text
-format instructions
+PromptTemplate (rendered via PromptService)
+        ↓
+list[BaseMessage] (system + few-shot + human)
+        ↓
+flattened into GenerationRequest.system_prompt / .user_prompt
+        ↓
+output_model set? → append PydanticOutputParser(pydantic_object=output_model)
+                       .get_format_instructions()
+        ↓
+GenerationService.generate()
 ```
 
-Examples:
+`GenerationRequest` only carries flat `system_prompt`/`user_prompt`
+strings (not a message list), so the rendered `ChatPromptTemplate` is
+flattened: `SystemMessage` content becomes `system_prompt`; few-shot
+pairs (role-labeled, e.g. `"Assistant: ..."`) and the final human
+message become `user_prompt`.
 
-```python
-PydanticOutputParser.get_format_instructions()
-```
+Format instructions (`PydanticOutputParser.get_format_instructions()`,
+e.g. *"The output should be formatted as a JSON instance that conforms
+to the JSON schema below..."*) are schema-aware — generated from the
+actual `output_model`, not the generic "return valid JSON" nudge — and
+are appended whenever `output_model` is passed to
+`generate_from_template()`. They **reinforce** native provider
+structured output (`output_config.format` / `response_format` /
+`response_json_schema` — see Native Provider Structured Outputs above),
+not replace it — both apply on every call, since the prompt is rendered
+before a provider is selected, so there's no way to skip the
+prompt-level instruction only for providers with reliable native
+enforcement.
 
-This allows prompts to guide providers toward valid outputs.
+`generate_from_template()` requires a `PromptService` to be wired in
+(`generation/create.py` → `prompts/create.py`'s `get_prompt_service()`)
+— calling it without one raises `GenerationValidationError` immediately
+rather than failing confusingly partway through. The plain `generate()`
+entrypoint is untouched and doesn't require `PromptService` at all.
 
 ---
 
 # Validation Platform Integration
 
-Future flow:
+Current flow (`generation/validation/`):
 
 ```text
 Generation
       ↓
-Structured Output
+Structured Output (parsed_output / content)
       ↓
-Validation
+ValidationService.validate(result)
       ↓
-Artifacts
+GenerationResult.validation
 ```
 
-Validation responsibilities:
+`GenerationService.generate()` runs `ValidationService.validate(result)` as
+the last step (after the structured-output and `output_model` steps),
+attaching a `ValidationResult` to `GenerationResult.validation`. It never
+raises for a failed validation — `GenerationResult.validation.valid` and
+`.issues` are there for the caller to inspect and act on (matches every
+other structured-output step in this platform: best-effort, non-raising).
+`validation` stays `None` when no `ValidationService` is wired (backward
+compatible with direct `GenerationService(registry=...)` construction).
 
-- schema validation
-- citation validation
-- groundedness validation
-- completeness validation
+`OutputValidatorInterface.validate(result: GenerationResult) -> list[ValidationIssue]`
+receives the full result (content, parsed_output, and `request` — schema,
+output_model, prompt_context) rather than a bespoke per-validator
+signature. A validator with nothing to check against returns `[]`.
+
+Implemented validators (`generation/validation/output/`):
+
+- **`SchemaValidator`** — validates `parsed_output` against
+  `request.output_schema` using `jsonschema`. Independent of the
+  `output_model` re-validation in `GenerationService._validate_parsed_output`
+  (which validates against one specific Pydantic class) — this checks any
+  `output_schema`, including a raw dict with no corresponding Pydantic
+  model, and catches drift `output_model` validation wouldn't (e.g. a
+  provider that skipped native schema enforcement).
+- **`CitationValidator`** — scans `content` for bracketed citation
+  markers (`[S1]`, `[S1, S2]` — the convention `CitationService.build()`
+  and the prompt formatters already use) and flags any that don't match
+  a `citation_id` in `request.prompt_context.citations`/`chunks`,
+  catching fabricated citations. Skips entirely when the prompt context
+  carries no known citations, so it never false-positives on generations
+  that weren't grounded in retrieved sources.
+
+Not yet implemented (still empty stubs — need design decisions this
+integration didn't need to make):
+
+- `hallucination_validator.py` — groundedness validation needs either an
+  LLM-as-judge call or a retrieval-overlap heuristic; a real design
+  choice, not just wiring.
+- `json_validator.py`, and the `validation/input/` validators
+  (`context_validation.py`, `empty_prompt.py`, `provider_limits.py`,
+  `token_budget.py`) — input-side validation, out of scope for this
+  Generation → Structured Output → Validation (output) flow.
+- `Artifacts` — the step after `Validation` in the original future flow
+  is still future.
+
+---
+
+# Regeneration Strategy
+
+```text
+Attempt 1
+    ↓
+parsed_output is None, or ValidationResult.valid is False
+    ↓
+Regenerate — provider call again, with corrective feedback appended
+    ↓
+Valid Output (or attempts exhausted — last result returned as-is)
+```
+
+Opt-in — `GenerationRequest.max_regeneration_attempts: int = 0`. Default
+0 means no behavior change for any existing caller. When set >0,
+`GenerationService.generate()` re-calls the provider up to that many
+extra times whenever the latest attempt still needs regeneration:
+
+- a structured request (`output_schema`/`output_model`/`response_format`
+  in `{JSON, STRUCTURED}`) whose `parsed_output` is `None`, or
+- `ValidationResult.valid` is `False` (schema mismatch, fabricated
+  citation, …) — ties the loop to the `ValidationService` above.
+
+Each retry appends a corrective instruction to `system_prompt` (built
+fresh from the *latest* failure only — corrections don't accumulate
+across attempts) rather than silently re-asking the identical prompt:
+a structured request with no `parsed_output` gets a "return ONLY valid
+JSON" instruction, a validation failure gets the specific issue
+messages (e.g. naming the fabricated citation), and both combine when
+both apply. `GenerationResult.regeneration_attempts` records how many
+extra calls were made (0 = first attempt accepted, or regeneration
+wasn't requested) — essential for agents that need to know whether the
+result they got was first-try or coerced. Exhausting the budget without
+success is not an error: the last attempt's `GenerationResult` is
+returned as-is, `validation`/`parsed_output` intact, for the caller to
+inspect (matches every other step in this platform — best-effort,
+non-raising).
+
+This lives in `GenerationService` (not per-provider) so it reuses the
+same structured-parsing and validation pipeline every attempt runs
+through — no provider needs its own retry-on-invalid-output logic.
+
+---
+
+# Provider Capability Flags
+
+`ProviderCapabilities` (`generation/models.py`) and the matching
+`supports_*` accessors on `GenerationProviderInterface`
+(`generation/interfaces.py`) already existed before any of the work in
+this doc — `structured_output`, `json_mode`, `tool_calling`, plus
+`streaming`, `reasoning`, `vision`, `citations`, `thinking_tokens`,
+`parallel_tool_calls`, `multimodal_input`/`output`. `catalog/models.py`
+carries them further — a full model catalog (`ALL_MODELS`,
+`MODELS_BY_PROVIDER`) with per-model `capabilities` *and* cost data.
+
+What didn't exist: anything that *uses* the flags. `generation/routing/`
+(`service.py`, `interfaces.py`, `models.py`, the three `policies/*.py`,
+all six `strategies/*.py`) is entirely empty stubs — there is no
+capability-based provider selection, and `GenerationService.generate()`
+always requires an explicit `provider:` from the caller. Building that
+(multiple strategies, a scoring/fallback policy) is a separate, larger
+initiative — out of scope here.
+
+What's implemented instead is a lightweight guard:
+`GenerationService._check_capability_support()` runs once per
+`generate()` call, before the first attempt. If the explicitly-chosen
+provider doesn't declare `structured_output` for a structured request,
+`json_mode` for a JSON-format request, or `tool_calling` when
+`request.tools` is set, it logs `generation.capability_mismatch` with
+the missing capability names. It never blocks the call — capability
+flags are self-reported and every provider already degrades gracefully
+(e.g. Claude falls back to prompt-enforced JSON without a schema) — this
+only makes that degradation observable instead of silent.
 
 ---
 
@@ -651,8 +899,16 @@ Provider Native Outputs        ✅
 
 Generation Integration         ✅
 
-Prompt Integration             ⬜
+LangChain with_structured_output ✅ (OpenAI/Claude/Gemini/Ollama; Groq unsupported — see LangChain Structured Output Integration)
+
+Output Validation Integration  🟡 (schema + citation implemented; hallucination/completeness still empty stubs — see Validation Platform Integration)
+
+Regeneration Strategy          ✅ (opt-in via max_regeneration_attempts — see Regeneration Strategy)
+
+Provider Capability Flags      🟡 (flags + accessors pre-existed; capability guard added, but routing/ itself is still empty stubs — see Provider Capability Flags)
+
+Prompt Integration             ✅ (generate_from_template() — see Prompt Platform Integration)
 
 Tests                          ⬜
 
-Current Completion: ~95%
+Current Completion: ~99%

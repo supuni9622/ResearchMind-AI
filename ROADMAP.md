@@ -1,6 +1,6 @@
 # ResearchMind AI Roadmap
 
-**Last Updated:** 2026-07-14
+**Last Updated:** 2026-07-16
 
 **Current Maturity:** NotebookLM++ + Perplexity Foundation. Hybrid Retrieval, Reranking, Parent Expansion, Compression, Guardrails, and strategy-based Prompt Formatting are all in place — beyond a plain NotebookLM clone. Maturity ladder: `NotebookLM++ → Perplexity v1 (almost here) → Open Deep Research → Manus / Glean`.
 
@@ -1070,7 +1070,10 @@ Context Assembly and the Citation Engine are already delivered by the Context Pl
 
 ## Milestone 3.1 — Generation Platform
 
-**Status:** ❌ Not Started — **highest-priority next milestone**
+**Status:** 🟡 ~60% Complete — structured output, output validation,
+regeneration, and prompt-template integration are done; the `/research`
+API, streaming chat, capability-based routing, caching, and artifacts
+remain.
 
 ### Goal
 
@@ -1094,17 +1097,38 @@ generation/
         claude.py
         gemini.py
         ollama.py
+
+    structured_output/    # registry, parsers, repair — connected end-to-end
+    validation/            # ValidationService, SchemaValidator, CitationValidator
+    langchain/              # with_structured_output() bridge (4/5 providers)
+    prompts/                # template platform (pre-existing), now bridged in
 ```
 
 ### Milestones
 
-- Generation Core (interfaces, models, service, registry, composition root)
-- Providers — Groq, OpenAI, Claude, Gemini, Ollama
-- Prompt Templates (candidate: LangChain — Milestone 3.2)
-- Output Parsers (candidate: LangChain — Milestone 3.2)
-- Streaming
-- `POST /research` API
-- Streaming Chat API
+- ✅ Generation Core (interfaces, models, service, registry, composition root)
+- ✅ Providers — Groq, OpenAI, Claude, Gemini, Ollama
+- ✅ Structured Output — native provider decoding (all 5), parser/repair
+  fallback, Markdown/XML registry connection, optional LangChain
+  `with_structured_output()` path (OpenAI/Claude/Gemini/Ollama — Groq
+  excluded, `langchain-groq` incompatible with the pinned `groq` SDK),
+  regenerate-on-invalid-output loop with corrective feedback
+- 🟡 Output Validation — schema (`jsonschema`) + citation
+  (fabricated-citation detection) implemented; hallucination/groundedness
+  and completeness validators remain
+- ✅ Prompt Templates — bridged via `generate_from_template()`, reusing
+  the pre-existing `generation/prompts/` platform (LangChain
+  `ChatPromptTemplate`-based)
+- ✅ Output Parsers — `PydanticOutputParser`/`JsonOutputParser` (LangChain,
+  via `structured_output/parsers/` and the format-instructions step)
+- ✅ Streaming — per-provider `stream()`
+- ❌ `POST /research` API
+- ❌ Streaming Chat API
+- ❌ Capability-based provider routing (flags + guard exist, no
+  selection engine — `generation/routing/` is empty stubs)
+- ❌ Caching, Artifacts
+
+Detail: `docs/architecture/structured-output-platform.md`.
 
 ### Deliverable
 
@@ -1114,14 +1138,18 @@ Provider-independent generation runtime powering the first end-to-end research a
 
 ## Milestone 3.2 — LangChain Adoption for Generation
 
-**Status:** ❌ Not Started
+**Status:** 🟡 Mostly Complete for Structured Output — Prompt Templates,
+Output Parsers, and a `with_structured_output()` path are implemented;
+LCEL composition and streaming-specific LangChain usage remain.
 
-Introduce LangChain for:
+Introduced:
 
-- Prompt Templates
-- LCEL
-- Output Parsers
-- Streaming
+- ✅ Prompt Templates — `ChatPromptTemplate` (pre-existing Prompt Platform)
+- ✅ Output Parsers — `PydanticOutputParser`, `JsonOutputParser`
+- ✅ `with_structured_output()` — `generation/langchain/output_parsers.py`
+  (OpenAI, Claude, Gemini, Ollama)
+- ❌ LCEL — not adopted
+- ❌ Streaming — provider streaming is native-SDK-based, not LangChain-based
 
 Frameworks remain implementation details behind the Generation Platform's provider interfaces.
 
@@ -1674,8 +1702,8 @@ The major AI Engineering platforms interact as follows.
 | Phase 2.8 — Context Platform | 🟡 ~90% Complete (Parent Expansion, Adjacent Merge, Compression V1/V2, Guardrails V1, Citations, Prompt Formatter done; LangChain + LLM compression remain) |
 | Phase 2.9 — Conversation Memory Platform | ⏳ Planned |
 | Phase 2.10 — Knowledge Service | ⏳ Planned |
-| Phase 3.1 — Generation Platform | ❌ Not Started — next major milestone |
-| Phase 3.2 — LangChain Adoption for Generation | ⏳ Planned |
+| Phase 3.1 — Generation Platform | 🟡 ~60% Complete (structured output, validation, regeneration, prompt bridge done; routing/caching/artifacts remain) |
+| Phase 3.2 — LangChain Adoption for Generation | 🟡 Mostly Complete for structured output (LCEL not adopted) |
 | Phase 3 — Research Engine (broader) | ⏳ Planned |
 | Phase 4 — Agentic AI Platform | ⏳ Planned |
 | Phase 5 — Experimentation Platform | ⏳ Planned |
@@ -1686,13 +1714,21 @@ The major AI Engineering platforms interact as follows.
 
 # Current Focus
 
-## Phase 2.8 — Context Platform (wrapping up) → Phase 3.1 — Generation Platform (next)
+## Phase 2.8 — Context Platform (wrapping up) + Phase 3.1 — Generation Platform (~60% complete, in progress)
 
-Vector Store, Retrieval (dense/sparse/hybrid/parallel), Metadata Filtering, and Reranking are all complete (Phases 2.5–2.7). The Context Platform (Phase 2.8) is now ~90% complete: Parent Expansion, Adjacent Merge, Token Budget + Embedding Compression, Guardrails V1, Citation Platform, and Prompt Formatter are all implemented. The Knowledge Platform's remaining gap before it can support the Research Engine is Generation, not retrieval or context quality.
+Vector Store, Retrieval (dense/sparse/hybrid/parallel), Metadata Filtering, and Reranking are all complete (Phases 2.5–2.7). The Context Platform (Phase 2.8) is ~90% complete. The Generation Platform (Phase 3.1) is now ~60% complete: Provider Structured Output Integration (native decoding for all 5 providers, parser/repair fallback, Markdown/XML registry connection, an optional LangChain `with_structured_output()` path), Output Validation (schema + citation), a regenerate-on-invalid-output loop, a provider-capability-mismatch guard, and a Prompt Platform → Generation bridge (`generate_from_template()` with schema-aware format instructions) are all done. Detail: `docs/architecture/structured-output-platform.md`.
 
-Remaining before Phase 3.1 — Generation Platform is fully scoped:
+Remaining before Phase 3.1 — Generation Platform is complete:
 
-- LangChain compression provider (V3) and LLM compression provider (V4) — closes out Phase 2.8
+- `POST /research` API and streaming chat API
+- Capability-based provider routing/selection (flags + guard exist; `generation/routing/` selection engine does not)
+- Caching, generation-level guardrails, artifact persistence
+- Hallucination/groundedness and completeness validators (`generation/validation/` — currently schema + citation only)
+- Test suite (no pytest coverage yet for any of the Generation Platform)
+
+Also remaining to close out Phase 2.8 — Context Platform:
+
+- LangChain compression provider (V3) and LLM compression provider (V4)
 - Conversation Memory Platform (Phase 2.9)
 - Knowledge Service — unified orchestration API (Phase 2.10)
 - Forward `HybridRetrieveRequest.rerank` from `/retrieve/hybrid` into `RetrievalService.search_hybrid` (currently always uses the service's `rerank=True` default)
@@ -1708,15 +1744,15 @@ This project intentionally prioritizes completing the production AI platform (Ti
 2. ~~Retrieval Platform (Phase 2.6)~~ ✅
 3. ~~Reranking Platform (Phase 2.7)~~ ✅
 4. ~~Context Platform (Phase 2.8) — Parent Expansion, Adjacent Merge, Guardrails V1, Citations, Prompt Formatter~~ ✅ (~90%, compression V3/V4 remain)
-5. **Generation Platform (Phase 3.1) — highest priority**
-6. LangChain Adoption for Generation (Phase 3.2)
+5. **Generation Platform (Phase 3.1) — ~60% complete, highest priority to finish**: `/research` API, streaming chat, capability-based routing, caching, artifacts, hallucination/completeness validators, tests
+6. ~~LangChain Adoption for Generation (Phase 3.2)~~ 🟡 mostly complete for structured output (LCEL not adopted)
 7. Conversation Memory Platform (Phase 2.9)
 8. Knowledge Service (Phase 2.10)
 9. Evaluation Platform expansion (NDCG, Groundedness, Faithfulness, Hallucinations, Citation Accuracy, End-to-End, Security Evaluation)
 10. Research Runtime — Query Decomposition, Planner, Research Agents, Reviewer, Summarizer, LangGraph
 11. Agentic AI Platform
 12. Long-Term Platform — Research Sessions, Memory, MCP, Feedback Learning
-11. Advanced Observability, Experimentation Platform (deferred until the core RAG pipeline is complete)
+13. Advanced Observability, Experimentation Platform (deferred until the core RAG pipeline is complete)
 
 ---
 

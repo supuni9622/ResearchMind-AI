@@ -197,7 +197,11 @@ Current maturity:
 
 Status:
 
-🚧 In Progress
+🚧 In Progress — structured output, output validation, regeneration, and
+prompt-template integration are now substantially complete (see
+`docs/architecture/structured-output-platform.md`, ~99% complete in its
+own scope). Routing, caching, generation-level guardrails, and artifacts
+remain unbuilt.
 
 Purpose:
 
@@ -205,16 +209,37 @@ Provider-independent LLM execution platform.
 
 Responsibilities:
 
-- Provider abstraction
-- Prompt management
-- Validation
-- Guardrails
-- Structured outputs
-- Routing
-- Streaming
-- Caching
-- Observability
-- Artifacts
+- ✅ Provider abstraction — OpenAI, Claude, Gemini, Groq, Ollama, each
+  behind `GenerationProviderInterface`
+- 🟡 Prompt management — `generation/prompts/` (template loading,
+  rendering, few-shot, versioning) is substantial and pre-existing;
+  `GenerationService.generate_from_template()` now bridges it into
+  Generation with schema-aware format instructions
+  (`PydanticOutputParser.get_format_instructions()`)
+- 🟡 Validation — `generation/validation/` implements schema validation
+  (`jsonschema`) and citation validation (fabricated-citation
+  detection); hallucination/groundedness and completeness validation
+  remain empty stubs
+- ❌ Guardrails — not addressed this phase (distinct from the Context
+  Platform's retrieval-time guardrails)
+- ✅ Structured outputs — native provider structured decoding for all
+  five providers (OpenAI `text.format`, Gemini `response_json_schema`,
+  Claude `output_config.format`, Groq `response_format.json_schema`,
+  Ollama schema-constrained `format`), a parser/repair fallback, the
+  Markdown/XML parser registry connected end-to-end, an optional
+  LangChain `with_structured_output()` path (`generation/langchain/`,
+  4 of 5 providers — `langchain-groq` is incompatible with the pinned
+  `groq` SDK version), and a regenerate-on-invalid-output loop with
+  corrective feedback (`GenerationRequest.max_regeneration_attempts`)
+- 🟡 Routing — `ProviderCapabilities` flags and `supports_*` accessors
+  pre-date this phase; a capability-mismatch guard now makes silent
+  degradation observable, but there is still no capability-based
+  provider selection engine (`generation/routing/` is empty stubs)
+- ✅ Streaming — per-provider `stream()` implementations
+- ❌ Caching — `generation/caching/` scaffolding exists, not wired
+- 🟡 Observability — structured logging throughout; `cost_tracker` /
+  `latency_tracker` / `token_counter` pre-exist, not newly verified
+- ❌ Artifacts — not addressed this phase
 
 Providers:
 
@@ -227,27 +252,27 @@ Providers:
 Architecture:
 
 ```text
-Prompt
+Prompt (PromptService, optional — generate_from_template)
 ↓
 
-Validation
+Validation (input, still minimal)
 ↓
 
-Routing
+Routing (capability guard only — no provider-selection engine)
 ↓
 
-Generation
+Generation (native structured output → parser fallback → regeneration)
 ↓
 
-Output Validation
+Output Validation (schema + citation)
 ↓
 
-Artifacts
+Artifacts (not built)
 ```
 
 Current maturity:
 
-~35%
+~60%
 
 ---
 

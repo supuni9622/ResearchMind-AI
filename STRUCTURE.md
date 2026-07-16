@@ -274,13 +274,61 @@ ResearchMind-AI/
 │   │       │   │   ├── prompts.py           # Prompt template registry
 │   │       │   │   ├── providers.py         # LLM provider registry
 │   │       │   │   └── rerankers.py         # Reranker registry
-│   │       │   ├── runtime/                 # Inference runtime (planned)
-│   │       │   │   ├── prompts/
-│   │       │   │   ├── providers/
-│   │       │   │   ├── registry/
-│   │       │   │   ├── routing/
-│   │       │   │   ├── streaming/
-│   │       │   │   └── structured_output/
+│   │       │   ├── runtime/                 # ~60% Implemented — Generation Platform
+│   │       │   │   ├── routing/__init__.py        # (empty) — vestigial, superseded by generation/routing/ (also empty)
+│   │       │   │   ├── streaming/__init__.py      # (empty) — vestigial, superseded by generation/streaming/ (also empty; per-provider stream() is the real thing)
+│   │       │   │   └── generation/                # Generation Platform — see docs/architecture/structured-output-platform.md
+│   │       │   │       ├── models.py               # GenerationRequest (output_schema/output_model/max_regeneration_attempts/...), GenerationResult (parsed_output/validation/regeneration_attempts), ProviderCapabilities
+│   │       │   │       ├── interfaces.py           # GenerationProviderInterface ABC — generate()/generate_structured()/stream(), supports_* capability accessors
+│   │       │   │       ├── enums.py                # GenerationProvider, ResponseFormat (incl. xml), RoutingStrategy (enum only, no engine)
+│   │       │   │       ├── exceptions.py           # GenerationError hierarchy
+│   │       │   │       ├── config.py               # BaseGenerationConfig + per-provider configs
+│   │       │   │       ├── registry.py             # GenerationRegistry — provider → implementation resolution
+│   │       │   │       ├── service.py              # GenerationService — generate() (capability guard → native structured output → parser fallback → validation → regeneration loop), generate_from_template() (PromptService bridge + format instructions)
+│   │       │   │       ├── create.py               # create_generation_service() — composition root wiring providers + structured_output_registry + validation_service + prompt_service
+│   │       │   │       ├── providers/
+│   │       │   │       │   ├── base.py             # BaseGenerationProvider[ConfigT] — retry, parse_structured_output() (json.loads → StructuredOutputRepair fallback)
+│   │       │   │       │   ├── claude.py           # ClaudeProvider — native output_config.format (Structured Outputs API) + prompt-JSON fallback
+│   │       │   │       │   ├── openai.py           # OpenAIProvider — native text.format (json_schema/json_object)
+│   │       │   │       │   ├── gemini.py           # GeminiProvider — native response_json_schema (not response_schema)
+│   │       │   │       │   ├── groq.py             # GroqProvider — native response_format (json_schema/json_object)
+│   │       │   │       │   ├── ollama.py           # OllamaProvider — native format (schema dict or "json")
+│   │       │   │       │   └── helpers/            # structured.py, prompt_builder.py, usage.py, cost.py
+│   │       │   │       ├── structured_output/      # Implemented — parser registry, repair, schemas
+│   │       │   │       │   ├── registry.py         # StructuredOutputRegistry — format → parser resolution
+│   │       │   │       │   ├── repair.py           # StructuredOutputRepair — fixes markdown fences, trailing commas, single quotes, missing braces
+│   │       │   │       │   ├── service.py          # StructuredOutputService — standalone text→objects pipeline
+│   │       │   │       │   ├── create.py           # get_structured_output_registry()/get_structured_output_service()
+│   │       │   │       │   ├── parsers/            # json.py, pydantic.py (LangChain), markdown.py, xml.py
+│   │       │   │       │   └── schemas/            # research_report.py, planner.py, citations.py, agent.py
+│   │       │   │       ├── validation/             # ~50% Implemented — schema + citation validators
+│   │       │   │       │   ├── service.py          # ValidationService — aggregates validator issues, crashing validator → WARNING not a hard failure
+│   │       │   │       │   ├── create.py           # get_validation_service() — registers SchemaValidator + CitationValidator
+│   │       │   │       │   ├── output/
+│   │       │   │       │   │   ├── schema_validator.py     # SchemaValidator — jsonschema.validate() against output_schema
+│   │       │   │       │   │   ├── citation_validator.py   # CitationValidator — flags [S1]-style markers not in prompt_context.citations
+│   │       │   │       │   │   ├── json_validator.py       # (empty)
+│   │       │   │       │   │   └── hallucination_validator.py  # (empty) — needs LLM-judge or retrieval-overlap design
+│   │       │   │       │   └── input/              # (all empty) — empty_prompt.py, token_budget.py, provider_limits.py, context_validation.py
+│   │       │   │       ├── langchain/              # ~25% Implemented
+│   │       │   │       │   ├── output_parsers.py   # with_structured_output() bridge — OpenAI/Claude/Gemini/Ollama (not Groq — langchain-groq incompatible with pinned groq SDK)
+│   │       │   │       │   ├── prompt_factory.py   # (empty)
+│   │       │   │       │   ├── runnables.py        # (empty)
+│   │       │   │       │   └── semantic_cache.py   # (empty)
+│   │       │   │       ├── prompts/                # Implemented (pre-existing) — now bridged into Generation
+│   │       │   │       │   ├── builder.py          # PromptBuilder — loads prompt.md + metadata.yaml + examples.json from disk
+│   │       │   │       │   ├── registry.py         # PromptRegistry — name+version → PromptTemplate
+│   │       │   │       │   ├── service.py          # PromptService — render()/render_messages() via LangChain ChatPromptTemplate
+│   │       │   │       │   ├── create.py           # get_prompt_service() — composition root
+│   │       │   │       │   ├── models.py           # PromptTemplate, PromptMetadata, PromptRenderRequest/Result
+│   │       │   │       │   └── langchain/prompt_factory.py  # PromptFactory.build() — ChatPromptTemplate + few-shot
+│   │       │   │       ├── catalog/models.py       # ModelMetadata catalog (capabilities + cost) per known model, ALL_MODELS/MODELS_BY_PROVIDER
+│   │       │   │       ├── routing/                # (all empty) — capability flags exist, no selection engine
+│   │       │   │       ├── caching/                # (all empty)
+│   │       │   │       ├── guardrails/             # (all empty) — distinct from context/guardrails/
+│   │       │   │       ├── streaming/               # (all empty) — per-provider stream() is the real implementation
+│   │       │   │       ├── artifacts/               # (all empty)
+│   │       │   │       └── observability/           # token_counter.py implemented; cost_tracker.py/latency_tracker.py/metrics_collector.py/token_tracker.py/models.py/service.py empty
 │   │       │   └── shared/                  # Shared AI types and interfaces
 │   │       │       ├── exceptions.py        # (empty)
 │   │       │       ├── interfaces.py        # (empty)
@@ -858,22 +906,27 @@ ResearchMind-AI/
 ├── .vscode/
 │   ├── extensions.json          # Recommended VS Code extensions
 │   └── settings.json            # Workspace settings
+├── AI_ENGINEERING_AUDIT.md      # Evidence-based AI subsystem audit — several gaps since closed (Structured Output, Validation, Regeneration, Capability Flags, Prompt Integration)
 ├── alembic.ini                  # Alembic configuration file
 ├── CHANGELOG.md                 # Version changelog
 ├── DEV_GUIDE.md                 # Step-by-step local development guide
 ├── docker-compose.yml           # Local dev stack (PostgreSQL, Valkey, Qdrant)
 ├── FILES.md                     # Complete file and folder map
 ├── LICENSE
-├── phase-3-ai-runtime-roadmap.md  # Frozen v1.0 — Retrieval & AI Runtime roadmap (Phase 3.1–3.10), progress tracked inline
+├── phase-3-ai-runtime-roadmap.md  # Frozen v2.0 — Retrieval, Context, Generation & Research Runtime roadmap (Phase 3.4–3.12), progress tracked inline — Generation Platform (3.8) ~60% complete
+├── prompt_guardrails.md         # Prompt-injection defense snippet for prompt templates
 ├── PROJECT_STATUS.md            # Current project status and progress
 ├── pyproject.toml               # Python project config, deps, and tool settings
 ├── README.md                    # Project overview and quickstart
+├── RESEARCHMIND_PROJECT_CONTEXT_AND_HANDOFF.md  # Project context and engineering handoff (v1.0)
+├── ResearchMind-Roadmap-v2.md   # AI Engineering Roadmap v2 — 10-phase vision, frozen tech decisions — AI Runtime Platform (Phase 3) ~60% complete
 ├── ROADMAP.md                   # Feature and milestone roadmap
 ├── SECURITY.md                  # Security policy
 ├── setup_commands.md            # Makefile-style shortcut commands (docker compose up/down)
 ├── STRUCTURE.md                 # This file
 ├── test.txt                     # Stray scratch file — can be deleted
-└── uv.lock                      # Locked dependency versions (uv)
+├── uv.lock                      # Locked dependency versions (uv)
+└── validation_platform_prd.md   # Standalone Validation Platform PRD — schema + citation output validation implemented under generation/validation/; rest still aspirational
 ```
 
 ## Key Boundaries

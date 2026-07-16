@@ -1,0 +1,10 @@
+[
+    {
+        "input": "How is climate change affecting agriculture?",
+        "output": "Executive Summary:\nClimate change is affecting agriculture through rising temperatures, altered rainfall patterns, and increased extreme weather events.\n\nKey Findings:\n- Crop yields are declining in vulnerable regions.\n- Water availability is becoming more uncertain.\n- Adaptation strategies are increasingly important.\n\nLimitations:\n- Regional impacts vary significantly."
+    },
+    {
+        "input": "Compare vector databases and traditional databases.",
+        "output": "Executive Summary:\nVector databases are optimized for semantic similarity search, while traditional databases are optimized for structured queries.\n\nKey Findings:\n- Vector databases use embeddings.\n- Traditional databases use indexes and exact matching.\n- Hybrid approaches are increasingly common."
+    }
+]

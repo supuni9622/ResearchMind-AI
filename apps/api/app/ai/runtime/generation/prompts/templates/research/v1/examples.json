@@ -1,0 +1,6 @@
+[
+    {
+        "input": "What is Retrieval Augmented Generation?",
+        "output": "Retrieval Augmented Generation (RAG) combines information retrieval with large language models by retrieving relevant external knowledge and using it during response generation."
+    }
+]

@@ -83,22 +83,11 @@ class GroqProvider(
             model=self.config.model_name,
         )
 
-        try:
-            response = await self._execute_with_retry(
-                lambda: self._create_completion(
-                    request,
-                )
+        response = await self._execute_with_retry(
+            lambda: self._create_completion(
+                request,
             )
-
-        except GroqError as exc:
-            logger.exception(
-                "generation.groq.failed",
-                error=str(exc),
-            )
-
-            raise GenerationExecutionError(
-                str(exc),
-            ) from exc
+        )
 
         latency_ms = self.stop_timer(
             started,
@@ -127,7 +116,7 @@ class GroqProvider(
             completion_tokens=usage.completion_tokens,
         )
 
-        return self.build_result(
+        result = self.build_result(
             request=request,
             content=content,
             statistics=statistics,
@@ -135,6 +124,17 @@ class GroqProvider(
             parsed_output=parsed_output,
             raw_response=response.model_dump(),
         )
+
+        logger.info(
+            "generation.groq.completed",
+            model=self.config.model_name,
+            latency_ms=latency_ms,
+            prompt_tokens=usage.prompt_tokens,
+            completion_tokens=usage.completion_tokens,
+            total_tokens=statistics.total_tokens,
+        )
+
+        return result
 
     ###########################################################################
     # Streaming
@@ -145,34 +145,57 @@ class GroqProvider(
         request: GenerationRequest,
     ) -> AsyncIterator[StreamChunk]:
 
-        stream = await self._client.chat.completions.create(
+        logger.info(
+            "generation.groq.stream.started",
             model=self.config.model_name,
-            messages=cast(
-                list[ChatCompletionMessageParam],
-                build_chat_messages(
-                    request,
+        )
+
+        try:
+            stream = await self._client.chat.completions.create(
+                model=self.config.model_name,
+                messages=cast(
+                    list[ChatCompletionMessageParam],
+                    build_chat_messages(
+                        request,
+                    ),
                 ),
-            ),
-            stream=True,
-            temperature=(request.temperature or self.config.temperature),
-            max_completion_tokens=(request.max_tokens or self.config.max_tokens),
+                stream=True,
+                temperature=(request.temperature or self.config.temperature),
+                max_completion_tokens=(request.max_tokens or self.config.max_tokens),
+            )
+
+            yield StreamChunk(
+                event=StreamEventType.START,
+            )
+
+            async for chunk in stream:
+                if not chunk.choices:
+                    continue
+
+                delta = chunk.choices[0].delta.content
+
+                if delta:
+                    yield StreamChunk(
+                        event=StreamEventType.TOKEN,
+                        content=delta,
+                    )
+
+        except GroqError as exc:
+            logger.exception(
+                "generation.groq.stream.failed",
+                model=self.config.model_name,
+                error_type=type(exc).__name__,
+                error=str(exc),
+            )
+
+            raise GenerationExecutionError(
+                str(exc),
+            ) from exc
+
+        logger.info(
+            "generation.groq.stream.completed",
+            model=self.config.model_name,
         )
-
-        yield StreamChunk(
-            event=StreamEventType.START,
-        )
-
-        async for chunk in stream:
-            if not chunk.choices:
-                continue
-
-            delta = chunk.choices[0].delta.content
-
-            if delta:
-                yield StreamChunk(
-                    event=StreamEventType.TOKEN,
-                    content=delta,
-                )
 
         yield StreamChunk(
             event=StreamEventType.COMPLETED,

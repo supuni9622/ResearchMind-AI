@@ -1,0 +1,6 @@
+[
+    {
+        "input": "Help me build an AI roadmap.",
+        "output": "Understanding:\nYou want a structured learning roadmap.\n\nPlan:\n1. Learn LangChain fundamentals.\n2. Learn LangGraph workflows.\n3. Build RAG systems.\n4. Build MCP integrations.\n\nSuggested Next Steps:\nStart with provider abstractions and retrieval systems."
+    }
+]

@@ -88,10 +88,12 @@ class BaseGenerationProvider(
         self,
         fn,
     ):
-        last_error = None
+        last_error: Exception | None = None
+
+        max_attempts = self.config.max_retries + 1
 
         for attempt in range(
-            self.config.max_retries + 1,
+            max_attempts,
         ):
             try:
                 return await fn()
@@ -99,17 +101,31 @@ class BaseGenerationProvider(
             except Exception as exc:
                 last_error = exc
 
+                is_final_attempt = attempt == max_attempts - 1
+
                 logger.warning(
-                    "generation.retry",
+                    "generation.retry" if not is_final_attempt else "generation.retry_exhausted",
                     provider=self.provider.value,
+                    model=self.config.model_name,
                     attempt=attempt + 1,
+                    max_attempts=max_attempts,
+                    error_type=type(exc).__name__,
                     error=str(exc),
                 )
 
-                if attempt < self.config.max_retries:
+                if not is_final_attempt:
                     await asyncio.sleep(
                         2**attempt,
                     )
+
+        logger.error(
+            "generation.execution_failed",
+            provider=self.provider.value,
+            model=self.config.model_name,
+            attempts=max_attempts,
+            error_type=type(last_error).__name__,
+            error=str(last_error),
+        )
 
         raise GenerationExecutionError(
             str(last_error),

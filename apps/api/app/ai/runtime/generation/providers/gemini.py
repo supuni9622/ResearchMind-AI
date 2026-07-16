@@ -78,22 +78,11 @@ class GeminiProvider(
             model=self.config.model_name,
         )
 
-        try:
-            response = await self._execute_with_retry(
-                lambda: self._create_response(
-                    request,
-                )
+        response = await self._execute_with_retry(
+            lambda: self._create_response(
+                request,
             )
-
-        except APIError as exc:
-            logger.exception(
-                "generation.gemini.failed",
-                error=str(exc),
-            )
-
-            raise GenerationExecutionError(
-                str(exc),
-            ) from exc
+        )
 
         latency_ms = self.stop_timer(
             started,
@@ -123,13 +112,24 @@ class GeminiProvider(
                     content,
                 )
 
-        return self.build_result(
+        result = self.build_result(
             request=request,
             content=content,
             statistics=statistics,
             parsed_output=parsed_output,
             raw_response=response.model_dump(),
         )
+
+        logger.info(
+            "generation.gemini.completed",
+            model=self.config.model_name,
+            latency_ms=latency_ms,
+            prompt_tokens=usage.prompt_tokens,
+            completion_tokens=usage.completion_tokens,
+            total_tokens=statistics.total_tokens,
+        )
+
+        return result
 
     ###########################################################################
     # Structured Outputs
@@ -152,28 +152,51 @@ class GeminiProvider(
         request: GenerationRequest,
     ) -> AsyncIterator[StreamChunk]:
 
+        logger.info(
+            "generation.gemini.stream.started",
+            model=self.config.model_name,
+        )
+
         config = self._build_generation_config(
             request,
         )
 
-        stream = await self._client.aio.models.generate_content_stream(
+        try:
+            stream = await self._client.aio.models.generate_content_stream(
+                model=self.config.model_name,
+                contents=build_prompt_text(
+                    request,
+                ),
+                config=config,
+            )
+
+            yield StreamChunk(
+                event=StreamEventType.START,
+            )
+
+            async for chunk in stream:
+                if chunk.text:
+                    yield StreamChunk(
+                        event=StreamEventType.TOKEN,
+                        content=chunk.text,
+                    )
+
+        except APIError as exc:
+            logger.exception(
+                "generation.gemini.stream.failed",
+                model=self.config.model_name,
+                error_type=type(exc).__name__,
+                error=str(exc),
+            )
+
+            raise GenerationExecutionError(
+                str(exc),
+            ) from exc
+
+        logger.info(
+            "generation.gemini.stream.completed",
             model=self.config.model_name,
-            contents=build_prompt_text(
-                request,
-            ),
-            config=config,
         )
-
-        yield StreamChunk(
-            event=StreamEventType.START,
-        )
-
-        async for chunk in stream:
-            if chunk.text:
-                yield StreamChunk(
-                    event=StreamEventType.TOKEN,
-                    content=chunk.text,
-                )
 
         yield StreamChunk(
             event=StreamEventType.COMPLETED,
@@ -295,5 +318,12 @@ class GeminiProvider(
 
             return True
 
-        except Exception:
+        except Exception as exc:
+            logger.warning(
+                "generation.gemini.health_check_failed",
+                model=self.config.model_name,
+                error_type=type(exc).__name__,
+                error=str(exc),
+            )
+
             return False

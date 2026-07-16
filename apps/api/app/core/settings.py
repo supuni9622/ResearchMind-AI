@@ -136,5 +136,7 @@ class Settings(BaseSettings):
 
     voyage_reranker_model: str = "rerank-2"
 
+    prompts_path: str = "app/ai/runtime/generation/prompts/templates"
+
 
 settings = Settings()  # pyright: ignore[reportCallIssue]

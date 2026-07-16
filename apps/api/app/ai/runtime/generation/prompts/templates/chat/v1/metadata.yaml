@@ -1,0 +1,106 @@
+name: chat
+version: v1
+
+title: Conversational RAG Assistant
+
+description: >
+  Lightweight conversational prompt optimized for
+  chat interactions, document question answering,
+  and short-session conversations.
+
+tags:
+  - chat
+  - conversational
+  - rag
+  - assistant
+
+owner: researchmind
+
+experimental: false
+
+recommended_use_cases:
+  - assistant_chat
+  - document_qa
+  - support_chat
+  - conversational_search
+  - follow_up_questions
+
+preferred_providers:
+  - groq
+  - openai
+  - claude
+  - gemini
+
+routing:
+
+  quality: medium
+
+  latency: very_low
+
+  cost: low
+
+  supports_streaming: true
+
+  requires_structured_output: false
+
+  requires_large_context: false
+
+evaluation:
+
+  enable_groundedness: true
+
+  enable_faithfulness: true
+
+  enable_citation_validation: false
+
+generation:
+
+  temperature: 0.5
+
+  max_tokens: 2000
+
+  top_p: 0.95
+
+context:
+
+  max_chunks: 8
+
+  compression_enabled: false
+
+  reranking_required: true
+
+memory:
+
+  user_profile_enabled: false
+
+  conversation_summary_enabled: false
+
+  entity_memory_enabled: false
+
+artifacts:
+
+  persist_prompt: true
+
+  persist_response: true
+
+  persist_evaluation: false
+
+runtime:
+
+  planner_enabled: false
+
+  reviewer_enabled: false
+
+  query_decomposition_enabled: false
+
+future:
+
+  supports_agents: false
+
+  supports_memory: true
+
+  supports_mcp: false
+
+few_shot:
+
+  enabled: false

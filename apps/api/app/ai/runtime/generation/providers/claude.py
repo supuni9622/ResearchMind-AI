@@ -81,22 +81,11 @@ class ClaudeProvider(
             model=self.config.model_name,
         )
 
-        try:
-            response = await self._execute_with_retry(
-                lambda: self._create_message(
-                    request,
-                )
+        response = await self._execute_with_retry(
+            lambda: self._create_message(
+                request,
             )
-
-        except AnthropicError as exc:
-            logger.exception(
-                "generation.claude.failed",
-                error=str(exc),
-            )
-
-            raise GenerationExecutionError(
-                str(exc),
-            ) from exc
+        )
 
         latency_ms = self.stop_timer(
             started,
@@ -131,7 +120,7 @@ class ClaudeProvider(
             response,
         )
 
-        return self.build_result(
+        result = self.build_result(
             request=request,
             content=content,
             statistics=statistics,
@@ -140,6 +129,17 @@ class ClaudeProvider(
             tool_calls=tool_calls,
             raw_response=response.model_dump(),
         )
+
+        logger.info(
+            "generation.claude.completed",
+            model=self.config.model_name,
+            latency_ms=latency_ms,
+            prompt_tokens=usage.prompt_tokens,
+            completion_tokens=usage.completion_tokens,
+            total_tokens=statistics.total_tokens,
+        )
+
+        return result
 
     ###########################################################################
     # Streaming
@@ -150,43 +150,66 @@ class ClaudeProvider(
         request: GenerationRequest,
     ) -> AsyncIterator[StreamChunk]:
 
+        logger.info(
+            "generation.claude.stream.started",
+            model=self.config.model_name,
+        )
+
         system_prompt, messages = build_claude_messages(
             request,
         )
 
-        stream = await self._client.messages.create(
-            model=self.config.model_name,
-            system=(system_prompt or ""),
-            messages=cast(
-                list[MessageParam],
-                messages,
-            ),
-            max_tokens=(request.max_tokens or self.config.max_tokens),
-            temperature=(request.temperature or self.config.temperature),
-            stream=True,
-        )
+        try:
+            stream = await self._client.messages.create(
+                model=self.config.model_name,
+                system=(system_prompt or ""),
+                messages=cast(
+                    list[MessageParam],
+                    messages,
+                ),
+                max_tokens=(request.max_tokens or self.config.max_tokens),
+                temperature=(request.temperature or self.config.temperature),
+                stream=True,
+            )
 
-        yield StreamChunk(
-            event=StreamEventType.START,
-        )
+            yield StreamChunk(
+                event=StreamEventType.START,
+            )
 
-        async for event in stream:
-            #
-            # text deltas
-            #
+            async for event in stream:
+                #
+                # text deltas
+                #
 
-            if event.type == "content_block_delta":
-                delta = getattr(
-                    event.delta,
-                    "text",
-                    None,
-                )
-
-                if delta:
-                    yield StreamChunk(
-                        event=StreamEventType.TOKEN,
-                        content=delta,
+                if event.type == "content_block_delta":
+                    delta = getattr(
+                        event.delta,
+                        "text",
+                        None,
                     )
+
+                    if delta:
+                        yield StreamChunk(
+                            event=StreamEventType.TOKEN,
+                            content=delta,
+                        )
+
+        except AnthropicError as exc:
+            logger.exception(
+                "generation.claude.stream.failed",
+                model=self.config.model_name,
+                error_type=type(exc).__name__,
+                error=str(exc),
+            )
+
+            raise GenerationExecutionError(
+                str(exc),
+            ) from exc
+
+        logger.info(
+            "generation.claude.stream.completed",
+            model=self.config.model_name,
+        )
 
         yield StreamChunk(
             event=StreamEventType.COMPLETED,

@@ -1,0 +1,76 @@
+name: summary
+version: v1
+
+title: Basic Summarization
+
+description: >
+  Lightweight summarization prompt optimized for
+  concise summaries and low-cost generation.
+
+tags:
+  - summary
+  - compression
+  - lightweight
+
+owner: researchmind
+
+experimental: false
+
+recommended_use_cases:
+  - document_summary
+  - retrieval_summary
+  - context_compression
+  - chat_summary
+
+preferred_providers:
+  - groq
+  - openai
+  - claude
+
+routing:
+
+  quality: medium
+
+  latency: very_low
+
+  cost: very_low
+
+  supports_streaming: false
+
+  requires_structured_output: false
+
+  requires_large_context: false
+
+evaluation:
+
+  enable_faithfulness: true
+
+generation:
+
+  temperature: 0.1
+
+  max_tokens: 1000
+
+  top_p: 0.9
+
+context:
+
+  compression_enabled: false
+
+artifacts:
+
+  persist_prompt: false
+
+  persist_response: true
+
+runtime:
+
+  planner_enabled: false
+
+future:
+
+  supports_agents: false
+
+few_shot:
+
+  enabled: false

@@ -1,0 +1,97 @@
+name: chat
+version: v2
+
+title: Memory Aware Conversational Assistant
+
+description: >
+  Conversational prompt optimized for memory-aware,
+  personalized, long-running assistant interactions.
+
+tags:
+  - chat
+  - memory
+  - conversational
+  - personalized
+
+owner: researchmind
+
+experimental: false
+
+recommended_use_cases:
+  - assistant_chat
+  - personalized_chat
+  - long_conversations
+  - memory_enabled_chat
+
+preferred_providers:
+  - claude
+  - openai
+  - gemini
+
+routing:
+
+  quality: medium
+
+  latency: low
+
+  cost: medium
+
+  supports_streaming: true
+
+  requires_structured_output: false
+
+  requires_large_context: true
+
+evaluation:
+
+  enable_groundedness: true
+
+  enable_faithfulness: true
+
+generation:
+
+  temperature: 0.4
+
+  max_tokens: 4000
+
+  top_p: 0.95
+
+context:
+
+  max_chunks: 10
+
+  compression_enabled: true
+
+  reranking_required: true
+
+memory:
+
+  user_profile_enabled: true
+
+  conversation_summary_enabled: true
+
+  entity_memory_enabled: true
+
+artifacts:
+
+  persist_prompt: true
+
+  persist_response: true
+
+runtime:
+
+  memory_enabled: true
+
+future:
+
+  supports_agents: true
+
+  supports_mcp: true
+
+few_shot:
+
+  enabled: true
+
+  max_examples: 1
+
+  selection: static

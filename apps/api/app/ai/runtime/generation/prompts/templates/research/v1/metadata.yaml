@@ -1,0 +1,84 @@
+name: research
+version: v1
+
+title: Quick Research Response
+
+description: >
+  Lightweight research prompt optimized for standard
+  retrieval-augmented generation workflows.
+
+tags:
+  - research
+  - rag
+  - qa
+  - citations
+
+owner: researchmind
+
+experimental: false
+
+recommended_use_cases:
+  - chat
+  - question_answering
+  - document_qa
+  - quick_research
+
+preferred_providers:
+  - claude
+  - openai
+  - gemini
+  - groq
+
+routing:
+
+  quality: medium
+
+  latency: low
+
+  cost: low
+
+  supports_streaming: true
+
+  requires_structured_output: false
+
+  requires_large_context: false
+
+evaluation:
+
+  enable_groundedness: true
+
+  enable_faithfulness: true
+
+  enable_citation_validation: true
+
+generation:
+
+  temperature: 0.2
+
+  max_tokens: 2000
+
+  top_p: 0.95
+
+context:
+
+  max_chunks: 10
+
+  compression_enabled: false
+
+  reranking_required: true
+
+artifacts:
+
+  persist_prompt: true
+
+  persist_response: true
+
+  persist_evaluation: false
+
+few_shot:
+
+  enabled: false
+
+  max_examples: 1
+
+  selection: static

@@ -80,26 +80,11 @@ class OllamaProvider(
             model=self.config.model_name,
         )
 
-        try:
-            response = await self._execute_with_retry(
-                lambda: self._create_chat(
-                    request,
-                )
+        response = await self._execute_with_retry(
+            lambda: self._create_chat(
+                request,
             )
-
-        except (
-            RequestError,
-            ResponseError,
-            ConnectionError,
-        ) as exc:
-            logger.exception(
-                "generation.ollama.failed",
-                error=str(exc),
-            )
-
-            raise GenerationExecutionError(
-                str(exc),
-            ) from exc
+        )
 
         latency_ms = self.stop_timer(
             started,
@@ -129,13 +114,24 @@ class OllamaProvider(
                     content,
                 )
 
-        return self.build_result(
+        result = self.build_result(
             request=request,
             content=content,
             statistics=statistics,
             parsed_output=parsed_output,
             raw_response=response.model_dump(),
         )
+
+        logger.info(
+            "generation.ollama.completed",
+            model=self.config.model_name,
+            latency_ms=latency_ms,
+            prompt_tokens=usage.prompt_tokens,
+            completion_tokens=usage.completion_tokens,
+            total_tokens=statistics.total_tokens,
+        )
+
+        return result
 
     ###########################################################################
     # Structured Outputs
@@ -158,30 +154,57 @@ class OllamaProvider(
         request: GenerationRequest,
     ) -> AsyncIterator[StreamChunk]:
 
-        stream = await self._client.chat(
+        logger.info(
+            "generation.ollama.stream.started",
             model=self.config.model_name,
-            messages=build_chat_messages(
-                request,
-            ),
-            stream=True,
-            options=self._build_options(
-                request,
-            ),
-            format=build_ollama_format(
-                request,
-            ),
         )
 
-        yield StreamChunk(
-            event=StreamEventType.START,
-        )
+        try:
+            stream = await self._client.chat(
+                model=self.config.model_name,
+                messages=build_chat_messages(
+                    request,
+                ),
+                stream=True,
+                options=self._build_options(
+                    request,
+                ),
+                format=build_ollama_format(
+                    request,
+                ),
+            )
 
-        async for chunk in stream:
-            if chunk.message and chunk.message.content:
-                yield StreamChunk(
-                    event=StreamEventType.TOKEN,
-                    content=(chunk.message.content),
-                )
+            yield StreamChunk(
+                event=StreamEventType.START,
+            )
+
+            async for chunk in stream:
+                if chunk.message and chunk.message.content:
+                    yield StreamChunk(
+                        event=StreamEventType.TOKEN,
+                        content=(chunk.message.content),
+                    )
+
+        except (
+            RequestError,
+            ResponseError,
+            ConnectionError,
+        ) as exc:
+            logger.exception(
+                "generation.ollama.stream.failed",
+                model=self.config.model_name,
+                error_type=type(exc).__name__,
+                error=str(exc),
+            )
+
+            raise GenerationExecutionError(
+                str(exc),
+            ) from exc
+
+        logger.info(
+            "generation.ollama.stream.completed",
+            model=self.config.model_name,
+        )
 
         yield StreamChunk(
             event=StreamEventType.COMPLETED,
@@ -270,7 +293,14 @@ class OllamaProvider(
 
             return True
 
-        except Exception:
+        except Exception as exc:
+            logger.warning(
+                "generation.ollama.health_check_failed",
+                model=self.config.model_name,
+                error_type=type(exc).__name__,
+                error=str(exc),
+            )
+
             return False
 
     ###########################################################################
@@ -288,7 +318,14 @@ class OllamaProvider(
 
             metadata["installed_models"] = [model.model for model in models.models]
 
-        except Exception:
+        except Exception as exc:
+            logger.warning(
+                "generation.ollama.list_models_failed",
+                model=self.config.model_name,
+                error_type=type(exc).__name__,
+                error=str(exc),
+            )
+
             metadata["installed_models"] = []
 
         return metadata

@@ -1,0 +1,132 @@
+name: chat
+version: v3
+
+title: Agentic Conversational Assistant
+
+description: >
+  Advanced conversational assistant optimized for
+  memory, planning, tool usage, long-running tasks,
+  and future multi-agent workflows.
+
+tags:
+  - chat
+  - assistant
+  - memory
+  - agents
+  - planning
+  - mcp
+  - personalized
+
+owner: researchmind
+
+experimental: false
+
+recommended_use_cases:
+  - personal_assistant
+  - ai_engineering_assistant
+  - long_running_tasks
+  - planning
+  - coaching
+  - multi_step_workflows
+  - tool_enabled_chat
+
+preferred_providers:
+  - claude
+  - openai
+  - gemini
+
+routing:
+
+  quality: high
+
+  latency: medium
+
+  cost: medium
+
+  supports_streaming: true
+
+  requires_structured_output: true
+
+  requires_large_context: true
+
+evaluation:
+
+  enable_groundedness: true
+
+  enable_faithfulness: true
+
+  enable_completeness: true
+
+  enable_plan_quality: true
+
+  enable_memory_consistency: true
+
+generation:
+
+  temperature: 0.4
+
+  max_tokens: 8000
+
+  top_p: 0.95
+
+context:
+
+  max_chunks: 20
+
+  compression_enabled: true
+
+  reranking_required: true
+
+memory:
+
+  user_profile_enabled: true
+
+  conversation_summary_enabled: true
+
+  entity_memory_enabled: true
+
+  goal_memory_enabled: true
+
+  task_memory_enabled: true
+
+artifacts:
+
+  persist_prompt: true
+
+  persist_response: true
+
+  persist_evaluation: true
+
+  persist_reasoning: true
+
+runtime:
+
+  planner_enabled: true
+
+  reviewer_enabled: true
+
+  query_decomposition_enabled: true
+
+  multi_step_reasoning: true
+
+  tool_selection_enabled: true
+
+future:
+
+  supports_agents: true
+
+  supports_memory: true
+
+  supports_mcp: true
+
+  supports_multi_agent_runtime: true
+
+  supports_long_running_tasks: true
+
+few_shot:
+
+  enabled: true
+
+  max_examples: 2
+
+  selection: static

@@ -1,0 +1,112 @@
+name: research
+version: v2
+
+title: Deep Research Analysis
+
+description: >
+  Comprehensive research prompt optimized for
+  multi-document synthesis, report generation,
+  planner workflows, and future agent runtimes.
+
+tags:
+  - research
+  - deep_research
+  - report_generation
+  - synthesis
+  - agents
+
+owner: researchmind
+
+experimental: false
+
+recommended_use_cases:
+  - deep_research
+  - report_generation
+  - planner_runtime
+  - reviewer_runtime
+  - agent_workflows
+
+preferred_providers:
+  - claude
+  - gemini
+  - openai
+
+routing:
+
+  quality: high
+
+  latency: medium
+
+  cost: medium
+
+  supports_streaming: true
+
+  requires_structured_output: true
+
+  requires_large_context: true
+
+evaluation:
+
+  enable_groundedness: true
+
+  enable_faithfulness: true
+
+  enable_completeness: true
+
+  enable_citation_validation: true
+
+  enable_contradiction_detection: true
+
+generation:
+
+  temperature: 0.1
+
+  max_tokens: 8000
+
+  top_p: 0.9
+
+context:
+
+  max_chunks: 30
+
+  compression_enabled: true
+
+  reranking_required: true
+
+  cross_document_synthesis: true
+
+artifacts:
+
+  persist_prompt: true
+
+  persist_response: true
+
+  persist_evaluation: true
+
+  persist_intermediate_reasoning: true
+
+runtime:
+
+  planner_enabled: true
+
+  reviewer_enabled: true
+
+  query_decomposition_enabled: true
+
+  multi_step_reasoning: true
+
+future:
+
+  supports_agents: true
+
+  supports_memory: true
+
+  supports_mcp: true
+
+few_shot:
+
+  enabled: true
+
+  max_examples: 2
+
+  selection: static

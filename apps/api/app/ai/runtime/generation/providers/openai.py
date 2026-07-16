@@ -1,7 +1,9 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
-from time import perf_counter
+import contextlib
+import json
+from collections.abc import AsyncIterator
+from typing import Any
 
 import structlog
 from app.ai.runtime.generation.enums import (
@@ -11,16 +13,28 @@ from app.ai.runtime.generation.exceptions import (
     GenerationExecutionError,
 )
 from app.ai.runtime.generation.models import (
-    GenerationExecution,
     GenerationRequest,
     GenerationResult,
-    GenerationStatistics,
+    StreamChunk,
+    StreamEventType,
 )
 from app.ai.runtime.generation.providers.base import (
     BaseGenerationProvider,
 )
+from app.ai.runtime.generation.providers.helpers.prompt_builder import (
+    build_prompt_text,
+)
+from app.ai.runtime.generation.providers.helpers.structured import (
+    build_openai_text_config,
+)
+from app.ai.runtime.generation.providers.helpers.usage import (
+    Usage,
+)
 from app.core.settings import settings
-from openai import AsyncOpenAI, OpenAIError
+from openai import (
+    AsyncOpenAI,
+    OpenAIError,
+)
 
 logger = structlog.get_logger()
 
@@ -32,81 +46,187 @@ class OpenAIProvider(
         self,
         config,
     ):
-        super().__init__(config)
+        super().__init__(
+            config,
+        )
 
         self._client = AsyncOpenAI(
             api_key=settings.openai_api_key,
+            timeout=config.timeout_seconds,
         )
 
     @property
     def provider(
         self,
-    ):
+    ) -> GenerationProvider:
         return GenerationProvider.OPENAI
+
+    ###########################################################################
+    # Generation
+    ###########################################################################
 
     async def generate(
         self,
         request: GenerationRequest,
     ) -> GenerationResult:
 
-        started = perf_counter()
+        started = self.start_timer()
 
         logger.info(
             "generation.openai.started",
-            provider=self.provider.value,
             model=self.config.model_name,
         )
 
         try:
-            response = await self._client.responses.create(
-                model=self.config.model_name,
-                instructions=(request.system_prompt),
-                input=(request.prompt_context.context + "\n\n" + request.user_prompt),
+            response = await self._execute_with_retry(
+                lambda: self._create_response(
+                    request,
+                )
             )
+
         except OpenAIError as exc:
-            logger.error(
+            logger.exception(
                 "generation.openai.failed",
-                provider=self.provider.value,
-                model=self.config.model_name,
-                error_type=type(exc).__name__,
                 error=str(exc),
             )
-            raise GenerationExecutionError(f"OpenAI generation failed: {exc}") from exc
 
-        duration = (perf_counter() - started) * 1000
+            raise GenerationExecutionError(
+                str(exc),
+            ) from exc
 
-        if response.usage is None:
-            logger.error(
-                "generation.openai.missing_usage",
-                provider=self.provider.value,
-                model=self.config.model_name,
-            )
-            raise GenerationExecutionError("OpenAI response did not include usage statistics")
+        latency_ms = self.stop_timer(
+            started,
+        )
 
-        result = GenerationResult(
+        usage = self._extract_usage(
+            response,
+        )
+
+        statistics = self.build_statistics(
+            latency_ms=latency_ms,
+            prompt_tokens=usage.prompt_tokens,
+            completion_tokens=usage.completion_tokens,
+            reasoning_tokens=usage.reasoning_tokens,
+        )
+
+        parsed_output = None
+
+        if request.output_schema:
+            with contextlib.suppress(Exception):
+                parsed_output = json.loads(
+                    response.output_text,
+                )
+
+        return self.build_result(
             request=request,
-            execution=GenerationExecution(completed_at=datetime.now(UTC)),
-            statistics=GenerationStatistics(
-                provider=self.provider,
-                model=self.config.model_name,
-                latency_ms=duration,
-                prompt_tokens=response.usage.input_tokens,
-                completion_tokens=response.usage.output_tokens,
-                total_tokens=response.usage.total_tokens,
+            content=response.output_text or "",
+            statistics=statistics,
+            parsed_output=parsed_output,
+            raw_response=response.model_dump(),
+        )
+
+    ###########################################################################
+    # Streaming
+    ###########################################################################
+
+    async def stream(
+        self,
+        request: GenerationRequest,
+    ) -> AsyncIterator[StreamChunk]:
+
+        stream = await self._client.responses.create(
+            model=self.config.model_name,
+            input=build_prompt_text(
+                request,
             ),
-            provider=self.provider,
-            model=self.config.model_name,
-            content=response.output_text,
+            stream=True,
         )
 
-        logger.info(
-            "generation.openai.completed",
-            provider=self.provider.value,
-            model=self.config.model_name,
-            latency_ms=duration,
-            prompt_tokens=result.statistics.prompt_tokens,
-            completion_tokens=result.statistics.completion_tokens,
-            total_tokens=result.statistics.total_tokens,
+        yield StreamChunk(
+            event=StreamEventType.START,
         )
 
-        return result
+        async for event in stream:
+            if event.type == "response.output_text.delta":
+                yield StreamChunk(
+                    event=StreamEventType.TOKEN,
+                    content=event.delta,
+                )
+
+        yield StreamChunk(
+            event=StreamEventType.COMPLETED,
+        )
+
+    ###########################################################################
+    # Internals
+    ###########################################################################
+
+    async def _create_response(
+        self,
+        request: GenerationRequest,
+    ):
+
+        kwargs: dict[str, Any] = {
+            "model": self.config.model_name,
+            "input": build_prompt_text(
+                request,
+            ),
+        }
+
+        if request.temperature is not None:
+            kwargs["temperature"] = request.temperature
+
+        if request.max_tokens:
+            kwargs["max_output_tokens"] = request.max_tokens
+
+        text_config = build_openai_text_config(
+            request,
+        )
+
+        if text_config:
+            kwargs["text"] = text_config
+
+        #
+        # Future tool calling
+        #
+
+        if request.tools:
+            kwargs["tools"] = [tool.model_dump() for tool in request.tools]
+
+        return await self._client.responses.create(
+            **kwargs,
+        )
+
+    ###########################################################################
+    # Usage Extraction
+    ###########################################################################
+
+    def _extract_usage(
+        self,
+        response,
+    ) -> Usage:
+
+        usage = response.usage
+
+        if usage is None:
+            return Usage()
+
+        reasoning_tokens = getattr(
+            usage,
+            "reasoning_tokens",
+            0,
+        )
+
+        cached_tokens = getattr(
+            usage,
+            "cached_tokens",
+            0,
+        )
+
+        return Usage(
+            prompt_tokens=(usage.input_tokens),
+            completion_tokens=(usage.output_tokens),
+            reasoning_tokens=(reasoning_tokens),
+            cached_tokens=(cached_tokens),
+            total_tokens=(usage.total_tokens),
+        )

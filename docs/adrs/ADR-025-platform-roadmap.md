@@ -1,0 +1,606 @@
+# ADR-025: ResearchMind Platform Roadmap
+
+Status: Accepted
+
+Date: 2026-07-15
+
+Supersedes: None
+
+Related:
+
+- ADR-023 Framework Integration Strategy
+- ADR-024 Generation Model Strategy
+
+---
+
+# Context
+
+ResearchMind originally started as a Retrieval-Augmented Generation (RAG)
+learning project.
+
+As the platform evolved, several independent subsystems emerged:
+
+- Knowledge Platform
+- Context Platform
+- Generation Platform
+- Evaluation Platform (planned)
+- Research Runtime (planned)
+- Agent Runtime (planned)
+- MCP Integrations (planned)
+
+An architecture audit performed in July 2026 revealed that the platform
+is no longer evolving toward a simple chatbot or RAG application.
+
+Instead, the current architecture aligns more closely with a reusable
+AI Research Platform capable of supporting:
+
+- RAG applications
+- Deep Research workflows
+- Agentic systems
+- Benchmarking and experimentation
+- Model routing
+- Multi-provider orchestration
+- Future MCP integrations
+
+This ADR formalizes that understanding and freezes the long-term roadmap.
+
+---
+
+# Decision
+
+ResearchMind will be developed as a modular AI Research Platform.
+
+The platform is composed of several independent but connected layers.
+
+---
+
+# Platform Architecture
+
+```text
+Knowledge Platform
+        ↓
+Context Platform
+        ↓
+Generation Platform
+        ↓
+Evaluation Platform
+        ↓
+Research Runtime
+        ↓
+Agent Runtime
+        ↓
+MCP Integrations
+```
+
+---
+
+# Long-Term Vision
+
+ResearchMind should become:
+
+- Provider independent
+- Framework friendly
+- Experiment driven
+- Evaluation first
+- Agent ready
+- Production oriented
+
+The platform should support both:
+
+- experimentation environments
+- production workloads
+
+without architectural rewrites.
+
+---
+
+# Platform Layers
+
+---
+
+# Phase 1
+
+# Knowledge Platform
+
+Status:
+
+✅ Mature
+
+Purpose:
+
+Document understanding and retrieval.
+
+Responsibilities:
+
+- Upload
+- Processing
+- Chunking
+- Embeddings
+- Indexing
+- Retrieval
+- Reranking
+- Compression
+- Citations
+- Context Assembly
+
+Architecture:
+
+```text
+Upload
+↓
+
+Processing
+↓
+
+Chunking
+↓
+
+Embeddings
+↓
+
+Indexing
+↓
+
+Retrieval
+↓
+
+Compression
+↓
+
+Context
+```
+
+Current maturity:
+
+4 / 5
+
+---
+
+# Phase 2
+
+# Context Platform
+
+Status:
+
+✅ Functional
+
+Purpose:
+
+Convert retrieved information into generation-ready context.
+
+Responsibilities:
+
+- Context assembly
+- Deduplication
+- Parent expansion
+- Adjacent merge
+- Compression
+- Citations
+- Guardrails
+- Formatting
+
+Output:
+
+```python
+PromptContext
+```
+
+Current maturity:
+
+3.5 / 5
+
+---
+
+# Phase 3
+
+# Generation Platform
+
+Status:
+
+🚧 In Progress
+
+Purpose:
+
+Provider-independent LLM execution platform.
+
+Responsibilities:
+
+- Provider abstraction
+- Prompt management
+- Validation
+- Guardrails
+- Structured outputs
+- Routing
+- Streaming
+- Caching
+- Observability
+- Artifacts
+
+Providers:
+
+- OpenAI
+- Claude
+- Gemini
+- Groq
+- Ollama
+
+Architecture:
+
+```text
+Prompt
+↓
+
+Validation
+↓
+
+Routing
+↓
+
+Generation
+↓
+
+Output Validation
+↓
+
+Artifacts
+```
+
+Current maturity:
+
+~35%
+
+---
+
+# Phase 4
+
+# Evaluation Platform
+
+Status:
+
+⏳ Planned
+
+Purpose:
+
+Measure and improve AI quality.
+
+Responsibilities:
+
+- Retrieval evaluation
+- Groundedness
+- Faithfulness
+- Regression testing
+- Benchmark datasets
+- Prompt evaluations
+- Model evaluations
+- Quality scoring
+
+Architecture:
+
+```text
+Question
+↓
+
+Retrieval
+↓
+
+Generation
+↓
+
+Evaluation
+↓
+
+Metrics
+```
+
+Principle:
+
+Evaluation should precede agent development.
+
+Current maturity:
+
+0%
+
+---
+
+# Phase 5
+
+# Research Runtime
+
+Status:
+
+⏳ Planned
+
+Purpose:
+
+Deep Research workflows.
+
+Responsibilities:
+
+- Planning
+- Query decomposition
+- Parallel retrieval
+- Evidence collection
+- Evidence synthesis
+- Report generation
+
+Architecture:
+
+```text
+Question
+↓
+
+Planner
+↓
+
+Decomposition
+↓
+
+Parallel Retrieval
+↓
+
+Evidence Merge
+↓
+
+Generation
+```
+
+Framework:
+
+LangGraph
+
+Current maturity:
+
+0%
+
+---
+
+# Phase 6
+
+# Agent Runtime
+
+Status:
+
+⏳ Planned
+
+Purpose:
+
+Multi-step autonomous workflows.
+
+Responsibilities:
+
+- Tool calling
+- Multi-agent systems
+- Workflow execution
+- Reflection
+- Planning
+- Memory
+- Human approval
+
+Architecture:
+
+```text
+Agent
+↓
+
+Tools
+↓
+
+Research Runtime
+↓
+
+Generation
+```
+
+Framework:
+
+LangGraph
+
+Current maturity:
+
+0%
+
+---
+
+# Phase 7
+
+# MCP Integrations
+
+Status:
+
+⏳ Planned
+
+Purpose:
+
+External tool interoperability.
+
+Responsibilities:
+
+- MCP Servers
+- MCP Clients
+- External tool access
+- IDE integrations
+- Research tools
+- Third-party workflows
+
+Examples:
+
+- GitHub
+- Figma
+- Browser
+- Search
+- Internal tools
+
+Current maturity:
+
+0%
+
+---
+
+# Architectural Principles
+
+---
+
+# 1. Platform First
+
+ResearchMind is not a single application.
+
+ResearchMind is a reusable platform.
+
+---
+
+# 2. Provider Independence
+
+Providers should remain implementation details.
+
+Core platform models remain canonical.
+
+---
+
+# 3. Framework Friendly
+
+ResearchMind owns architecture.
+
+External frameworks are leveraged heavily when useful.
+
+Examples:
+
+- LangChain
+- LangGraph
+- LangSmith
+
+Frameworks should not dictate platform architecture.
+
+---
+
+# 4. Evaluation First
+
+Agent systems should only be introduced after:
+
+- retrieval evaluation
+- generation evaluation
+- regression testing
+
+exist.
+
+---
+
+# 5. Production Oriented
+
+All major components should support:
+
+- observability
+- cost tracking
+- testing
+- artifacts
+- benchmarking
+
+from the beginning.
+
+---
+
+# Current Priorities
+
+P0
+
+```text
+Knowledge
+↓
+
+Context
+↓
+
+Generation
+```
+
+End-to-end integration.
+
+---
+
+P1
+
+Generation Platform completion.
+
+---
+
+P2
+
+Evaluation Platform.
+
+---
+
+P3
+
+Research Runtime.
+
+---
+
+P4
+
+Agent Runtime.
+
+---
+
+P5
+
+MCP Integrations.
+
+---
+
+# End State
+
+```text
+Knowledge Platform
+        ↓
+Context Platform
+        ↓
+Generation Platform
+        ↓
+Evaluation Platform
+        ↓
+Research Runtime
+        ↓
+Agent Runtime
+        ↓
+MCP Ecosystem
+```
+
+ResearchMind should eventually support:
+
+- RAG applications
+- Deep Research systems
+- Autonomous agents
+- AI experimentation
+- Benchmarking
+- Enterprise knowledge systems
+
+without requiring architectural redesign.
+
+---
+
+# Consequences
+
+Positive:
+
+- Clear long-term direction
+- Reduced architectural drift
+- Better prioritization
+- Easier onboarding
+- Stronger portfolio narrative
+
+Negative:
+
+- Larger scope
+- Increased maintenance burden
+- Longer implementation timeline
+
+---
+
+# Final Statement
+
+ResearchMind is officially considered an:
+
+# AI Research Platform
+
+rather than solely a:
+
+# RAG Application.

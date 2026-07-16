@@ -1,26 +1,44 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
-from time import perf_counter
+import contextlib
+import json
+from collections.abc import AsyncIterator
+from typing import Any
 
 import structlog
 from app.ai.runtime.generation.enums import (
     GenerationProvider,
+    ResponseFormat,
 )
 from app.ai.runtime.generation.exceptions import (
     GenerationExecutionError,
 )
 from app.ai.runtime.generation.models import (
-    GenerationExecution,
     GenerationRequest,
     GenerationResult,
-    GenerationStatistics,
+    StreamChunk,
+    StreamEventType,
 )
 from app.ai.runtime.generation.providers.base import (
     BaseGenerationProvider,
 )
-from app.core.settings import settings
-from ollama import AsyncClient, RequestError, ResponseError
+from app.ai.runtime.generation.providers.helpers.prompt_builder import (
+    build_chat_messages,
+)
+from app.ai.runtime.generation.providers.helpers.structured import (
+    build_ollama_format,
+)
+from app.ai.runtime.generation.providers.helpers.usage import (
+    Usage,
+)
+from app.core.settings import (
+    settings,
+)
+from ollama import (
+    AsyncClient,
+    RequestError,
+    ResponseError,
+)
 
 logger = structlog.get_logger()
 
@@ -32,7 +50,9 @@ class OllamaProvider(
         self,
         config,
     ):
-        super().__init__(config)
+        super().__init__(
+            config,
+        )
 
         self._client = AsyncClient(
             host=settings.ollama_host,
@@ -41,72 +61,234 @@ class OllamaProvider(
     @property
     def provider(
         self,
-    ):
+    ) -> GenerationProvider:
         return GenerationProvider.OLLAMA
+
+    ###########################################################################
+    # Generation
+    ###########################################################################
 
     async def generate(
         self,
         request: GenerationRequest,
     ) -> GenerationResult:
 
-        started = perf_counter()
+        started = self.start_timer()
 
         logger.info(
             "generation.ollama.started",
-            provider=self.provider.value,
             model=self.config.model_name,
         )
 
         try:
-            response = await self._client.chat(
-                model=self.config.model_name,
-                messages=[
-                    {
-                        "role": "system",
-                        "content": (request.system_prompt or ""),
-                    },
-                    {
-                        "role": "user",
-                        "content": (request.prompt_context.context + "\n\n" + request.user_prompt),
-                    },
-                ],
+            response = await self._execute_with_retry(
+                lambda: self._create_chat(
+                    request,
+                )
             )
-        except (RequestError, ResponseError, ConnectionError) as exc:
-            logger.error(
+
+        except (
+            RequestError,
+            ResponseError,
+            ConnectionError,
+        ) as exc:
+            logger.exception(
                 "generation.ollama.failed",
-                provider=self.provider.value,
-                model=self.config.model_name,
-                error_type=type(exc).__name__,
                 error=str(exc),
             )
-            raise GenerationExecutionError(f"Ollama generation failed: {exc}") from exc
 
-        duration = (perf_counter() - started) * 1000
+            raise GenerationExecutionError(
+                str(exc),
+            ) from exc
 
-        result = GenerationResult(
+        latency_ms = self.stop_timer(
+            started,
+        )
+
+        usage = self._extract_usage(
+            response,
+        )
+
+        statistics = self.build_statistics(
+            latency_ms=latency_ms,
+            prompt_tokens=usage.prompt_tokens,
+            completion_tokens=usage.completion_tokens,
+            reasoning_tokens=usage.reasoning_tokens,
+        )
+
+        content = response.message.content if response.message else ""
+
+        parsed_output = None
+
+        if request.response_format in (
+            ResponseFormat.JSON,
+            ResponseFormat.STRUCTURED,
+        ):
+            with contextlib.suppress(Exception):
+                parsed_output = json.loads(
+                    content,
+                )
+
+        return self.build_result(
             request=request,
-            execution=GenerationExecution(completed_at=datetime.now(UTC)),
-            statistics=GenerationStatistics(
-                provider=self.provider,
-                model=self.config.model_name,
-                latency_ms=duration,
-                prompt_tokens=response.prompt_eval_count or 0,
-                completion_tokens=response.eval_count or 0,
-                total_tokens=(response.prompt_eval_count or 0) + (response.eval_count or 0),
+            content=content,
+            statistics=statistics,
+            parsed_output=parsed_output,
+            raw_response=response.model_dump(),
+        )
+
+    ###########################################################################
+    # Structured Outputs
+    ###########################################################################
+
+    async def generate_structured(
+        self,
+        request: GenerationRequest,
+    ) -> GenerationResult:
+        return await self.generate(
+            request,
+        )
+
+    ###########################################################################
+    # Streaming
+    ###########################################################################
+
+    async def stream(
+        self,
+        request: GenerationRequest,
+    ) -> AsyncIterator[StreamChunk]:
+
+        stream = await self._client.chat(
+            model=self.config.model_name,
+            messages=build_chat_messages(
+                request,
             ),
-            provider=self.provider,
-            model=self.config.model_name,
-            content=response.message.content or "",
+            stream=True,
+            options=self._build_options(
+                request,
+            ),
+            format=build_ollama_format(
+                request,
+            ),
         )
 
-        logger.info(
-            "generation.ollama.completed",
-            provider=self.provider.value,
-            model=self.config.model_name,
-            latency_ms=duration,
-            prompt_tokens=result.statistics.prompt_tokens,
-            completion_tokens=result.statistics.completion_tokens,
-            total_tokens=result.statistics.total_tokens,
+        yield StreamChunk(
+            event=StreamEventType.START,
         )
 
-        return result
+        async for chunk in stream:
+            if chunk.message and chunk.message.content:
+                yield StreamChunk(
+                    event=StreamEventType.TOKEN,
+                    content=(chunk.message.content),
+                )
+
+        yield StreamChunk(
+            event=StreamEventType.COMPLETED,
+        )
+
+    ###########################################################################
+    # Internals
+    ###########################################################################
+
+    async def _create_chat(
+        self,
+        request: GenerationRequest,
+    ):
+
+        kwargs: dict[str, Any] = {
+            "model": self.config.model_name,
+            "messages": build_chat_messages(
+                request,
+            ),
+            "options": self._build_options(
+                request,
+            ),
+        }
+
+        format_type = build_ollama_format(
+            request,
+        )
+
+        if format_type:
+            kwargs["format"] = format_type
+
+        #
+        # Tool calling
+        #
+
+        if request.tools:
+            kwargs["tools"] = [tool.model_dump() for tool in request.tools]
+
+        return await self._client.chat(
+            **kwargs,
+        )
+
+    ###########################################################################
+    # Options Builder
+    ###########################################################################
+
+    def _build_options(
+        self,
+        request: GenerationRequest,
+    ) -> dict[str, Any]:
+
+        return {
+            "temperature": (request.temperature or self.config.temperature),
+            "num_predict": (request.max_tokens or self.config.max_tokens),
+        }
+
+    ###########################################################################
+    # Usage Extraction
+    ###########################################################################
+
+    def _extract_usage(
+        self,
+        response,
+    ) -> Usage:
+
+        prompt_tokens = response.prompt_eval_count or 0
+
+        completion_tokens = response.eval_count or 0
+
+        return Usage(
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            total_tokens=(prompt_tokens + completion_tokens),
+        )
+
+    ###########################################################################
+    # Health Check
+    ###########################################################################
+
+    async def health_check(
+        self,
+    ) -> bool:
+
+        try:
+            await self._client.ps()
+
+            return True
+
+        except Exception:
+            return False
+
+    ###########################################################################
+    # Metadata
+    ###########################################################################
+
+    async def get_model_metadata(
+        self,
+    ) -> dict[str, Any]:
+
+        metadata = await super().get_model_metadata()
+
+        try:
+            models = await self._client.list()
+
+            metadata["installed_models"] = [model.model for model in models.models]
+
+        except Exception:
+            metadata["installed_models"] = []
+
+        return metadata

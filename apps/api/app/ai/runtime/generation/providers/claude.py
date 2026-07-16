@@ -1,24 +1,42 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
-from time import perf_counter
+import contextlib
+import json
+from collections.abc import AsyncIterator
+from typing import Any, cast
 
 import structlog
-from anthropic import AnthropicError, AsyncAnthropic
+from anthropic import (
+    AnthropicError,
+    AsyncAnthropic,
+)
+from anthropic.types import (
+    MessageParam,
+)
 from app.ai.runtime.generation.enums import (
     GenerationProvider,
+    ResponseFormat,
 )
 from app.ai.runtime.generation.exceptions import (
     GenerationExecutionError,
 )
 from app.ai.runtime.generation.models import (
-    GenerationExecution,
     GenerationRequest,
     GenerationResult,
-    GenerationStatistics,
+    StreamChunk,
+    StreamEventType,
 )
 from app.ai.runtime.generation.providers.base import (
     BaseGenerationProvider,
+)
+from app.ai.runtime.generation.providers.helpers.prompt_builder import (
+    build_claude_messages,
+)
+from app.ai.runtime.generation.providers.helpers.structured import (
+    build_claude_json_instruction,
+)
+from app.ai.runtime.generation.providers.helpers.usage import (
+    Usage,
 )
 from app.core.settings import settings
 
@@ -32,81 +50,295 @@ class ClaudeProvider(
         self,
         config,
     ):
-        super().__init__(config)
+        super().__init__(
+            config,
+        )
 
         self._client = AsyncAnthropic(
             api_key=settings.anthropic_api_key,
+            timeout=config.timeout_seconds,
         )
 
     @property
     def provider(
         self,
-    ):
+    ) -> GenerationProvider:
         return GenerationProvider.CLAUDE
+
+    ###########################################################################
+    # Generation
+    ###########################################################################
 
     async def generate(
         self,
         request: GenerationRequest,
     ) -> GenerationResult:
 
-        started = perf_counter()
+        started = self.start_timer()
 
         logger.info(
             "generation.claude.started",
-            provider=self.provider.value,
             model=self.config.model_name,
         )
 
         try:
-            response = await self._client.messages.create(
-                model=self.config.model_name,
-                max_tokens=self.config.max_tokens,
-                system=request.system_prompt or "",
-                messages=[
-                    {
-                        "role": "user",
-                        "content": (request.prompt_context.context + "\n\n" + request.user_prompt),
-                    }
-                ],
+            response = await self._execute_with_retry(
+                lambda: self._create_message(
+                    request,
+                )
             )
+
         except AnthropicError as exc:
-            logger.error(
+            logger.exception(
                 "generation.claude.failed",
-                provider=self.provider.value,
-                model=self.config.model_name,
-                error_type=type(exc).__name__,
                 error=str(exc),
             )
-            raise GenerationExecutionError(f"Claude generation failed: {exc}") from exc
 
-        duration = (perf_counter() - started) * 1000
+            raise GenerationExecutionError(
+                str(exc),
+            ) from exc
 
-        content = "\n".join(block.text for block in response.content if block.type == "text")
+        latency_ms = self.stop_timer(
+            started,
+        )
 
-        result = GenerationResult(
+        usage = self._extract_usage(
+            response,
+        )
+
+        content = self._extract_content(
+            response,
+        )
+
+        parsed_output = None
+
+        if request.response_format in (
+            ResponseFormat.JSON,
+            ResponseFormat.STRUCTURED,
+        ):
+            with contextlib.suppress(Exception):
+                parsed_output = json.loads(
+                    content,
+                )
+
+        statistics = self.build_statistics(
+            latency_ms=latency_ms,
+            prompt_tokens=usage.prompt_tokens,
+            completion_tokens=usage.completion_tokens,
+        )
+
+        tool_calls = self._extract_tool_calls(
+            response,
+        )
+
+        return self.build_result(
             request=request,
-            execution=GenerationExecution(completed_at=datetime.now(UTC)),
-            statistics=GenerationStatistics(
-                provider=self.provider,
-                model=self.config.model_name,
-                latency_ms=duration,
-                prompt_tokens=response.usage.input_tokens,
-                completion_tokens=response.usage.output_tokens,
-                total_tokens=(response.usage.input_tokens + response.usage.output_tokens),
-            ),
-            provider=self.provider,
-            model=self.config.model_name,
             content=content,
+            statistics=statistics,
+            finish_reason=response.stop_reason,
+            parsed_output=parsed_output,
+            tool_calls=tool_calls,
+            raw_response=response.model_dump(),
         )
 
-        logger.info(
-            "generation.claude.completed",
-            provider=self.provider.value,
+    ###########################################################################
+    # Streaming
+    ###########################################################################
+
+    async def stream(
+        self,
+        request: GenerationRequest,
+    ) -> AsyncIterator[StreamChunk]:
+
+        system_prompt, messages = build_claude_messages(
+            request,
+        )
+
+        stream = await self._client.messages.create(
             model=self.config.model_name,
-            latency_ms=duration,
-            prompt_tokens=result.statistics.prompt_tokens,
-            completion_tokens=result.statistics.completion_tokens,
-            total_tokens=result.statistics.total_tokens,
+            system=(system_prompt or ""),
+            messages=cast(
+                list[MessageParam],
+                messages,
+            ),
+            max_tokens=(request.max_tokens or self.config.max_tokens),
+            temperature=(request.temperature or self.config.temperature),
+            stream=True,
         )
 
-        return result
+        yield StreamChunk(
+            event=StreamEventType.START,
+        )
+
+        async for event in stream:
+            #
+            # text deltas
+            #
+
+            if event.type == "content_block_delta":
+                delta = getattr(
+                    event.delta,
+                    "text",
+                    None,
+                )
+
+                if delta:
+                    yield StreamChunk(
+                        event=StreamEventType.TOKEN,
+                        content=delta,
+                    )
+
+        yield StreamChunk(
+            event=StreamEventType.COMPLETED,
+        )
+
+    ###########################################################################
+    # Structured Generation
+    ###########################################################################
+
+    async def generate_structured(
+        self,
+        request: GenerationRequest,
+    ) -> GenerationResult:
+        """
+        Claude has no native JSON schema mode.
+
+        Preferred:
+
+        Tool calling.
+
+        Fallback:
+
+        Prompt enforced JSON.
+        """
+
+        return await self.generate(
+            request,
+        )
+
+    ###########################################################################
+    # Internals
+    ###########################################################################
+
+    async def _create_message(
+        self,
+        request: GenerationRequest,
+    ):
+
+        system_prompt, messages = build_claude_messages(
+            request,
+        )
+
+        kwargs: dict[str, Any] = {
+            "model": self.config.model_name,
+            "system": (system_prompt or ""),
+            "messages": messages,
+            "max_tokens": (request.max_tokens or self.config.max_tokens),
+            "temperature": (request.temperature or self.config.temperature),
+        }
+
+        #
+        # Prompt enforced JSON mode
+        #
+
+        if request.response_format in (
+            ResponseFormat.JSON,
+            ResponseFormat.STRUCTURED,
+        ):
+            kwargs["system"] = (
+                (system_prompt or "")
+                + "\n"
+                + build_claude_json_instruction(
+                    request,
+                )
+            )
+
+        #
+        # Tool Calling
+        #
+
+        if request.tools:
+            kwargs["tools"] = [
+                {
+                    "name": tool.name,
+                    "description": tool.description,
+                    "input_schema": (tool.parameters),
+                }
+                for tool in request.tools
+            ]
+
+        return await self._client.messages.create(
+            **kwargs,
+        )
+
+    ###########################################################################
+    # Helpers
+    ###########################################################################
+
+    def _extract_content(
+        self,
+        response,
+    ) -> str:
+
+        texts: list[str] = []
+
+        for block in response.content:
+            if (
+                getattr(
+                    block,
+                    "type",
+                    None,
+                )
+                == "text"
+            ):
+                texts.append(
+                    block.text,
+                )
+
+        return "\n".join(
+            texts,
+        )
+
+    def _extract_tool_calls(
+        self,
+        response,
+    ) -> list[Any]:
+
+        tool_calls = []
+
+        for block in response.content:
+            if (
+                getattr(
+                    block,
+                    "type",
+                    None,
+                )
+                == "tool_use"
+            ):
+                tool_calls.append(
+                    {
+                        "id": block.id,
+                        "name": block.name,
+                        "input": block.input,
+                    }
+                )
+
+        return tool_calls
+
+    def _extract_usage(
+        self,
+        response,
+    ) -> Usage:
+
+        usage = response.usage
+
+        if usage is None:
+            return Usage()
+
+        total = usage.input_tokens + usage.output_tokens
+
+        return Usage(
+            prompt_tokens=(usage.input_tokens),
+            completion_tokens=(usage.output_tokens),
+            total_tokens=total,
+        )

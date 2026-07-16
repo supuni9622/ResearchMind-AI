@@ -1,26 +1,41 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
-from time import perf_counter
+import contextlib
+import json
+from collections.abc import AsyncIterator
+from typing import Any
 
 import structlog
 from app.ai.runtime.generation.enums import (
     GenerationProvider,
+    ResponseFormat,
 )
 from app.ai.runtime.generation.exceptions import (
     GenerationExecutionError,
 )
 from app.ai.runtime.generation.models import (
-    GenerationExecution,
     GenerationRequest,
     GenerationResult,
-    GenerationStatistics,
+    StreamChunk,
+    StreamEventType,
 )
 from app.ai.runtime.generation.providers.base import (
     BaseGenerationProvider,
 )
-from app.core.settings import settings
+from app.ai.runtime.generation.providers.helpers.prompt_builder import (
+    build_prompt_text,
+)
+from app.ai.runtime.generation.providers.helpers.structured import (
+    build_gemini_generation_config,
+)
+from app.ai.runtime.generation.providers.helpers.usage import (
+    Usage,
+)
+from app.core.settings import (
+    settings,
+)
 from google import genai
+from google.genai import types
 from google.genai.errors import APIError
 
 logger = structlog.get_logger()
@@ -33,7 +48,9 @@ class GeminiProvider(
         self,
         config,
     ):
-        super().__init__(config)
+        super().__init__(
+            config,
+        )
 
         self._client = genai.Client(
             api_key=settings.gemini_api_key,
@@ -42,65 +59,241 @@ class GeminiProvider(
     @property
     def provider(
         self,
-    ):
+    ) -> GenerationProvider:
         return GenerationProvider.GEMINI
+
+    ###########################################################################
+    # Generation
+    ###########################################################################
 
     async def generate(
         self,
         request: GenerationRequest,
     ) -> GenerationResult:
 
-        started = perf_counter()
+        started = self.start_timer()
 
         logger.info(
             "generation.gemini.started",
-            provider=self.provider.value,
             model=self.config.model_name,
         )
 
         try:
-            response = await self._client.aio.models.generate_content(
-                model=self.config.model_name,
-                contents=(request.prompt_context.context + "\n\n" + request.user_prompt),
+            response = await self._execute_with_retry(
+                lambda: self._create_response(
+                    request,
+                )
             )
+
         except APIError as exc:
-            logger.error(
+            logger.exception(
                 "generation.gemini.failed",
-                provider=self.provider.value,
-                model=self.config.model_name,
-                error_type=type(exc).__name__,
                 error=str(exc),
             )
-            raise GenerationExecutionError(f"Gemini generation failed: {exc}") from exc
 
-        duration = (perf_counter() - started) * 1000
+            raise GenerationExecutionError(
+                str(exc),
+            ) from exc
+
+        latency_ms = self.stop_timer(
+            started,
+        )
+
+        usage = self._extract_usage(
+            response,
+        )
+
+        statistics = self.build_statistics(
+            latency_ms=latency_ms,
+            prompt_tokens=usage.prompt_tokens,
+            completion_tokens=usage.completion_tokens,
+            reasoning_tokens=usage.reasoning_tokens,
+        )
+
+        content = response.text or ""
+
+        parsed_output = None
+
+        if request.response_format in (
+            ResponseFormat.JSON,
+            ResponseFormat.STRUCTURED,
+        ):
+            with contextlib.suppress(Exception):
+                parsed_output = json.loads(
+                    content,
+                )
+
+        return self.build_result(
+            request=request,
+            content=content,
+            statistics=statistics,
+            parsed_output=parsed_output,
+            raw_response=response.model_dump(),
+        )
+
+    ###########################################################################
+    # Structured Outputs
+    ###########################################################################
+
+    async def generate_structured(
+        self,
+        request: GenerationRequest,
+    ) -> GenerationResult:
+        return await self.generate(
+            request,
+        )
+
+    ###########################################################################
+    # Streaming
+    ###########################################################################
+
+    async def stream(
+        self,
+        request: GenerationRequest,
+    ) -> AsyncIterator[StreamChunk]:
+
+        config = self._build_generation_config(
+            request,
+        )
+
+        stream = await self._client.aio.models.generate_content_stream(
+            model=self.config.model_name,
+            contents=build_prompt_text(
+                request,
+            ),
+            config=config,
+        )
+
+        yield StreamChunk(
+            event=StreamEventType.START,
+        )
+
+        async for chunk in stream:
+            if chunk.text:
+                yield StreamChunk(
+                    event=StreamEventType.TOKEN,
+                    content=chunk.text,
+                )
+
+        yield StreamChunk(
+            event=StreamEventType.COMPLETED,
+        )
+
+    ###########################################################################
+    # Internals
+    ###########################################################################
+
+    async def _create_response(
+        self,
+        request: GenerationRequest,
+    ):
+
+        config = self._build_generation_config(
+            request,
+        )
+
+        return await self._client.aio.models.generate_content(
+            model=self.config.model_name,
+            contents=build_prompt_text(
+                request,
+            ),
+            config=config,
+        )
+
+    ###########################################################################
+    # Generation Config Builder
+    ###########################################################################
+
+    def _build_generation_config(
+        self,
+        request: GenerationRequest,
+    ) -> types.GenerateContentConfig:
+
+        kwargs: dict[str, Any] = {}
+
+        if request.system_prompt:
+            kwargs["system_instruction"] = request.system_prompt
+
+        kwargs["temperature"] = request.temperature or self.config.temperature
+
+        kwargs["max_output_tokens"] = request.max_tokens or self.config.max_tokens
+
+        #
+        # JSON Mode
+        #
+
+        structured_config = build_gemini_generation_config(
+            request,
+        )
+
+        kwargs.update(
+            structured_config,
+        )
+
+        #
+        # Future Tool Calling
+        #
+
+        if request.tools:
+            kwargs["tools"] = [
+                types.Tool(
+                    function_declarations=[
+                        types.FunctionDeclaration(
+                            name=tool.name,
+                            description=tool.description,
+                            parameters_json_schema=tool.parameters,
+                        )
+                    ]
+                )
+                for tool in request.tools
+            ]
+
+        return types.GenerateContentConfig(
+            **kwargs,
+        )
+
+    ###########################################################################
+    # Usage
+    ###########################################################################
+
+    def _extract_usage(
+        self,
+        response,
+    ) -> Usage:
 
         usage = response.usage_metadata
 
-        result = GenerationResult(
-            request=request,
-            execution=GenerationExecution(completed_at=datetime.now(UTC)),
-            statistics=GenerationStatistics(
-                provider=self.provider,
+        if usage is None:
+            return Usage()
+
+        reasoning_tokens = getattr(
+            usage,
+            "thoughts_token_count",
+            0,
+        )
+
+        return Usage(
+            prompt_tokens=(usage.prompt_token_count or 0),
+            completion_tokens=(usage.candidates_token_count or 0),
+            reasoning_tokens=(reasoning_tokens or 0),
+            total_tokens=(usage.total_token_count or 0),
+        )
+
+    ###########################################################################
+    # Health Check
+    ###########################################################################
+
+    async def health_check(
+        self,
+    ) -> bool:
+
+        try:
+            await self._client.aio.models.generate_content(
                 model=self.config.model_name,
-                latency_ms=duration,
-                prompt_tokens=(usage.prompt_token_count or 0) if usage else 0,
-                completion_tokens=(usage.candidates_token_count or 0) if usage else 0,
-                total_tokens=(usage.total_token_count or 0) if usage else 0,
-            ),
-            provider=self.provider,
-            model=self.config.model_name,
-            content=response.text or "",
-        )
+                contents="ping",
+            )
 
-        logger.info(
-            "generation.gemini.completed",
-            provider=self.provider.value,
-            model=self.config.model_name,
-            latency_ms=duration,
-            prompt_tokens=result.statistics.prompt_tokens,
-            completion_tokens=result.statistics.completion_tokens,
-            total_tokens=result.statistics.total_tokens,
-        )
+            return True
 
-        return result
+        except Exception:
+            return False

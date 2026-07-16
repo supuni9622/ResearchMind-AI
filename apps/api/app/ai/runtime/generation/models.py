@@ -4,6 +4,7 @@ from datetime import (
     UTC,
     datetime,
 )
+from enum import StrEnum
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -23,40 +24,89 @@ from pydantic import (
 )
 
 
-class GenerationRequest(
-    BaseModel,
-):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
+class ToolDefinition(BaseModel):
+    name: str
+    description: str
+    parameters: dict[str, Any]
 
+
+class StreamEventType(StrEnum):
+    START = "start"
+    TOKEN = "token"
+    TOOL_CALL = "tool_call"
+    COMPLETED = "completed"
+    ERROR = "error"
+
+
+class GenerationRequest(BaseModel):
     prompt_context: PromptContext
 
-    system_prompt: str | None = None
-
     user_prompt: str
+
+    system_prompt: str | None = None
 
     response_format: ResponseFormat = ResponseFormat.TEXT
 
     prompt_strategy: PromptStrategy = PromptStrategy.ZERO_SHOT
 
-    metadata: dict[str, Any] = Field(
-        default_factory=dict,
-    )
+    temperature: float | None = None
+
+    max_tokens: int | None = None
+
+    stop_sequences: list[str] = Field(default_factory=list)
+
+    stream: bool = False
+
+    tools: list[ToolDefinition] = Field(default_factory=list)
+
+    output_schema: dict[str, Any] | None = None
+
+    conversation_id: UUID | None = None
+
+    session_id: UUID | None = None
+
+    request_id: UUID = Field(default_factory=uuid4)
+
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class ProviderCapabilities(
     BaseModel,
 ):
+    model_config = ConfigDict(
+        extra="forbid",
+        frozen=True,
+    )
+
     streaming: bool = True
 
     structured_output: bool = False
 
-    tools: bool = False
+    tool_calling: bool = False
+
+    reasoning: bool = False
 
     vision: bool = False
 
-    reasoning: bool = False
+    json_mode: bool = False
+
+    citations: bool = False
+
+    thinking_tokens: bool = False
+
+    parallel_tool_calls: bool = False
+
+    multimodal_input: bool = False
+
+    multimodal_output: bool = False
+
+
+class StreamChunk(BaseModel):
+    event: StreamEventType
+
+    content: str | None = None
+
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class ModelMetadata(
@@ -93,12 +143,18 @@ class GenerationStatistics(
     prompt_tokens: int = 0
 
     completion_tokens: int = 0
+    reasoning_tokens: int = 0
+
+    cached_tokens: int = 0
 
     total_tokens: int = 0
 
     estimated_cost_usd: float = 0
 
     cache_hit: bool = False
+    retries: int = 0
+
+    streamed: bool = False
 
 
 class GenerationExecution(
@@ -143,3 +199,12 @@ class GenerationResult(
     metadata: dict[str, Any] = Field(
         default_factory=dict,
     )
+    parsed_output: Any | None = None
+
+    tool_calls: list[Any] = Field(default_factory=list)
+
+    citations: list[Any] = Field(default_factory=list)
+
+    reasoning: str | None = None
+
+    raw_response: dict[str, Any] | None = None

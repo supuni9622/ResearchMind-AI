@@ -48,11 +48,12 @@ class PromptFactory:
                 )
             )
 
-        messages.append(
-            HumanMessagePromptTemplate.from_template(
-                "{user_input}",
+        if "user_input" in template.variables:
+            messages.append(
+                HumanMessagePromptTemplate.from_template(
+                    "{user_input}",
+                )
             )
-        )
 
         return ChatPromptTemplate.from_messages(
             messages,

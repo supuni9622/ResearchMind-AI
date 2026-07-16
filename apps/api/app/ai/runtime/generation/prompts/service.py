@@ -1,9 +1,14 @@
 from __future__ import annotations
 
-import re
 from typing import Any
 
 import structlog
+from app.ai.runtime.generation.enums import (
+    GenerationProvider,
+)
+from app.ai.runtime.generation.observability.token_counter import (
+    TokenCounter,
+)
 from app.ai.runtime.generation.prompts.interfaces import (
     PromptServiceInterface,
 )
@@ -29,8 +34,10 @@ class PromptService(
     def __init__(
         self,
         registry: PromptRegistry,
+        token_counter: TokenCounter,
     ) -> None:
         self._registry = registry
+        self._token_counter = token_counter
 
     # ==========================================================
     # Public API
@@ -54,8 +61,19 @@ class PromptService(
             messages,
         )
 
-        estimated_tokens = self.estimate_tokens(
-            rendered_prompt,
+        # estimated_tokens = self.estimate_tokens(
+        #     rendered_prompt,
+        # )
+        provider = request.override_provider or GenerationProvider.OPENAI
+
+        model = request.override_model or self._resolve_model(
+            provider,
+        )
+
+        estimated_tokens = await self._token_counter.count(
+            provider=provider,
+            model=model,
+            text=rendered_prompt,
         )
 
         logger.debug(
@@ -168,29 +186,61 @@ class PromptService(
             parts,
         )
 
-    # ==========================================================
-    # Token Estimation
-    # ==========================================================
-
-    def estimate_tokens(
+    def _resolve_model(
         self,
-        text: str,
-    ) -> int:
+        provider: GenerationProvider,
+    ) -> str:
         """
-        Rough estimate.
+        Temporary model selection.
 
-        Future:
-        - tiktoken
-        - LangChain token counters
-        - provider tokenizers
+        Later this should come from:
+
+        - Routing Platform
+        - Provider Registry
+        - Prompt Metadata
         """
 
-        words = re.findall(
-            r"\S+",
-            text,
-        )
+        match provider:
+            case GenerationProvider.OPENAI:
+                return "gpt-5-mini"
 
-        return int(len(words) * 1.3)
+            case GenerationProvider.GROQ:
+                return "llama-3.3-70b-versatile"
+
+            case GenerationProvider.CLAUDE:
+                return "claude-sonnet-4-20250514"
+
+            case GenerationProvider.GEMINI:
+                return "gemini-2.5-pro"
+
+            case GenerationProvider.OLLAMA:
+                return "llama3"
+
+        return "unknown"
+
+    # ==========================================================
+    # Token Estimation - obsolete now
+    # ==========================================================
+
+    # def estimate_tokens(
+    #     self,
+    #     text: str,
+    # ) -> int:
+    #     """
+    #     Rough estimate.
+
+    #     Future:
+    #     - tiktoken
+    #     - LangChain token counters
+    #     - provider tokenizers
+    #     """
+
+    #     words = re.findall(
+    #         r"\S+",
+    #         text,
+    #     )
+
+    #     return int(len(words) * 1.3)
 
     # ==========================================================
     # Registry Helpers

@@ -60,3 +60,9 @@ UPLOADS_DIRECTORY = PROJECT_ROOT / "uploads"
 LOGS_DIRECTORY = PROJECT_ROOT / "logs"
 
 TEMP_DIRECTORY = PROJECT_ROOT / "tmp"
+
+API_APP_DIRECTORY = PROJECT_ROOT / "apps" / "api" / "app"
+
+PROMPTS_TEMPLATES_DIRECTORY = (
+    API_APP_DIRECTORY / "ai" / "runtime" / "generation" / "prompts" / "templates"
+)

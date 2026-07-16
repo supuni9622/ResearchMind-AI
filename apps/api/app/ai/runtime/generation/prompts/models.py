@@ -251,6 +251,8 @@ class PromptRenderRequest(
 
     override_provider: GenerationProvider | None = None
 
+    override_model: str | None = None
+
     session_id: UUID | None = None
 
     user_id: UUID | None = None

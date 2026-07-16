@@ -216,10 +216,14 @@ Responsibilities:
   `GenerationService.generate_from_template()` now bridges it into
   Generation with schema-aware format instructions
   (`PydanticOutputParser.get_format_instructions()`)
-- 🟡 Validation — `generation/validation/` implements schema validation
-  (`jsonschema`) and citation validation (fabricated-citation
-  detection); hallucination/groundedness and completeness validation
-  remain empty stubs
+- 🟡 Validation — `generation/validation/` implements input validation
+  (empty prompt, token budget, provider limits, context quality), output
+  validation (schema via `jsonschema`, JSON parseability, fabricated-
+  citation detection), a lightweight no-LLM hallucination/groundedness
+  validator, a `ValidationRegistry`, weighted scoring, and a multi-stage
+  `ValidationReport`; per-runtime Contracts/Runtime Validators and a few
+  output checks (completeness/consistency/formatting/response-size)
+  remain (`validation_platform_prd.md`)
 - ❌ Guardrails — not addressed this phase (distinct from the Context
   Platform's retrieval-time guardrails)
 - ✅ Structured outputs — native provider structured decoding for all
@@ -255,7 +259,7 @@ Architecture:
 Prompt (PromptService, optional — generate_from_template)
 ↓
 
-Validation (input, still minimal)
+Input Validation (empty prompt, token budget, provider limits, context quality)
 ↓
 
 Routing (capability guard only — no provider-selection engine)
@@ -264,7 +268,7 @@ Routing (capability guard only — no provider-selection engine)
 Generation (native structured output → parser fallback → regeneration)
 ↓
 
-Output Validation (schema + citation)
+Validation (input + output + hallucination stages, registry, scoring, ValidationReport)
 ↓
 
 Artifacts (not built)
@@ -272,7 +276,7 @@ Artifacts (not built)
 
 Current maturity:
 
-~60%
+~65%
 
 ---
 

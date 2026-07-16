@@ -18,7 +18,7 @@ from app.ai.runtime.generation.enums import (
     ResponseFormat,
 )
 from app.ai.runtime.generation.validation.models import (
-    ValidationResult,
+    ValidationReport,
 )
 from pydantic import (
     BaseModel,
@@ -76,8 +76,9 @@ class GenerationRequest(BaseModel):
     When >0, `GenerationService.generate()` re-calls the provider (with a
     corrective instruction appended describing what was wrong) up to this
     many extra times if the initial attempt's `parsed_output` is `None`
-    (parsing failed) or `ValidationResult.valid` is `False` (schema
-    mismatch, fabricated citation, ...). See `GenerationResult.regeneration_attempts`.
+    (parsing failed) or `ValidationReport.output_validation.valid` is
+    `False` (schema mismatch, fabricated citation, ...). See
+    `GenerationResult.regeneration_attempts`.
     """
 
     output_model: type[BaseModel] | None = None
@@ -250,12 +251,12 @@ class GenerationResult(
 
     raw_response: dict[str, Any] | None = None
 
-    validation: ValidationResult | None = None
+    validation: ValidationReport | None = None
     """
     Populated by `GenerationService.generate()` via `ValidationService`
-    (see `generation/validation/`) — schema and citation checks against
-    `parsed_output` / `content`. `None` when no `ValidationService` was
-    wired into `GenerationService` (see `generation/create.py`).
+    (see `generation/validation/`) — input, output, and hallucination
+    stage checks. `None` when no `ValidationService` was wired into
+    `GenerationService` (see `generation/create.py`).
     """
 
     regeneration_attempts: int = 0

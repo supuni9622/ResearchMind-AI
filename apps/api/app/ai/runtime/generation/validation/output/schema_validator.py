@@ -10,6 +10,7 @@ from app.ai.runtime.generation.validation.interfaces import (
 from app.ai.runtime.generation.validation.models import (
     ValidationIssue,
     ValidationSeverity,
+    ValidatorOutcome,
 )
 from jsonschema import (
     SchemaError,
@@ -48,21 +49,25 @@ class SchemaValidator(
     async def validate(
         self,
         result: GenerationResult,
-    ) -> list[ValidationIssue]:
+    ) -> ValidatorOutcome:
 
         schema = result.request.output_schema
 
         if schema is None:
-            return []
+            return ValidatorOutcome()
 
         if result.parsed_output is None:
-            return [
-                ValidationIssue(
-                    validator=self.name,
-                    severity=ValidationSeverity.ERROR,
-                    message="A response schema was requested but no parsed_output was produced.",
-                )
-            ]
+            return ValidatorOutcome(
+                issues=[
+                    ValidationIssue(
+                        validator=self.name,
+                        severity=ValidationSeverity.ERROR,
+                        message=(
+                            "A response schema was requested but no parsed_output was produced."
+                        ),
+                    )
+                ],
+            )
 
         payload = result.parsed_output
 
@@ -80,30 +85,34 @@ class SchemaValidator(
                 schema=schema,
             )
         except ValidationError as exc:
-            return [
-                ValidationIssue(
-                    validator=self.name,
-                    severity=ValidationSeverity.ERROR,
-                    message=exc.message,
-                    details={
-                        "path": list(
-                            exc.absolute_path,
-                        ),
-                    },
-                )
-            ]
+            return ValidatorOutcome(
+                issues=[
+                    ValidationIssue(
+                        validator=self.name,
+                        severity=ValidationSeverity.ERROR,
+                        message=exc.message,
+                        details={
+                            "path": list(
+                                exc.absolute_path,
+                            ),
+                        },
+                    )
+                ],
+            )
         except SchemaError as exc:
             logger.warning(
                 "validation.schema.invalid_schema",
                 error=str(exc),
             )
 
-            return [
-                ValidationIssue(
-                    validator=self.name,
-                    severity=ValidationSeverity.WARNING,
-                    message=f"output_schema itself is not a valid JSON Schema: {exc.message}",
-                )
-            ]
+            return ValidatorOutcome(
+                issues=[
+                    ValidationIssue(
+                        validator=self.name,
+                        severity=ValidationSeverity.WARNING,
+                        message=f"output_schema itself is not a valid JSON Schema: {exc.message}",
+                    )
+                ],
+            )
 
-        return []
+        return ValidatorOutcome()

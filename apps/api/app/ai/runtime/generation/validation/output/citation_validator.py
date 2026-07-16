@@ -11,6 +11,7 @@ from app.ai.runtime.generation.validation.interfaces import (
 from app.ai.runtime.generation.validation.models import (
     ValidationIssue,
     ValidationSeverity,
+    ValidatorOutcome,
 )
 
 #
@@ -53,7 +54,7 @@ class CitationValidator(
     async def validate(
         self,
         result: GenerationResult,
-    ) -> list[ValidationIssue]:
+    ) -> ValidatorOutcome:
 
         prompt_context = result.request.prompt_context
 
@@ -62,7 +63,7 @@ class CitationValidator(
         known_ids |= {chunk.citation_id for chunk in prompt_context.chunks if chunk.citation_id}
 
         if not known_ids:
-            return []
+            return ValidatorOutcome()
 
         referenced_ids = self._extract_citation_markers(
             result.content,
@@ -73,24 +74,26 @@ class CitationValidator(
         )
 
         if not unknown_ids:
-            return []
+            return ValidatorOutcome()
 
-        return [
-            ValidationIssue(
-                validator=self.name,
-                severity=ValidationSeverity.ERROR,
-                message=(
-                    "Response cites source(s) not present in the retrieved "
-                    f"context: {', '.join(unknown_ids)}"
-                ),
-                details={
-                    "unknown_citations": unknown_ids,
-                    "known_citations": sorted(
-                        known_ids,
+        return ValidatorOutcome(
+            issues=[
+                ValidationIssue(
+                    validator=self.name,
+                    severity=ValidationSeverity.ERROR,
+                    message=(
+                        "Response cites source(s) not present in the retrieved "
+                        f"context: {', '.join(unknown_ids)}"
                     ),
-                },
-            )
-        ]
+                    details={
+                        "unknown_citations": unknown_ids,
+                        "known_citations": sorted(
+                            known_ids,
+                        ),
+                    },
+                )
+            ],
+        )
 
     @staticmethod
     def _extract_citation_markers(

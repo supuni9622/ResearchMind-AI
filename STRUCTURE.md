@@ -274,7 +274,7 @@ ResearchMind-AI/
 │   │       │   │   ├── prompts.py           # Prompt template registry
 │   │       │   │   ├── providers.py         # LLM provider registry
 │   │       │   │   └── rerankers.py         # Reranker registry
-│   │       │   ├── runtime/                 # ~60% Implemented — Generation Platform
+│   │       │   ├── runtime/                 # ~65% Implemented — Generation Platform
 │   │       │   │   ├── routing/__init__.py        # (empty) — vestigial, superseded by generation/routing/ (also empty)
 │   │       │   │   ├── streaming/__init__.py      # (empty) — vestigial, superseded by generation/streaming/ (also empty; per-provider stream() is the real thing)
 │   │       │   │   └── generation/                # Generation Platform — see docs/architecture/structured-output-platform.md
@@ -284,7 +284,7 @@ ResearchMind-AI/
 │   │       │   │       ├── exceptions.py           # GenerationError hierarchy
 │   │       │   │       ├── config.py               # BaseGenerationConfig + per-provider configs
 │   │       │   │       ├── registry.py             # GenerationRegistry — provider → implementation resolution
-│   │       │   │       ├── service.py              # GenerationService — generate() (capability guard → native structured output → parser fallback → validation → regeneration loop), generate_from_template() (PromptService bridge + format instructions)
+│   │       │   │       ├── service.py              # GenerationService — generate() (capability guard → native structured output → parser fallback → input/output/hallucination validation → regeneration loop), generate_from_template() (PromptService bridge + format instructions)
 │   │       │   │       ├── create.py               # create_generation_service() — composition root wiring providers + structured_output_registry + validation_service + prompt_service
 │   │       │   │       ├── providers/
 │   │       │   │       │   ├── base.py             # BaseGenerationProvider[ConfigT] — retry, parse_structured_output() (json.loads → StructuredOutputRepair fallback)
@@ -301,15 +301,21 @@ ResearchMind-AI/
 │   │       │   │       │   ├── create.py           # get_structured_output_registry()/get_structured_output_service()
 │   │       │   │       │   ├── parsers/            # json.py, pydantic.py (LangChain), markdown.py, xml.py
 │   │       │   │       │   └── schemas/            # research_report.py, planner.py, citations.py, agent.py
-│   │       │   │       ├── validation/             # ~50% Implemented — schema + citation validators
-│   │       │   │       │   ├── service.py          # ValidationService — aggregates validator issues, crashing validator → WARNING not a hard failure
-│   │       │   │       │   ├── create.py           # get_validation_service() — registers SchemaValidator + CitationValidator
+│   │       │   │       ├── validation/             # ~65% Implemented — input/output/hallucination validators, registry, scoring, ValidationReport
+│   │       │   │       │   ├── service.py          # ValidationService — validate_input()/validate_output()/validate_hallucination()/validate(); crashing validator → WARNING not a hard failure
+│   │       │   │       │   ├── registry.py         # ValidationRegistry — dynamic per-stage registration (input/output/hallucination)
+│   │       │   │       │   ├── scoring.py          # compute_overall_score() — weighted, renormalized over whichever stages produced a score
+│   │       │   │       │   ├── create.py           # create_validation_registry() / get_validation_service() — registers all input+output+hallucination validators
 │   │       │   │       │   ├── output/
 │   │       │   │       │   │   ├── schema_validator.py     # SchemaValidator — jsonschema.validate() against output_schema
+│   │       │   │       │   │   ├── json_validator.py       # JsonValidator — content is valid/repairable/unparseable JSON (independent of SchemaValidator's shape check)
 │   │       │   │       │   │   ├── citation_validator.py   # CitationValidator — flags [S1]-style markers not in prompt_context.citations
-│   │       │   │       │   │   ├── json_validator.py       # (empty)
-│   │       │   │       │   │   └── hallucination_validator.py  # (empty) — needs LLM-judge or retrieval-overlap design
-│   │       │   │       │   └── input/              # (all empty) — empty_prompt.py, token_budget.py, provider_limits.py, context_validation.py
+│   │       │   │       │   │   └── hallucination_validator.py  # HallucinationValidator — deterministic lexical-overlap groundedness score, no LLM, registered under the hallucination stage
+│   │       │   │       │   └── input/
+│   │       │   │       │       ├── empty_prompt.py        # EmptyPromptValidator — empty/whitespace prompts, unrendered {placeholder} variables
+│   │       │   │       │       ├── token_budget.py        # TokenBudgetValidator — estimated tokens vs. context window (cheap deterministic estimate)
+│   │       │   │       │       ├── provider_limits.py     # ProviderLimitsValidator — streaming/structured_output/json_mode/tool_calling vs. resolved provider capabilities
+│   │       │   │       │       └── context_validation.py  # ContextValidator — empty/duplicate chunks, orphaned citation references
 │   │       │   │       ├── langchain/              # ~25% Implemented
 │   │       │   │       │   ├── output_parsers.py   # with_structured_output() bridge — OpenAI/Claude/Gemini/Ollama (not Groq — langchain-groq incompatible with pinned groq SDK)
 │   │       │   │       │   ├── prompt_factory.py   # (empty)
@@ -877,6 +883,19 @@ ResearchMind-AI/
 │   │   ├── ai/knowledge/upload/
 │   │   │   ├── test_service.py              # UploadService — validation-before-I/O, size boundaries
 │   │   │   └── test_validators.py           # UploadValidator — invalid file rejection rules
+│   │   ├── ai/runtime/generation/            # Generation Platform tests
+│   │   │   ├── test_service.py              # GenerationService — delegation, empty-prompt/context errors, provider-not-found/error propagation, ValidationService integration (report on result.validation, input-only errors don't regenerate, output-stage errors do)
+│   │   │   ├── test_registry.py             # GenerationRegistry — provider resolution
+│   │   │   ├── providers/                   # test_claude.py, test_gemini.py, test_groq.py, test_ollama.py, test_openai.py, test_streaming.py, test_structured_outputs.py
+│   │   │   ├── prompts/                     # test_builder.py, test_examples.py, test_prompt_factory.py, test_registry.py, test_service.py, test_templates.py, test_token_estimation.py
+│   │   │   └── validation/                  # Validation Platform tests (new)
+│   │   │       ├── factories.py             # Shared make_request()/make_result()/make_chunk()/make_citation() builders (not a test module)
+│   │   │       ├── test_models.py           # ValidationReport.issues flattening (stage order, optional runtime stage), ValidatorOutcome defaults
+│   │   │       ├── test_scoring.py          # compute_overall_score() — weighted average, renormalization over only the stages that scored
+│   │   │       ├── test_registry.py         # ValidationRegistry — per-stage isolation, registration order, defensive copies
+│   │   │       ├── test_service.py          # ValidationService — per-stage aggregation + stage-stamping, crash → WARNING (other validators still run), full validate() report assembly
+│   │   │       ├── input/                   # test_empty_prompt.py, test_context_validation.py, test_provider_limits.py, test_token_budget.py
+│   │   │       └── output/                  # test_schema_validator.py, test_citation_validator.py, test_json_validator.py, test_hallucination_validator.py
 │   │   ├── infrastructure/storage/
 │   │   │   └── test_s3_storage.py           # S3StorageService — boto3 ClientError → typed StorageError mapping
 │   │   ├── benchmarks/common/
@@ -913,20 +932,20 @@ ResearchMind-AI/
 ├── docker-compose.yml           # Local dev stack (PostgreSQL, Valkey, Qdrant)
 ├── FILES.md                     # Complete file and folder map
 ├── LICENSE
-├── phase-3-ai-runtime-roadmap.md  # Frozen v2.0 — Retrieval, Context, Generation & Research Runtime roadmap (Phase 3.4–3.12), progress tracked inline — Generation Platform (3.8) ~60% complete
+├── phase-3-ai-runtime-roadmap.md  # Frozen v2.0 — Retrieval, Context, Generation & Research Runtime roadmap (Phase 3.4–3.12), progress tracked inline — Generation Platform (3.8) ~65% complete
 ├── prompt_guardrails.md         # Prompt-injection defense snippet for prompt templates
 ├── PROJECT_STATUS.md            # Current project status and progress
 ├── pyproject.toml               # Python project config, deps, and tool settings
 ├── README.md                    # Project overview and quickstart
 ├── RESEARCHMIND_PROJECT_CONTEXT_AND_HANDOFF.md  # Project context and engineering handoff (v1.0)
-├── ResearchMind-Roadmap-v2.md   # AI Engineering Roadmap v2 — 10-phase vision, frozen tech decisions — AI Runtime Platform (Phase 3) ~60% complete
+├── ResearchMind-Roadmap-v2.md   # AI Engineering Roadmap v2 — 10-phase vision, frozen tech decisions — AI Runtime Platform (Phase 3) ~65% complete
 ├── ROADMAP.md                   # Feature and milestone roadmap
 ├── SECURITY.md                  # Security policy
 ├── setup_commands.md            # Makefile-style shortcut commands (docker compose up/down)
 ├── STRUCTURE.md                 # This file
 ├── test.txt                     # Stray scratch file — can be deleted
 ├── uv.lock                      # Locked dependency versions (uv)
-└── validation_platform_prd.md   # Standalone Validation Platform PRD — schema + citation output validation implemented under generation/validation/; rest still aspirational
+└── validation_platform_prd.md   # Standalone Validation Platform PRD — input/output/hallucination validation, registry, scoring, and ValidationReport implemented under generation/validation/; runtime validators/contracts and a standalone platform promotion still aspirational
 ```
 
 ## Key Boundaries
@@ -943,6 +962,7 @@ ResearchMind-AI/
 | Retrieval Platform | `apps/api/app/ai/knowledge/retrieval/` | Queries the hybrid Qdrant index: dense search, sparse (SPLADE) search, hybrid search via Reciprocal Rank Fusion (`fusion/`), parallel dense+sparse execution (`asyncio.gather`), and metadata filtering (`owner_id`/`document_id`/`filename`/`language`); query validation/normalization, Voyage/FastEmbed query embedding (cached), `/retrieve`, `/retrieve/sparse`, `/retrieve/hybrid` (all three auth-protected, server-scoped to `owner_id`) — ADR-018, ADR-019, ADR-020, ADR-021. Parent/Child retrieval was reclassified into the Context Platform; query decomposition is deferred to the future Research Runtime |
 | Reranking Platform | `apps/api/app/ai/knowledge/reranking/` | Reorders a hybrid candidate pool using deeper (query, chunk) relevance scoring: `VoyageReranker` (Voyage AI `rerank-2`) and `CrossEncoderReranker` (local `BAAI/bge-reranker-base`), behind a shared provider abstraction/registry/service. Wired into `RetrievalService.search_hybrid(rerank=True)` by default — ADR-022 |
 | Context Platform | `apps/api/app/ai/knowledge/context/` | Turns a `RetrievalResult` into a `PromptContext`: dedup → Parent Expansion (`ChunkArtifactReader`) → Adjacent Merge → ordering → Compression (Token Budget + Embedding Redundancy implemented; LangChain + LLM stubs raise `NotImplementedError`) → Guardrails V1 (`RuleBasedGuardrailProvider`, regex-based prompt-injection detection) → Citation Platform → strategy-based Prompt Formatter (`DEFAULT`/`NOTEBOOKLM`/`PERPLEXITY`/`RESEARCH`/`AGENT`). ~90% complete; not yet wired into a dependency provider or API route |
+| Generation Platform | `apps/api/app/ai/runtime/generation/` | Owns all LLM interactions over 5 providers (Groq, OpenAI, Claude, Gemini, Ollama): native structured-output decoding, a parser/repair fallback, input/output/hallucination Validation Platform integration (registry, weighted scoring, `ValidationReport`), a regenerate-on-invalid-output loop, and a Prompt Platform bridge (`generate_from_template()`). ~65% complete — see `docs/architecture/structured-output-platform.md`; not yet wired into an API route |
 | Upload pipeline | `apps/api/app/ai/knowledge/upload/` | File validation, duplicate detection, S3 upload, checksum hashing, enqueues async processing job |
 | Async worker | `apps/worker/` | Standalone process consuming the queue, running `DocumentProcessingService` per job, retry/dead-letter handling |
 | Engineering benchmarks | `benchmarks/` | Offline, manually-run comparison of competing AI implementations (chunking strategies, embedding providers, dense/sparse/hybrid retrieval) against version-controlled datasets — independent from tests and from production infrastructure |

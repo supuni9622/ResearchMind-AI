@@ -22,20 +22,20 @@ Every file and folder in the ResearchMind-AI monorepo.
 | `docker-compose.yml` | Local dev stack — PostgreSQL (5432), Valkey (6379), Qdrant (6333/6334) |
 | `FILES.md` | This file — complete file and folder map |
 | `LICENSE` | Project license |
-| `phase-3-ai-runtime-roadmap.md` | Frozen v2.0 Retrieval, Context, Generation & Research Runtime roadmap (Phase 3.4–3.12); architecture frozen, progress status tracked inline per phase — Phase 3.8 (Generation Platform) now ~60% complete |
+| `phase-3-ai-runtime-roadmap.md` | Frozen v2.0 Retrieval, Context, Generation & Research Runtime roadmap (Phase 3.4–3.12); architecture frozen, progress status tracked inline per phase — Phase 3.8 (Generation Platform) now ~65% complete |
 | `prompt_guardrails.md` | Short prompt-injection defense snippet — a "Security Notice" block to prepend inside prompt templates warning the model that retrieved context may contain untrusted instructions |
 | `PROJECT_STATUS.md` | Current milestone and progress tracker |
 | `pyproject.toml` | Python project config: dependencies, ruff, mypy, pytest settings |
 | `README.md` | Project overview, quickstart, auth guide, Alembic troubleshooting |
 | `RESEARCHMIND_PROJECT_CONTEXT_AND_HANDOFF.md` | Project context and engineering handoff document (v1.0) |
-| `ResearchMind-Roadmap-v2.md` | AI Engineering Roadmap v2 — vision, objectives, frozen technology decisions, and the full 10-phase platform roadmap (Phase 0 Engineering Foundation through Phase 9 Enterprise Platform); Phase 3 (AI Runtime Platform) now ~60% complete |
+| `ResearchMind-Roadmap-v2.md` | AI Engineering Roadmap v2 — vision, objectives, frozen technology decisions, and the full 10-phase platform roadmap (Phase 0 Engineering Foundation through Phase 9 Enterprise Platform); Phase 3 (AI Runtime Platform) now ~65% complete |
 | `ROADMAP.md` | Feature and milestone roadmap |
 | `SECURITY.md` | (empty) |
 | `setup_commands.md` | Makefile-style shortcut commands (`docker compose up/down`) |
 | `STRUCTURE.md` | High-level folder/file structure with layer descriptions |
 | `DEV_GUIDE.md` | Step-by-step local development guide — setup, Alembic issues, Docker rules, auth testing |
 | `test.txt` | Stray scratch file — can be deleted |
-| `validation_platform_prd.md` | PRD for a standalone Validation Platform (input validation, hallucination detection, per-runtime contracts, scoring, regeneration policy) — a narrow slice (schema + citation output validation) is implemented today inside `apps/api/app/ai/runtime/generation/validation/`; see the file's Implementation Status note |
+| `validation_platform_prd.md` | PRD for a standalone Validation Platform (input validation, hallucination detection, per-runtime contracts, scoring, regeneration policy) — Input/Output/Hallucination Validation, a registry, weighted scoring, and a multi-stage `ValidationReport` are implemented today inside `apps/api/app/ai/runtime/generation/validation/`; Runtime Validators/Contracts and a few output checks remain — see the file's Implementation Status note |
 
 ---
 
@@ -445,20 +445,20 @@ All files empty — planned model and provider registries.
 | File / Directory | Status |
 |-----------|--------|
 | `__init__.py` | (empty) |
-| `generation/` | **~60% Implemented** — Generation Platform; see below |
+| `generation/` | **~65% Implemented** — Generation Platform; see below |
 | `routing/__init__.py` | (empty) — vestigial top-level scaffold, superseded by `generation/routing/` (also empty) |
 | `streaming/__init__.py` | (empty) — vestigial top-level scaffold, superseded by `generation/streaming/` (also empty; per-provider `stream()` methods are what's actually implemented) |
 
-##### `ai/runtime/generation/` — **~60% Implemented**
+##### `ai/runtime/generation/` — **~65% Implemented**
 
-Generation Platform. Owns all LLM interactions, consuming the Context Platform's `PromptContext` output. Provider-independent runtime over five LLM providers, with native structured-output decoding, a parser/repair fallback, output validation, a regenerate-on-invalid-output loop, and an optional bridge into the pre-existing Prompt Platform. Not yet wired into an API route (no `POST /research` / chat endpoint calls `GenerationService` yet). Detail: `docs/architecture/structured-output-platform.md` (continuously updated).
+Generation Platform. Owns all LLM interactions, consuming the Context Platform's `PromptContext` output. Provider-independent runtime over five LLM providers, with native structured-output decoding, a parser/repair fallback, input/output/hallucination validation, a regenerate-on-invalid-output loop, and an optional bridge into the pre-existing Prompt Platform. Not yet wired into an API route (no `POST /research` / chat endpoint calls `GenerationService` yet). Detail: `docs/architecture/structured-output-platform.md` (continuously updated).
 
 | Directory | Status |
 |-----------|--------|
 | (root files) | **Implemented** — core service, models, interfaces, registry, composition root |
 | `providers/` | **Implemented** — Groq, OpenAI, Claude, Gemini, Ollama |
 | `structured_output/` | **Implemented** — parser registry, repair, schemas |
-| `validation/` | **~50% Implemented** — schema + citation validators done; hallucination/completeness/input validators empty |
+| `validation/` | **~65% Implemented** — input, output, and hallucination stage validators, registry, scoring, and `ValidationReport` done; runtime validators/contracts and a few output checks remain |
 | `langchain/` | **~25% Implemented** — `with_structured_output()` bridge done; prompt factory/runnables/semantic cache empty |
 | `prompts/` | **Implemented** (pre-existing) — template loading, rendering, few-shot, versioning; now bridged into Generation |
 | `catalog/` | **Implemented** — per-model capability + cost catalog |
@@ -479,7 +479,7 @@ Generation Platform. Owns all LLM interactions, consuming the Context Platform's
 | `exceptions.py` | `GenerationError` hierarchy — `GenerationProviderNotFoundError`, `GenerationValidationError`, `GenerationExecutionError`, `PromptValidationError`, `OutputValidationError`, `GuardrailViolationError` |
 | `config.py` | `BaseGenerationConfig` + per-provider configs (`OpenAIGenerationConfig`, `ClaudeGenerationConfig`, `GeminiGenerationConfig`, `GroqGenerationConfig`, `OllamaGenerationConfig`) — model name, temperature, max_tokens, context window, `ProviderCapabilities`, cost per 1M tokens |
 | `registry.py` | `GenerationRegistry` — provider enum → `GenerationProviderInterface` resolution |
-| `service.py` | `GenerationService` — the orchestrator. `generate()`: validates the request, checks provider capability support (`_check_capability_support` — logs `generation.capability_mismatch`, never blocks), runs one attempt (`_execute_once`: routes to `generate_structured()` when a schema/JSON/STRUCTURED response is requested, else `generate()`; runs Markdown/XML parser-registry fallback, `output_model` re-validation, and `ValidationService`), then regenerates with corrective feedback up to `request.max_regeneration_attempts` while `_needs_regeneration()` is true (parse failure on a structured request, or a failed `ValidationResult`). `generate_from_template()` — bridges `PromptService`: renders a template, flattens the resulting messages into `system_prompt`/`user_prompt`, appends `PydanticOutputParser.get_format_instructions()` when `output_model` is set, then calls `generate()` |
+| `service.py` | `GenerationService` — the orchestrator. `generate()`: validates the request, checks provider capability support (`_check_capability_support` — logs `generation.capability_mismatch`, never blocks), runs one attempt (`_execute_once`: routes to `generate_structured()` when a schema/JSON/STRUCTURED response is requested, else `generate()`; runs Markdown/XML parser-registry fallback, `output_model` re-validation, and the full `ValidationService.validate()` flow — input + output + hallucination stages, building an `InputValidationContext` from the resolved provider's capabilities/context window), then regenerates with corrective feedback up to `request.max_regeneration_attempts` while `_needs_regeneration()` is true (parse failure on a structured request, or `ValidationReport.output_validation.valid` is `False` — input/hallucination-stage issues never trigger regeneration). `generate_from_template()` — bridges `PromptService`: renders a template, flattens the resulting messages into `system_prompt`/`user_prompt`, appends `PydanticOutputParser.get_format_instructions()` when `output_model` is set, then calls `generate()` |
 | `create.py` | `create_generation_registry()` / `create_generation_service()` — composition root; registers whichever of the five providers have credentials configured, wires `structured_output_registry` (`get_structured_output_registry()`), `validation_service` (`get_validation_service()`), and `prompt_service` (`get_prompt_service()`) into `GenerationService` |
 
 ###### `ai/runtime/generation/providers/` — **Implemented**
@@ -518,21 +518,26 @@ Parser registry + text-repair pipeline. Connected into `GenerationService` two w
 | `schemas/citations.py` | `Citation` (`source`, `quote`), `CitationCollection` — a simpler, LLM-output-facing shape, distinct from the canonical `Citation` in `ai/knowledge/context/citations/models.py` |
 | `schemas/agent.py` | `AgentExecutionResult` — plans, tool calls, reviews, final responses |
 
-###### `ai/runtime/generation/validation/` — **~50% Implemented**
+###### `ai/runtime/generation/validation/` — **~65% Implemented**
 
-Output Validation. Was entirely empty stubs before this milestone; a narrow slice of the broader `validation_platform_prd.md` vision (see that file's Implementation Status note) is implemented here, inside the Generation Platform rather than as its own top-level platform.
+Input, Output, and Hallucination Validation. A narrow slice of the broader `validation_platform_prd.md` vision (see that file's Implementation Status note) is implemented here, inside the Generation Platform rather than as its own top-level platform; Runtime Validators/Contracts and a few PRD output checks (completeness/consistency/formatting/response-size) remain.
 
 | File | Description |
 |------|-------------|
-| `interfaces.py` | `OutputValidatorInterface` ABC — `validate(result: GenerationResult) -> list[ValidationIssue]`; a validator with nothing to check against returns `[]` rather than erroring |
-| `models.py` | `ValidationSeverity` (error/warning), `ValidationIssue` (`validator`, `severity`, `message`, `details`), `ValidationResult` (`valid`, `issues`) |
-| `service.py` | `ValidationService` — runs every registered validator, aggregates issues; a crashing validator becomes a `WARNING` issue rather than failing the whole check; `valid = no ERROR-severity issues` |
-| `create.py` | `get_validation_service()` — `@lru_cache`d composition root; registers `SchemaValidator` + `CitationValidator` |
+| `interfaces.py` | `InputValidatorInterface` ABC — `validate(request: GenerationRequest, context: InputValidationContext) -> ValidatorOutcome`; `OutputValidatorInterface` ABC — `validate(result: GenerationResult) -> ValidatorOutcome` (used for both output- and hallucination-stage validators). Either returns an empty outcome rather than erroring when there's nothing to check |
+| `models.py` | `ValidationSeverity` (error/warning), `ValidationStage` (input/output/hallucination/runtime — `runtime` reserved, no validator populates it yet), `ValidationIssue` (`validator`, `stage`, `severity`, `message`, `details`), `ValidatorOutcome` (`issues`, optional `score`), `InputValidationContext` (`context_window`, `supports_streaming`/`supports_structured_output`/`supports_json_mode`/`supports_tool_calling` — plain primitives, not `ProviderCapabilities` directly, to avoid an import cycle with `generation/models.py`), `ValidationResult` (`valid`, `issues`, optional `score`), `ValidationReport` (`input_validation`/`output_validation`/`hallucination_validation`/optional `runtime_validation`, `overall_score`, `valid`, and an `issues` property flattening every stage) |
+| `registry.py` | `ValidationRegistry` — dynamic per-stage registration (`register_input_validator`/`register_output_validator`/`register_hallucination_validator`), each with a read-only accessor property |
+| `scoring.py` | `compute_overall_score()` — weighted average of whichever stage scores are present (PRD §15 weights: input 0.15 / output 0.35 / hallucination 0.30 / runtime 0.20), renormalized over only the stages that actually produced a score; `None` when none did |
+| `service.py` | `ValidationService` — `validate_input()`/`validate_output()`/`validate_hallucination()` (per-stage) and `validate()` (full report); a crashing validator becomes a WARNING issue rather than failing the whole check; each stage's `valid = no ERROR-severity issues` |
+| `create.py` | `create_validation_registry()` / `get_validation_service()` — `@lru_cache`d composition root; registers all four input validators, all three output validators, and the hallucination validator |
 | `output/schema_validator.py` | `SchemaValidator` — validates `parsed_output` against `request.output_schema` via `jsonschema.validate()`; independent of the `output_model` re-validation already done in `GenerationService` (this checks any raw schema dict, including one with no corresponding Pydantic model) |
+| `output/json_validator.py` | `JsonValidator` — checks whether `result.content` itself is well-formed JSON when JSON was expected (`response_format` JSON/STRUCTURED or `output_schema` set), independent of `SchemaValidator`'s shape check; valid as-is scores 1.0, repairable via `StructuredOutputRepair` is a WARNING at 0.5, unparseable even after repair is an ERROR at 0.0 |
 | `output/citation_validator.py` | `CitationValidator` — scans `result.content` for bracketed citation markers (`[S1]`, `[S1, S2]` — the convention `CitationService.build()` and the Context Platform's prompt formatters already use) and flags any not present in `request.prompt_context.citations`/`chunks`, catching fabricated citations; skips entirely when there are no known citations |
-| `output/json_validator.py` | (empty) |
-| `output/hallucination_validator.py` | (empty) — needs an LLM-as-judge call or a retrieval-overlap heuristic; a real design decision, not yet made |
-| `input/*.py` (`empty_prompt.py`, `token_budget.py`, `provider_limits.py`, `context_validation.py`) | (empty) — input-side validation, not addressed this milestone |
+| `output/hallucination_validator.py` | `HallucinationValidator` — registered under the `hallucination` stage (not `output`); deterministic, no-LLM groundedness proxy: the fraction of the response's "significant" words (≥4 chars) that also appear in the retrieved context; WARNING-only below a 0.3 threshold (biased toward the PRD's <5% false-positive target), always contributes a groundedness score when there's enough content/context to measure |
+| `input/empty_prompt.py` | `EmptyPromptValidator` — empty/whitespace-only `user_prompt` (ERROR — unreachable via `GenerationService`, which already hard-rejects this before any validator runs) or `system_prompt` (WARNING), plus unrendered `{placeholder}` template variables left in either (matches `PromptBuilder.extract_variables()`'s syntax) |
+| `input/token_budget.py` | `TokenBudgetValidator` — estimated prompt tokens (cheap words×1.3 approximation, deliberately not `TokenCounter`'s real provider API calls — stays deterministic per the PRD's Principle 2) vs. the resolved provider's context window; WARNING near the limit, ERROR over it, contributes a budget-health score |
+| `input/provider_limits.py` | `ProviderLimitsValidator` — streaming/structured_output/json_mode/tool_calling requested but unsupported by the resolved provider; mirrors (doesn't replace) `GenerationService._check_capability_support`'s log-only guard, making the same signal available as a `ValidationIssue` |
+| `input/context_validation.py` | `ContextValidator` — data-quality checks on `request.prompt_context`: empty chunk content, duplicate `chunk_id`s, chunks whose `citation_id` has no matching `Citation`; all WARNING |
 
 ###### `ai/runtime/generation/langchain/` — **~25% Implemented**
 
@@ -949,7 +954,7 @@ All empty.
 | `ADR-022-reranking-platform.md` | Decision: Reranking Platform architecture — provider abstraction (Voyage AI + local CrossEncoder) reordering a hybrid candidate pool via deeper (query, chunk) relevance scoring than embedding similarity alone |
 | `ADR-023-framework-integration-strategy.md` | Decision: what ResearchMind builds itself vs. delegates to mature ecosystem frameworks (LangChain, LangGraph, LangSmith) — "Platform-Owned Architecture + Framework-Powered Runtime" |
 | `ADR-024-generation-model-strategy.md` | Decision: Generation Platform adopts a multi-provider model strategy optimizing for quality/cost/latency/privacy/capability diversity rather than benchmark rankings alone |
-| `ADR-025-platform-roadmap.md` | Decision: freezes the long-term platform roadmap — ResearchMind is an AI Research Platform (Knowledge → Context → Generation → Evaluation → Research Runtime → Agent Runtime → MCP Integrations), not a single RAG application; Generation Platform maturity tracked inline (~60%) |
+| `ADR-025-platform-roadmap.md` | Decision: freezes the long-term platform roadmap — ResearchMind is an AI Research Platform (Knowledge → Context → Generation → Evaluation → Research Runtime → Agent Runtime → MCP Integrations), not a single RAG application; Generation Platform maturity tracked inline (~65%) |
 
 ---
 
@@ -1011,7 +1016,7 @@ All empty.
 | `repository-structure.md` | Repository layer patterns |
 | `reranking-platform.md` | Reranking Platform architecture (Milestone 2.7.2, companion to ADR-022) — CrossEncoder/Voyage AI providers, canonical models, integration strategy, evaluation metrics |
 | `retrieval-benchmarking-strategy.md` | Retrieval Benchmarking Strategy (**Accepted**) — freezes the initial evaluation methodology: dense/sparse/hybrid scope, dataset size/format, 6 query categories with expected winners, ADR-020 metric requirements, the Hybrid decision gate (`Dense Results != Sparse Results`) |
-| `structured-output-platform.md` | Structured Output Platform (**~99% complete in its own scope**) — the continuously-updated, detailed architecture doc for `generation/structured_output/`, `generation/validation/`, `generation/langchain/`, and the Prompt Platform bridge: native provider structured output, parser/repair fallback, output validation, regeneration strategy, provider capability flags, prompt-template integration |
+| `structured-output-platform.md` | Structured Output Platform (**~99% complete in its own scope**) — the continuously-updated, detailed architecture doc for `generation/structured_output/`, `generation/validation/`, `generation/langchain/`, and the Prompt Platform bridge: native provider structured output, parser/repair fallback, input/output/hallucination validation (registry, scoring, `ValidationReport`), regeneration strategy, provider capability flags, prompt-template integration |
 | `system-overview.md` | High-level system overview |
 
 ---
@@ -1366,6 +1371,8 @@ All empty — planned cross-cutting code.
 | `unit/ai/knowledge/upload/__init__.py` | Package marker |
 | `unit/ai/knowledge/upload/test_service.py` | `UploadService` — invalid files rejected before storage/hasher/DB touched, size boundary enforcement |
 | `unit/ai/knowledge/upload/test_validators.py` | `UploadValidator` — invalid filename/extension/content-type/size rejection rules |
+| `unit/ai/runtime/generation/` | Generation Platform test tree — `test_service.py` (`GenerationService` delegation, empty-prompt/context validation errors, provider-not-found/error propagation, and the ValidationService integration: `result.validation` populated from the report, input-only ERRORs don't trigger regeneration, output-stage ERRORs do), `test_registry.py`, `providers/test_*.py` (one per provider), `prompts/test_*.py` (builder/registry/service/templates/examples/token estimation) |
+| `unit/ai/runtime/generation/validation/` | Validation Platform test tree (new) — `factories.py` (shared `make_request`/`make_result`/`make_chunk`/`make_citation` builders), `test_models.py` (`ValidationReport.issues` flattening, `ValidatorOutcome` defaults), `test_scoring.py` (`compute_overall_score` renormalization), `test_registry.py` (`ValidationRegistry` per-stage isolation, defensive copies), `test_service.py` (per-stage aggregation, stage-stamping, crash → WARNING, full-report assembly); `input/test_empty_prompt.py`, `input/test_context_validation.py`, `input/test_provider_limits.py`, `input/test_token_budget.py`; `output/test_schema_validator.py`, `output/test_citation_validator.py`, `output/test_json_validator.py`, `output/test_hallucination_validator.py` — one file per validator, covering its main and edge cases |
 | `unit/benchmarks/__init__.py` | Package marker |
 | `unit/benchmarks/common/__init__.py` | Package marker |
 | `unit/benchmarks/common/test_metrics.py` | `average()` / `percentile()` — arithmetic mean and nearest-rank percentile, both return `0.0` for empty input rather than raising |

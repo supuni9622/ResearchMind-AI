@@ -667,26 +667,65 @@ Generation
       ↓
 Structured Output (parsed_output / content)
       ↓
-ValidationService.validate(result)
+ValidationService.validate(request=request, result=result, context=...)
       ↓
-GenerationResult.validation
+GenerationResult.validation: ValidationReport
+      (input_validation / output_validation / hallucination_validation)
 ```
 
-`GenerationService.generate()` runs `ValidationService.validate(result)` as
-the last step (after the structured-output and `output_model` steps),
-attaching a `ValidationResult` to `GenerationResult.validation`. It never
-raises for a failed validation — `GenerationResult.validation.valid` and
-`.issues` are there for the caller to inspect and act on (matches every
-other structured-output step in this platform: best-effort, non-raising).
+`GenerationService.generate()` runs `ValidationService.validate()` as the
+last step of each attempt (after the structured-output and `output_model`
+steps), attaching a `ValidationReport` (PRD §7) to `GenerationResult.validation`
+— one `ValidationResult` per stage, plus a renormalized `overall_score`
+(`validation/scoring.py`, PRD §15 weights). It never raises for a failed
+validation — the report is there for the caller to inspect and act on.
 `validation` stays `None` when no `ValidationService` is wired (backward
 compatible with direct `GenerationService(registry=...)` construction).
 
-`OutputValidatorInterface.validate(result: GenerationResult) -> list[ValidationIssue]`
-receives the full result (content, parsed_output, and `request` — schema,
-output_model, prompt_context) rather than a bespoke per-validator
-signature. A validator with nothing to check against returns `[]`.
+Only `output_validation.valid` gates the regeneration loop
+(`GenerationService._needs_regeneration` / `_build_correction_message`):
+input-stage issues (token budget, missing provider capability, ...)
+describe the *request*, and re-calling the provider with the same request
+plus a corrective note wouldn't fix them — it could even make a
+token-budget overflow worse. Hallucination-stage issues are WARNING-only
+heuristics and never flip a stage's `valid` to `False` on their own.
 
-Implemented validators (`generation/validation/output/`):
+Validators are grouped by stage in a `ValidationRegistry`
+(`validation/registry.py`, PRD §13) and run through `ValidationService`'s
+per-stage methods (`validate_input` / `validate_output` /
+`validate_hallucination`) or all at once via `validate()`. Each validator
+returns a `ValidatorOutcome` (issues + an optional `score`) rather than a
+bare issue list, so stage-level scores can feed the overall formula.
+
+**Input validators** (`generation/validation/input/`) run against
+`GenerationRequest` plus an `InputValidationContext` (context window,
+capability flags — plain primitives, not `ProviderCapabilities` directly,
+to avoid an import cycle with `generation/models.py`):
+
+- **`EmptyPromptValidator`** — empty/whitespace-only `user_prompt`
+  (ERROR; unreachable via `GenerationService`, which already hard-rejects
+  this before any validator runs — this exists for other, future callers
+  without that same gate) or `system_prompt` (WARNING), plus unrendered
+  `{placeholder}` template variables left in either (matches
+  `PromptBuilder.extract_variables()`'s syntax).
+- **`TokenBudgetValidator`** — estimated prompt tokens vs. the resolved
+  provider's context window. Deliberately uses the same cheap
+  words-×-1.3 approximation `TokenCounter` falls back to on error,
+  rather than `TokenCounter`'s real provider API calls — Validation
+  Principle 2 (PRD §4) is to stay deterministic and avoid expensive
+  calls. WARNING near the limit, ERROR over it; contributes a
+  budget-health score.
+- **`ProviderLimitsValidator`** — streaming / structured_output /
+  json_mode / tool_calling requested but unsupported by the resolved
+  provider. Mirrors (doesn't replace) `GenerationService._check_capability_support`'s
+  log-only guard — this makes the same signal available as a
+  `ValidationIssue` for reuse outside `GenerationService`.
+- **`ContextValidator`** — data-quality checks on `request.prompt_context`:
+  empty chunk content, duplicate `chunk_id`s, chunks whose `citation_id`
+  has no matching `Citation`. All WARNING — these describe upstream
+  retrieval quality, not something that should block generation.
+
+**Output validators** (`generation/validation/output/`):
 
 - **`SchemaValidator`** — validates `parsed_output` against
   `request.output_schema` using `jsonschema`. Independent of the
@@ -695,6 +734,11 @@ Implemented validators (`generation/validation/output/`):
   `output_schema`, including a raw dict with no corresponding Pydantic
   model, and catches drift `output_model` validation wouldn't (e.g. a
   provider that skipped native schema enforcement).
+- **`JsonValidator`** — checks whether `content` itself is well-formed
+  JSON when JSON was expected, independent of `SchemaValidator` (which
+  only checks parsed *shape*, after parsing/repair already happened).
+  Valid as-is scores 1.0; repairable via `StructuredOutputRepair` is a
+  WARNING at 0.5; unparseable even after repair is an ERROR at 0.0.
 - **`CitationValidator`** — scans `content` for bracketed citation
   markers (`[S1]`, `[S1, S2]` — the convention `CitationService.build()`
   and the prompt formatters already use) and flags any that don't match
@@ -703,16 +747,27 @@ Implemented validators (`generation/validation/output/`):
   carries no known citations, so it never false-positives on generations
   that weren't grounded in retrieved sources.
 
-Not yet implemented (still empty stubs — need design decisions this
-integration didn't need to make):
+**Hallucination validator** (`generation/validation/output/hallucination_validator.py`,
+registered under the `hallucination` stage, not `output`):
 
-- `hallucination_validator.py` — groundedness validation needs either an
-  LLM-as-judge call or a retrieval-overlap heuristic; a real design
-  choice, not just wiring.
-- `json_validator.py`, and the `validation/input/` validators
-  (`context_validation.py`, `empty_prompt.py`, `provider_limits.py`,
-  `token_budget.py`) — input-side validation, out of scope for this
-  Generation → Structured Output → Validation (output) flow.
+- **`HallucinationValidator`** — lightweight, deterministic groundedness
+  proxy (PRD §10, no LLM judge): the fraction of the response's
+  "significant" words (≥4 chars) that also appear in the retrieved
+  context. WARNING (never ERROR — biased toward the PRD's <5%
+  false-positive target) below a 0.3 threshold; always contributes a
+  groundedness score when there's enough context/content to measure.
+  Coarser than the PRD's proposed semantic-similarity `source_overlap_validator`
+  but keeps this stage cheap and deterministic.
+
+Not yet implemented:
+
+- Runtime Validators (PRD §11 — research/planner/reviewer/agent/mcp) and
+  the Contracts layer (PRD §12). `ValidationStage.RUNTIME` and
+  `ValidationReport.runtime_validation` exist as placeholders (always
+  `None` today).
+- The standalone `validation/` top-level folder structure (PRD §6) —
+  this still lives inside `generation/validation/`, following the
+  Generation Platform's existing module layout.
 - `Artifacts` — the step after `Validation` in the original future flow
   is still future.
 
@@ -901,7 +956,7 @@ Generation Integration         ✅
 
 LangChain with_structured_output ✅ (OpenAI/Claude/Gemini/Ollama; Groq unsupported — see LangChain Structured Output Integration)
 
-Output Validation Integration  🟡 (schema + citation implemented; hallucination/completeness still empty stubs — see Validation Platform Integration)
+Validation Platform Integration ✅ (input/output/hallucination stage validators, registry, scoring, ValidationReport — see Validation Platform Integration)
 
 Regeneration Strategy          ✅ (opt-in via max_regeneration_attempts — see Regeneration Strategy)
 

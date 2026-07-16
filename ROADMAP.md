@@ -1070,10 +1070,12 @@ Context Assembly and the Citation Engine are already delivered by the Context Pl
 
 ## Milestone 3.1 — Generation Platform
 
-**Status:** 🟡 ~60% Complete — structured output, output validation,
-regeneration, and prompt-template integration are done; the `/research`
-API, streaming chat, capability-based routing, caching, and artifacts
-remain.
+**Status:** 🟡 ~65% Complete — structured output, a multi-stage Validation
+Platform integration (input/output/hallucination, registry, scoring,
+`ValidationReport`), regeneration, and prompt-template integration are
+done; the `/research` API, streaming chat, capability-based routing,
+caching, artifacts, and per-runtime Validation Contracts/Runtime
+Validators remain.
 
 ### Goal
 
@@ -1099,7 +1101,7 @@ generation/
         ollama.py
 
     structured_output/    # registry, parsers, repair — connected end-to-end
-    validation/            # ValidationService, SchemaValidator, CitationValidator
+    validation/            # ValidationRegistry, ValidationService, scoring, input/output/hallucination validators
     langchain/              # with_structured_output() bridge (4/5 providers)
     prompts/                # template platform (pre-existing), now bridged in
 ```
@@ -1113,9 +1115,14 @@ generation/
   `with_structured_output()` path (OpenAI/Claude/Gemini/Ollama — Groq
   excluded, `langchain-groq` incompatible with the pinned `groq` SDK),
   regenerate-on-invalid-output loop with corrective feedback
-- 🟡 Output Validation — schema (`jsonschema`) + citation
-  (fabricated-citation detection) implemented; hallucination/groundedness
-  and completeness validators remain
+- 🟡 Validation Platform Integration — input validators (empty prompt,
+  token budget, provider limits, context quality), output validators
+  (schema via `jsonschema`, JSON parseability, fabricated-citation
+  detection), a lightweight no-LLM hallucination/groundedness validator,
+  a `ValidationRegistry`, weighted scoring, and a multi-stage
+  `ValidationReport` are all implemented; per-runtime Contracts/Runtime
+  Validators and a few PRD output checks (completeness/consistency/
+  formatting/response-size) remain — see `validation_platform_prd.md`
 - ✅ Prompt Templates — bridged via `generate_from_template()`, reusing
   the pre-existing `generation/prompts/` platform (LangChain
   `ChatPromptTemplate`-based)
@@ -1702,7 +1709,7 @@ The major AI Engineering platforms interact as follows.
 | Phase 2.8 — Context Platform | 🟡 ~90% Complete (Parent Expansion, Adjacent Merge, Compression V1/V2, Guardrails V1, Citations, Prompt Formatter done; LangChain + LLM compression remain) |
 | Phase 2.9 — Conversation Memory Platform | ⏳ Planned |
 | Phase 2.10 — Knowledge Service | ⏳ Planned |
-| Phase 3.1 — Generation Platform | 🟡 ~60% Complete (structured output, validation, regeneration, prompt bridge done; routing/caching/artifacts remain) |
+| Phase 3.1 — Generation Platform | 🟡 ~65% Complete (structured output, input/output/hallucination validation + scoring, regeneration, prompt bridge done; runtime validators/contracts, routing/caching/artifacts remain) |
 | Phase 3.2 — LangChain Adoption for Generation | 🟡 Mostly Complete for structured output (LCEL not adopted) |
 | Phase 3 — Research Engine (broader) | ⏳ Planned |
 | Phase 4 — Agentic AI Platform | ⏳ Planned |
@@ -1714,17 +1721,17 @@ The major AI Engineering platforms interact as follows.
 
 # Current Focus
 
-## Phase 2.8 — Context Platform (wrapping up) + Phase 3.1 — Generation Platform (~60% complete, in progress)
+## Phase 2.8 — Context Platform (wrapping up) + Phase 3.1 — Generation Platform (~65% complete, in progress)
 
-Vector Store, Retrieval (dense/sparse/hybrid/parallel), Metadata Filtering, and Reranking are all complete (Phases 2.5–2.7). The Context Platform (Phase 2.8) is ~90% complete. The Generation Platform (Phase 3.1) is now ~60% complete: Provider Structured Output Integration (native decoding for all 5 providers, parser/repair fallback, Markdown/XML registry connection, an optional LangChain `with_structured_output()` path), Output Validation (schema + citation), a regenerate-on-invalid-output loop, a provider-capability-mismatch guard, and a Prompt Platform → Generation bridge (`generate_from_template()` with schema-aware format instructions) are all done. Detail: `docs/architecture/structured-output-platform.md`.
+Vector Store, Retrieval (dense/sparse/hybrid/parallel), Metadata Filtering, and Reranking are all complete (Phases 2.5–2.7). The Context Platform (Phase 2.8) is ~90% complete. The Generation Platform (Phase 3.1) is now ~65% complete: Provider Structured Output Integration (native decoding for all 5 providers, parser/repair fallback, Markdown/XML registry connection, an optional LangChain `with_structured_output()` path), Validation Platform integration (input/output/hallucination validators, a `ValidationRegistry`, weighted scoring, and a multi-stage `ValidationReport`), a regenerate-on-invalid-output loop (now correctly scoped to only the output stage), a provider-capability-mismatch guard, and a Prompt Platform → Generation bridge (`generate_from_template()` with schema-aware format instructions) are all done. Detail: `docs/architecture/structured-output-platform.md`.
 
 Remaining before Phase 3.1 — Generation Platform is complete:
 
 - `POST /research` API and streaming chat API
 - Capability-based provider routing/selection (flags + guard exist; `generation/routing/` selection engine does not)
 - Caching, generation-level guardrails, artifact persistence
-- Hallucination/groundedness and completeness validators (`generation/validation/` — currently schema + citation only)
-- Test suite (no pytest coverage yet for any of the Generation Platform)
+- Per-runtime Validation Contracts/Runtime Validators, and the remaining PRD output checks — completeness/consistency/formatting/response-size (`generation/validation/` — see `validation_platform_prd.md`)
+- Test suite for `routing/`, `caching/`, `artifacts/`, generation-level `guardrails/` (`validation/`, `providers/`, `prompts/`, and core `service.py` now have unit test coverage)
 
 Also remaining to close out Phase 2.8 — Context Platform:
 
@@ -1744,7 +1751,7 @@ This project intentionally prioritizes completing the production AI platform (Ti
 2. ~~Retrieval Platform (Phase 2.6)~~ ✅
 3. ~~Reranking Platform (Phase 2.7)~~ ✅
 4. ~~Context Platform (Phase 2.8) — Parent Expansion, Adjacent Merge, Guardrails V1, Citations, Prompt Formatter~~ ✅ (~90%, compression V3/V4 remain)
-5. **Generation Platform (Phase 3.1) — ~60% complete, highest priority to finish**: `/research` API, streaming chat, capability-based routing, caching, artifacts, hallucination/completeness validators, tests
+5. **Generation Platform (Phase 3.1) — ~65% complete, highest priority to finish**: `/research` API, streaming chat, capability-based routing, caching, artifacts, per-runtime Validation Contracts/Runtime Validators, remaining output checks (completeness/consistency/formatting/response-size)
 6. ~~LangChain Adoption for Generation (Phase 3.2)~~ 🟡 mostly complete for structured output (LCEL not adopted)
 7. Conversation Memory Platform (Phase 2.9)
 8. Knowledge Service (Phase 2.10)

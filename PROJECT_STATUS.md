@@ -730,9 +730,9 @@ Remaining before Milestone 2.8 closes:
 
 # Milestone 2.9 — Generation Platform
 
-**Status:** 🟡 ~60% Complete
+**Status:** 🟡 ~65% Complete
 
-The Generation Platform owns all LLM interactions, consuming the Context Platform's `Prompt Context` output. Provider abstraction (all five providers), Structured Output Integration, Output Validation, a regenerate-on-invalid-output loop, and a Prompt Platform bridge are all implemented this milestone. Detail: `docs/architecture/structured-output-platform.md` (the continuously-updated architecture doc for this subsystem).
+The Generation Platform owns all LLM interactions, consuming the Context Platform's `Prompt Context` output. Provider abstraction (all five providers), Structured Output Integration, a multi-stage Validation Platform integration (input/output/hallucination validators, a `ValidationRegistry`, weighted scoring, and a `ValidationReport`), a regenerate-on-invalid-output loop, and a Prompt Platform bridge are all implemented this milestone. Detail: `docs/architecture/structured-output-platform.md` (the continuously-updated architecture doc for this subsystem).
 
 Pipeline
 
@@ -745,11 +745,11 @@ Provider (Groq, OpenAI, Claude, Gemini, Ollama) — native structured decoding
         ↓
 Parser Fallback (json.loads → StructuredOutputRepair) / Markdown-XML Parser Registry
         ↓
-Output Validation (schema + citation)
+Validation (input + output + hallucination stages → ValidationReport, weighted overall_score)
         ↓
-Regeneration (opt-in, corrective feedback) if parsing or validation failed
+Regeneration (opt-in, corrective feedback) if parsing failed or the output stage is invalid
         ↓
-GenerationResult (content, parsed_output, validation, regeneration_attempts)
+GenerationResult (content, parsed_output, validation: ValidationReport, regeneration_attempts)
 ```
 
 ## 2.9.1 Provider Abstraction
@@ -787,22 +787,25 @@ Implemented
 - Supported: OpenAI (`ChatOpenAI`), Claude (`ChatAnthropic`), Gemini (`ChatGoogleGenerativeAI`), Ollama (`ChatOllama`, added `langchain-ollama` dependency)
 - Not supported: Groq — no released `langchain-groq` version (including pre-releases) is compatible with the pinned `groq>=1.5.0` SDK floor the native `GroqProvider` requires; adding it would force a downgrade risking the native integration
 
-## 2.9.4 Output Validation
+## 2.9.4 Validation Platform Integration
 
-**Status:** 🟡 In Progress (schema + citation done; hallucination/completeness remain)
+**Status:** 🟡 In Progress (Input/Output/Hallucination stage validators, a `ValidationRegistry`, weighted scoring, and a multi-stage `ValidationReport` done; per-runtime Contracts/Runtime Validators and a few PRD output checks remain)
 
-Implemented (`generation/validation/` — was entirely empty stubs before this milestone)
+Implemented (`generation/validation/` — a narrow slice of `validation_platform_prd.md`'s full target design, still living inside the Generation Platform rather than as its own top-level platform; see that PRD's Implementation Status note and `docs/architecture/structured-output-platform.md` → "Validation Platform Integration" for full detail)
 
-- `ValidationService`, `OutputValidatorInterface`, `ValidationResult`/`ValidationIssue` models
-- `SchemaValidator` — validates `parsed_output` against `request.output_schema` via `jsonschema` (added `jsonschema` + `types-jsonschema` dependencies); independent of `output_model` re-validation, catches drift on providers without guaranteed native enforcement
-- `CitationValidator` — scans generated content for bracketed citation markers (`[S1]`, the convention `CitationService.build()` and the Context Platform's prompt formatters already use) and flags any not present in the retrieved context, catching fabricated citations; skips entirely when there are no known citations, so it never false-positives on ungrounded generations
-- Wired into `GenerationService.generate()` as the final post-processing step; `GenerationResult.validation` field
+- `ValidationRegistry` — dynamic per-stage validator registration (input/output/hallucination)
+- `ValidationService` — per-stage (`validate_input()`/`validate_output()`/`validate_hallucination()`) and full (`validate()`) flows; a crashing validator becomes a WARNING issue rather than failing the whole check
+- `ValidationReport` — replaces the old single-stage `ValidationResult` on `GenerationResult.validation`: one `ValidationResult` per stage plus a renormalized `overall_score` (`validation/scoring.py`, weighted per the PRD's §15 formula)
+- Input validators — `EmptyPromptValidator` (empty/whitespace prompts, unrendered `{placeholder}` template variables), `TokenBudgetValidator` (estimated tokens vs. context window — a cheap deterministic word-count estimate, not `TokenCounter`'s real provider API calls, to stay deterministic per the PRD's Principle 2), `ProviderLimitsValidator` (streaming/structured_output/json_mode/tool_calling requested vs. the resolved provider's capabilities), `ContextValidator` (empty/duplicate chunks, orphaned citation references)
+- Output validators — `SchemaValidator` (`parsed_output` vs. `request.output_schema` via `jsonschema`, added `jsonschema` + `types-jsonschema` dependencies), `JsonValidator` (new — is `content` itself valid/repairable/unparseable JSON, independent of `SchemaValidator`'s shape check), `CitationValidator` (bracketed `[S1]`-style markers vs. `request.prompt_context.citations`/`chunks`, catching fabricated citations)
+- Hallucination validator — `HallucinationValidator` (new — deterministic lexical-overlap groundedness score against retrieved context, no LLM judge, WARNING-only to keep the false-positive rate low)
+- Regeneration only reacts to `output_validation.valid` — input-stage issues (token budget, missing capability) describe the request, not the response, so re-generating with the same request wouldn't fix them; hallucination issues are WARNING-only and never gate it either
 
 Remaining
 
-- ❌ Hallucination / groundedness validation — needs an LLM-as-judge call or a retrieval-overlap heuristic (a real design decision, not just wiring)
-- ❌ Completeness validation
-- ❌ Input-side validators (`generation/validation/input/` — empty stubs)
+- ❌ Runtime Validators (per-runtime contracts: research/planner/reviewer/agent/mcp) and the Contracts layer
+- ❌ Completeness / Consistency / Formatting / Response Size output checks (PRD §9 — no stub files for these ever existed, unlike `json_validator.py`/`hallucination_validator.py`)
+- ❌ Acceptance/Fail-Fast policy objects (regeneration is still governed directly inside `GenerationService`, as below)
 
 ## 2.9.5 Regeneration Strategy
 
@@ -811,7 +814,7 @@ Remaining
 Implemented
 
 - `GenerationRequest.max_regeneration_attempts` — opt-in, default preserves prior behavior
-- `GenerationService` regenerates (up to the budget) when the latest attempt's `parsed_output` is `None` for a structured request, or `ValidationResult.valid` is `False`
+- `GenerationService` regenerates (up to the budget) when the latest attempt's `parsed_output` is `None` for a structured request, or `ValidationReport.output_validation.valid` is `False` (input-stage and hallucination-stage issues do not trigger regeneration — see Milestone 2.9.4)
 - Each retry appends corrective feedback to `system_prompt`, built fresh from the latest failure only (not accumulated) — combines JSON-formatting guidance and specific validation-issue messages when both apply, rather than picking one
 - `GenerationResult.regeneration_attempts` records how many extra calls were made; exhausting the budget is not an error — the last attempt is returned as-is
 
@@ -838,7 +841,8 @@ Implemented
 - ❌ Caching (`generation/caching/` scaffolding exists, not wired)
 - ❌ Generation-level guardrails (distinct from the Context Platform's retrieval-time guardrails)
 - ❌ Artifact persistence
-- ❌ Test suite (no pytest coverage for any of the Generation Platform yet, despite `pytest`/`pytest-asyncio` being dev dependencies)
+- ❌ Runtime Validators / Contracts layer, Completeness/Consistency/Formatting/Response-Size output checks (see Milestone 2.9.4)
+- 🟡 Test suite — `validation/` (17 test files, ~100 cases), `providers/`, `prompts/`, and core `service.py` all have unit test coverage now; still nothing under `routing/`, `caching/`, `artifacts/`, or generation-level `guardrails/` (none of which are implemented yet either)
 
 ---
 
@@ -914,7 +918,7 @@ Context Platform (parent expansion, adjacent merge, compression, guardrails, cit
 
 ↓
 
-Generation Platform (native structured output → parser fallback → output validation → regeneration)
+Generation Platform (native structured output → parser fallback → input/output/hallucination validation → regeneration)
 ```
 
 ---
@@ -934,18 +938,18 @@ Generation Platform (native structured output → parser fallback → output val
 | Phase 2.6 — Indexing Platform (Hybrid Retrieval) | ✅ Complete |
 | Phase 2.7 — Retrieval Platform | ✅ Complete (incl. Metadata Filtering + Reranking + Parallel Retrieval) |
 | Phase 2.8 — Context Platform | 🟡 ~90% Complete (Parent Expansion, Adjacent Merge, Compression V1/V2, Guardrails V1, Citations, Prompt Formatter done; LangChain + LLM compression remain) |
-| Phase 2.9 — Generation Platform | 🟡 ~60% Complete (Structured Output Integration, Output Validation, Regeneration, Prompt Platform bridge done; routing engine, caching, artifacts, /research API remain) |
+| Phase 2.9 — Generation Platform | 🟡 ~65% Complete (Structured Output Integration, Validation Platform integration incl. input/output/hallucination validators + scoring, Regeneration, Prompt Platform bridge done; runtime validators/contracts, routing engine, caching, artifacts, /research API remain) |
 | Benchmark Platform | ✅ Foundation Complete (incl. Retrieval, Metadata Filtering, Reranking Benchmarks) |
 
 ---
 
 # Recently Completed
 
+✅ Generation Platform — Validation Platform integration (`generation/validation/`): input validators (`EmptyPromptValidator`, `TokenBudgetValidator`, `ProviderLimitsValidator`, `ContextValidator`), a new `JsonValidator` alongside `SchemaValidator`/`CitationValidator`, a new lightweight `HallucinationValidator` (deterministic, no LLM judge), a `ValidationRegistry`, a multi-stage `ValidationService`, weighted `overall_score` (`validation/scoring.py`), and a `ValidationReport` replacing the old single-stage `ValidationResult` on `GenerationResult.validation`; regeneration now correctly reacts only to the output stage — see Milestone 2.9.4. 17 new test files (~100 cases) added
+
 ✅ Generation Platform — Provider Structured Output Integration: native schema-constrained decoding for all five providers (OpenAI, Claude, Gemini, Groq, Ollama), parser/repair fallback, Markdown/XML parser-registry connection, `ResponseFormat.XML` added
 
 ✅ Generation Platform — LangChain `with_structured_output()` bridge (OpenAI, Claude, Gemini, Ollama — `generation/langchain/output_parsers.py`; Groq excluded, `langchain-groq` incompatible with the pinned `groq` SDK)
-
-✅ Generation Platform — Output Validation (`generation/validation/`, previously empty stubs): `ValidationService`, `SchemaValidator` (`jsonschema`), `CitationValidator` (fabricated-citation detection), wired into `GenerationService`
 
 ✅ Generation Platform — Regeneration Strategy: opt-in regenerate-on-invalid-output loop with corrective feedback (`max_regeneration_attempts`, `GenerationResult.regeneration_attempts`)
 
@@ -1011,7 +1015,7 @@ Generation Platform (native structured output → parser fallback → output val
 
 # Current Focus
 
-## Phase 2.8 — Context Platform (wrapping up) + Phase 2.9 — Generation Platform (~60% complete, in progress)
+## Phase 2.8 — Context Platform (wrapping up) + Phase 2.9 — Generation Platform (~65% complete, in progress)
 
 Parent Expansion, Adjacent Merge, Token Budget + Embedding Compression, Guardrails V1, Citations, and Prompt Formatter are all implemented (see Milestone 2.8 above), bringing the Context Platform to ~90% complete. Remaining scope to close it out:
 
@@ -1021,7 +1025,7 @@ Parent Expansion, Adjacent Merge, Token Budget + Embedding Compression, Guardrai
 - Retrieval result cache
 - Scaling the retrieval benchmark dataset (5 → 20-50 documents, 20 → 100 queries, chunk-level relevance) — see `README.md` TODO
 
-The **Generation Platform** (Milestone 2.9) is now ~60% complete (see Milestone 2.9 above): provider abstraction, Structured Output Integration (native decoding + parser fallback + Markdown/XML registry + LangChain `with_structured_output()`), Output Validation (schema + citation), Regeneration Strategy, a provider-capability guard, and Prompt Platform integration are all done. Remaining before it's complete: `/research` API, streaming chat API, a capability-based routing/selection engine, caching, generation-level guardrails, artifact persistence, hallucination/completeness validators, and a test suite. Then Evaluation Platform expansion (Milestone 6) and a LangGraph-based Research Runtime (Milestone 7) follow.
+The **Generation Platform** (Milestone 2.9) is now ~65% complete (see Milestone 2.9 above): provider abstraction, Structured Output Integration (native decoding + parser fallback + Markdown/XML registry + LangChain `with_structured_output()`), Validation Platform integration (input/output/hallucination validators, registry, weighted scoring, `ValidationReport`), Regeneration Strategy, a provider-capability guard, and Prompt Platform integration are all done. Remaining before it's complete: `/research` API, streaming chat API, a capability-based routing/selection engine, caching, generation-level guardrails, artifact persistence, per-runtime Validation Contracts/Runtime Validators, and the remaining PRD output checks (completeness/consistency/formatting/response-size). Then Evaluation Platform expansion (Milestone 6) and a LangGraph-based Research Runtime (Milestone 7) follow.
 
 ---
 
@@ -1050,10 +1054,10 @@ Context Platform (~90%) 🟡
 
 ↓
 
-Generation Platform (~60%) 🟡
+Generation Platform (~65%) 🟡
   Provider Abstraction (5 providers) ✅
   Structured Output Integration (native + fallback + registry + LangChain) ✅
-  Output Validation (schema + citation) 🟡 — hallucination/completeness ⏳
+  Validation Platform Integration (input/output/hallucination validators, registry, scoring, ValidationReport) 🟡 — runtime validators/contracts, completeness/consistency/formatting/response-size ⏳
   Regeneration Strategy ✅
   Provider Capability Guard ✅ — routing/selection engine ⏳
   Prompt Platform Integration ✅

@@ -39,6 +39,7 @@ from app.ai.runtime.generation.structured_output.registry import (
     StructuredOutputRegistry,
 )
 from app.ai.runtime.generation.validation.models import (
+    InputValidationContext,
     ValidationSeverity,
 )
 from app.ai.runtime.generation.validation.service import (
@@ -380,7 +381,15 @@ class GenerationService:
 
         if self._validation_service is not None:
             result.validation = await self._validation_service.validate(
-                result,
+                request=request,
+                result=result,
+                context=InputValidationContext(
+                    context_window=generation_provider.config.context_window,
+                    supports_streaming=generation_provider.capabilities.streaming,
+                    supports_structured_output=generation_provider.capabilities.structured_output,
+                    supports_json_mode=generation_provider.capabilities.json_mode,
+                    supports_tool_calling=generation_provider.capabilities.tool_calling,
+                ),
             )
 
             if not result.validation.valid:
@@ -480,7 +489,19 @@ class GenerationService:
             and result.parsed_output is None
         )
 
-        validation_failed = result.validation is not None and not result.validation.valid
+        #
+        # Only the output stage gates regeneration: input-stage issues
+        # (token budget, missing capability, ...) describe the request
+        # itself, and re-calling the provider with the same request
+        # (plus a corrective note) wouldn't fix them — it could even
+        # make a token-budget overflow worse. Hallucination-stage
+        # issues are WARNING-only heuristics (see HallucinationValidator)
+        # and never flip `valid` to False on their own.
+        #
+
+        validation_failed = (
+            result.validation is not None and not result.validation.output_validation.valid
+        )
 
         return parse_failed or validation_failed
 
@@ -535,10 +556,10 @@ class GenerationService:
                 "before or after the JSON."
             )
 
-        if result.validation is not None and not result.validation.valid:
+        if result.validation is not None and not result.validation.output_validation.valid:
             error_messages = "; ".join(
                 f"[{issue.validator}] {issue.message}"
-                for issue in result.validation.issues
+                for issue in result.validation.output_validation.issues
                 if issue.severity == ValidationSeverity.ERROR
             )
 

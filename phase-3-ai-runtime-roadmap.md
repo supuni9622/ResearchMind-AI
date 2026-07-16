@@ -36,8 +36,9 @@ Phase 3.7
 Context Building Platform (~90% complete — closing out)
     ↓
 Phase 3.8
-Generation Platform (~60% complete — structured output, validation,
-regeneration, prompt bridge done; routing/caching/artifacts remain)
+Generation Platform (~65% complete — structured output, input/output/
+hallucination validation + scoring, regeneration, prompt bridge done;
+runtime validators/contracts, routing/caching/artifacts remain)
 ```
 
 ---
@@ -387,9 +388,12 @@ Compressed Chunk
 
 # Phase 3.8 — Generation Platform
 
-**Status:** 🟡 ~60% Complete — structured output, output validation,
-regeneration, and prompt-template integration are done; capability-based
-routing, caching, generation-level guardrails, and artifacts remain.
+**Status:** 🟡 ~65% Complete — structured output, a multi-stage
+Validation Platform integration (input/output/hallucination validators,
+registry, scoring, `ValidationReport`), regeneration, and
+prompt-template integration are done; per-runtime Validation
+Contracts/Runtime Validators, capability-based routing, caching,
+generation-level guardrails, and artifacts remain.
 
 ---
 
@@ -412,9 +416,14 @@ Generate answers from prepared context.
   fallback + Markdown/XML registry + optional LangChain
   `with_structured_output()` path (4/5 providers) + regenerate-on-invalid
   loop with corrective feedback
-- 🟡 Output validation — schema (`jsonschema`) + citation
-  (fabricated-citation detection) implemented; hallucination/groundedness
-  and completeness validators remain empty stubs
+- 🟡 Validation Platform integration — input validators (empty prompt,
+  token budget, provider limits, context quality), output validators
+  (schema via `jsonschema`, JSON parseability, fabricated-citation
+  detection), a lightweight no-LLM hallucination/groundedness validator,
+  a `ValidationRegistry`, weighted scoring, and a multi-stage
+  `ValidationReport` all implemented; per-runtime Contracts/Runtime
+  Validators and a few PRD output checks (completeness/consistency/
+  formatting/response-size) remain — see `validation_platform_prd.md`
 - ❌ Research chains — not started
 
 ---
@@ -449,7 +458,7 @@ generation/
         ollama.py
 
     structured_output/      # registry, parsers, repair — connected end-to-end
-    validation/              # ValidationService, SchemaValidator, CitationValidator
+    validation/              # ValidationRegistry, ValidationService, scoring, input/output/hallucination validators
     langchain/                # with_structured_output() bridge (4/5 providers)
     prompts/                  # pre-existing template platform, now bridged in
 ```
@@ -465,9 +474,9 @@ Generation Service
         ↓
 LLM Provider — native structured output → parser fallback
         ↓
-Output Validation (schema + citation)
+Validation (input + output + hallucination stages → ValidationReport)
         ↓
-Regeneration (opt-in, corrective feedback) if needed
+Regeneration (opt-in, corrective feedback) if parsing failed or the output stage is invalid
         ↓
 Generated Answer
 ```
@@ -502,7 +511,7 @@ Frameworks remain implementation details.
 - ✅ Prompt platform (bridged in)
 - ✅ Streaming support
 - ✅ Structured output (native + fallback + registry + LangChain + regeneration)
-- 🟡 Output validation (schema + citation done; hallucination/completeness remain)
+- 🟡 Validation Platform integration (input/output/hallucination validators, registry, scoring, `ValidationReport` done; runtime validators/contracts, completeness/consistency/formatting/response-size remain)
 - ❌ Capability-based routing engine
 - ❌ Caching
 - ❌ Artifacts
@@ -555,7 +564,7 @@ Milestone	Platform	Deliverables	Status
 3.5	Result Processing	Metadata filtering, Top-K	✅ Complete
 3.6	Reranking Platform	Voyage, CrossEncoder	✅ Complete
 3.7	Context Building Platform	Parent Expansion, Merge, Compression, Guardrails, Citations, Prompt Formatter	🟡 ~90% Complete (LangChain + LLM compression remain)
-3.8	Generation Platform	Multi-provider LLM runtime, structured output, validation, regeneration	🟡 ~60% Complete — routing/caching/artifacts remain
+3.8	Generation Platform	Multi-provider LLM runtime, structured output, validation, regeneration	🟡 ~65% Complete — runtime validators/contracts, routing/caching/artifacts remain
 3.9	Research APIs	/research, streaming, citations	❌ Not Started
 3.10	Evaluation Platform	Groundedness, Hallucinations, Citation Accuracy	🟡 Retrieval evaluation complete
 3.11	Research Runtime	Planner, Query Decomposition, Agents	❌ Not Started

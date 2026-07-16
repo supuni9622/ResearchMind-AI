@@ -4,7 +4,7 @@ Version: 2.0
 
 Status: Active
 
-**Current Maturity (2026-07-16):** NotebookLM++ + Perplexity Foundation. Hybrid Retrieval, Reranking, Parent Expansion, Compression, Guardrails, and strategy-based Prompt Formatting are all implemented — beyond a plain NotebookLM clone and closing in on Perplexity v1. The AI Runtime Platform (Phase 3) is now ~60% complete: Provider Structured Output Integration, Output Validation, regeneration, and Prompt Platform bridging are done (see Phase 3.1/3.2 below and `docs/architecture/structured-output-platform.md`). Ladder: `NotebookLM++ → Perplexity v1 (almost here) → Open Deep Research → Manus / Glean`. See `PROJECT_STATUS.md` and `ROADMAP.md` for the authoritative, continuously-updated status; this document tracks the frozen technology decisions and long-range vision.
+**Current Maturity (2026-07-16):** NotebookLM++ + Perplexity Foundation. Hybrid Retrieval, Reranking, Parent Expansion, Compression, Guardrails, and strategy-based Prompt Formatting are all implemented — beyond a plain NotebookLM clone and closing in on Perplexity v1. The AI Runtime Platform (Phase 3) is now ~65% complete: Provider Structured Output Integration, a multi-stage Validation Platform integration (input/output/hallucination validators, registry, scoring, `ValidationReport`), regeneration, and Prompt Platform bridging are done (see Phase 3.1/3.2 below and `docs/architecture/structured-output-platform.md`). Ladder: `NotebookLM++ → Perplexity v1 (almost here) → Open Deep Research → Manus / Glean`. See `PROJECT_STATUS.md` and `ROADMAP.md` for the authoritative, continuously-updated status; this document tracks the frozen technology decisions and long-range vision.
 
 ---
 
@@ -1201,11 +1201,14 @@ Status
 
 # Phase 3 — AI Runtime Platform
 
-**Status:** 🟡 ~60% Complete — Provider Structured Output Integration,
-Output Validation, regeneration, and Prompt Platform bridging are done.
-Capability-based routing, caching, and artifacts remain. Tracked in
-day-to-day docs as the "Generation Platform" (see `ROADMAP.md` Phase
-3.1, `phase-3-ai-runtime-roadmap.md` Phase 3.8,
+**Status:** 🟡 ~65% Complete — Provider Structured Output Integration,
+Validation Platform integration (input/output/hallucination validators,
+a `ValidationRegistry`, weighted scoring, and a `ValidationReport`),
+regeneration, and Prompt Platform bridging are done. Per-runtime
+Validation Contracts/Runtime Validators, capability-based routing,
+caching, and artifacts remain. Tracked in day-to-day docs as the
+"Generation Platform" (see `ROADMAP.md` Phase 3.1,
+`phase-3-ai-runtime-roadmap.md` Phase 3.8,
 `docs/architecture/structured-output-platform.md` for the detailed,
 continuously-updated breakdown).
 
@@ -1256,7 +1259,7 @@ generation/
         ollama.py
 
     structured_output/   # registry, parsers, repair
-    validation/            # schema + citation validation
+    validation/            # registry, scoring, input/output/hallucination validation
     langchain/              # with_structured_output() (4/5 providers)
     prompts/                 # template platform, bridged in
 ```
@@ -1276,6 +1279,12 @@ Features
   `with_structured_output()` path (OpenAI/Claude/Gemini/Ollama — Groq
   excluded, `langchain-groq` incompatible with the pinned `groq` SDK),
   regenerate-on-invalid-output loop with corrective feedback
+- 🟡 Validation Platform integration — input validators (empty prompt,
+  token budget, provider limits, context quality), output validators
+  (schema, JSON parseability, citation), a lightweight no-LLM
+  hallucination/groundedness validator, a `ValidationRegistry`, weighted
+  scoring, and a multi-stage `ValidationReport`; per-runtime Contracts/
+  Runtime Validators remain (`validation_platform_prd.md`)
 
 Deliverable
 
@@ -2887,5 +2896,5 @@ Reranking (Voyage AI + CrossEncoder) ✅
 Context Platform (Parent Expansion, Adjacent Merge, Compression, Guardrails, Citations, Prompt Formatter) 🟡 ~90%
    │
    ▼
-Generation Platform (LLM providers, structured output, validation, regeneration, prompt bridge) 🟡 ~60% — /research API, routing, caching remain
+Generation Platform (LLM providers, structured output, validation, regeneration, prompt bridge) 🟡 ~65% — /research API, routing, caching, runtime validators/contracts remain
 ```

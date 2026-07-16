@@ -9,28 +9,34 @@ Target Builder: Claude Code
 
 ---
 
-Implementation Status (as of 2026-07-16): A narrow slice of this PRD has
-been implemented under `generation/validation/` (part of the Generation
-Platform, not yet its own top-level platform) — Output Validation only,
-scoped to schema (`SchemaValidator`, via `jsonschema`) and citation
-(`CitationValidator`, fabricated-citation detection against retrieved
-context) checks, wired into `GenerationService` as a post-processing
-step. The Regeneration Policy concept (Section 16) is implemented
-directly inside `GenerationService` (`max_regeneration_attempts`,
-corrective-feedback retries) rather than as a Validation Platform
-policy module.
+Implementation Status (as of 2026-07-16): Input, Output, and
+Hallucination Validation (Sections 8–10) are implemented under
+`generation/validation/` (part of the Generation Platform, not yet its
+own top-level platform), along with the `ValidationRegistry` (Section
+13), `ValidationService` (Section 14), the weighted overall-score
+formula (Section 15, renormalized over whichever stages actually
+produced a score), and a multi-stage `ValidationReport` (Section 7)
+that replaced the earlier single-stage `ValidationResult` on
+`GenerationResult.validation`. The Regeneration Policy concept
+(Section 16) is implemented directly inside `GenerationService`
+(`max_regeneration_attempts`, corrective-feedback retries) rather than
+as a Validation Platform policy module, and — per Section 16's "Fail
+Fast" intent — only reacts to the output stage: input-stage issues
+describe the request itself, not something regenerating the same
+request fixes.
 
-Not implemented: Input Validation, Hallucination Validation, Runtime
-Validators (per-runtime contracts), the Contracts layer, Scoring
-system, `ValidationReport` (a single `ValidationResult` per generation
-is used instead — no aggregated multi-stage report), and the standalone
-`validation/` top-level folder structure described in Section 6 (the
-current implementation lives inside `generation/validation/`, following
-the Generation Platform's existing module layout rather than this PRD's
-proposed independent platform structure). See
-`docs/architecture/structured-output-platform.md` → "Validation
-Platform Integration" for the current, continuously-updated state of
-what exists today. This PRD remains the target design for when
+Not implemented: Runtime Validators (per-runtime contracts, Section
+11) and the Contracts layer (Section 12) — `ValidationStage.RUNTIME`
+and `ValidationReport.runtime_validation` exist as placeholders,
+always `None` today; the Acceptance/Fail-Fast policy objects from
+Section 16 (regeneration is still governed by `GenerationService`
+directly, as above); and the standalone `validation/` top-level folder
+structure described in Section 6 (the current implementation lives
+inside `generation/validation/`, following the Generation Platform's
+existing module layout rather than this PRD's proposed independent
+platform structure). See `docs/architecture/structured-output-platform.md`
+→ "Validation Platform Integration" for the current, continuously-updated
+state of what exists today. This PRD remains the target design for when
 Validation is promoted to a standalone, runtime-shared platform.
 
 ---

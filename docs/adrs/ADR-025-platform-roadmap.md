@@ -200,8 +200,10 @@ Status:
 🚧 In Progress — structured output, output validation, regeneration, and
 prompt-template integration are now substantially complete (see
 `docs/architecture/structured-output-platform.md`, ~99% complete in its
-own scope). Routing, caching, generation-level guardrails, and artifacts
-remain unbuilt.
+own scope). Routing, caching, and artifacts remain unbuilt. Generation-
+level guardrails are covered separately by the new standalone Guardrails
+Platform (below), which is complete as an MVP foundation but not yet
+wired into this service.
 
 Purpose:
 
@@ -224,8 +226,12 @@ Responsibilities:
   `ValidationReport`; per-runtime Contracts/Runtime Validators and a few
   output checks (completeness/consistency/formatting/response-size)
   remain (`validation_platform_prd.md`)
-- ❌ Guardrails — not addressed this phase (distinct from the Context
-  Platform's retrieval-time guardrails)
+- ✅ Guardrails — a new standalone, platform-wide Guardrails Platform
+  (`apps/api/app/ai/guardrails/`, Milestone 11.16 per
+  `guardrails_platform_prd.md`) now exists outside this phase's own
+  scope, spanning input/retrieval/generation/runtime stages (distinct
+  from the Context Platform's retrieval-time-only guardrails above);
+  complete as an MVP foundation, not yet wired into `GenerationService`
 - ✅ Structured outputs — native provider structured decoding for all
   five providers (OpenAI `text.format`, Gemini `response_json_schema`,
   Claude `output_config.format`, Groq `response_format.json_schema`,

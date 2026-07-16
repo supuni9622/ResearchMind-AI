@@ -108,13 +108,25 @@ AI subsystem. Document processing, metadata/statistics enrichment, and upload (i
 | `__init__.py` | (empty) |
 | `settings.py` | AI-specific configuration settings |
 
-##### `ai/guardrails/`
+##### `ai/guardrails/` — **Implemented (MVP Foundation)**
 
-| File | Description |
-|------|-------------|
-| `__init__.py` | (empty) |
-| `policies.py` | (empty) — unused scaffold, superseded by `ai/knowledge/context/guardrails/` (the real, registered Context Guardrails implementation) |
-| `scanners.py` | (empty) — unused scaffold, superseded by `ai/knowledge/context/guardrails/` |
+Guardrails Platform (PRD Milestone 11.16, `guardrails_platform_prd.md`). Standalone, platform-wide package answering "should the system do this?" (distinct from the Validation Platform's "did it work?"), spanning input/retrieval/generation/runtime stages. Not yet wired into `GenerationService`, the context builder, or a router — `create.get_guardrail_service()` is the future integration seam. See `PROJECT_STATUS.md` Milestone 11.16 for full detail. The two previous empty scaffold files here (`policies.py`, `scanners.py`) and the entire empty `ai/runtime/generation/guardrails/` scaffold (see below) were deleted as part of this build.
+
+| Directory / File | Status |
+|-----------|--------|
+| (root files) | **Implemented** — `models.py`, `enums.py`, `interfaces.py`, `exceptions.py`, `registry.py`, `service.py`, `create.py`, `constants.py` |
+| `input/` | **Implemented** — prompt injection/jailbreak (P0), scope validation, PII detection; rate limit/toxicity are foundation interfaces (always-allow) |
+| `retrieval/` | **Implemented** — context sanitization (composes `ai/knowledge/context/guardrails/`), Source Trust, citation integrity; access control is a foundation interface |
+| `generation/` | **Implemented** — faithfulness + schema enforcement (both wrap Validation Platform validators), PII leakage; moderation is a foundation interface |
+| `runtime/` | **Implemented** — budget guardrail, loop detection; tool policy is a foundation interface, approval gate is interfaces-only (unregistered) |
+| `trust/` | **Implemented** — new Source Trust Platform: `SourceType`, `TrustRegistry`, trust policies/scoring |
+| `policies/` | **Implemented** — `FailPolicy`, `RiskPolicy`, `RegenerationPolicy`, `RuntimePolicy` |
+| `scoring/` | **Implemented** — weighted `overall_risk` formula |
+| `artifacts/` | **Implemented** — `GuardrailArtifact`/builder/writer, persists `guardrails/{run_id}/*.json` |
+| `reports/` | **Implemented** — report/issue summarization helpers |
+| `utils/` | **Implemented** — shared PII regex table |
+
+`tests/unit/ai/guardrails/` mirrors this tree 1:1 (113 tests).
 
 ##### `ai/knowledge/`
 
@@ -451,7 +463,7 @@ All files empty — planned model and provider registries.
 
 ##### `ai/runtime/generation/` — **~65% Implemented**
 
-Generation Platform. Owns all LLM interactions, consuming the Context Platform's `PromptContext` output. Provider-independent runtime over five LLM providers, with native structured-output decoding, a parser/repair fallback, input/output/hallucination validation, a regenerate-on-invalid-output loop, and an optional bridge into the pre-existing Prompt Platform. Not yet wired into an API route (no `POST /research` / chat endpoint calls `GenerationService` yet). Detail: `docs/architecture/structured-output-platform.md` (continuously updated).
+Generation Platform. Owns all LLM interactions, consuming the Context Platform's `PromptContext` output. Provider-independent runtime over five LLM providers, with native structured-output decoding, a parser/repair fallback, input/output/hallucination validation, a regenerate-on-invalid-output loop, and an optional bridge into the pre-existing Prompt Platform. Not yet wired into an API route (no `POST /research` / chat endpoint calls `GenerationService` yet). Detail: `docs/architecture/structured-output-platform.md` (continuously updated). Generation-level guardrails no longer live here — the empty `guardrails/` scaffold that previously sat in this directory was deleted; generation-stage guardrails are implemented at the new top-level `ai/guardrails/generation/` platform instead (see above).
 
 | Directory | Status |
 |-----------|--------|
@@ -464,7 +476,6 @@ Generation Platform. Owns all LLM interactions, consuming the Context Platform's
 | `catalog/` | **Implemented** — per-model capability + cost catalog |
 | `routing/` | ❌ Empty stubs — capability flags exist on `ProviderCapabilities`, no selection engine |
 | `caching/` | ❌ Empty stubs |
-| `guardrails/` | ❌ Empty stubs — distinct from the Context Platform's retrieval-time guardrails |
 | `streaming/` | ❌ Empty stubs — per-provider `stream()` methods are the real implementation |
 | `artifacts/` | ❌ Empty stubs |
 | `observability/` | **Partial** — `token_counter.py` implemented; `cost_tracker.py`/`latency_tracker.py`/`metrics_collector.py`/`token_tracker.py`/`models.py`/`service.py` empty |
@@ -575,7 +586,6 @@ Prompt Platform. Pre-dates the Structured Output / Validation / Regeneration wor
 |-----------|--------|
 | `routing/` | Capability/cost/latency/quality-based provider selection (`RoutingStrategy` enum already exists in `enums.py`) |
 | `caching/` | Exact/semantic/session response caching |
-| `guardrails/` | Generation-level prompt-injection/jailbreak/PII/secrets detection (distinct from the Context Platform's retrieval-time guardrails) |
 | `streaming/` | A shared streaming abstraction — per-provider `stream()` methods already work independently |
 | `artifacts/` | Generation result persistence |
 | `observability/` (most files) | Cost/latency/token tracking, metrics collection — `token_counter.py` is the one implemented exception |

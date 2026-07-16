@@ -2,7 +2,7 @@
 
 **Last Updated:** 2026-07-16
 
-**Current Maturity:** NotebookLM++ + Perplexity Foundation — Hybrid Retrieval, Reranking, Parent Expansion, Compression, Guardrails, and Prompt Formatter strategies are all in place, putting the platform ahead of NotebookLM and closing in on a Perplexity v1 experience. Maturity ladder: `NotebookLM++ → Perplexity v1 (almost here) → Open Deep Research → Manus / Glean`.
+**Current Maturity:** NotebookLM++ + Perplexity Foundation — Hybrid Retrieval, Reranking, Parent Expansion, Compression, Context Guardrails, and Prompt Formatter strategies are all in place, putting the platform ahead of NotebookLM and closing in on a Perplexity v1 experience. A standalone, platform-wide Guardrails Platform (input/retrieval/generation/runtime stages, Source Trust, policies, scoring, artifacts) now sits alongside the Validation Platform as a completed foundation layer. Maturity ladder: `NotebookLM++ → Perplexity v1 (almost here) → Open Deep Research → Manus / Glean`.
 
 ---
 
@@ -839,10 +839,99 @@ Implemented
 - ❌ `POST /research` API, streaming chat API
 - ❌ Capability-based routing/selection engine
 - ❌ Caching (`generation/caching/` scaffolding exists, not wired)
-- ❌ Generation-level guardrails (distinct from the Context Platform's retrieval-time guardrails)
 - ❌ Artifact persistence
 - ❌ Runtime Validators / Contracts layer, Completeness/Consistency/Formatting/Response-Size output checks (see Milestone 2.9.4)
-- 🟡 Test suite — `validation/` (17 test files, ~100 cases), `providers/`, `prompts/`, and core `service.py` all have unit test coverage now; still nothing under `routing/`, `caching/`, `artifacts/`, or generation-level `guardrails/` (none of which are implemented yet either)
+- 🟡 Test suite — `validation/` (17 test files, ~100 cases), `providers/`, `prompts/`, and core `service.py` all have unit test coverage now; still nothing under `routing/`, `caching/`, or `artifacts/`
+
+Generation-level guardrails, previously listed here as a gap, are now implemented — see Milestone 11.16 below.
+
+---
+
+# Milestone 11.16 — Guardrails Platform
+
+**Status:** ✅ Complete (MVP Foundation, per `guardrails_platform_prd.md`)
+
+The Guardrails Platform answers a different question than the Validation Platform: not "did the system produce a good output?" but "should the system even perform this operation?" It is a new, standalone, platform-wide package (`apps/api/app/ai/guardrails/`, sibling to `knowledge/`, `runtime/`, `quality/`) spanning Input → Retrieval → Generation → Runtime stages, built to the same conventions as the Validation Platform (deterministic checks, a crash-safe `GuardrailService`, a `GuardrailRegistry`, weighted risk scoring, an `@lru_cache` composition root).
+
+Pipeline
+
+```
+User
+ ↓
+Input Guardrails
+ ↓
+Planner
+ ↓
+Retrieval
+ ↓
+Retrieval Guardrails
+ ↓
+Context Platform
+ ↓
+Generation
+ ↓
+Generation Guardrails
+ ↓
+Runtime Guardrails
+ ↓
+Reflection / Evaluation
+```
+
+## Foundation
+
+Implemented
+
+- `models.py` / `enums.py` / `interfaces.py` — `GuardrailIssue`, `GuardrailResult`, `GuardrailReport`; `GuardrailSeverity`/`GuardrailStage`/`GuardrailCategory`/`GuardrailAction`; one ABC per stage
+- `GuardrailRegistry` — per-stage ordered registration, mirrors `ValidationRegistry`
+- `GuardrailService` — `evaluate_input()` / `evaluate_retrieval()` / `evaluate_generation()` / `evaluate_runtime()` / `evaluate()`; a crashing guardrail becomes a WARNING issue rather than propagating (mirrors `ValidationService`); `FailPolicy` (open/closed) governs whether a crash blocks
+- `policies/` — `FailPolicy`, `RiskPolicy`, `RegenerationPolicy`, `RegenerationPolicy`-driven REGENERATE on faithfulness/schema errors, `RuntimePolicy`-driven BLOCK on budget/loop errors
+- `scoring/` — weighted `overall_risk` (input 0.30 / retrieval 0.30 / generation 0.20 / runtime 0.20), renormalized over whichever stages actually scored
+- `artifacts/` — `GuardrailArtifact`/`GuardrailArtifactBuilder`/`GuardrailArtifactWriter`, persisting `guardrails/{run_id}/{input,retrieval,generation,runtime,report}.json` to the same storage abstraction as `ChunkArtifactWriter`
+- `reports/` — `summarize_report()`, `stage_summaries()`, issue grouping helpers
+- `create.py` — `get_guardrail_service()`, the integration seam for future callers (not yet wired into `GenerationService`/context builder/a router — same standalone-but-complete posture the Validation Platform shipped with)
+
+## Input Guardrails
+
+- ✅ Prompt Injection / Jailbreak detection (P0) — regex against `user_prompt`/`system_prompt`; single trigger warns, multiple/jailbreak-specific triggers error
+- ✅ Scope Validation — deterministic off-topic (creative-writing/hacking) heuristic, WARNING-only by design
+- ✅ PII Detection (foundation) — email/credit-card/API-key/token regex
+- 🟡 Rate Limiting, Toxicity (foundation interfaces, always-allow — no request-counting state or classifier provider exists yet)
+
+## Retrieval Guardrails
+
+- ✅ Context Sanitization (P0) — composes the pre-existing `ContextGuardrailService`/`RuleBasedGuardrailProvider` (Milestone 2.8.4) rather than duplicating it
+- ✅ Source Trust Platform (P1, new) — `SourceType` enum, `TrustRegistry` (static trust-score-by-source-type table), `trust_policies`/`scoring`; defaults every chunk to `USER_DOCUMENT` since no source-type field exists on `ContextChunk` yet
+- ✅ Citation Integrity — deterministic existence check (every citation's chunks resolve, every chunk's citation resolves), complementary to the Validation Platform's fabricated-citation-marker check
+- 🟡 Access Control (foundation interface, permissive default — no tenant isolation/document ACL model exists yet)
+
+## Generation Guardrails
+
+- ✅ Faithfulness Enforcement (P1) — wraps the Validation Platform's `HallucinationValidator`, reinterpreting low groundedness as ERROR (regenerate-worthy) rather than Validation's advisory WARNING
+- ✅ Schema Enforcement — wraps `SchemaValidator`/`JsonValidator`, per the PRD's explicit reuse instruction
+- ✅ PII Leakage (foundation) — same regex table as the input-side check, applied to generated content
+- 🟡 Moderation (foundation interface, always-allow — PRD explicitly skips real moderation providers for MVP)
+
+## Runtime Guardrails
+
+- ✅ Budget Guardrail (P1, "implement immediately") — `BudgetPolicy`/`ExecutionState` models; checks max_tokens/max_cost/max_tool_calls/max_iterations/max_runtime_seconds independently, warns near the limit
+- ✅ Loop Detection (foundation depth, real algorithm) — max-iterations check plus repeated-execution-state-hash detection
+- 🟡 Tool Policy (foundation interface, allow-all default)
+- 🟡 Approval Gate — `ApprovalRequest`/`ApprovalResponse` models + `ApprovalGateInterface` only, deliberately unimplemented and unregistered (the future LangGraph-interrupt seam, PRD §19)
+
+## Dead Code Removed
+
+Two empty, zero-reference scaffolds discovered during this work were deleted: `app/ai/guardrails/{policies.py,scanners.py}` and the entire (all 0-byte) `app/ai/runtime/generation/guardrails/` tree.
+
+## Testing
+
+113 new unit tests under `tests/unit/ai/guardrails/`, mirroring the Validation Platform's test-tree conventions (shared `factories.py`, local `_Fake...` doubles, real-dependency composition tests for the reuse points). Full repo suite (744 tests), `ruff format --check`, `ruff check`, and `mypy` all pass clean across all 706 source files.
+
+## Not Yet Built (by design — matches PRD §21/§22 MVP scope)
+
+- ❌ LLM-based classifiers (Llama Guard, Lakera, NeMo Guardrails) — explicitly skipped for MVP
+- ❌ Wiring into `GenerationService`, the context builder, or a router (PRD's "Phase 6 — Generation Integration", intentionally deferred, same as Validation Platform)
+- ❌ Enterprise ACL / multi-tenant Access Control, real Tool Policy providers, a working Approval Gate implementation (LangGraph interrupts/checkpoints)
+- ❌ Security dashboards, attack datasets, red-teaming (PRD's Phase 2-4 future roadmap)
 
 ---
 
@@ -921,6 +1010,8 @@ Context Platform (parent expansion, adjacent merge, compression, guardrails, cit
 Generation Platform (native structured output → parser fallback → input/output/hallucination validation → regeneration)
 ```
 
+Standalone (not yet wired into the pipeline above): the Guardrails Platform (`app/ai/guardrails/`, Milestone 11.16) — input/retrieval/generation/runtime checks, `GuardrailService.evaluate()` as the future integration seam. Same posture the Validation Platform shipped with before its narrow slice was integrated into `GenerationService`.
+
 ---
 
 # Current Project Status
@@ -939,11 +1030,14 @@ Generation Platform (native structured output → parser fallback → input/outp
 | Phase 2.7 — Retrieval Platform | ✅ Complete (incl. Metadata Filtering + Reranking + Parallel Retrieval) |
 | Phase 2.8 — Context Platform | 🟡 ~90% Complete (Parent Expansion, Adjacent Merge, Compression V1/V2, Guardrails V1, Citations, Prompt Formatter done; LangChain + LLM compression remain) |
 | Phase 2.9 — Generation Platform | 🟡 ~65% Complete (Structured Output Integration, Validation Platform integration incl. input/output/hallucination validators + scoring, Regeneration, Prompt Platform bridge done; runtime validators/contracts, routing engine, caching, artifacts, /research API remain) |
+| Milestone 11.16 — Guardrails Platform | ✅ Complete (MVP Foundation — input/retrieval/generation/runtime guardrails, Source Trust, policies, scoring, artifacts; standalone, not yet wired into the generation pipeline) |
 | Benchmark Platform | ✅ Foundation Complete (incl. Retrieval, Metadata Filtering, Reranking Benchmarks) |
 
 ---
 
 # Recently Completed
+
+✅ Guardrails Platform (Milestone 11.16) — new standalone platform (`app/ai/guardrails/`) spanning input/retrieval/generation/runtime stages: prompt injection/jailbreak detection, scope validation, PII detection, a new Source Trust Platform (`trust/`), citation integrity, faithfulness enforcement + schema enforcement (both reusing the Validation Platform's validators), PII leakage detection, and a runtime budget guardrail + loop detection. `GuardrailService` (crash-safe aggregation, weighted risk scoring, fail/risk/regeneration/runtime policies), `GuardrailArtifactWriter`, and 113 new unit tests. Composes rather than duplicates the pre-existing `ContextGuardrailService` (Milestone 2.8.4). Deleted two dead, zero-reference guardrails scaffolds discovered during the work. Standalone — not yet wired into `GenerationService`, matching how the Validation Platform itself shipped
 
 ✅ Generation Platform — Validation Platform integration (`generation/validation/`): input validators (`EmptyPromptValidator`, `TokenBudgetValidator`, `ProviderLimitsValidator`, `ContextValidator`), a new `JsonValidator` alongside `SchemaValidator`/`CitationValidator`, a new lightweight `HallucinationValidator` (deterministic, no LLM judge), a `ValidationRegistry`, a multi-stage `ValidationService`, weighted `overall_score` (`validation/scoring.py`), and a `ValidationReport` replacing the old single-stage `ValidationResult` on `GenerationResult.validation`; regeneration now correctly reacts only to the output stage — see Milestone 2.9.4. 17 new test files (~100 cases) added
 
@@ -1025,7 +1119,9 @@ Parent Expansion, Adjacent Merge, Token Budget + Embedding Compression, Guardrai
 - Retrieval result cache
 - Scaling the retrieval benchmark dataset (5 → 20-50 documents, 20 → 100 queries, chunk-level relevance) — see `README.md` TODO
 
-The **Generation Platform** (Milestone 2.9) is now ~65% complete (see Milestone 2.9 above): provider abstraction, Structured Output Integration (native decoding + parser fallback + Markdown/XML registry + LangChain `with_structured_output()`), Validation Platform integration (input/output/hallucination validators, registry, weighted scoring, `ValidationReport`), Regeneration Strategy, a provider-capability guard, and Prompt Platform integration are all done. Remaining before it's complete: `/research` API, streaming chat API, a capability-based routing/selection engine, caching, generation-level guardrails, artifact persistence, per-runtime Validation Contracts/Runtime Validators, and the remaining PRD output checks (completeness/consistency/formatting/response-size). Then Evaluation Platform expansion (Milestone 6) and a LangGraph-based Research Runtime (Milestone 7) follow.
+The **Generation Platform** (Milestone 2.9) is now ~65% complete (see Milestone 2.9 above): provider abstraction, Structured Output Integration (native decoding + parser fallback + Markdown/XML registry + LangChain `with_structured_output()`), Validation Platform integration (input/output/hallucination validators, registry, weighted scoring, `ValidationReport`), Regeneration Strategy, a provider-capability guard, and Prompt Platform integration are all done. Remaining before it's complete: `/research` API, streaming chat API, a capability-based routing/selection engine, caching, artifact persistence, per-runtime Validation Contracts/Runtime Validators, and the remaining PRD output checks (completeness/consistency/formatting/response-size). Then Evaluation Platform expansion (Milestone 6) and a LangGraph-based Research Runtime (Milestone 7) follow.
+
+The **Guardrails Platform** (Milestone 11.16, see above) is now complete as a standalone MVP foundation — input/retrieval/generation/runtime guardrails, a new Source Trust Platform, policies, weighted risk scoring, and artifact persistence. It is not yet wired into `GenerationService`, the context builder, or a router (the PRD's own "Generation Integration" is explicitly a later phase); `get_guardrail_service()` is the integration seam once that wiring is prioritized.
 
 ---
 
@@ -1062,6 +1158,15 @@ Generation Platform (~65%) 🟡
   Provider Capability Guard ✅ — routing/selection engine ⏳
   Prompt Platform Integration ✅
   /research API, streaming chat, caching, artifacts ❌
+
+↓
+
+Guardrails Platform (Milestone 11.16) ✅ Foundation — standalone, not yet wired in
+  Input Guardrails (Prompt Injection, Scope, PII) ✅
+  Retrieval Guardrails (Context Sanitization, Source Trust, Citation Integrity) ✅
+  Generation Guardrails (Faithfulness, Schema Enforcement, PII Leakage) ✅
+  Runtime Guardrails (Budget, Loop Detection) ✅ — Tool Policy, Approval Gate interfaces only ⏳
+  Wiring into GenerationService / context builder / a router ⏳
 
 ↓
 

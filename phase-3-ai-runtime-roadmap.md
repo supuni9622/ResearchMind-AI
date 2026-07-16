@@ -27,7 +27,7 @@ NotebookLM++
 Perplexity Foundation
 ```
 
-Hybrid Retrieval, Reranking, Parent Expansion, Compression, Guardrails, and strategy-based Prompt Formatting are all implemented — beyond a plain NotebookLM clone and closing in on Perplexity v1.
+Hybrid Retrieval, Reranking, Parent Expansion, Compression, Context Guardrails, and strategy-based Prompt Formatting are all implemented — beyond a plain NotebookLM clone and closing in on Perplexity v1. A standalone, platform-wide Guardrails Platform (Milestone 3.13 below — input/retrieval/generation/runtime stages, Source Trust, policies, scoring, artifacts) is now complete as an MVP foundation.
 
 Current Focus:
 
@@ -392,8 +392,10 @@ Compressed Chunk
 Validation Platform integration (input/output/hallucination validators,
 registry, scoring, `ValidationReport`), regeneration, and
 prompt-template integration are done; per-runtime Validation
-Contracts/Runtime Validators, capability-based routing, caching,
-generation-level guardrails, and artifacts remain.
+Contracts/Runtime Validators, capability-based routing, caching, and
+artifacts remain. Generation-level guardrails are no longer part of
+this gap — see Milestone 3.13 (Guardrails Platform) below, now complete
+as a standalone MVP foundation not yet wired into this service.
 
 ---
 
@@ -516,6 +518,36 @@ Frameworks remain implementation details.
 - ❌ Caching
 - ❌ Artifacts
 
+# Phase 3.13 — Guardrails Platform
+
+**Status:** ✅ Complete (MVP Foundation, per `guardrails_platform_prd.md`)
+
+---
+
+## Goal
+
+Answer a different question than Validation: not "did the system produce a good output?" but "should the system even perform this operation?"
+
+---
+
+## Responsibilities
+
+- ✅ Input Guardrails — prompt injection/jailbreak detection (P0), scope validation, PII detection (foundation); rate limit/toxicity are foundation interfaces (always-allow)
+- ✅ Retrieval Guardrails — Context Sanitization (composes the pre-existing `ContextGuardrailService`, does not duplicate it), a new Source Trust Platform (P1), Citation Integrity; Access Control is a foundation interface (permissive default)
+- ✅ Generation Guardrails — Faithfulness Enforcement and Schema Enforcement (both wrap the Validation Platform's validators per the PRD's explicit reuse instruction), PII Leakage; Moderation is a foundation interface (always-allow)
+- ✅ Runtime Guardrails — Budget Guardrail (P1, "implement immediately"), Loop Detection (real algorithm); Tool Policy and Approval Gate are foundation interfaces only, deliberately unimplemented (the future LangGraph-interrupt seam)
+- ✅ `GuardrailService`, `GuardrailRegistry`, weighted risk scoring, fail/risk/regeneration/runtime policies, `GuardrailArtifactWriter`
+- ❌ Wiring into `GenerationService`, the context builder, or a router — the PRD's own "Generation Integration" is a later phase, same posture the Validation Platform shipped with
+
+---
+
+## Deliverables
+
+- ✅ Standalone `apps/api/app/ai/guardrails/` package, 113 new unit tests, full repo suite/ruff/mypy clean
+- ✅ Two dead, zero-reference scaffolds removed (`app/ai/guardrails/{policies,scanners}.py`, all of `app/ai/runtime/generation/guardrails/`)
+- ❌ LLM-based classifiers (Llama Guard, Lakera, NeMo Guardrails) — explicitly skipped for MVP
+- ❌ Wiring into the live generation pipeline
+
 # Final MVP Pipeline
 
 ```text
@@ -569,6 +601,7 @@ Milestone	Platform	Deliverables	Status
 3.10	Evaluation Platform	Groundedness, Hallucinations, Citation Accuracy	🟡 Retrieval evaluation complete
 3.11	Research Runtime	Planner, Query Decomposition, Agents	❌ Not Started
 3.12	Long-Term Platform	Research Sessions, Memory, MCP	❌ Not Started
+3.13	Guardrails Platform	Input/Retrieval/Generation/Runtime guardrails, Source Trust, policies, scoring, artifacts	✅ MVP Foundation Complete (standalone, not yet wired into Generation Platform)
 
 # Architecture Principles
 

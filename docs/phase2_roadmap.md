@@ -366,8 +366,13 @@ bridging the existing Prompt Platform into Generation with schema-aware
 format instructions. Detail: `docs/architecture/structured-output-platform.md`.
 
 Not yet built: capability-based provider routing/selection (flags exist,
-no selection engine), caching, generation-level guardrails, artifact
-persistence, hallucination/completeness validators, and a test suite.
+no selection engine), caching, artifact persistence, and completeness
+validators. Hallucination validation and generation-level guardrails are
+now both complete elsewhere: a `HallucinationValidator` ships as part of
+`generation/validation/`, and a standalone Guardrails Platform
+(`apps/api/app/ai/guardrails/`, see `guardrails_platform_prd.md`) covers
+input/retrieval/generation/runtime guardrails as an MVP foundation — not
+yet wired into this service.
 
 Status: IN PROGRESS (~60%)
 

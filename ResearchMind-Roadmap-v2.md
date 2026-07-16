@@ -4,7 +4,7 @@ Version: 2.0
 
 Status: Active
 
-**Current Maturity (2026-07-16):** NotebookLM++ + Perplexity Foundation. Hybrid Retrieval, Reranking, Parent Expansion, Compression, Guardrails, and strategy-based Prompt Formatting are all implemented — beyond a plain NotebookLM clone and closing in on Perplexity v1. The AI Runtime Platform (Phase 3) is now ~65% complete: Provider Structured Output Integration, a multi-stage Validation Platform integration (input/output/hallucination validators, registry, scoring, `ValidationReport`), regeneration, and Prompt Platform bridging are done (see Phase 3.1/3.2 below and `docs/architecture/structured-output-platform.md`). Ladder: `NotebookLM++ → Perplexity v1 (almost here) → Open Deep Research → Manus / Glean`. See `PROJECT_STATUS.md` and `ROADMAP.md` for the authoritative, continuously-updated status; this document tracks the frozen technology decisions and long-range vision.
+**Current Maturity (2026-07-16):** NotebookLM++ + Perplexity Foundation. Hybrid Retrieval, Reranking, Parent Expansion, Compression, Context Guardrails, and strategy-based Prompt Formatting are all implemented — beyond a plain NotebookLM clone and closing in on Perplexity v1. The AI Runtime Platform (Phase 3) is now ~65% complete: Provider Structured Output Integration, a multi-stage Validation Platform integration (input/output/hallucination validators, registry, scoring, `ValidationReport`), regeneration, and Prompt Platform bridging are done (see Phase 3.1/3.2 below and `docs/architecture/structured-output-platform.md`). A standalone, platform-wide Guardrails Platform (`app/ai/guardrails/`, see "AI Guardrails" below) is now complete as an MVP foundation. Ladder: `NotebookLM++ → Perplexity v1 (almost here) → Open Deep Research → Manus / Glean`. See `PROJECT_STATUS.md` and `ROADMAP.md` for the authoritative, continuously-updated status; this document tracks the frozen technology decisions and long-range vision.
 
 ---
 
@@ -2457,13 +2457,17 @@ Central registry of
 
 ## AI Guardrails
 
+**Status (2026-07-16):** ✅ Implemented as an MVP foundation at `apps/api/app/ai/guardrails/` — exactly the target placement this document anticipated (sibling of AI Runtime/AI Knowledge/AI Quality/AI Registry), built per `guardrails_platform_prd.md` (PRD Milestone 11.16). See `PROJECT_STATUS.md`/`ROADMAP.md` for full detail.
+
 Responsible for
 
-- Prompt Injection Detection
-- Jailbreak Detection
-- Tool Policies
-- PII Detection
-- Safety Policies
+- ✅ Prompt Injection Detection (input-stage, P0)
+- ✅ Jailbreak Detection (folded into prompt injection — multi-trigger/DAN-style escalation)
+- ✅ PII Detection (input and generation stages, foundation regex)
+- 🟡 Tool Policies (foundation interface, allow-all default — no tool-call tracking exists yet)
+- ✅ Safety Policies — `FailPolicy`, `RiskPolicy`, `RegenerationPolicy`, `RuntimePolicy`, weighted risk scoring
+- ✅ Also built, beyond this document's original scope: Retrieval Guardrails (Context Sanitization, a new Source Trust Platform, Citation Integrity), Generation Guardrails (Faithfulness Enforcement, Schema Enforcement — both reusing Validation Platform validators), Runtime Guardrails (Budget, Loop Detection), and `GuardrailArtifactWriter` persistence
+- ❌ Not yet wired into `GenerationService`, the context builder, or a router; LLM-based classifiers (Llama Guard, Lakera, NeMo Guardrails) explicitly deferred past MVP
 
 ---
 
@@ -2897,4 +2901,7 @@ Context Platform (Parent Expansion, Adjacent Merge, Compression, Guardrails, Cit
    │
    ▼
 Generation Platform (LLM providers, structured output, validation, regeneration, prompt bridge) 🟡 ~65% — /research API, routing, caching, runtime validators/contracts remain
+   │
+   ▼
+Guardrails Platform (Input, Retrieval, Generation, Runtime guardrails, Source Trust, policies, scoring, artifacts) ✅ MVP Foundation Complete — standalone, not yet wired into Generation Platform
 ```

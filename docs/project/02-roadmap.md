@@ -392,6 +392,35 @@ Production context-building pipeline feeding the Generation Platform. 🟡 In Pr
 
 ---
 
+## 2.10 Guardrails Platform ✅
+
+### Status
+
+Complete (MVP Foundation, per `guardrails_platform_prd.md` — Milestone 11.16 in `PROJECT_STATUS.md`/`ROADMAP.md`)
+
+### Engineering
+
+* ✅ New standalone package (`apps/api/app/ai/guardrails/`, sibling to `knowledge/`, `runtime/`, `quality/`) — a different question than Validation ("should we do this?" vs. "did it work?")
+* ✅ Input Guardrails — prompt injection/jailbreak detection, scope validation, PII detection; rate limit/toxicity are foundation interfaces (always-allow)
+* ✅ Retrieval Guardrails — Context Sanitization (composes the existing `ContextGuardrailService` from 2.9 rather than duplicating it), a new Source Trust Platform, Citation Integrity; Access Control is a foundation interface
+* ✅ Generation Guardrails — Faithfulness Enforcement and Schema Enforcement (both wrap the Validation Platform's validators), PII Leakage; Moderation is a foundation interface
+* ✅ Runtime Guardrails — Budget Guardrail, Loop Detection (real algorithm); Tool Policy and Approval Gate are foundation interfaces only, deliberately unimplemented (the future LangGraph-interrupt seam)
+* ✅ `GuardrailService` (crash-safe aggregation), `GuardrailRegistry`, weighted risk scoring, fail/risk/regeneration/runtime policies, `GuardrailArtifactWriter`
+* ✅ 113 new unit tests; two dead, zero-reference scaffolds removed
+* ❌ Wiring into `GenerationService`, the context builder, or a router — intentionally deferred, same posture the Validation Platform shipped with
+
+### AI Learning
+
+* Policy layer design distinct from quality validation
+* Deterministic guardrail scoring vs. LLM-based classifiers
+* Reuse vs. duplication trade-offs across sibling platforms
+
+### Deliverable
+
+Complete, tested, standalone safety/policy layer ready to be wired into the Generation Platform and future Research Runtime without further architectural refactoring.
+
+---
+
 # Phase 3 — Conversation Platform
 
 **Note:** Before Conversation Platform milestones below, a **Generation Platform** (multi-provider LLM runtime — Groq, OpenAI, Claude, Gemini, Ollama; prompt templates; streaming; `/research` API) must be built as the highest-priority next milestone. It is the direct consumer of the Context Platform's `Prompt Context` output and status is tracked in `phase-3-ai-runtime-roadmap.md` (Phase 3.8) and `ROADMAP.md` (Phase 3.1).

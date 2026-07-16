@@ -2,7 +2,7 @@
 
 **Last Updated:** 2026-07-16
 
-**Current Maturity:** NotebookLM++ + Perplexity Foundation. Hybrid Retrieval, Reranking, Parent Expansion, Compression, Guardrails, and strategy-based Prompt Formatting are all in place — beyond a plain NotebookLM clone. Maturity ladder: `NotebookLM++ → Perplexity v1 (almost here) → Open Deep Research → Manus / Glean`.
+**Current Maturity:** NotebookLM++ + Perplexity Foundation. Hybrid Retrieval, Reranking, Parent Expansion, Compression, Context Guardrails, and strategy-based Prompt Formatting are all in place — beyond a plain NotebookLM clone. A standalone, platform-wide Guardrails Platform (Milestone 11.16 — input/retrieval/generation/runtime stages, Source Trust, policies, scoring, artifacts) is now complete as an MVP foundation, alongside the Validation Platform. Maturity ladder: `NotebookLM++ → Perplexity v1 (almost here) → Open Deep Research → Manus / Glean`.
 
 ---
 
@@ -1162,6 +1162,103 @@ Frameworks remain implementation details behind the Generation Platform's provid
 
 ---
 
+## Milestone 11.16 — Guardrails Platform
+
+**Status:** ✅ Complete (MVP Foundation, per `guardrails_platform_prd.md`)
+
+A new, standalone, platform-wide package (`apps/api/app/ai/guardrails/`, sibling to `knowledge/`, `runtime/`, `quality/`) answering a different question than the Validation Platform: not "did the system produce a good output?" but "should the system even perform this operation?" Spans Input → Retrieval → Generation → Runtime stages, built to the same conventions as the Validation Platform (deterministic checks, a crash-safe `GuardrailService`, weighted risk scoring, an `@lru_cache` composition root).
+
+```text
+User
+ ↓
+Input Guardrails
+ ↓
+Planner
+ ↓
+Retrieval
+ ↓
+Retrieval Guardrails
+ ↓
+Context Platform
+ ↓
+Generation
+ ↓
+Generation Guardrails
+ ↓
+Runtime Guardrails
+ ↓
+Reflection / Evaluation
+```
+
+### 11.16.1 Foundation
+
+**Status:** ✅ Complete
+
+- `models.py`/`enums.py`/`interfaces.py` — `GuardrailIssue`, `GuardrailResult`, `GuardrailReport`; one ABC per stage
+- `GuardrailRegistry` — per-stage ordered registration, mirrors `ValidationRegistry`
+- `GuardrailService` — `evaluate_input()`/`evaluate_retrieval()`/`evaluate_generation()`/`evaluate_runtime()`/`evaluate()`; a crashing guardrail becomes a WARNING issue rather than propagating
+- `policies/` — `FailPolicy`, `RiskPolicy`, `RegenerationPolicy`, `RuntimePolicy`
+- `scoring/` — weighted `overall_risk` (0.30/0.30/0.20/0.20 input/retrieval/generation/runtime), renormalized over whichever stages scored
+- `artifacts/` — `GuardrailArtifactWriter`, persisting `guardrails/{run_id}/{input,retrieval,generation,runtime,report}.json`
+- `create.py` — `get_guardrail_service()`, the integration seam for future callers
+
+### 11.16.2 Input Guardrails
+
+**Status:** ✅ Complete (P0 items) / 🟡 Foundation (rate limit, toxicity)
+
+- ✅ Prompt Injection / Jailbreak detection (P0)
+- ✅ Scope Validation (off-topic heuristic, WARNING-only by design)
+- ✅ PII Detection (foundation regex)
+- 🟡 Rate Limiting, Toxicity — foundation interfaces, always-allow (no request-counting state or classifier provider exists yet)
+
+### 11.16.3 Retrieval Guardrails
+
+**Status:** ✅ Complete (P0/P1 items) / 🟡 Foundation (access control)
+
+- ✅ Context Sanitization (P0) — composes the pre-existing `ContextGuardrailService`/`RuleBasedGuardrailProvider` (Milestone 2.8.4) rather than duplicating it
+- ✅ Source Trust Platform (P1, new) — `SourceType` enum, `TrustRegistry`, trust policies/scoring; defaults every chunk to `USER_DOCUMENT` since no source-type field exists on `ContextChunk` yet
+- ✅ Citation Integrity — deterministic existence check, complementary to the Validation Platform's fabricated-citation-marker check
+- 🟡 Access Control — foundation interface, permissive default (no tenant isolation/document ACL model exists yet)
+
+### 11.16.4 Generation Guardrails
+
+**Status:** ✅ Complete (P1 items) / 🟡 Foundation (moderation)
+
+- ✅ Faithfulness Enforcement (P1) — wraps the Validation Platform's `HallucinationValidator`, reinterpreting low groundedness as ERROR (regenerate-worthy) rather than Validation's advisory WARNING
+- ✅ Schema Enforcement — wraps `SchemaValidator`/`JsonValidator`, per the PRD's explicit reuse instruction
+- ✅ PII Leakage (foundation regex, same table as the input-side check)
+- 🟡 Moderation — foundation interface, always-allow (PRD explicitly skips real moderation providers for MVP)
+
+### 11.16.5 Runtime Guardrails
+
+**Status:** ✅ Complete (P1 items) / 🟡 Foundation (tool policy, approval gate)
+
+- ✅ Budget Guardrail (P1, "implement immediately") — max_tokens/max_cost/max_tool_calls/max_iterations/max_runtime_seconds, independent threshold + near-limit warning checks
+- ✅ Loop Detection — foundation depth, real algorithm (max-iterations + repeated-execution-state-hash detection)
+- 🟡 Tool Policy — foundation interface, allow-all default
+- 🟡 Approval Gate — `ApprovalRequest`/`ApprovalResponse` + `ApprovalGateInterface` only, deliberately unimplemented and unregistered (the future LangGraph-interrupt seam, PRD §19)
+
+### Dead Code Removed
+
+Two empty, zero-reference scaffolds discovered during this work: `app/ai/guardrails/{policies.py,scanners.py}` and the entire (all 0-byte) `app/ai/runtime/generation/guardrails/` tree.
+
+### Testing
+
+113 new unit tests under `tests/unit/ai/guardrails/`, mirroring the Validation Platform's test-tree conventions. Full repo suite (744 tests), `ruff format --check`, `ruff check`, and `mypy` all pass clean.
+
+### Not Yet Built (by design — matches PRD MVP scope)
+
+- ❌ LLM-based classifiers (Llama Guard, Lakera, NeMo Guardrails) — explicitly skipped for MVP
+- ❌ Wiring into `GenerationService`, the context builder, or a router (PRD's "Phase 6 — Generation Integration", intentionally deferred, same as the Validation Platform)
+- ❌ Enterprise ACL / multi-tenant Access Control, real Tool Policy providers, a working Approval Gate implementation (LangGraph interrupts/checkpoints)
+- ❌ Security dashboards, attack datasets, red-teaming
+
+### Deliverable
+
+A complete, tested, standalone safety/policy layer ready to be wired into the Generation Platform and future Research Runtime without further architectural refactoring — matches the PRD's explicit goal of shipping interfaces/contracts for Research Runtime, Multi-Agent Runtime, MCP Platform, and Enterprise Multi-Tenancy ahead of those platforms existing.
+
+---
+
 ## Research Capabilities
 
 **Status:** ❌ Not Started
@@ -1711,6 +1808,7 @@ The major AI Engineering platforms interact as follows.
 | Phase 2.10 — Knowledge Service | ⏳ Planned |
 | Phase 3.1 — Generation Platform | 🟡 ~65% Complete (structured output, input/output/hallucination validation + scoring, regeneration, prompt bridge done; runtime validators/contracts, routing/caching/artifacts remain) |
 | Phase 3.2 — LangChain Adoption for Generation | 🟡 Mostly Complete for structured output (LCEL not adopted) |
+| Milestone 11.16 — Guardrails Platform | ✅ Complete (MVP Foundation — input/retrieval/generation/runtime guardrails, Source Trust, policies, scoring, artifacts; standalone, not yet wired into the generation pipeline) |
 | Phase 3 — Research Engine (broader) | ⏳ Planned |
 | Phase 4 — Agentic AI Platform | ⏳ Planned |
 | Phase 5 — Experimentation Platform | ⏳ Planned |
@@ -1729,9 +1827,10 @@ Remaining before Phase 3.1 — Generation Platform is complete:
 
 - `POST /research` API and streaming chat API
 - Capability-based provider routing/selection (flags + guard exist; `generation/routing/` selection engine does not)
-- Caching, generation-level guardrails, artifact persistence
+- Caching, artifact persistence
 - Per-runtime Validation Contracts/Runtime Validators, and the remaining PRD output checks — completeness/consistency/formatting/response-size (`generation/validation/` — see `validation_platform_prd.md`)
-- Test suite for `routing/`, `caching/`, `artifacts/`, generation-level `guardrails/` (`validation/`, `providers/`, `prompts/`, and core `service.py` now have unit test coverage)
+- Test suite for `routing/`, `caching/`, `artifacts/` (`validation/`, `providers/`, `prompts/`, and core `service.py` now have unit test coverage)
+- Wiring the now-complete Guardrails Platform (Milestone 11.16 — see above) into `GenerationService`
 
 Also remaining to close out Phase 2.8 — Context Platform:
 
@@ -1740,6 +1839,8 @@ Also remaining to close out Phase 2.8 — Context Platform:
 - Knowledge Service — unified orchestration API (Phase 2.10)
 - Forward `HybridRetrieveRequest.rerank` from `/retrieve/hybrid` into `RetrievalService.search_hybrid` (currently always uses the service's `rerank=True` default)
 - Multi-query Retrieval (query decomposition moved to the future Research Runtime)
+
+The **Guardrails Platform** (Milestone 11.16, see above) is now complete as a standalone MVP foundation and needs no further work to reach its PRD-defined MVP scope — remaining work on it is entirely the future "Generation Integration" wiring phase, not new guardrail logic.
 
 ---
 
@@ -1753,13 +1854,14 @@ This project intentionally prioritizes completing the production AI platform (Ti
 4. ~~Context Platform (Phase 2.8) — Parent Expansion, Adjacent Merge, Guardrails V1, Citations, Prompt Formatter~~ ✅ (~90%, compression V3/V4 remain)
 5. **Generation Platform (Phase 3.1) — ~65% complete, highest priority to finish**: `/research` API, streaming chat, capability-based routing, caching, artifacts, per-runtime Validation Contracts/Runtime Validators, remaining output checks (completeness/consistency/formatting/response-size)
 6. ~~LangChain Adoption for Generation (Phase 3.2)~~ 🟡 mostly complete for structured output (LCEL not adopted)
-7. Conversation Memory Platform (Phase 2.9)
-8. Knowledge Service (Phase 2.10)
-9. Evaluation Platform expansion (NDCG, Groundedness, Faithfulness, Hallucinations, Citation Accuracy, End-to-End, Security Evaluation)
-10. Research Runtime — Query Decomposition, Planner, Research Agents, Reviewer, Summarizer, LangGraph
-11. Agentic AI Platform
-12. Long-Term Platform — Research Sessions, Memory, MCP, Feedback Learning
-13. Advanced Observability, Experimentation Platform (deferred until the core RAG pipeline is complete)
+7. ~~Guardrails Platform (Milestone 11.16) — input/retrieval/generation/runtime guardrails, Source Trust, policies, scoring, artifacts~~ ✅ MVP foundation complete; wiring into `GenerationService` is future work
+8. Conversation Memory Platform (Phase 2.9)
+9. Knowledge Service (Phase 2.10)
+10. Evaluation Platform expansion (NDCG, Groundedness, Faithfulness, Hallucinations, Citation Accuracy, End-to-End, Security Evaluation)
+11. Research Runtime — Query Decomposition, Planner, Research Agents, Reviewer, Summarizer, LangGraph
+12. Agentic AI Platform
+13. Long-Term Platform — Research Sessions, Memory, MCP, Feedback Learning
+14. Advanced Observability, Experimentation Platform (deferred until the core RAG pipeline is complete)
 
 ---
 

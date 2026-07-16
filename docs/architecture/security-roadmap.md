@@ -2,7 +2,7 @@
 
 **Status:** Living Document
 
-**Last Updated:** 2026-07-14
+**Last Updated:** 2026-07-16
 
 ---
 
@@ -92,14 +92,16 @@ V6 → Enterprise Security
 
 # Current Status
 
+**Update (2026-07-16):** A standalone, platform-wide Guardrails Platform (`apps/api/app/ai/guardrails/`, per `guardrails_platform_prd.md`) now exists alongside the retrieval-time-only guardrails this document originally described, moving Input/Retrieval/Generation Security from partial/not-started to an MVP V1 foundation. See `PROJECT_STATUS.md` (Milestone 11.16) for full detail. It is not yet wired into live request handling (`GenerationService`, the context builder, or a router).
+
 | Area | Status |
 |------|---------|
-| Input Security | 🟡 Partial |
-| Retrieval Security | ❌ |
+| Input Security | 🟡 V1 (Guardrails Platform — prompt injection/jailbreak, scope, PII) |
+| Retrieval Security | 🟡 V1 (Guardrails Platform — Source Trust, Citation Integrity, on top of Context Security below) |
 | Context Security | ✅ V1 |
-| Generation Security | ❌ |
+| Generation Security | 🟡 V1 (Guardrails Platform — Faithfulness, Schema Enforcement, PII Leakage) |
 | Agent Security | ❌ |
-| Tool Security | ❌ |
+| Tool Security | ❌ (foundation interface only — `ToolPolicyProvider`, allow-all default, no tool-call tracking yet) |
 | Memory Security | ❌ |
 | MCP Security | ❌ |
 
@@ -157,6 +159,11 @@ Detects:
 - reveal hidden prompt
 - jailbreak attempts
 - tool manipulation instructions
+
+Now composed (not duplicated) by the standalone Guardrails Platform's
+`retrieval/context_sanitization.py`, which translates its per-chunk
+`risk_level` into `GuardrailIssue`s alongside the new Source Trust and
+Citation Integrity checks — see `PROJECT_STATUS.md` Milestone 11.16.
 
 ---
 
@@ -219,7 +226,7 @@ OpenAI Prompt Shields
 Status:
 
 ```text
-❌ Not Started
+🟡 V1 Implemented
 ```
 
 ---
@@ -237,6 +244,19 @@ Protect LLM execution.
 - Jailbreaks
 - Instruction hierarchy violations
 - Output manipulation
+
+---
+
+# Implemented
+
+`app/ai/guardrails/generation/` (Guardrails Platform, see `PROJECT_STATUS.md` Milestone 11.16):
+
+- `FaithfulnessGuardrail` — wraps the Validation Platform's `HallucinationValidator`, reinterpreting low groundedness as regenerate-worthy
+- `SchemaEnforcementGuardrail` — wraps `SchemaValidator`/`JsonValidator`
+- `PiiLeakageGuardrail` — regex detection on generated content
+- `ModerationGuardrail` — foundation interface, always-allow default (real moderation providers explicitly deferred)
+
+Not yet covered here: prompt leakage / instruction-hierarchy-violation detection on the *output* side (input-side prompt injection is covered by Input Security above) — still open threats.
 
 ---
 

@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import contextlib
-import json
 from collections.abc import AsyncIterator
 from typing import Any
 
@@ -107,10 +105,9 @@ class GeminiProvider(
             ResponseFormat.JSON,
             ResponseFormat.STRUCTURED,
         ):
-            with contextlib.suppress(Exception):
-                parsed_output = json.loads(
-                    content,
-                )
+            parsed_output = self.parse_structured_output(
+                content,
+            )
 
         result = self.build_result(
             request=request,
@@ -139,6 +136,12 @@ class GeminiProvider(
         self,
         request: GenerationRequest,
     ) -> GenerationResult:
+        """
+        Native `response_mime_type` + `response_json_schema` (wired in
+        `_build_generation_config` via `build_gemini_generation_config`)
+        whenever `output_schema` is set.
+        """
+
         return await self.generate(
             request,
         )

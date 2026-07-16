@@ -3,6 +3,7 @@ from __future__ import annotations
 import structlog
 from app.ai.runtime.generation.enums import (
     GenerationProvider,
+    ResponseFormat,
 )
 from app.ai.runtime.generation.exceptions import (
     GenerationError,
@@ -49,9 +50,26 @@ class GenerationService:
             provider,
         )
 
+        #
+        # Structured requests (a schema, or an explicit structured/JSON
+        # response format) are routed through generate_structured() so
+        # providers can apply native schema-constrained decoding.
+        #
+
+        is_structured_request = request.output_schema is not None or request.response_format in (
+            ResponseFormat.JSON,
+            ResponseFormat.STRUCTURED,
+        )
+
         try:
-            result = await generation_provider.generate(
-                request,
+            result = (
+                await generation_provider.generate_structured(
+                    request,
+                )
+                if is_structured_request
+                else await generation_provider.generate(
+                    request,
+                )
             )
         except GenerationError:
             raise

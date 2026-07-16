@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import contextlib
-import json
 from collections.abc import AsyncIterator
 from typing import Any
 
@@ -101,10 +99,9 @@ class OpenAIProvider(
         parsed_output = None
 
         if request.output_schema:
-            with contextlib.suppress(Exception):
-                parsed_output = json.loads(
-                    response.output_text,
-                )
+            parsed_output = self.parse_structured_output(
+                response.output_text,
+            )
 
         result = self.build_result(
             request=request,
@@ -124,6 +121,24 @@ class OpenAIProvider(
         )
 
         return result
+
+    ###########################################################################
+    # Structured Outputs
+    ###########################################################################
+
+    async def generate_structured(
+        self,
+        request: GenerationRequest,
+    ) -> GenerationResult:
+        """
+        Native `text.format: json_schema` (wired in `_create_response`
+        via `build_openai_text_config`) whenever `output_schema` is set,
+        falling back to `json_object` mode otherwise.
+        """
+
+        return await self.generate(
+            request,
+        )
 
     ###########################################################################
     # Streaming

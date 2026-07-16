@@ -54,12 +54,30 @@ def build_groq_response_format(
     request: GenerationRequest,
 ) -> dict[str, Any] | None:
 
-    if request.response_format != ResponseFormat.JSON:
-        return None
+    #
+    # Structured Outputs (schema-constrained decoding)
+    #
 
-    return {
-        "type": "json_object",
-    }
+    if request.response_format == ResponseFormat.STRUCTURED and request.output_schema:
+        return {
+            "type": "json_schema",
+            "json_schema": {
+                "name": "response",
+                "schema": request.output_schema,
+                "strict": True,
+            },
+        }
+
+    #
+    # JSON Mode
+    #
+
+    if request.response_format == ResponseFormat.JSON:
+        return {
+            "type": "json_object",
+        }
+
+    return None
 
 
 ###############################################################################
@@ -76,7 +94,15 @@ def build_gemini_generation_config(
     if request.output_schema:
         config["response_mime_type"] = "application/json"
 
-        config["response_schema"] = request.output_schema
+        #
+        # `response_schema` expects Gemini's restricted OpenAPI-subset
+        # Schema type. `response_json_schema` accepts standard JSON
+        # Schema (the shape produced by pydantic's `model_json_schema()`
+        # and stored on `request.output_schema`), so it is the correct
+        # field for a raw schema dict.
+        #
+
+        config["response_json_schema"] = request.output_schema
 
     return config
 
@@ -88,7 +114,18 @@ def build_gemini_generation_config(
 
 def build_ollama_format(
     request: GenerationRequest,
-) -> Literal["json"] | None:
+) -> Literal["json"] | dict[str, Any] | None:
+
+    #
+    # Structured Outputs (schema-constrained decoding)
+    #
+
+    if request.response_format == ResponseFormat.STRUCTURED and request.output_schema:
+        return request.output_schema
+
+    #
+    # JSON Mode
+    #
 
     if request.response_format in (
         ResponseFormat.JSON,
@@ -104,9 +141,37 @@ def build_ollama_format(
 ###############################################################################
 
 
+def build_claude_output_config(
+    request: GenerationRequest,
+) -> dict[str, Any] | None:
+    """
+    Native structured output via `output_config.format`.
+
+    Guarantees the response text is valid JSON matching the schema,
+    so this is preferred over the prompt-based instruction fallback
+    whenever a schema is available.
+    """
+
+    if request.response_format != ResponseFormat.STRUCTURED or not request.output_schema:
+        return None
+
+    return {
+        "format": {
+            "type": "json_schema",
+            "schema": request.output_schema,
+        }
+    }
+
+
 def build_claude_json_instruction(
     request: GenerationRequest,
 ) -> str:
+    """
+    Prompt-enforced JSON fallback.
+
+    Used when no schema is available to drive native
+    `output_config.format` (e.g. plain JSON mode).
+    """
 
     if request.response_format not in (
         ResponseFormat.JSON,

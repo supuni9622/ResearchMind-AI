@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import contextlib
-import json
 from collections.abc import AsyncIterator
 from typing import Any, cast
 
@@ -105,10 +103,9 @@ class GroqProvider(
             ResponseFormat.JSON,
             ResponseFormat.STRUCTURED,
         ):
-            with contextlib.suppress(Exception):
-                parsed_output = json.loads(
-                    content,
-                )
+            parsed_output = self.parse_structured_output(
+                content,
+            )
 
         statistics = self.build_statistics(
             latency_ms=latency_ms,
@@ -270,12 +267,10 @@ class GroqProvider(
         request: GenerationRequest,
     ) -> GenerationResult:
         """
-        Groq currently has no true JSON schema mode.
-
-        Best effort:
-
-        - JSON mode
-        - prompt enforced schema
+        Native `response_format: json_schema` (wired in
+        `_create_completion` via `build_groq_response_format`)
+        whenever `output_schema` is set, falling back to plain
+        JSON mode otherwise.
         """
 
         return await self.generate(

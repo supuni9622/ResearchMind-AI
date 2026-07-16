@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import contextlib
-import json
 from collections.abc import AsyncIterator
 from typing import Any, cast
 
@@ -34,6 +32,7 @@ from app.ai.runtime.generation.providers.helpers.prompt_builder import (
 )
 from app.ai.runtime.generation.providers.helpers.structured import (
     build_claude_json_instruction,
+    build_claude_output_config,
 )
 from app.ai.runtime.generation.providers.helpers.usage import (
     Usage,
@@ -105,10 +104,9 @@ class ClaudeProvider(
             ResponseFormat.JSON,
             ResponseFormat.STRUCTURED,
         ):
-            with contextlib.suppress(Exception):
-                parsed_output = json.loads(
-                    content,
-                )
+            parsed_output = self.parse_structured_output(
+                content,
+            )
 
         statistics = self.build_statistics(
             latency_ms=latency_ms,
@@ -224,15 +222,16 @@ class ClaudeProvider(
         request: GenerationRequest,
     ) -> GenerationResult:
         """
-        Claude has no native JSON schema mode.
+        Structured generation.
 
         Preferred:
 
-        Tool calling.
+        Native `output_config.format` (schema-constrained JSON,
+        wired in `_create_message` whenever `output_schema` is set).
 
         Fallback:
 
-        Prompt enforced JSON.
+        Prompt enforced JSON when no schema is available.
         """
 
         return await self.generate(
@@ -261,10 +260,21 @@ class ClaudeProvider(
         }
 
         #
-        # Prompt enforced JSON mode
+        # Structured Outputs
+        #
+        # Native `output_config.format` (schema-constrained decoding) is
+        # preferred whenever a schema is available. Otherwise fall back
+        # to a prompt-enforced JSON instruction.
         #
 
-        if request.response_format in (
+        output_config = build_claude_output_config(
+            request,
+        )
+
+        if output_config:
+            kwargs["output_config"] = output_config
+
+        elif request.response_format in (
             ResponseFormat.JSON,
             ResponseFormat.STRUCTURED,
         ):

@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import contextlib
-import json
 from collections.abc import AsyncIterator
 from typing import Any
 
@@ -109,10 +107,9 @@ class OllamaProvider(
             ResponseFormat.JSON,
             ResponseFormat.STRUCTURED,
         ):
-            with contextlib.suppress(Exception):
-                parsed_output = json.loads(
-                    content,
-                )
+            parsed_output = self.parse_structured_output(
+                content,
+            )
 
         result = self.build_result(
             request=request,
@@ -141,6 +138,12 @@ class OllamaProvider(
         self,
         request: GenerationRequest,
     ) -> GenerationResult:
+        """
+        Native `format: <json_schema>` (wired in `_create_chat` /
+        `stream` via `build_ollama_format`) whenever `output_schema`
+        is set, falling back to `format: "json"` mode otherwise.
+        """
+
         return await self.generate(
             request,
         )

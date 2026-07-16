@@ -45,6 +45,7 @@ dependencies = [
     "tiktoken>=0.13.0",
     "uvicorn[standard]>=0.49.0",
     "voyageai>=0.4.1",
+    "xmltodict>=1.0.4",
 ]
 
 [dependency-groups]
@@ -114,6 +115,10 @@ ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
 module = "sklearn.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "xmltodict.*"
 ignore_missing_imports = true
 
 [tool.coverage.run]

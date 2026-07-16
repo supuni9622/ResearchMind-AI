@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import json
 from abc import ABC
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime
@@ -25,6 +26,9 @@ from app.ai.runtime.generation.models import (
     GenerationResult,
     GenerationStatistics,
     StreamChunk,
+)
+from app.ai.runtime.generation.structured_output.repair import (
+    StructuredOutputRepair,
 )
 
 logger = structlog.get_logger()
@@ -276,6 +280,52 @@ class BaseGenerationProvider(
         return await self.generate(
             request,
         )
+
+    def parse_structured_output(
+        self,
+        content: str,
+    ) -> Any | None:
+        """
+        Parser fallback for structured generation.
+
+        Native schema-constrained decoding (OpenAI json_schema, Gemini
+        response_json_schema, Claude output_config.format, Ollama schema
+        format) should already return valid JSON. This exists for the
+        remaining cases: providers without schema enforcement (JSON mode,
+        prompt-only instructions) or a model that drifts from the schema.
+
+        Tries strict parsing first, then falls back to StructuredOutputRepair
+        for common formatting mistakes (markdown fences, trailing commas,
+        single quotes, unbalanced braces) before giving up.
+        """
+
+        try:
+            return json.loads(
+                content,
+            )
+        except (TypeError, ValueError):
+            pass
+
+        try:
+            parsed = StructuredOutputRepair.try_parse_json(
+                content,
+            )
+        except (TypeError, ValueError):
+            logger.warning(
+                "generation.structured_output.parse_failed",
+                provider=self.provider.value,
+                model=self.config.model_name,
+            )
+
+            return None
+
+        logger.info(
+            "generation.structured_output.repaired",
+            provider=self.provider.value,
+            model=self.config.model_name,
+        )
+
+        return parsed
 
     # ==========================================================
     # Streaming

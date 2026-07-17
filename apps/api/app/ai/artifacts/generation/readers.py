@@ -17,6 +17,7 @@ from app.ai.artifacts.generation.models import (
 from app.ai.artifacts.readers.base import BaseArtifactReader
 from app.ai.guardrails.models import GuardrailReport
 from app.ai.runtime.generation.models import GenerationRequest
+from app.ai.runtime.generation.observability.models import GenerationMetricsSnapshot
 from app.ai.runtime.generation.validation.models import ValidationReport
 
 
@@ -40,11 +41,16 @@ class GenerationArtifactReader(BaseArtifactReader):
             key=f"{base_path}/response.json",
             model=GenerationResponseSnapshot,
         )
+        metrics = await self._read_json(
+            key=f"{base_path}/metrics.json",
+            model=GenerationMetricsSnapshot,
+        )
 
         return GenerationArtifact(
             metadata=metadata,
             request=request,
             response=response,
+            metrics=metrics,
             validation=await self._read_json_optional(
                 key=f"{base_path}/validation.json",
                 model=ValidationReport,

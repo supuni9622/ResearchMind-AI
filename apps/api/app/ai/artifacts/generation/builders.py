@@ -14,6 +14,7 @@ from app.ai.artifacts.generation.models import (
     GenerationRoutingSnapshot,
 )
 from app.ai.runtime.generation.models import GenerationResult
+from app.ai.runtime.generation.observability.models import build_generation_metrics_snapshot
 
 
 class GenerationArtifactBuilder:
@@ -54,4 +55,5 @@ class GenerationArtifactBuilder:
             guardrails=result.guardrails,
             routing=(GenerationRoutingSnapshot(**routing_dict) if routing_dict else None),
             cache=(GenerationCacheSnapshot(**cache_dict) if cache_dict else None),
+            metrics=build_generation_metrics_snapshot(result),
         )

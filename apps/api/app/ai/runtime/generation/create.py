@@ -40,6 +40,9 @@ from app.ai.runtime.generation.config import (
 from app.ai.runtime.generation.interfaces import (
     GenerationProviderInterface,
 )
+from app.ai.runtime.generation.observability.service import (
+    GenerationMetricsService,
+)
 from app.ai.runtime.generation.prompts.create import (
     get_prompt_service,
 )
@@ -74,6 +77,7 @@ from app.ai.runtime.generation.validation.create import (
     get_validation_service,
 )
 from app.core.settings import settings
+from app.infrastructure.metrics.noop import NoOpMetricsRecorder
 
 logger = structlog.get_logger()
 
@@ -244,4 +248,7 @@ def create_generation_service() -> GenerationService:
         guardrail_service=get_guardrail_service(),
         artifact_writer=create_generation_artifact_writer(),
         artifact_policy_service=get_artifact_policy_service(),
+        metrics_service=GenerationMetricsService(
+            metrics=NoOpMetricsRecorder(),
+        ),
     )

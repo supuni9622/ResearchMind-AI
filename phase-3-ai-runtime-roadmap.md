@@ -3,7 +3,7 @@
 
 **Status:** Frozen (v2.0)
 
-**Last Updated:** 2026-07-16
+**Last Updated:** 2026-07-18
 
 ---
 
@@ -33,14 +33,19 @@ Current Focus:
 
 ```text
 Phase 3.7
-Context Building Platform (~90% complete — closing out)
+Context Building Platform (✅ Complete)
     ↓
 Phase 3.8
-Generation Platform (~85% complete — structured output, input/output/
-hallucination validation + scoring, regeneration, prompt bridge,
-Routing Platform, Runtime Caching Platform, Streaming Platform, and
-Artifact Platform done; runtime validators/contracts remain unwired
-pending a /research API)
+Generation Platform (✅ Complete — structured output, input/output/
+hallucination/runtime validation + scoring, all five runtime contracts
+(Research/Planner/Reviewer/Agent/MCP), the Acceptance/Fail-Fast/Runtime
+Validation policy layer, every PRD output validator (completeness/
+consistency/formatting/response-size), regeneration, prompt bridge,
+Routing Platform, Runtime Caching Platform, Streaming Platform, Runtime
+Metrics Integration, and Artifact Platform (incl. metrics.json) done —
+per `generation_platform_complexion_prd.md`; only a /research API
+setting GenerationRequest.runtime remains, which needs a Research
+Runtime that doesn't exist yet)
 ```
 
 ---
@@ -394,19 +399,30 @@ Status:
 
 # Phase 3.8 — Generation Platform
 
-**Status:** 🟡 ~85% Complete — structured output, a multi-stage
-Validation Platform integration (input/output/hallucination validators,
-registry, scoring, `ValidationReport`), regeneration, prompt-template
-integration, a Routing Platform (scored model catalog, task-based
-strategies, capability/policy filtering, fallback chains), a Runtime
-Caching Platform (L1/L2/L3), and an Artifact Platform (canonical
-`GenerationArtifact` persistence — Milestone 3.14 below) are done;
-per-runtime Validation Contracts/Runtime Validators remain built but
-unreachable until a `/research` API sets `GenerationRequest.runtime`.
-Generation-level guardrails are no longer part of this gap — see
-Milestone 3.13 (Guardrails Platform) below, now complete and wired
-directly into this service (input gate before every provider call,
-full `evaluate()` report on `GenerationResult.guardrails`).
+**Status:** ✅ Complete, per `generation_platform_complexion_prd.md` —
+structured output, a multi-stage Validation Platform integration
+(input/output/hallucination/runtime validators, registry, scoring,
+`ValidationReport`), five runtime contracts (Research, Planner,
+Reviewer, Agent, MCP — all registered), the Acceptance/Fail-Fast/
+Runtime Validation policy layer (`generation/policies/`), every PRD
+output validator (JSON/Schema/Formatting/Completeness/Consistency/
+Response Size/Citation, in pipeline order), regeneration,
+prompt-template integration, a Routing Platform (scored model catalog,
+task-based strategies, capability/policy filtering, fallback chains), a
+Runtime Caching Platform (L1/L2/L3), Runtime Metrics Integration
+(`GenerationMetricsService`, Prometheus-ready counters via
+`infrastructure/metrics/generation.py`, `generation.started/failed`/
+`validation.started/completed`/`provider.started/completed` events),
+and an Artifact Platform (canonical `GenerationArtifact` persistence
+including a `metrics.json` snapshot — Milestone 3.14 below) are all
+done. Input validation now runs pre-flight (before guardrails/routing/
+provider execution), gated by `FailFastPolicy`. The five runtime
+contracts remain registered-but-dormant until a `/research` API sets
+`GenerationRequest.runtime` — a scope decision the PRD itself accepts,
+not a gap in this milestone. Generation-level guardrails are no longer
+part of this gap — see Milestone 3.13 (Guardrails Platform) below, now
+complete and wired directly into this service (input gate before every
+provider call, full `evaluate()` report on `GenerationResult.guardrails`).
 
 ---
 
@@ -429,14 +445,15 @@ Generate answers from prepared context.
   fallback + Markdown/XML registry + optional LangChain
   `with_structured_output()` path (4/5 providers) + regenerate-on-invalid
   loop with corrective feedback
-- 🟡 Validation Platform integration — input validators (empty prompt,
+- ✅ Validation Platform integration — input validators (empty prompt,
   token budget, provider limits, context quality), output validators
-  (schema via `jsonschema`, JSON parseability, fabricated-citation
-  detection), a lightweight no-LLM hallucination/groundedness validator,
-  a `ValidationRegistry`, weighted scoring, and a multi-stage
-  `ValidationReport` all implemented; per-runtime Contracts/Runtime
-  Validators and a few PRD output checks (completeness/consistency/
-  formatting/response-size) remain — see `validation_platform_prd.md`
+  (JSON parseability, schema via `jsonschema`, formatting, completeness,
+  consistency, response size, fabricated-citation detection — full PRD
+  pipeline order), a lightweight no-LLM hallucination/groundedness
+  validator, five runtime contracts (Research/Planner/Reviewer/Agent/
+  MCP), a `ValidationRegistry`, weighted scoring, and a multi-stage
+  `ValidationReport` all implemented — see `validation_platform_prd.md`,
+  `generation_platform_complexion_prd.md`
 - ✅ Routing — scored `ModelCatalogRegistry`, a 15-value task-based
   `RoutingStrategy`, capability/policy filtering, a weighted scoring
   engine with explainable reasons, and a distinct-provider-preferred
@@ -449,6 +466,13 @@ Generate answers from prepared context.
 - ✅ Artifacts — canonical `GenerationArtifact` persistence (Artifact
   Platform, Milestone 3.14 below), wired into `GenerationService.generate()`
   — see `artifacts_platform_prd.md`
+- ✅ Validation Policy Layer — `AcceptancePolicy`/`FailFastPolicy`/
+  `RuntimeValidationPolicy` (`generation/policies/`), wired into
+  `GenerationService`'s regeneration decision and a pre-flight
+  input-validation gate — see `generation_platform_complexion_prd.md`
+- ✅ Runtime Metrics Integration — `GenerationMetricsService`
+  (`generation/observability/`), request/execution/token/cost/
+  validation/guardrail metrics, Prometheus-ready counters
 - ❌ Research chains — not started
 
 ---
@@ -483,7 +507,9 @@ generation/
         ollama.py
 
     structured_output/      # registry, parsers, repair — connected end-to-end
-    validation/              # ValidationRegistry, ValidationService, scoring, input/output/hallucination validators
+    validation/              # ValidationRegistry, ValidationService, scoring, input/output/hallucination/runtime validators, 5 runtime contracts
+    policies/                 # AcceptancePolicy, FailFastPolicy, RuntimeValidationPolicy
+    observability/            # GenerationMetricsSnapshot, GenerationMetricsService
     langchain/                # with_structured_output() bridge (4/5 providers)
     prompts/                  # pre-existing template platform, now bridged in
     catalog/                  # scored ModelMetadata + ModelCatalogRegistry
@@ -538,10 +564,12 @@ Frameworks remain implementation details.
 - ✅ Prompt platform (bridged in)
 - ✅ Streaming support
 - ✅ Structured output (native + fallback + registry + LangChain + regeneration)
-- 🟡 Validation Platform integration (input/output/hallucination validators, registry, scoring, `ValidationReport` done; runtime validators/contracts, completeness/consistency/formatting/response-size remain)
+- ✅ Validation Platform integration (input/output/hallucination/runtime validators, registry, scoring, `ValidationReport`, five runtime contracts, completeness/consistency/formatting/response-size all done)
+- ✅ Validation Policy Layer (Acceptance/Fail-Fast/Runtime Validation policies)
 - ✅ Routing Platform (scored catalog, task-based strategies, fallback chains)
 - ✅ Runtime Caching Platform (L1 exact/L2 semantic/L3 session, policy resolution)
-- ✅ Artifact Platform (`GenerationArtifact` persisted on every `generate()` call)
+- ✅ Runtime Metrics Integration (`GenerationMetricsService`, Prometheus-ready counters)
+- ✅ Artifact Platform (`GenerationArtifact` incl. `metrics.json`, persisted on every `generate()` call)
 
 # Phase 3.13 — Guardrails Platform
 
@@ -657,7 +685,7 @@ Milestone	Platform	Deliverables	Status
 3.5	Result Processing	Metadata filtering, Top-K	✅ Complete
 3.6	Reranking Platform	Voyage, CrossEncoder	✅ Complete
 3.7	Context Building Platform	Parent Expansion, Merge, Compression, Guardrails, Citations, Prompt Formatter	✅ Complete (Compression V1-V4, LangChain wired into default pipeline)
-3.8	Generation Platform	Multi-provider LLM runtime, structured output, validation, regeneration, routing, caching, streaming, artifacts	🟡 ~85% Complete — runtime validators/contracts remain unwired, pending a /research API
+3.8	Generation Platform	Multi-provider LLM runtime, structured output, validation, policy layer, regeneration, routing, caching, streaming, metrics, artifacts	✅ Complete, per `generation_platform_complexion_prd.md` — runtime contracts registered but dormant pending a /research API
 3.9	Research APIs	/research, streaming, citations	❌ Not Started
 3.10	Evaluation Platform	Groundedness, Hallucinations, Citation Accuracy	🟡 Retrieval evaluation complete
 3.11	Research Runtime	Planner, Query Decomposition, Agents	❌ Not Started

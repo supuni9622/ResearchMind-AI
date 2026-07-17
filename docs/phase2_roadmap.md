@@ -343,7 +343,7 @@ but intentionally not part of the default pipeline.
 
 Status: COMPLETE
 
-🟨 Phase 2.7 — Generation Platform (~85% complete — structured output, validation, regeneration, prompt bridge, routing, caching, streaming, and artifacts done; per-runtime validators/contracts remain unwired, /research API remains)
+✅ Phase 2.7 — Generation Platform (complete, per `generation_platform_complexion_prd.md` — structured output, validation (incl. all five runtime contracts and every PRD output validator), a validation policy layer, regeneration, prompt bridge, routing, caching, streaming, runtime metrics, and artifacts all done; only /research API remains)
 Prompt Context
 
 ↓
@@ -363,11 +363,13 @@ and Context are done. Provider Structured Output Integration is
 complete for all five providers (native schema-constrained decoding,
 parser/repair fallback, Markdown/XML registry), plus an optional
 LangChain `with_structured_output()` path (OpenAI/Claude/Gemini/Ollama),
-Output Validation (schema + citation, `generation/validation/`), a
-regenerate-on-invalid-output loop (`max_regeneration_attempts`), a
-provider-capability-mismatch guard, and `generate_from_template()`
-bridging the existing Prompt Platform into Generation with schema-aware
-format instructions. Detail: `docs/architecture/structured-output-platform.md`.
+Output Validation (JSON, schema, formatting, completeness, consistency,
+response size, citation — full pipeline, `generation/validation/`), a
+regenerate-on-invalid-output loop (`max_regeneration_attempts`, now
+policy-driven via `AcceptancePolicy`), a provider-capability-mismatch
+guard, and `generate_from_template()` bridging the existing Prompt
+Platform into Generation with schema-aware format instructions. Detail:
+`docs/architecture/structured-output-platform.md`.
 
 Also now complete: a Routing Platform (scored model catalog, task-based
 strategies, capability/policy filtering, fallback chains —
@@ -376,24 +378,30 @@ exact/L2 semantic/L3 session, policy resolution —
 `runtime_caching_platform_prd.md`, ADR-027), a Streaming Platform
 (canonical event protocol, SSE/WebSocket, wired into `POST
 /api/v1/chat/stream` / `/api/v1/chat/ws` — `streaming_platform_prd.md`,
-ADR-028), and an Artifact Platform (canonical, immutable, policy-gated
-`GenerationArtifact` persistence on every `generate()` call —
-`artifacts_platform_prd.md`).
+ADR-028), five per-runtime Validation Contracts (Research, Planner,
+Reviewer, Agent, MCP — `generation/validation/runtime/contracts/`), a
+Validation Policy Layer (`AcceptancePolicy`/`FailFastPolicy`/
+`RuntimeValidationPolicy`, `generation/policies/`), Runtime Metrics
+Integration (`GenerationMetricsService`, `generation/observability/`),
+and an Artifact Platform (canonical, immutable, policy-gated
+`GenerationArtifact` persistence — incl. a `metrics.json` snapshot — on
+every `generate()` call — `artifacts_platform_prd.md`), all per
+`generation_platform_complexion_prd.md`.
 
-Not yet built: per-runtime Validation Contracts/Runtime Validators are
-implemented but unreachable until a caller (e.g. a future `/research`
-API) sets `GenerationRequest.runtime`, and a few PRD output-validation
-checks (completeness/consistency/formatting/response-size). Hallucination
-validation and generation-level guardrails are both complete elsewhere: a
-`HallucinationValidator` ships as part of `generation/validation/`, and a
-Guardrails Platform (`apps/api/app/ai/guardrails/`, see
-`guardrails_platform_prd.md`) covers input/retrieval/generation/runtime
-guardrails as an MVP foundation — wired directly into this service (see
+Not yet built: only a `/research` API remains, which would set
+`GenerationRequest.runtime` so the five registered runtime contracts
+actually run — blocked on a Research Runtime that doesn't exist yet.
+Hallucination validation and generation-level guardrails are both
+complete elsewhere: a `HallucinationValidator` ships as part of
+`generation/validation/`, and a Guardrails Platform
+(`apps/api/app/ai/guardrails/`, see `guardrails_platform_prd.md`)
+covers input/retrieval/generation/runtime guardrails as an MVP
+foundation — wired directly into this service (see
 `guardrail_integration_prd.md`): an input-stage gate runs before every
 provider call, and the full guardrail report lands on
 `GenerationResult.guardrails` before validation runs.
 
-Status: IN PROGRESS (~85%)
+Status: COMPLETE
 
 ⏳ Phase 2.8 — Queue & Workers
 

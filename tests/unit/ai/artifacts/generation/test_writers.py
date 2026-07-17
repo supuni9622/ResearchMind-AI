@@ -22,6 +22,7 @@ async def test_write_persists_required_files_only_when_optional_fields_absent(
         f"{base}/request.json",
         f"{base}/response.json",
         f"{base}/metadata.json",
+        f"{base}/metrics.json",
     }
 
 
@@ -53,6 +54,7 @@ async def test_write_persists_optional_files_when_present(
         f"{base}/request.json",
         f"{base}/response.json",
         f"{base}/metadata.json",
+        f"{base}/metrics.json",
         f"{base}/routing.json",
         f"{base}/cache.json",
     }

@@ -50,6 +50,19 @@ from app.ai.runtime.generation.models import (
     StreamChunk,
     ToolDefinition,
 )
+from app.ai.runtime.generation.observability.service import (
+    GenerationMetricsService,
+)
+from app.ai.runtime.generation.policies.acceptance import (
+    AcceptanceDecision,
+    AcceptancePolicy,
+)
+from app.ai.runtime.generation.policies.fail_fast import (
+    FailFastPolicy,
+)
+from app.ai.runtime.generation.policies.runtime import (
+    RuntimeValidationPolicy,
+)
 from app.ai.runtime.generation.prompts.models import (
     PromptRenderRequest,
 )
@@ -124,6 +137,10 @@ class GenerationService:
         guardrail_service: GuardrailService | None = None,
         artifact_writer: GenerationArtifactWriter | None = None,
         artifact_policy_service: ArtifactPolicyService | None = None,
+        acceptance_policy: AcceptancePolicy | None = None,
+        fail_fast_policy: FailFastPolicy | None = None,
+        runtime_validation_policy: RuntimeValidationPolicy | None = None,
+        metrics_service: GenerationMetricsService | None = None,
     ):
         self._registry = registry
 
@@ -149,6 +166,23 @@ class GenerationService:
         """
 
         self._artifact_policy_service = artifact_policy_service
+
+        self._acceptance_policy = acceptance_policy or AcceptancePolicy()
+
+        self._fail_fast_policy = fail_fast_policy or FailFastPolicy()
+
+        self._runtime_validation_policy = runtime_validation_policy or RuntimeValidationPolicy()
+
+        self._metrics_service = metrics_service or GenerationMetricsService()
+        """
+        Unlike `artifact_writer`/`caching_service`/`guardrail_service`
+        (opt-in, `None` skips them entirely), this always defaults to a
+        real `GenerationMetricsService` -- its own `MetricsRecorder`
+        collaborator defaults to `NoOpMetricsRecorder`, so recording is
+        zero-cost/zero-risk (a structured log event, no I/O) and every
+        `generate()` call gets metrics captured whether or not a caller
+        wires a real recorder in.
+        """
 
     @property
     def registry(
@@ -181,7 +215,18 @@ class GenerationService:
         one succeeds. See `_generate_with_routing`.
         """
 
+        logger.info(
+            "generation.started",
+            request_id=str(request.request_id),
+            runtime=(request.runtime.value if request.runtime else None),
+            provider=(provider.value if provider else None),
+        )
+
         self._validate(
+            request,
+        )
+
+        await self._enforce_fail_fast_input_validation(
             request,
         )
 
@@ -189,15 +234,28 @@ class GenerationService:
             request,
         )
 
-        if provider is not None:
-            result = await self._generate_with_provider(
-                provider=provider,
-                request=request,
+        try:
+            if provider is not None:
+                result = await self._generate_with_provider(
+                    provider=provider,
+                    request=request,
+                )
+            else:
+                result = await self._generate_with_routing(
+                    request=request,
+                )
+        except GenerationError as exc:
+            logger.error(
+                "generation.failed",
+                request_id=str(request.request_id),
+                error_type=type(exc).__name__,
+                error=str(exc),
             )
-        else:
-            result = await self._generate_with_routing(
-                request=request,
-            )
+            raise
+
+        self._metrics_service.record(
+            result,
+        )
 
         if self._artifact_writer is not None:
             await self._persist_generation_artifact(
@@ -231,6 +289,10 @@ class GenerationService:
         """
 
         self._validate(
+            request,
+        )
+
+        await self._enforce_fail_fast_input_validation(
             request,
         )
 
@@ -694,6 +756,12 @@ class GenerationService:
             response_format=request.response_format.value,
         )
 
+        logger.info(
+            "provider.started",
+            provider=provider.value,
+            model=generation_provider.config.model_name,
+        )
+
         try:
             result = (
                 await generation_provider.generate_structured(
@@ -718,6 +786,13 @@ class GenerationService:
             raise GenerationExecutionError(
                 f"Generation failed unexpectedly for provider '{provider}'."
             ) from exc
+
+        logger.info(
+            "provider.completed",
+            provider=provider.value,
+            model=result.model,
+            latency_ms=result.statistics.latency_ms,
+        )
 
         if request.response_format in _REGISTRY_PARSED_FORMATS:
             await self._parse_via_registry(
@@ -832,36 +907,53 @@ class GenerationService:
     # Regeneration
     # ==========================================================
 
-    @classmethod
     def _needs_regeneration(
-        cls,
+        self,
         *,
         request: GenerationRequest,
         result: GenerationResult,
     ) -> bool:
+        """
+        Delegates the accept/reject/regenerate call to `AcceptancePolicy`
+        (PRD "Validation Policy Layer") rather than hard-coding it here.
 
-        parse_failed = (
-            cls._is_structured_request(
+        Default behavior is unchanged from before the policy layer
+        existed: only a structured-request parse failure or an
+        output-stage validation failure trigger regeneration.
+        Input-stage issues (token budget, missing capability, ...)
+        describe the request itself, and re-calling the provider with
+        the same request (plus a corrective note) wouldn't fix them —
+        it could even make a token-budget overflow worse — so
+        `AcceptancePolicy.reject_on_input_invalid` defaults to `False`.
+        Hallucination-stage issues are WARNING-only heuristics (see
+        HallucinationValidator) and never flip `valid` to `False` on
+        their own, so they never reach this decision either way.
+
+        A failed runtime-stage contract additionally gates regeneration
+        only when `RuntimeValidationPolicy.block_on_error` is opted in
+        (defaults to `False` — see that policy's docstring for why).
+        """
+
+        parsed_output_missing = (
+            self._is_structured_request(
                 request,
             )
             and result.parsed_output is None
         )
 
-        #
-        # Only the output stage gates regeneration: input-stage issues
-        # (token budget, missing capability, ...) describe the request
-        # itself, and re-calling the provider with the same request
-        # (plus a corrective note) wouldn't fix them — it could even
-        # make a token-budget overflow worse. Hallucination-stage
-        # issues are WARNING-only heuristics (see HallucinationValidator)
-        # and never flip `valid` to False on their own.
-        #
-
-        validation_failed = (
-            result.validation is not None and not result.validation.output_validation.valid
+        decision = self._acceptance_policy.decide(
+            report=result.validation,
+            parsed_output_missing=parsed_output_missing,
         )
 
-        return parse_failed or validation_failed
+        if decision == AcceptanceDecision.REGENERATE:
+            return True
+
+        runtime_validation = result.validation.runtime_validation if result.validation else None
+
+        return runtime_validation is not None and self._runtime_validation_policy.should_block(
+            runtime_validation,
+        )
 
     @classmethod
     def _build_corrected_request(
@@ -1017,6 +1109,45 @@ class GenerationService:
                 output_model=request.output_model.__name__,
                 error_type=type(exc).__name__,
                 error=str(exc),
+            )
+
+    # ==========================================================
+    # Validation Policy
+    # ==========================================================
+
+    async def _enforce_fail_fast_input_validation(
+        self,
+        request: GenerationRequest,
+    ) -> None:
+        """
+        Runs input-stage validation up front -- before guardrails,
+        routing, or any provider call -- so a request already known to
+        be invalid never pays for any of that work (PRD "Full Generation
+        Flow Activation": Input Validation precedes Provider Execution).
+
+        Called with no provider-specific `InputValidationContext` (the
+        provider isn't resolved yet at this point in `generate()`/
+        `stream_generate()`), so only provider-agnostic checks
+        (`EmptyPromptValidator`, `ContextValidator`) can meaningfully
+        fire here; `TokenBudgetValidator`/`ProviderLimitsValidator` no-op
+        without a context window and run for real later, inside
+        `_execute_once`'s full `ValidationService.validate()` call, once
+        a provider is known. Re-running `validate_input()` there is
+        intentional, not duplicate logic -- mirrors how
+        `_enforce_generation_guardrails` re-runs `evaluate_input()`.
+        """
+
+        if self._validation_service is None:
+            return
+
+        input_result = await self._validation_service.validate_input(
+            request,
+        )
+
+        if self._fail_fast_policy.should_stop(input_result):
+            raise GenerationValidationError(
+                f"Input failed validation: "
+                f"{'; '.join(issue.message for issue in input_result.issues)}"
             )
 
     # ==========================================================

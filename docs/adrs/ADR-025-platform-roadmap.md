@@ -197,16 +197,21 @@ Current maturity:
 
 Status:
 
-🚧 In Progress — structured output, output validation, regeneration, and
-prompt-template integration are now substantially complete (see
-`docs/architecture/structured-output-platform.md`, ~99% complete in its
-own scope). Routing (see `docs/architecture/model-routing-platform.md`,
+✅ Complete, per `generation_platform_complexion_prd.md` — structured
+output, output validation, regeneration, and prompt-template
+integration are complete (see
+`docs/architecture/structured-output-platform.md`). Routing (see
+`docs/architecture/model-routing-platform.md`,
 ADR-026), Caching (see `docs/architecture/runtime-caching-platform.md`,
 ADR-027), Streaming (see `docs/architecture/streaming-platform.md`,
-ADR-028), and Artifacts (see `artifacts_platform_prd.md`) are now all
-complete. Generation-level guardrails are covered separately by the new
+ADR-028), Runtime Metrics Integration, and Artifacts (see
+`artifacts_platform_prd.md`) are now all complete, along with all five
+per-runtime Validation Contracts (Research/Planner/Reviewer/Agent/MCP)
+and the Acceptance/Fail-Fast/Runtime Validation policy layer. Only a
+`/research` API remains, blocked on a Research Runtime that doesn't
+exist yet. Generation-level guardrails are covered separately by the
 standalone Guardrails Platform (below), which is complete as an MVP
-foundation and now wired directly into this service (per
+foundation and wired directly into this service (per
 `guardrail_integration_prd.md`).
 
 Purpose:
@@ -222,14 +227,16 @@ Responsibilities:
   `GenerationService.generate_from_template()` now bridges it into
   Generation with schema-aware format instructions
   (`PydanticOutputParser.get_format_instructions()`)
-- 🟡 Validation — `generation/validation/` implements input validation
+- ✅ Validation — `generation/validation/` implements input validation
   (empty prompt, token budget, provider limits, context quality), output
-  validation (schema via `jsonschema`, JSON parseability, fabricated-
-  citation detection), a lightweight no-LLM hallucination/groundedness
-  validator, a `ValidationRegistry`, weighted scoring, and a multi-stage
-  `ValidationReport`; per-runtime Contracts/Runtime Validators and a few
-  output checks (completeness/consistency/formatting/response-size)
-  remain (`validation_platform_prd.md`)
+  validation (JSON, schema via `jsonschema`, formatting, completeness,
+  consistency, response size, fabricated-citation detection — full PRD
+  pipeline), a lightweight no-LLM hallucination/groundedness validator,
+  five per-runtime Contracts (Research/Planner/Reviewer/Agent/MCP), a
+  `ValidationRegistry`, weighted scoring, a multi-stage
+  `ValidationReport`, and an Acceptance/Fail-Fast/Runtime Validation
+  policy layer (`generation/policies/`) — see `validation_platform_prd.md`,
+  `generation_platform_complexion_prd.md`
 - ✅ Guardrails — a new standalone, platform-wide Guardrails Platform
   (`apps/api/app/ai/guardrails/`, Milestone 11.16 per
   `guardrails_platform_prd.md`) now exists outside this phase's own
@@ -264,13 +271,19 @@ Responsibilities:
   exact/L2 semantic/L3 session, policy resolution, wired into
   `GenerationService` — see `docs/architecture/runtime-caching-platform.md`,
   ADR-027
-- 🟡 Observability — structured logging throughout; `cost_tracker` /
-  `latency_tracker` / `token_counter` pre-exist, not newly verified
+- ✅ Observability — Runtime Metrics Integration (`generation/observability/`):
+  `GenerationMetricsService` derives a `GenerationMetricsSnapshot`
+  (request/execution/token/cost/validation/guardrail metrics) from every
+  `GenerationResult`, forwards counters to a Prometheus-ready
+  `MetricsRecorder` (`infrastructure/metrics/generation.py`), and logs a
+  `generation.metrics.recorded` event; `generation.started/failed`,
+  `validation.started/completed`, and `provider.started/completed`
+  events round out the pipeline — per `generation_platform_complexion_prd.md`
 - ✅ Artifacts — a new centralized Artifact Platform (`app/ai/artifacts/`,
   distinct from this directory's own now-deleted empty `artifacts/`
-  scaffold) persists a canonical `GenerationArtifact` on every
-  `generate()` call, policy-gated and immutable — see
-  `artifacts_platform_prd.md`
+  scaffold) persists a canonical `GenerationArtifact` — including a
+  `metrics.json` snapshot — on every `generate()` call, policy-gated and
+  immutable — see `artifacts_platform_prd.md`
 
 Providers:
 
@@ -295,15 +308,21 @@ Routing (task-based strategy → scored model catalog → provider + fallback ch
 Generation (native structured output → parser fallback → regeneration)
 ↓
 
-Validation (input + output + hallucination stages, registry, scoring, ValidationReport)
+Validation (input + output + hallucination + runtime stages, registry, scoring, ValidationReport)
 ↓
 
-Artifacts (GenerationArtifact persisted, policy-gated, immutable)
+Validation Policy Layer (Acceptance / Fail-Fast / Runtime Validation decisions)
+↓
+
+Metrics (GenerationMetricsService — request/execution/token/cost/validation/guardrail)
+↓
+
+Artifacts (GenerationArtifact incl. metrics.json, persisted, policy-gated, immutable)
 ```
 
 Current maturity:
 
-~85%
+100% (Generation Platform scope) — only a future `/research` API remains, tracked separately under Phase 3.9
 
 ---
 
@@ -574,7 +593,7 @@ End-to-end integration.
 
 P1
 
-Generation Platform completion.
+~~Generation Platform completion.~~ ✅ Complete, per `generation_platform_complexion_prd.md`.
 
 ---
 

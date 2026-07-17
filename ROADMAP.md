@@ -1,8 +1,8 @@
 # ResearchMind AI Roadmap
 
-**Last Updated:** 2026-07-17
+**Last Updated:** 2026-07-18
 
-**Current Maturity:** NotebookLM++ + Perplexity Foundation. Hybrid Retrieval, Reranking, Parent Expansion, Compression, Context Guardrails, and strategy-based Prompt Formatting are all in place — beyond a plain NotebookLM clone. A standalone, platform-wide Guardrails Platform (Milestone 11.16 — input/retrieval/generation/runtime stages, Source Trust, policies, scoring, artifacts) is now complete as an MVP foundation, alongside the Validation Platform. The Generation Platform's Routing Platform and Runtime Caching Platform (L1 exact/L2 semantic/L3 session caching, policy resolution) are also now complete, bringing Generation to ~80%. Maturity ladder: `NotebookLM++ → Perplexity v1 (almost here) → Open Deep Research → Manus / Glean`.
+**Current Maturity:** NotebookLM++ + Perplexity Foundation. Hybrid Retrieval, Reranking, Parent Expansion, Compression, Context Guardrails, and strategy-based Prompt Formatting are all in place — beyond a plain NotebookLM clone. A standalone, platform-wide Guardrails Platform (Milestone 11.16 — input/retrieval/generation/runtime stages, Source Trust, policies, scoring, artifacts) is now complete as an MVP foundation, alongside the Validation Platform. The Generation Platform is now fully complete per `generation_platform_complexion_prd.md` — Routing Platform, Runtime Caching Platform (L1 exact/L2 semantic/L3 session caching, policy resolution), five runtime validation contracts (Research/Planner/Reviewer/Agent/MCP), a Validation Policy Layer (Acceptance/Fail-Fast/Runtime Validation), every PRD output validator, and Runtime Metrics Integration are all done — the only remaining gap is a `/research` API to actually set `GenerationRequest.runtime`, which needs a Research Runtime that doesn't exist yet. Maturity ladder: `NotebookLM++ → Perplexity v1 (almost here) → Open Deep Research → Manus / Glean`.
 
 ---
 
@@ -1067,25 +1067,26 @@ Context Assembly and the Citation Engine are already delivered by the Context Pl
 
 ## Milestone 3.1 — Generation Platform
 
-Status: 🟢 ~90% Complete
+Status: ✅ Complete, per `generation_platform_complexion_prd.md`
 
 Completed
 
 - Provider Platform
 - Structured Output Platform
-- Validation Platform
+- Validation Platform (incl. all five runtime contracts and every PRD output validator)
 - Runtime Validation Platform
+- Validation Policy Layer (Acceptance/Fail-Fast/Runtime Validation)
 - Prompt Template Integration
 - Routing Platform
 - Runtime Caching Platform
-- Streaming Platform
+- Streaming Platform (incl. `POST /api/v1/chat/stream` / `/api/v1/chat/ws`)
 - Regeneration Platform
+- Runtime Metrics Integration
+- Generation Artifacts (incl. `metrics.json`)
 
 Remaining
 
-- Research API
-- Generation Artifacts
-- Research Runtime Integration
+- `POST /research` API — needs a Research Runtime that doesn't exist yet; everything downstream (runtime contracts, artifact policy rows) is already built and waiting
 
 ### Goal
 
@@ -1111,7 +1112,9 @@ generation/
         ollama.py
 
     structured_output/    # registry, parsers, repair — connected end-to-end
-    validation/            # ValidationRegistry, ValidationService, scoring, input/output/hallucination validators
+    validation/            # ValidationRegistry, ValidationService, scoring, input/output/hallucination/runtime validators, 5 runtime contracts
+    policies/               # AcceptancePolicy, FailFastPolicy, RuntimeValidationPolicy
+    observability/          # GenerationMetricsSnapshot, GenerationMetricsService
     langchain/              # with_structured_output() bridge (4/5 providers)
     prompts/                # template platform (pre-existing), now bridged in
     catalog/                # scored ModelMetadata + ModelCatalogRegistry
@@ -1129,58 +1132,60 @@ generation/
   regenerate-on-invalid-output loop with corrective feedback
 - ✅ Validation Platform Integration — Complete
 
-Implemented
-
-### Input Validation
+#### Input Validation
 - Empty Prompt Validator
 - Token Budget Validator
 - Provider Limits Validator
 - Context Validation Validator
 
-### Output Validation
+#### Output Validation
 - JSON Validator
 - Schema Validator
+- Formatting Validator
+- Completeness Validator
+- Consistency Validator
+- Response Size Validator
 - Citation Validator
 
-### Hallucination Validation
+#### Hallucination Validation
 - Groundedness Validator
 - Citation Faithfulness Checks
 
-### Runtime Validation
+#### Runtime Validation
 - Runtime Validation Stage
 - RuntimeRegistry
 - RuntimeValidationService
-- Runtime Contracts
-- Generic Runtime Validators
-- ResearchRuntimeContract
+- Runtime Contracts — Research, Planner, Reviewer, Agent, MCP
+- Generic Runtime Validators (incl. Dependency Validator)
 
-### Scoring
+#### Scoring
 - Weighted Validation Scoring
 - Overall Validation Score
 - ValidationReport Aggregation
 
-### Architecture
-- ValidationRegistry
-- Multi-stage Validation Pipeline
-- Crash-safe Validators
-- Runtime-specific Validation Contracts
+#### Validation Policy Layer
+- AcceptancePolicy (Accept/Reject/Regenerate)
+- FailFastPolicy (pre-flight input-validation gate before the provider call)
+- RuntimeValidationPolicy (opt-in runtime-contract regeneration gate)
 
-### Metrics
-- runtime.validation.started
-- runtime.validation.completed
-- runtime.validation.failed
+#### Metrics
+- generation.started / generation.completed / generation.failed
+- validation.started / validation.completed
+- provider.started / provider.completed
+- runtime.validation.started / runtime.validation.completed / runtime.validation.failed
+- `GenerationMetricsService` — request/execution/token/cost/validation/guardrail metrics, Prometheus-ready counters
 
-### Testing
+#### Testing
 - Unit tests
 - Integration tests
 - Runtime validation tests
-  formatting/response-size) remain — see `validation_platform_prd.md`
+
 - ✅ Prompt Templates — bridged via `generate_from_template()`, reusing
   the pre-existing `generation/prompts/` platform (LangChain
   `ChatPromptTemplate`-based)
 - ✅ Output Parsers — `PydanticOutputParser`/`JsonOutputParser` (LangChain,
   via `structured_output/parsers/` and the format-instructions step)
-- ✅ Streaming — per-provider `stream()`
+- ✅ Streaming — per-provider `stream()`, plus `POST /api/v1/chat/stream` (SSE) and `/api/v1/chat/ws` (WebSocket)
 - ✅ Routing Platform — scored `ModelCatalogRegistry` (12 models), a
   15-value task-based `RoutingStrategy`, capability/policy filtering,
   a weighted scoring engine with explainable reasons, and a
@@ -1193,9 +1198,10 @@ Implemented
   (AUTO/NEVER/EXACT_ONLY/SEMANTIC/SESSION per `CacheRuntime`); wired
   directly into `GenerationService` — see `runtime_caching_platform_prd.md`,
   ADR-027
-- ❌ `POST /research` API
-- ❌ Streaming Chat API
-- ❌ Artifacts
+- ✅ Artifacts — `GenerationArtifact` (request/response/metadata/metrics/
+  validation/guardrails/routing/cache.json), persisted on every
+  `generate()` call
+- ❌ `POST /research` API — blocked on a Research Runtime that doesn't exist yet
 
 Detail: `docs/architecture/structured-output-platform.md`.
 
@@ -1868,7 +1874,7 @@ The major AI Engineering platforms interact as follows.
 | Phase 2.8 — Context Platform | ✅ Complete (Parent Expansion, Adjacent Merge, Compression V1-V4, Guardrails V1, Citations, Prompt Formatter — Phase 3.7, `context_platform_complexion_prd.md`) |
 | Phase 2.9 — Conversation Memory Platform | ⏳ Planned |
 | Phase 2.10 — Knowledge Service | ⏳ Planned |
-| Phase 3.1 — Generation Platform | 🟡 ~85% Complete (structured output, input/output/hallucination/runtime validation + scoring + research runtime contract, regeneration, prompt bridge, Routing Platform, Runtime Caching Platform, Streaming Platform done; artifacts, /research API remain — see `PROJECT_STATUS.md` Milestone 2.9, more current than this row) |
+| Phase 3.1 — Generation Platform | ✅ Complete, per `generation_platform_complexion_prd.md` (structured output, input/output/hallucination/runtime validation + scoring, five runtime contracts, Acceptance/Fail-Fast/Runtime Validation policy layer, every PRD output validator, regeneration, prompt bridge, Routing Platform, Runtime Caching Platform, Streaming Platform, Runtime Metrics Integration, Artifact Platform done; only /research API remains, needs a Research Runtime that doesn't exist yet — see `PROJECT_STATUS.md` Milestone 2.9) |
 | Phase 3.2 — LangChain Adoption for Generation | 🟡 Mostly Complete for structured output (LCEL not adopted) |
 | Milestone 11.16 — Guardrails Platform | ✅ Complete (MVP Foundation — input/retrieval/generation/runtime guardrails, Source Trust, policies, scoring, artifacts; standalone, not yet wired into the generation pipeline) |
 | Phase 3 — Research Engine (broader) | ⏳ Planned |
@@ -1881,15 +1887,13 @@ The major AI Engineering platforms interact as follows.
 
 # Current Focus
 
-## Phase 2.8 — Context Platform (✅ complete) + Phase 3.1 — Generation Platform (~80% complete, in progress)
+## Phase 2.8 — Context Platform (✅ complete) + Phase 3.1 — Generation Platform (✅ complete)
 
-Vector Store, Retrieval (dense/sparse/hybrid/parallel), Metadata Filtering, and Reranking are all complete (Phases 2.5–2.7). The Context Platform (Phase 2.8) is now 100% complete (Phase 3.7, `context_platform_complexion_prd.md`). The Generation Platform (Phase 3.1) is now ~80% complete: Provider Structured Output Integration (native decoding for all 5 providers, parser/repair fallback, Markdown/XML registry connection, an optional LangChain `with_structured_output()` path), Validation Platform integration (input/output/hallucination validators, a `ValidationRegistry`, weighted scoring, and a multi-stage `ValidationReport`), a regenerate-on-invalid-output loop (now correctly scoped to only the output stage), a provider-capability-mismatch guard, a Prompt Platform → Generation bridge (`generate_from_template()` with schema-aware format instructions), a Routing Platform (scored `ModelCatalogRegistry`, 15-value task-based `RoutingStrategy`, weighted scoring engine, distinct-provider-preferred fallback chains, automatic routing inside `GenerationService.generate()`), and a Runtime Caching Platform (L1 Exact/L2 Semantic/L3 Session caching, policy resolution, wired directly into the provider-call path) are all done. Detail: `docs/architecture/structured-output-platform.md`, `docs/architecture/model-routing-platform.md` (ADR-026), and `docs/architecture/runtime-caching-platform.md` (ADR-027).
+Vector Store, Retrieval (dense/sparse/hybrid/parallel), Metadata Filtering, and Reranking are all complete (Phases 2.5–2.7). The Context Platform (Phase 2.8) is 100% complete (Phase 3.7, `context_platform_complexion_prd.md`). The Generation Platform (Phase 3.1) is now 100% complete, per `generation_platform_complexion_prd.md`: Provider Structured Output Integration (native decoding for all 5 providers, parser/repair fallback, Markdown/XML registry connection, an optional LangChain `with_structured_output()` path), Validation Platform integration (input/output/hallucination/runtime validators, a `ValidationRegistry`, weighted scoring, a multi-stage `ValidationReport`, and five runtime contracts — Research/Planner/Reviewer/Agent/MCP), a Validation Policy Layer (`AcceptancePolicy`/`FailFastPolicy`/`RuntimeValidationPolicy`, `generation/policies/`), a regenerate-on-invalid-output loop (now policy-driven, still correctly scoped to only the output stage plus an opt-in runtime-stage gate), a provider-capability-mismatch guard, a Prompt Platform → Generation bridge (`generate_from_template()` with schema-aware format instructions), a Routing Platform (scored `ModelCatalogRegistry`, 15-value task-based `RoutingStrategy`, weighted scoring engine, distinct-provider-preferred fallback chains, automatic routing inside `GenerationService.generate()`), a Runtime Caching Platform (L1 Exact/L2 Semantic/L3 Session caching, policy resolution, wired directly into the provider-call path), Runtime Metrics Integration (`GenerationMetricsService`, `generation/observability/`), and Artifact persistence (`GenerationArtifact` incl. a `metrics.json` snapshot) are all done. Detail: `docs/architecture/structured-output-platform.md`, `docs/architecture/model-routing-platform.md` (ADR-026), and `docs/architecture/runtime-caching-platform.md` (ADR-027).
 
-Remaining before Phase 3.1 — Generation Platform is complete:
+Only remaining item for Phase 3.1 — Generation Platform:
 
-- `POST /research` API (streaming chat is now implemented — see `PROJECT_STATUS.md` Milestone 2.9.10)
-- Artifact persistence
-- The remaining PRD *output*-stage checks — completeness/consistency/formatting/response-size (`generation/validation/` — see `validation_platform_prd.md`). Per-runtime Validation Contracts/Runtime Validators are now done (`generation/validation/runtime/`, `ResearchRuntimeContract` — see `runtime_validation_prd.md`), just unreachable until something sets `GenerationRequest.runtime`
+- `POST /research` API to actually set `GenerationRequest.runtime` (streaming chat is already implemented — see `PROJECT_STATUS.md` Milestone 2.9.10). All five runtime contracts (`generation/validation/runtime/contracts/`) are registered and ready, just dormant until a Research Runtime exists to call them
 - Adaptive/evaluation-driven and budget-aware routing, A/B experimentation (Routing Platform Phase 2+ — explicitly future work, not MVP scope)
 - Wiring Session Cache (L3, implemented) to an actual conversation/research-session caller
 - Test suite for `artifacts/` (`validation/`, `providers/`, `prompts/`, `routing/`, `catalog/`, `caching/`, and core `service.py` now have unit test coverage)
@@ -1914,7 +1918,7 @@ This project intentionally prioritizes completing the production AI platform (Ti
 2. ~~Retrieval Platform (Phase 2.6)~~ ✅
 3. ~~Reranking Platform (Phase 2.7)~~ ✅
 4. ~~Context Platform (Phase 2.8) — Parent Expansion, Adjacent Merge, Compression V1-V4, Guardrails V1, Citations, Prompt Formatter~~ ✅ Complete
-5. **Generation Platform (Phase 3.1) — ~85% complete, highest priority to finish**: `/research` API, artifacts, remaining output-stage checks (completeness/consistency/formatting/response-size). Streaming chat and per-runtime Validation Contracts/Runtime Validators are now done
+5. ~~Generation Platform (Phase 3.1)~~ ✅ Complete, per `generation_platform_complexion_prd.md` — five runtime contracts, validation policy layer, every output validator, runtime metrics, and artifact persistence all done; only `/research` API remains, blocked on a Research Runtime that doesn't exist yet
 6. ~~LangChain Adoption for Generation (Phase 3.2)~~ 🟡 mostly complete for structured output (LCEL not adopted)
 7. ~~Guardrails Platform (Milestone 11.16) — input/retrieval/generation/runtime guardrails, Source Trust, policies, scoring, artifacts~~ ✅ MVP foundation complete; wiring into `GenerationService` is future work
 8. Conversation Memory Platform (Phase 2.9)

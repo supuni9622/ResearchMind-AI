@@ -29,6 +29,7 @@ class GenerationArtifactWriter(BaseArtifactWriter):
             request.json
             response.json
             metadata.json
+            metrics.json      (always present)
             validation.json   (only when present)
             guardrails.json   (only when present)
             routing.json      (only when present)
@@ -49,6 +50,7 @@ class GenerationArtifactWriter(BaseArtifactWriter):
             await self._write_json(key=f"{base_path}/request.json", payload=artifact.request)
             await self._write_json(key=f"{base_path}/response.json", payload=artifact.response)
             await self._write_json(key=f"{base_path}/metadata.json", payload=artifact.metadata)
+            await self._write_json(key=f"{base_path}/metrics.json", payload=artifact.metrics)
 
             optional_files: list[tuple[str, BaseModel | None]] = [
                 ("validation", artifact.validation),

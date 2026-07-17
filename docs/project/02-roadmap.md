@@ -298,8 +298,8 @@ Complete — see Milestone 2.7 in `PROJECT_STATUS.md` for full detail.
 * ✅ `POST /retrieve`
 * ✅ `POST /retrieve/sparse`
 * ✅ `POST /retrieve/hybrid`
-* ❌ `POST /research` — pending Generation Platform (see Phase 3 note below)
-* ❌ Streaming chat
+* ❌ `POST /research` — Generation Platform is now complete (see Phase 3 note below, and `generation_platform_complexion_prd.md`); `/research` itself is still pending a Research Runtime
+* ✅ Streaming chat — `POST /api/v1/chat/stream` (SSE) and `/api/v1/chat/ws` (WebSocket)
 * ✅ Citations — delivered by the Context Platform's Citation Platform (2.9)
 
 ### AI Learning
@@ -423,7 +423,7 @@ Complete, tested, standalone safety/policy layer ready to be wired into the Gene
 
 # Phase 3 — Conversation Platform
 
-**Note:** Before Conversation Platform milestones below, a **Generation Platform** (multi-provider LLM runtime — Groq, OpenAI, Claude, Gemini, Ollama; prompt templates; streaming; `/research` API) must be built as the highest-priority next milestone. It is the direct consumer of the Context Platform's `Prompt Context` output and status is tracked in `phase-3-ai-runtime-roadmap.md` (Phase 3.8) and `ROADMAP.md` (Phase 3.1).
+**Note:** The **Generation Platform** (multi-provider LLM runtime — Groq, OpenAI, Claude, Gemini, Ollama; prompt templates; validation; streaming) is now complete, per `generation_platform_complexion_prd.md` — only a `/research` API remains, blocked on a Research Runtime that doesn't exist yet. It is the direct consumer of the Context Platform's `Prompt Context` output; status is tracked in `phase-3-ai-runtime-roadmap.md` (Phase 3.8) and `ROADMAP.md` (Phase 3.1), both more current than this file.
 
 ## Goal
 

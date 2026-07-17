@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import structlog
 from app.ai.runtime.generation.models import (
     GenerationRequest,
     GenerationResult,
@@ -27,6 +28,8 @@ from app.ai.runtime.generation.validation.runtime.service import (
 from app.ai.runtime.generation.validation.scoring import (
     compute_overall_score,
 )
+
+logger = structlog.get_logger()
 
 
 class ValidationService:
@@ -137,6 +140,11 @@ class ValidationService:
         context: InputValidationContext | None = None,
     ) -> ValidationReport:
 
+        logger.info(
+            "validation.started",
+            generation_id=str(result.generation_id),
+        )
+
         input_validation = await self.validate_input(
             request,
             context,
@@ -168,7 +176,7 @@ class ValidationService:
             and runtime_validation.valid
         )
 
-        return ValidationReport(
+        report = ValidationReport(
             input_validation=input_validation,
             output_validation=output_validation,
             hallucination_validation=hallucination_validation,
@@ -176,6 +184,16 @@ class ValidationService:
             overall_score=overall_score,
             valid=valid,
         )
+
+        logger.info(
+            "validation.completed",
+            generation_id=str(result.generation_id),
+            valid=report.valid,
+            overall_score=report.overall_score,
+            issue_count=len(report.issues),
+        )
+
+        return report
 
     # ==========================================================
     # Internal

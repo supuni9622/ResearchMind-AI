@@ -51,6 +51,9 @@ from app.ai.runtime.generation.models import (
     StreamChunk,
     StreamEventType,
 )
+from app.ai.runtime.generation.observability.service import GenerationMetricsService
+from app.ai.runtime.generation.policies.fail_fast import FailFastPolicy
+from app.ai.runtime.generation.policies.runtime import RuntimeValidationPolicy
 from app.ai.runtime.generation.registry import GenerationRegistry
 from app.ai.runtime.generation.routing.enums import RoutingStrategy
 from app.ai.runtime.generation.routing.exceptions import NoEligibleModelsError
@@ -744,3 +747,175 @@ async def test_generate_leaves_guardrails_none_without_a_guardrail_service() -> 
     returned = await service.generate(provider=GenerationProvider.GROQ, request=request)
 
     assert returned.guardrails is None
+
+
+# ==============================================================
+# Validation Policy Layer integration
+# ==============================================================
+
+
+def _failing_runtime_result() -> ValidationResult:
+    return ValidationResult(
+        valid=False,
+        issues=[
+            ValidationIssue(
+                validator="research_contract",
+                severity=ValidationSeverity.ERROR,
+                message="missing required field 'citations'",
+            )
+        ],
+    )
+
+
+async def test_generate_stops_before_the_provider_call_when_fail_fast_policy_trips() -> None:
+    """
+    A pre-flight `validate_input()` failure (FailFastPolicy default:
+    stop_on_error=True) must raise before any provider is ever called --
+    this is what "Input Validation precedes Provider Execution" means in
+    practice.
+    """
+
+    provider = _make_capable_provider()
+    registry = GenerationRegistry(providers=[provider])
+
+    validation_service = AsyncMock()
+    validation_service.validate_input = AsyncMock(return_value=_failing_input_result())
+
+    service = GenerationService(registry=registry, validation_service=validation_service)
+
+    with pytest.raises(GenerationValidationError, match="Input failed validation"):
+        await service.generate(provider=GenerationProvider.GROQ, request=_make_request())
+
+    provider.generate.assert_not_awaited()
+
+
+async def test_generate_proceeds_when_fail_fast_policy_is_disabled() -> None:
+    request = _make_request()
+    result = _make_result(request)
+
+    provider = _make_capable_provider()
+    provider.generate = AsyncMock(return_value=result)
+    registry = GenerationRegistry(providers=[provider])
+
+    validation_service = AsyncMock()
+    validation_service.validate_input = AsyncMock(return_value=_failing_input_result())
+    validation_service.validate = AsyncMock(
+        return_value=ValidationReport(
+            input_validation=_failing_input_result(),
+            output_validation=_valid_result(),
+            hallucination_validation=_valid_result(),
+            valid=False,
+        )
+    )
+
+    service = GenerationService(
+        registry=registry,
+        validation_service=validation_service,
+        fail_fast_policy=FailFastPolicy(stop_on_error=False),
+    )
+
+    await service.generate(provider=GenerationProvider.GROQ, request=request)
+
+    provider.generate.assert_awaited_once()
+
+
+async def test_generate_does_not_regenerate_on_failed_runtime_validation_by_default() -> None:
+    request = _make_request()
+    request.max_regeneration_attempts = 2
+    result = _make_result(request)
+
+    provider = _make_capable_provider()
+    provider.generate = AsyncMock(return_value=result)
+
+    report = ValidationReport(
+        input_validation=_valid_result(),
+        output_validation=_valid_result(),
+        hallucination_validation=_valid_result(),
+        runtime_validation=_failing_runtime_result(),
+        valid=False,
+    )
+
+    registry = GenerationRegistry(providers=[provider])
+    service = GenerationService(
+        registry=registry,
+        validation_service=_make_validation_service(report),
+    )
+
+    await service.generate(provider=GenerationProvider.GROQ, request=request)
+
+    provider.generate.assert_awaited_once()
+
+
+async def test_generate_regenerates_on_failed_runtime_validation_when_policy_opts_in() -> None:
+    request = _make_request()
+    request.max_regeneration_attempts = 1
+    result = _make_result(request)
+
+    provider = _make_capable_provider()
+    provider.generate = AsyncMock(return_value=result)
+
+    report = ValidationReport(
+        input_validation=_valid_result(),
+        output_validation=_valid_result(),
+        hallucination_validation=_valid_result(),
+        runtime_validation=_failing_runtime_result(),
+        valid=False,
+    )
+
+    registry = GenerationRegistry(providers=[provider])
+    service = GenerationService(
+        registry=registry,
+        validation_service=_make_validation_service(report),
+        runtime_validation_policy=RuntimeValidationPolicy(block_on_error=True),
+    )
+
+    await service.generate(provider=GenerationProvider.GROQ, request=request)
+
+    assert provider.generate.await_count == 2
+
+
+# ==============================================================
+# Runtime Metrics Integration
+# ==============================================================
+
+
+async def test_generate_records_metrics_through_the_metrics_service() -> None:
+    request = _make_request()
+    result = _make_result(request)
+
+    provider = _make_provider()
+    provider.generate = AsyncMock(return_value=result)
+
+    metrics_service = MagicMock(spec=GenerationMetricsService)
+
+    registry = GenerationRegistry(providers=[provider])
+    service = GenerationService(
+        registry=registry,
+        metrics_service=metrics_service,
+    )
+
+    returned = await service.generate(provider=GenerationProvider.GROQ, request=request)
+
+    metrics_service.record.assert_called_once_with(returned)
+
+
+async def test_generate_uses_a_default_metrics_service_when_none_is_wired() -> None:
+    """
+    Unlike artifact_writer/caching_service/guardrail_service (opt-in,
+    None skips them), GenerationService always has a real
+    GenerationMetricsService -- generate() must succeed without one
+    being explicitly passed in.
+    """
+
+    request = _make_request()
+    result = _make_result(request)
+
+    provider = _make_provider()
+    provider.generate = AsyncMock(return_value=result)
+
+    registry = GenerationRegistry(providers=[provider])
+    service = GenerationService(registry=registry)
+
+    returned = await service.generate(provider=GenerationProvider.GROQ, request=request)
+
+    assert returned is result

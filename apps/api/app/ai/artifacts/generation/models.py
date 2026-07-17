@@ -11,6 +11,7 @@ Storage layout:
         guardrails.json     (when GenerationResult.guardrails is set)
         routing.json        (when GenerationResult.metadata["routing"] is set)
         cache.json          (when GenerationResult.metadata["cache"] is set)
+        metrics.json        (Runtime Metrics Integration -- always present)
 """
 
 from __future__ import annotations
@@ -24,6 +25,7 @@ from app.ai.artifacts.models import ArtifactMetadata
 from app.ai.guardrails.models import GuardrailReport
 from app.ai.runtime.generation.enums import GenerationOperation, GenerationProvider
 from app.ai.runtime.generation.models import GenerationRequest, GenerationStatistics
+from app.ai.runtime.generation.observability.models import GenerationMetricsSnapshot
 from app.ai.runtime.generation.validation.models import ValidationReport
 
 
@@ -109,3 +111,5 @@ class GenerationArtifact(BaseModel):
     routing: GenerationRoutingSnapshot | None = None
 
     cache: GenerationCacheSnapshot | None = None
+
+    metrics: GenerationMetricsSnapshot

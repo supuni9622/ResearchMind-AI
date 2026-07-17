@@ -22,15 +22,42 @@ class ConsistencyValidator(
     OutputValidatorInterface,
 ):
     """
-    Checks referential integrity between an output's `evidence` items
-    and its `sections` (PRD §14) — an evidence item naming a
-    `section_id` must reference a section that actually exists, or it's
+    Checks referential integrity between a source list field (default
+    `sections`) and a referencing list field (default `evidence`) on a
+    runtime output (PRD §14) — a referencing item naming an id via
+    `ref_key` must point at a source item that actually exists, or it's
     an orphan reference.
 
-    Runs only when both `sections` and `evidence` are present as lists
-    and at least one section carries an identifiable id — outputs
-    without that structure have nothing to check.
+    Field names are configurable (default to the Research Runtime
+    Contract's `sections`/`evidence`/`section_id`, its original fixed
+    behavior) so other contracts can reuse this same referential-
+    integrity check against their own list-shaped fields (e.g. the MCP
+    Runtime Contract's `tool_outputs`/`tool_references`) instead of
+    each writing a bespoke version of the same loop.
+
+    Runs only when both list fields are present and at least one
+    source item carries an identifiable id — outputs without that
+    structure have nothing to check.
     """
+
+    def __init__(
+        self,
+        *,
+        list_field: str = "sections",
+        id_keys: tuple[str, ...] = (
+            "id",
+            "section_id",
+        ),
+        ref_list_field: str = "evidence",
+        ref_key: str = "section_id",
+    ) -> None:
+        self._list_field = list_field
+
+        self._id_keys = id_keys
+
+        self._ref_list_field = ref_list_field
+
+        self._ref_key = ref_key
 
     @property
     def name(
@@ -45,56 +72,56 @@ class ConsistencyValidator(
 
         payload = result.parsed_output
 
-        sections = get_list_field(
+        source_items = get_list_field(
             payload,
-            "sections",
+            self._list_field,
         )
 
-        evidence_items = get_list_field(
+        ref_items = get_list_field(
             payload,
-            "evidence",
+            self._ref_list_field,
         )
 
-        if not sections or not evidence_items:
+        if not source_items or not ref_items:
             return ValidatorOutcome()
 
-        known_section_ids = {
-            section_id
-            for item in sections
+        known_ids = {
+            source_id
+            for item in source_items
             if (
-                section_id := item_id(
+                source_id := item_id(
                     item,
-                    "id",
-                    "section_id",
+                    *self._id_keys,
                 )
             )
             is not None
         }
 
-        if not known_section_ids:
+        if not known_ids:
             return ValidatorOutcome()
 
         issues: list[ValidationIssue] = []
 
-        for index, evidence in enumerate(evidence_items):
-            section_ref = get_field(
-                evidence,
-                "section_id",
+        for index, ref_item in enumerate(ref_items):
+            ref_value = get_field(
+                ref_item,
+                self._ref_key,
             )
 
-            if section_ref is not None and section_ref not in known_section_ids:
+            if ref_value is not None and ref_value not in known_ids:
                 issues.append(
                     ValidationIssue(
                         validator=self.name,
                         severity=ValidationSeverity.ERROR,
                         message=(
-                            f"Evidence item {index} references unknown section '{section_ref}'."
+                            f"{self._ref_list_field} item {index} references an "
+                            f"unknown '{self._list_field}' id: '{ref_value}'."
                         ),
                         details={
                             "index": index,
-                            "section_id": section_ref,
-                            "known_sections": sorted(
-                                known_section_ids,
+                            self._ref_key: ref_value,
+                            "known_ids": sorted(
+                                known_ids,
                             ),
                         },
                     )

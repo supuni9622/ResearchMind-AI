@@ -4,7 +4,7 @@ Version: 2.0
 
 Status: Active
 
-**Current Maturity (2026-07-17):** NotebookLM++ + Perplexity Foundation. Hybrid Retrieval, Reranking, Parent Expansion, Compression, Context Guardrails, and strategy-based Prompt Formatting are all implemented — beyond a plain NotebookLM clone and closing in on Perplexity v1. The AI Runtime Platform (Phase 3) is now ~80% complete: Provider Structured Output Integration, a multi-stage Validation Platform integration (input/output/hallucination validators, registry, scoring, `ValidationReport`), regeneration, Prompt Platform bridging, a Routing Platform (scored model catalog, task-based strategies, fallback chains), and a Runtime Caching Platform (L1 exact/L2 semantic/L3 session caching, policy resolution) are done (see Phase 3.1/3.5 below and `docs/architecture/structured-output-platform.md` / `docs/architecture/model-routing-platform.md` / `docs/architecture/runtime-caching-platform.md`). A standalone, platform-wide Guardrails Platform (`app/ai/guardrails/`, see "AI Guardrails" below) is now complete as an MVP foundation. Ladder: `NotebookLM++ → Perplexity v1 (almost here) → Open Deep Research → Manus / Glean`. See `PROJECT_STATUS.md` and `ROADMAP.md` for the authoritative, continuously-updated status; this document tracks the frozen technology decisions and long-range vision.
+**Current Maturity (2026-07-18):** NotebookLM++ + Perplexity Foundation. Hybrid Retrieval, Reranking, Parent Expansion, Compression, Context Guardrails, and strategy-based Prompt Formatting are all implemented — beyond a plain NotebookLM clone and closing in on Perplexity v1. The AI Runtime Platform (Phase 3) is now complete for its Generation slice, per `generation_platform_complexion_prd.md`: Provider Structured Output Integration, a multi-stage Validation Platform integration (input/output/hallucination/runtime validators, registry, scoring, `ValidationReport`, five runtime contracts), an Acceptance/Fail-Fast/Runtime Validation policy layer, regeneration, Prompt Platform bridging, a Routing Platform (scored model catalog, task-based strategies, fallback chains), a Runtime Caching Platform (L1 exact/L2 semantic/L3 session caching, policy resolution), Runtime Metrics Integration, and Artifact persistence are all done (see Phase 3.1/3.5 below and `docs/architecture/structured-output-platform.md` / `docs/architecture/model-routing-platform.md` / `docs/architecture/runtime-caching-platform.md`). Only a `/research` API remains, blocked on a Research Runtime that doesn't exist yet. A standalone, platform-wide Guardrails Platform (`app/ai/guardrails/`, see "AI Guardrails" below) is now complete as an MVP foundation and wired directly into the Generation Platform. Ladder: `NotebookLM++ → Perplexity v1 (almost here) → Open Deep Research → Manus / Glean`. See `PROJECT_STATUS.md` and `ROADMAP.md` for the authoritative, continuously-updated status; this document tracks the frozen technology decisions and long-range vision.
 
 ---
 
@@ -1199,15 +1199,19 @@ Status
 
 # Phase 3 — AI Runtime Platform
 
-**Status:** 🟡 ~80% Complete — Provider Structured Output Integration,
-Validation Platform integration (input/output/hallucination validators,
-a `ValidationRegistry`, weighted scoring, and a `ValidationReport`),
-regeneration, Prompt Platform bridging, a Routing Platform (scored
-model catalog, task-based strategies, capability/policy filtering,
-fallback chains), and a Runtime Caching Platform (L1 exact/L2
-semantic/L3 session caching, policy resolution — see Phase 3.5 below)
-are done. Per-runtime Validation Contracts/Runtime Validators and
-artifacts remain. Tracked in day-to-day docs as
+**Status:** ✅ Complete, per `generation_platform_complexion_prd.md` —
+Provider Structured Output Integration, Validation Platform integration
+(input/output/hallucination/runtime validators, a `ValidationRegistry`,
+weighted scoring, a `ValidationReport`, and five runtime contracts —
+Research/Planner/Reviewer/Agent/MCP), a Validation Policy Layer
+(Acceptance/Fail-Fast/Runtime Validation), regeneration, Prompt
+Platform bridging, a Routing Platform (scored model catalog, task-based
+strategies, capability/policy filtering, fallback chains), a Runtime
+Caching Platform (L1 exact/L2 semantic/L3 session caching, policy
+resolution — see Phase 3.5 below), Runtime Metrics Integration, and
+Artifact persistence (incl. `metrics.json`) are all done. Only a
+`/research` API remains, blocked on a Research Runtime that doesn't
+exist yet. Tracked in day-to-day docs as
 the "Generation Platform" (see `ROADMAP.md` Phase 3.1,
 `phase-3-ai-runtime-roadmap.md` Phase 3.8,
 `docs/architecture/structured-output-platform.md` for Structured
@@ -1227,8 +1231,8 @@ Knowledge retrieval remains inside the Knowledge Platform. Context assembly (com
 
 ## Phase 3.1 — LLM Provider Platform
 
-**Status:** ✅ Provider abstraction, routing, and caching complete; 🟡 structured
-output sub-scope at varying completion (see below)
+**Status:** ✅ Provider abstraction, routing, caching, structured output,
+and validation all complete (see below)
 
 ### Goal
 
@@ -1289,12 +1293,15 @@ Features
   `with_structured_output()` path (OpenAI/Claude/Gemini/Ollama — Groq
   excluded, `langchain-groq` incompatible with the pinned `groq` SDK),
   regenerate-on-invalid-output loop with corrective feedback
-- 🟡 Validation Platform integration — input validators (empty prompt,
+- ✅ Validation Platform integration — input validators (empty prompt,
   token budget, provider limits, context quality), output validators
-  (schema, JSON parseability, citation), a lightweight no-LLM
-  hallucination/groundedness validator, a `ValidationRegistry`, weighted
-  scoring, and a multi-stage `ValidationReport`; per-runtime Contracts/
-  Runtime Validators remain (`validation_platform_prd.md`)
+  (JSON, schema, formatting, completeness, consistency, response size,
+  citation), a lightweight no-LLM hallucination/groundedness validator,
+  five runtime contracts (Research/Planner/Reviewer/Agent/MCP), a
+  `ValidationRegistry`, weighted scoring, a multi-stage
+  `ValidationReport`, and an Acceptance/Fail-Fast/Runtime Validation
+  policy layer — see `validation_platform_prd.md`,
+  `generation_platform_complexion_prd.md`
 
 Deliverable
 
@@ -2912,11 +2919,11 @@ Retrieval (dense + sparse + hybrid RRF, metadata-filtered, parallel) ✅
 Reranking (Voyage AI + CrossEncoder) ✅
    │
    ▼
-Context Platform (Parent Expansion, Adjacent Merge, Compression, Guardrails, Citations, Prompt Formatter) 🟡 ~95%
+Context Platform (Parent Expansion, Adjacent Merge, Compression, Guardrails, Citations, Prompt Formatter) ✅ Complete
    │
    ▼
-Generation Platform (LLM providers, structured output, validation, regeneration, prompt bridge, routing, caching) 🟡 ~80% — /research API, runtime validators/contracts, artifacts remain
+Generation Platform (LLM providers, structured output, validation, policy layer, regeneration, prompt bridge, routing, caching, metrics, artifacts) ✅ Complete, per `generation_platform_complexion_prd.md` — only /research API remains, blocked on a Research Runtime that doesn't exist yet
    │
    ▼
-Guardrails Platform (Input, Retrieval, Generation, Runtime guardrails, Source Trust, policies, scoring, artifacts) ✅ MVP Foundation Complete — standalone, not yet wired into Generation Platform
+Guardrails Platform (Input, Retrieval, Generation, Runtime guardrails, Source Trust, policies, scoring, artifacts) ✅ MVP Foundation Complete — wired into Generation Platform and Context Building Platform, per `guardrail_integration_prd.md`
 ```

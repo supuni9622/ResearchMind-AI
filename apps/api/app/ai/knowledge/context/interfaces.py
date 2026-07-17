@@ -13,5 +13,6 @@ class ContextBuilderInterface(ABC):
     async def build(
         self,
         retrieval: RetrievalResult,
+        query: str | None = None,
     ) -> ContextResult:
         pass

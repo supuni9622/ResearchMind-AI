@@ -2,7 +2,7 @@
 
 **Last Updated:** 2026-07-17
 
-**Current Maturity:** NotebookLM++ + Perplexity Foundation — Hybrid Retrieval, Reranking, Parent Expansion, Compression, Context Guardrails, and Prompt Formatter strategies are all in place, putting the platform ahead of NotebookLM and closing in on a Perplexity v1 experience. A platform-wide Guardrails Platform (input/retrieval/generation/runtime stages, Source Trust, policies, scoring, artifacts) now sits alongside the Validation Platform as a completed foundation layer, and — per `guardrail_integration_prd.md` — is wired directly into both `GenerationService` (input gate before every provider call, full evaluate() report attached to `GenerationResult.guardrails`) and `ContextBuilderService` (retrieval-stage gate before context building). The Generation Platform's Routing Platform (model/provider selection, scored catalog, strategy-weighted fallback chains), Runtime Caching Platform (L1 exact/L2 semantic/L3 session caching, policy resolution, wired into `GenerationService`), and Streaming Platform (canonical event protocol, SSE + WebSocket transports, `stream_generate()`, cache-hit replay) are now complete, bringing Generation to ~85%. Critically, the Generation Platform is now reachable over HTTP for the first time — `POST /api/v1/chat/stream` (SSE) and `/api/v1/chat/ws` (WebSocket) are live, backed by a new minimal Conversation/Message persistence layer. A new, centralized Artifact Platform (`app/ai/artifacts/`, per `artifacts_platform_prd.md`) now persists every generation call, completed stream, and conversation turn as an immutable, versioned, policy-gated artifact in S3 — the canonical execution history layer the ingestion side has always had, now extended to the runtime side; Session/Research/Agent/Evaluation artifacts are built but scaffold-only, since those runtimes don't exist yet. Maturity ladder: `NotebookLM++ → Perplexity v1 (almost here) → Open Deep Research → Manus / Glean`.
+**Current Maturity:** NotebookLM++ + Perplexity Foundation — Hybrid Retrieval, Reranking, Parent Expansion, and Context Guardrails are all in place, putting the platform ahead of NotebookLM and closing in on a Perplexity v1 experience. The Context Platform's Compression stage is now complete end to end (V1-V4 — Token Budget, Embedding Redundancy, LangChain Contextual, and LLM per-chunk summarization — per `context_platform_complexion_prd.md`), with LangChain compression wired into `ContextBuilderService.build()`'s default pipeline behind an opt-in `settings.enable_langchain_compression` flag. A platform-wide Guardrails Platform (input/retrieval/generation/runtime stages, Source Trust, policies, scoring, artifacts) now sits alongside the Validation Platform as a completed foundation layer, and — per `guardrail_integration_prd.md` — is wired directly into both `GenerationService` (input gate before every provider call, full evaluate() report attached to `GenerationResult.guardrails`) and `ContextBuilderService` (retrieval-stage gate before context building). The Generation Platform's Routing Platform (model/provider selection, scored catalog, strategy-weighted fallback chains), Runtime Caching Platform (L1 exact/L2 semantic/L3 session caching, policy resolution, wired into `GenerationService`), and Streaming Platform (canonical event protocol, SSE + WebSocket transports, `stream_generate()`, cache-hit replay) are now complete, bringing Generation to ~85%. Critically, the Generation Platform is now reachable over HTTP for the first time — `POST /api/v1/chat/stream` (SSE) and `/api/v1/chat/ws` (WebSocket) are live, backed by a new minimal Conversation/Message persistence layer. A new, centralized Artifact Platform (`app/ai/artifacts/`, per `artifacts_platform_prd.md`) now persists every generation call, completed stream, and conversation turn as an immutable, versioned, policy-gated artifact in S3 — the canonical execution history layer the ingestion side has always had, now extended to the runtime side; Session/Research/Agent/Evaluation artifacts are built but scaffold-only, since those runtimes don't exist yet. Maturity ladder: `NotebookLM++ → Perplexity v1 (almost here) → Open Deep Research → Manus / Glean`.
 
 ---
 
@@ -656,18 +656,15 @@ Implemented
 
 ## 2.8.3 Compression Platform
 
-**Status:** 🟡 Nearly Complete (V1-V3 done, V4 remains)
+**Status:** ✅ Complete (V1-V4, per `context_platform_complexion_prd.md`)
 
 Implemented
 
 - Provider architecture (`context/compression/interfaces.py`, `models.py`, `enums.py`, `exceptions.py`, `service.py`, `registry.py`, `create.py`)
 - ✅ Token Budget Provider — sorts by score, fits into token budget (V1)
 - ✅ Embedding Compression Provider — drops redundant chunks by embedding similarity (V2)
-- ✅ LangChain Provider — query-aware extraction via `ContextualCompressionRetriever` + `LLMChainExtractor` (V3, `langchain-classic` — these classes moved out of core `langchain` in the 1.x split). A `_StaticDocumentRetriever` adapts the already-retrieved chunk list into the retriever interface `ContextualCompressionRetriever` expects; chunks the LLM extracts nothing relevant from are dropped, and every field but `content` (citations, scores, parent links, risk metadata) survives via `chunk.model_copy()`. The LLM is DI'd via constructor, lazily defaulting to `ChatOpenAI(gpt-5-nano)` off `settings.openai_api_key`. `CompressionStatistics` gained `original_tokens`/`compressed_tokens`/`duration_ms`. `CompressionService.compress()` now catches `CompressionError` from any provider and falls back to the original, uncompressed chunks (an unregistered strategy still raises `ValueError`, unchanged) — compression can no longer break generation. Registered in `create_compression_service()` but not yet part of `ContextBuilderService.build()`'s default pipeline (it's query-aware; `build()` doesn't thread a query through yet). 12 new unit tests (`FakeListChatModel`-faked, no network calls), plus a fallback test in `test_service.py` and an exception-hierarchy test — full repo suite, ruff, and mypy pass clean
-
-Remaining
-
-- ❌ LLM Compression Provider — chunk-level relevant-summary compression (V4)
+- ✅ LangChain Provider — query-aware extraction via `ContextualCompressionRetriever` + `LLMChainExtractor` (V3, `langchain-classic` — these classes moved out of core `langchain` in the 1.x split). A `_StaticDocumentRetriever` adapts the already-retrieved chunk list into the retriever interface `ContextualCompressionRetriever` expects; chunks the LLM extracts nothing relevant from are dropped, and every field but `content` (citations, scores, parent links, risk metadata) survives via `chunk.model_copy()`. The LLM is DI'd via constructor, lazily defaulting to `ChatOpenAI(gpt-5-nano)` off `settings.openai_api_key`. `CompressionStatistics` gained `original_tokens`/`compressed_tokens`/`duration_ms`. `CompressionService.compress()` now catches `CompressionError` from any provider and falls back to the original, uncompressed chunks (an unregistered strategy still raises `ValueError`, unchanged) — compression can no longer break generation. **Now wired into `ContextBuilderService.build()`'s default pipeline**: `build()` takes an optional `query: str | None = None`, threaded into every `CompressionRequest` (embedding-redundancy, the new LangChain stage, token-budget). The LangChain stage itself only runs when both `settings.enable_langchain_compression` is `True` (currently defaults to `True`, but stays a flag rather than unconditional since it's an LLM call requiring an API key) and a `query` was passed; it runs between embedding-redundancy and token-budget, so query-aware extraction shrinks chunks before the final hard token cap. 12 unit tests (`FakeListChatModel`-faked, no network calls), plus a fallback test in `test_service.py` and an exception-hierarchy test
+- ✅ LLM Compression Provider — per-chunk, query-aware relevant-summary compression via the Generation Platform (V4). `LLMCompressionProvider` calls `GenerationService.generate()` once per chunk (never a direct provider call), asking for a concise, query-relevant summary; unlike the LangChain provider, it never drops a chunk — every field but `content` survives via `chunk.model_copy()`, and a chunk falls back to its own original content (not the whole batch) if its summarization call fails, returns empty, or the chunk itself is blank. `LLMCompressionConfig` (`provider: GenerationProvider = GROQ`, `max_tokens: int = 300`, `temperature: float = 0`) controls the call. Its `GenerationService` dependency is lazily constructed on first use (mirrors `LangChainCompressionProvider`'s lazily-built LLM) rather than eagerly at `create_compression_service()` time — eager construction was tried first and surfaced a latent, pre-existing bug: `TokenCounter.__init__` (`generation/observability/token_counter.py`) unconditionally builds a `genai.Client()`, which raises without `GEMINI_API_KEY` configured; no code path had called `create_generation_service()` directly before, so this was previously dormant. Registered in `create_compression_service()` but **not** part of `ContextBuilderService.build()`'s default pipeline — the PRD scopes V4 to "provider implemented," not wired in by default, unlike V3. 13 new unit tests (mocked `GenerationService.generate()`, no network calls)
 
 ## 2.8.4 Context Guardrails
 
@@ -719,11 +716,7 @@ Providers
 
 ## Context Platform Status
 
-~95% complete.
-
-Remaining before Milestone 2.8 closes:
-
-- LLM compression provider (V4)
+✅ 100% complete (Phase 3.7, per `context_platform_complexion_prd.md`).
 
 ---
 
@@ -1207,7 +1200,7 @@ Now wired into the pipeline above: the Guardrails Platform (`app/ai/guardrails/`
 | Phase 2.5 — Vector Store Platform | ✅ Complete |
 | Phase 2.6 — Indexing Platform (Hybrid Retrieval) | ✅ Complete |
 | Phase 2.7 — Retrieval Platform | ✅ Complete (incl. Metadata Filtering + Reranking + Parallel Retrieval) |
-| Phase 2.8 — Context Platform | 🟡 ~95% Complete (Parent Expansion, Adjacent Merge, Compression V1/V2/V3, Guardrails V1, Citations, Prompt Formatter done; LLM compression (V4) remains) |
+| Phase 2.8 — Context Platform | ✅ Complete (Parent Expansion, Adjacent Merge, Compression V1-V4, LangChain compression wired into `build()`'s default pipeline, Guardrails V1, Citations, Prompt Formatter — Phase 3.7, `context_platform_complexion_prd.md`) |
 | Phase 2.9 — Generation Platform | 🟡 ~85% Complete (Structured Output Integration, Validation Platform integration incl. input/output/hallucination/runtime validators + scoring, Regeneration, Prompt Platform bridge, Routing Platform, Runtime Caching Platform, Streaming Platform (SSE+WS chat, wired), Artifact Platform (generation results persisted) done; /research API remains) |
 | Milestone 11.16 — Guardrails Platform | ✅ Complete (MVP Foundation — input/retrieval/generation/runtime guardrails, Source Trust, policies, scoring, artifacts) + ✅ Integrated into `GenerationService`/`ContextBuilderService` (runtime stage still has no live caller) |
 | Milestone 3.10 — Artifact Platform | ✅ Generation/Streaming/Conversation artifacts complete and wired (`GenerationService`, `StreamingService`, `chat.py`) — 🟡 Session/Research/Agent/Evaluation artifacts built but scaffold-only (no runtime exists yet to call them) |
@@ -1216,6 +1209,8 @@ Now wired into the pipeline above: the Guardrails Platform (`app/ai/guardrails/`
 ---
 
 # Recently Completed
+
+✅ Context Platform Completion (Phase 3.7, per `context_platform_complexion_prd.md`) — closes out the Context Platform at 100%. Two deliverables: (1) **LangChain compression wiring** — `ContextBuilderService.build()` now takes an optional `query: str | None = None`, threaded into every `CompressionRequest` it builds (embedding-redundancy, the new LangChain stage, token-budget); a new `CompressionStrategy.LANGCHAIN_CONTEXTUAL` stage runs between embedding-redundancy and token-budget, gated by a new `settings.enable_langchain_compression` flag (currently defaults to `True`, but stays a flag rather than unconditional since it's an LLM call requiring an API key) and only when a `query` was actually passed. (2) **LLM Compression Provider (V4)** — `LLMCompressionProvider` is no longer a `NotImplementedError` stub: it calls `GenerationService.generate()` once per chunk (reusing the Generation Platform, no direct provider calls) asking for a concise, query-relevant summary, controlled by a new `LLMCompressionConfig` (`provider: GenerationProvider = GROQ`, `max_tokens: int = 300`, `temperature: float = 0`). Unlike the LangChain provider (which drops irrelevant chunks), V4 never drops a chunk and falls back to that individual chunk's original content — not the whole batch — on a per-chunk failure, empty summary, or blank input; every field but `content` survives via `chunk.model_copy()`. Registered in `create_compression_service()` but intentionally not wired into `build()`'s default pipeline, matching the PRD's narrower scope for V4 ("provider implemented" vs. V3's "wired into default pipeline"). `LLMCompressionProvider`'s `GenerationService` dependency is lazily constructed on first use (mirrors `LangChainCompressionProvider`'s lazily-built LLM) — eager construction at `create_compression_service()` time was tried first and surfaced a latent, pre-existing bug: `TokenCounter.__init__` unconditionally builds a `genai.Client()`, which raises without `GEMINI_API_KEY` configured; no code path had called `create_generation_service()` directly before this, so it was previously dormant. 24 new/changed unit tests (13 for `LLMCompressionProvider`, mocked `GenerationService.generate()`, no network calls; the rest covering `ContextBuilderService`'s new query/LangChain wiring); full repo suite (911 tests), ruff, and mypy pass clean
 
 ✅ Guardrails Platform Integration (per `guardrail_integration_prd.md`) — wired the already-complete Guardrails Platform (Milestone 11.16) into the two live composition roots, introducing no new registries/interfaces/services. `GenerationService` gets an optional `guardrail_service`: `evaluate_input()` gates every `generate()`/`stream_generate()` call before the provider runs, and the full `evaluate()` report lands on a new `GenerationResult.guardrails` field before `ValidationService` runs. `ContextBuilderService` gets an optional `guardrail_platform_service`: `evaluate_retrieval()` gates the raw retrieved chunks before dedup/expansion/compression. `GuardrailService.evaluate()` now persists artifacts via the pre-existing `GuardrailArtifactWriter` (best-effort) and emits `guardrails.started/completed/blocked/failed` events plus six new Prometheus-shaped counters through the same `MetricsRecorder` interface the Upload platform already used. 14 new unit tests; full repo suite (854 tests), ruff, and mypy pass clean
 
@@ -1301,12 +1296,10 @@ Now wired into the pipeline above: the Guardrails Platform (`app/ai/guardrails/`
 
 # Current Focus
 
-## Phase 2.8 — Context Platform (wrapping up) + Phase 2.9 — Generation Platform (~85% complete, in progress)
+## Phase 2.8 — Context Platform (✅ complete) + Phase 2.9 — Generation Platform (~85% complete, in progress)
 
-Parent Expansion, Adjacent Merge, Token Budget + Embedding + LangChain Compression, Guardrails V1, Citations, and Prompt Formatter are all implemented (see Milestone 2.8 above), bringing the Context Platform to ~95% complete. Remaining scope to close it out:
+Parent Expansion, Adjacent Merge, Token Budget + Embedding + LangChain + LLM Compression (V1-V4), Guardrails V1, Citations, and Prompt Formatter are all implemented (see Milestone 2.8 above), bringing the Context Platform to 100% complete (Phase 3.7, `context_platform_complexion_prd.md`) — `ContextBuilderService.build()` now takes an optional `query` and, when `settings.enable_langchain_compression` is on, runs query-aware LangChain compression as part of its default pipeline. Remaining nearby scope (not part of Phase 3.7):
 
-- LLM compression provider (V4 — chunk-level relevant-summary compression)
-- Wire the LangChain compression provider (V3) into `ContextBuilderService.build()`'s default pipeline (it's registered but not yet called — `build()` doesn't thread a query through to compression today)
 - Forward `HybridRetrieveRequest.rerank` from the `/retrieve/hybrid` endpoint into `RetrievalService.search_hybrid` (it currently always uses the service's `rerank=True` default regardless of the request body)
 - Retrieval result cache
 - Scaling the retrieval benchmark dataset (5 → 20-50 documents, 20 → 100 queries, chunk-level relevance) — see `README.md` TODO
@@ -1334,10 +1327,10 @@ Reranking ✅
 
 ↓
 
-Context Platform (~95%) 🟡
+Context Platform (100%) ✅
   Parent Expansion ✅
   Adjacent Merge ✅
-  Compression (Token Budget + Embedding + LangChain) ✅ — not yet wired into build()'s default pipeline; LLM compression (V4) ⏳
+  Compression (Token Budget + Embedding + LangChain + LLM, V1-V4) ✅ — LangChain wired into build()'s default pipeline (opt-in via settings.enable_langchain_compression)
   Guardrails V1 ✅
   Citation Platform ✅
   Prompt Formatter ✅

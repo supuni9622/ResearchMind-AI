@@ -306,7 +306,7 @@ APIs: `POST /retrieve`, `POST /retrieve/sparse`, `POST /retrieve/hybrid`.
 
 Status: COMPLETE
 
-🟨 Phase 2.6 — Context Platform (~95% Complete)
+✅ Phase 2.6 — Context Platform (Complete — Phase 3.7, `context_platform_complexion_prd.md`)
 Parent Expansion ✅
 
 ↓
@@ -315,7 +315,7 @@ Adjacent Merge ✅
 
 ↓
 
-Compression (Token Budget + Embedding + LangChain) ✅ — LLM compression ❌
+Compression (Token Budget + Embedding + LangChain + LLM, V1-V4) ✅
 
 ↓
 
@@ -331,15 +331,17 @@ Prompt Formatter ✅
 
 Implemented: `ChunkArtifactReader`, `ParentExpansionService`,
 `AdjacentMergeService`, Token Budget + Embedding + LangChain
-(`ContextualCompressionRetriever` + `LLMChainExtractor`) Compression
+(`ContextualCompressionRetriever` + `LLMChainExtractor`) + LLM
+(per-chunk `GenerationService.generate()` summarization) Compression
 providers, `RuleBasedGuardrailProvider` with risk scoring, citation IDs/pages/
 headings/chunk IDs, and strategy-based prompt formatting (`DEFAULT`,
-`NOTEBOOKLM`, `PERPLEXITY`, `RESEARCH`, `AGENT`).
+`NOTEBOOKLM`, `PERPLEXITY`, `RESEARCH`, `AGENT`). The LangChain compression
+provider (V3) is now wired into `ContextBuilderService.build()`'s default
+pipeline, gated by `settings.enable_langchain_compression` and gated on a
+`query` being passed; the LLM provider (V4) is implemented and registered
+but intentionally not part of the default pipeline.
 
-Not started: LLM compression (V4). The LangChain compression provider (V3)
-is implemented but not yet wired into the default pipeline.
-
-Status: IN PROGRESS
+Status: COMPLETE
 
 🟨 Phase 2.7 — Generation Platform (~85% complete — structured output, validation, regeneration, prompt bridge, routing, caching, streaming, and artifacts done; per-runtime validators/contracts remain unwired, /research API remains)
 Prompt Context

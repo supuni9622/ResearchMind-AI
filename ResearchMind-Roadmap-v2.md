@@ -1046,11 +1046,11 @@ Retrieval benchmark suite.
 
 2.8 Knowledge Platform Integration 🚧 In Progress
 
-2.9 Context Platform 🟡 ~95% Complete
+2.9 Context Platform ✅ Complete (Phase 3.7, `context_platform_complexion_prd.md`)
 
     • ✅ Parent Expansion (`ChunkArtifactReader`, `ParentExpansionService`)
     • ✅ Adjacent Merge (`AdjacentMergeService`)
-    • 🟡 Compression — Token Budget (V1) ✅, Embedding Redundancy (V2) ✅, LangChain (V3) ✅ (`ContextualCompressionRetriever` + `LLMChainExtractor`, registered but not yet in `ContextBuilderService.build()`'s default pipeline), LLM Compression (V4) ❌
+    • ✅ Compression — Token Budget (V1), Embedding Redundancy (V2), LangChain (V3, `ContextualCompressionRetriever` + `LLMChainExtractor`, wired into `ContextBuilderService.build()`'s default pipeline behind `settings.enable_langchain_compression`), LLM Compression (V4, per-chunk `GenerationService.generate()` summarization, registered but not part of the default pipeline)
     • ✅ Context Guardrails V1 (`RuleBasedGuardrailProvider`, risk scoring, statistics)
     • ✅ Citation Platform (citation IDs, pages, headings, chunk IDs)
     • ✅ Prompt Formatter (`DEFAULT`, `NOTEBOOKLM`, `PERPLEXITY`, `RESEARCH`, `AGENT`)
@@ -1059,9 +1059,6 @@ Retrieval benchmark suite.
     Retrieval Platform (2.6) into the Context Platform, since ResearchMind's
     persisted chunk artifacts — not the vector index — are the source of
     truth for parent resolution.
-
-    Remaining: LLM compression provider (V4); wiring the LangChain compression
-    provider (V3) into the default pipeline.
 
 ---
 

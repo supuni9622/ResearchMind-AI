@@ -52,6 +52,15 @@ from app.ai.guardrails.registry import GuardrailRegistry
 from app.ai.guardrails.service import GuardrailService
 from app.ai.knowledge.context.citations.service import CitationService
 from app.ai.knowledge.context.compression.create import create_compression_service
+from app.ai.knowledge.context.compression.enums import CompressionStrategy
+from app.ai.knowledge.context.compression.exceptions import CompressionProviderError
+from app.ai.knowledge.context.compression.models import CompressionResult, CompressionStatistics
+from app.ai.knowledge.context.compression.providers.embedding import EmbeddingCompressionProvider
+from app.ai.knowledge.context.compression.providers.token_budget import (
+    TokenBudgetCompressionProvider,
+)
+from app.ai.knowledge.context.compression.registry import CompressionRegistry
+from app.ai.knowledge.context.compression.service import CompressionService
 from app.ai.knowledge.context.formatter.create import create_prompt_formatter_service
 from app.ai.knowledge.context.guardrails.create import create_context_guardrail_service
 from app.ai.knowledge.context.models import ContextChunk
@@ -317,5 +326,140 @@ async def test_build_skips_retrieval_guardrails_when_none_wired() -> None:
     chunk = _make_chunk(content="unique payload text")
 
     result = await service.build(_make_retrieval_result([chunk]))
+
+    assert len(result.prompt_context.chunks) == 1
+
+
+# ==============================================================
+# Query-aware compression wiring (context_platform_complexion_prd.md)
+# ==============================================================
+
+
+def _make_service_with_compression(
+    compression_service: CompressionService,
+) -> ContextBuilderService:
+    return ContextBuilderService(
+        parent_expansion_service=_identity_parent_expansion(),
+        compression_service=compression_service,
+        citation_service=CitationService(),
+        guardrail_service=create_context_guardrail_service(),
+        prompt_formatter=create_prompt_formatter_service(),
+    )
+
+
+def _spy_registry(langchain_provider) -> CompressionRegistry:
+    registry = CompressionRegistry()
+    registry.register(CompressionStrategy.EMBEDDING_REDUNDANCY, EmbeddingCompressionProvider())
+    registry.register(CompressionStrategy.TOKEN_BUDGET, TokenBudgetCompressionProvider())
+    registry.register(CompressionStrategy.LANGCHAIN_CONTEXTUAL, langchain_provider)
+    return registry
+
+
+def _passthrough_langchain_provider() -> AsyncMock:
+    provider = AsyncMock()
+    provider.compress = AsyncMock(
+        side_effect=lambda request: CompressionResult(
+            strategy=CompressionStrategy.LANGCHAIN_CONTEXTUAL,
+            chunks=request.chunks,
+            statistics=CompressionStatistics(),
+        )
+    )
+    return provider
+
+
+async def test_build_passes_query_into_compression_requests() -> None:
+    embedding_provider = EmbeddingCompressionProvider()
+    token_budget_provider = TokenBudgetCompressionProvider()
+    embedding_spy = AsyncMock(side_effect=embedding_provider.compress)
+    token_budget_spy = AsyncMock(side_effect=token_budget_provider.compress)
+    langchain_provider = _passthrough_langchain_provider()
+    registry = CompressionRegistry()
+    registry.register(CompressionStrategy.EMBEDDING_REDUNDANCY, MagicMock(compress=embedding_spy))
+    registry.register(CompressionStrategy.TOKEN_BUDGET, MagicMock(compress=token_budget_spy))
+    registry.register(CompressionStrategy.LANGCHAIN_CONTEXTUAL, langchain_provider)
+    service = _make_service_with_compression(CompressionService(registry=registry))
+
+    chunk = _make_chunk(content="unique payload text")
+
+    # Pinned explicitly rather than relying on the global default, since
+    # this test only cares about query propagation, not the gate itself
+    # (see the dedicated enable_langchain_compression tests below).
+    with patch("app.ai.knowledge.context.service.settings") as mock_settings:
+        mock_settings.enable_langchain_compression = True
+
+        await service.build(_make_retrieval_result([chunk]), query="what is rag?")
+
+    embedding_call = embedding_spy.await_args
+    token_budget_call = token_budget_spy.await_args
+    assert embedding_call is not None
+    assert token_budget_call is not None
+    assert embedding_call.args[0].query == "what is rag?"
+    assert langchain_provider.compress.await_args.args[0].query == "what is rag?"
+    assert token_budget_call.args[0].query == "what is rag?"
+
+
+async def test_build_skips_langchain_compression_when_disabled() -> None:
+    langchain_provider = _passthrough_langchain_provider()
+    service = _make_service_with_compression(
+        CompressionService(registry=_spy_registry(langchain_provider))
+    )
+
+    chunk = _make_chunk(content="unique payload text")
+
+    with patch("app.ai.knowledge.context.service.settings") as mock_settings:
+        mock_settings.enable_langchain_compression = False
+
+        await service.build(_make_retrieval_result([chunk]), query="what is rag?")
+
+    langchain_provider.compress.assert_not_awaited()
+
+
+async def test_build_skips_langchain_compression_without_a_query_even_when_enabled() -> None:
+    langchain_provider = _passthrough_langchain_provider()
+    service = _make_service_with_compression(
+        CompressionService(registry=_spy_registry(langchain_provider))
+    )
+
+    chunk = _make_chunk(content="unique payload text")
+
+    with patch("app.ai.knowledge.context.service.settings") as mock_settings:
+        mock_settings.enable_langchain_compression = True
+
+        await service.build(_make_retrieval_result([chunk]))
+
+    langchain_provider.compress.assert_not_awaited()
+
+
+async def test_build_runs_langchain_compression_when_enabled_with_a_query() -> None:
+    langchain_provider = _passthrough_langchain_provider()
+    service = _make_service_with_compression(
+        CompressionService(registry=_spy_registry(langchain_provider))
+    )
+
+    chunk = _make_chunk(content="unique payload text")
+
+    with patch("app.ai.knowledge.context.service.settings") as mock_settings:
+        mock_settings.enable_langchain_compression = True
+
+        result = await service.build(_make_retrieval_result([chunk]), query="what is rag?")
+
+    langchain_provider.compress.assert_awaited_once()
+    assert langchain_provider.compress.await_args.args[0].query == "what is rag?"
+    assert len(result.prompt_context.chunks) == 1
+
+
+async def test_build_falls_back_when_langchain_compression_fails() -> None:
+    langchain_provider = AsyncMock()
+    langchain_provider.compress = AsyncMock(side_effect=CompressionProviderError("boom"))
+    service = _make_service_with_compression(
+        CompressionService(registry=_spy_registry(langchain_provider))
+    )
+
+    chunk = _make_chunk(content="unique payload text")
+
+    with patch("app.ai.knowledge.context.service.settings") as mock_settings:
+        mock_settings.enable_langchain_compression = True
+
+        result = await service.build(_make_retrieval_result([chunk]), query="what is rag?")
 
     assert len(result.prompt_context.chunks) == 1

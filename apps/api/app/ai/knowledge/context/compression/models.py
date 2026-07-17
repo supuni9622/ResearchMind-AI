@@ -6,7 +6,20 @@ from app.ai.knowledge.context.compression.enums import (
 from app.ai.knowledge.context.models import (
     ContextChunk,
 )
+from app.ai.runtime.generation.enums import (
+    GenerationProvider,
+)
 from pydantic import BaseModel, ConfigDict
+
+
+class LLMCompressionConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    provider: GenerationProvider = GenerationProvider.GROQ
+
+    max_tokens: int = 300
+
+    temperature: float = 0.0
 
 
 class CompressionRequest(BaseModel):

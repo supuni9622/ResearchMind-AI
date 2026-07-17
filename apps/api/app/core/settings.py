@@ -161,5 +161,11 @@ class Settings(BaseSettings):
     session_cache_enabled: bool = True
     session_cache_default_ttl_seconds: int = 60 * 60 * 6
 
+    # ==========================================================================
+    # Context Compression
+    # ==========================================================================
+
+    enable_langchain_compression: bool = True
+
 
 settings = Settings()  # pyright: ignore[reportCallIssue]

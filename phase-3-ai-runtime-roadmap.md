@@ -273,14 +273,14 @@ Context Building prepares knowledge.
 - ✅ Compression Platform Foundation
 - ✅ Token Budget Compression (V1)
 - ✅ Embedding Redundancy Compression (V2)
-- ✅ LangChain Contextual Compression (V3) — `ContextualCompressionRetriever` + `LLMChainExtractor` (`langchain-classic`); registered but not yet part of `ContextBuilderService.build()`'s default pipeline
+- ✅ LangChain Contextual Compression (V3) — `ContextualCompressionRetriever` + `LLMChainExtractor` (`langchain-classic`); wired into `ContextBuilderService.build()`'s default pipeline, gated by `settings.enable_langchain_compression` and gated on a `query` being passed
+- ✅ LLM Compression (V4) — per-chunk, query-aware relevant-summary compression via `GenerationService.generate()`; registered in `create_compression_service()` but intentionally not part of `build()`'s default pipeline
 - ✅ Context Guardrails (V1) — provider architecture, `RuleBasedGuardrailProvider`, risk scoring, statistics
 - ✅ Citation Platform — citation IDs, pages, headings, chunk IDs
 - ✅ Prompt Formatter — strategy-based (`DEFAULT`, `NOTEBOOKLM`, `PERPLEXITY`, `RESEARCH`, `AGENT`)
 
 ### Future
 
-- LLM compression (V4)
 - Inline citations, source highlighting, citation evaluation
 - LlamaGuard, NeMo Guardrails, Lakera (Guardrails V2)
 
@@ -356,7 +356,7 @@ ContextualCompressionRetriever
 
 Status:
 
-✅ Complete — `ContextualCompressionRetriever` + `LLMChainExtractor` (`langchain-classic`); registered in `create_compression_service()` but not yet part of `ContextBuilderService.build()`'s default pipeline (it's query-aware and `build()` doesn't thread a query through yet)
+✅ Complete — `ContextualCompressionRetriever` + `LLMChainExtractor` (`langchain-classic`); registered in `create_compression_service()` and wired into `ContextBuilderService.build()`'s default pipeline, gated by `settings.enable_langchain_compression` and gated on a `query` being passed
 
 ---
 
@@ -372,6 +372,10 @@ Relevant Summary
 Compressed Chunk
 ```
 
+Status:
+
+✅ Complete — `LLMCompressionProvider` calls `GenerationService.generate()` once per chunk (never a direct provider call), asking for a concise, query-relevant summary; never drops a chunk, falls back per-chunk to original content on failure. Registered in `create_compression_service()` but intentionally not part of `build()`'s default pipeline (unlike V3)
+
 ---
 
 ## Deliverables
@@ -382,15 +386,11 @@ Compressed Chunk
 - ✅ ChunkArtifactReader
 - ✅ ParentExpansionService
 - ✅ AdjacentMergeService
-- ✅ Compression Platform (Token Budget + Embedding + LangChain, V1/V2/V3)
+- ✅ Compression Platform (Token Budget + Embedding + LangChain + LLM, V1-V4)
 - ✅ Context Guardrails (V1)
 - ✅ Citation Platform
 - ✅ Prompt Formatter
-
-### Remaining
-
-- ❌ LLM Compression Provider (V4)
-- Wiring the LangChain Compression Provider (V3) into `ContextBuilderService.build()`'s default pipeline
+- ✅ LangChain Compression Provider (V3) wired into `ContextBuilderService.build()`'s default pipeline
 
 # Phase 3.8 — Generation Platform
 
@@ -656,7 +656,7 @@ Milestone	Platform	Deliverables	Status
 3.4	Retrieval Strategies	Parallel Retrieval, Runtime Query Decomposition	✅ Parallel Retrieval complete (Query Decomposition moved to 3.11)
 3.5	Result Processing	Metadata filtering, Top-K	✅ Complete
 3.6	Reranking Platform	Voyage, CrossEncoder	✅ Complete
-3.7	Context Building Platform	Parent Expansion, Merge, Compression, Guardrails, Citations, Prompt Formatter	🟡 ~95% Complete (LLM compression (V4) remains)
+3.7	Context Building Platform	Parent Expansion, Merge, Compression, Guardrails, Citations, Prompt Formatter	✅ Complete (Compression V1-V4, LangChain wired into default pipeline)
 3.8	Generation Platform	Multi-provider LLM runtime, structured output, validation, regeneration, routing, caching, streaming, artifacts	🟡 ~85% Complete — runtime validators/contracts remain unwired, pending a /research API
 3.9	Research APIs	/research, streaming, citations	❌ Not Started
 3.10	Evaluation Platform	Groundedness, Hallucinations, Citation Accuracy	🟡 Retrieval evaluation complete

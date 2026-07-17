@@ -47,6 +47,7 @@ from app.ai.knowledge.context.models import (
 from app.ai.knowledge.retrieval.models import (
     RetrievalResult,
 )
+from app.core.settings import settings
 
 
 class ContextBuilderService(
@@ -91,6 +92,7 @@ class ContextBuilderService(
     async def build(
         self,
         retrieval: RetrievalResult,
+        query: str | None = None,
     ) -> ContextResult:
 
         started = perf_counter()
@@ -141,23 +143,44 @@ class ContextBuilderService(
             request=(
                 CompressionRequest(
                     chunks=chunks,
+                    query=query,
                 )
             ),
         )
 
         chunks = embedding_result.chunks
 
+        removed_chunks = embedding_result.statistics.removed_chunks
+
+        if settings.enable_langchain_compression and query:
+            langchain_result = await self._compression.compress(
+                strategy=(CompressionStrategy.LANGCHAIN_CONTEXTUAL),
+                request=(
+                    CompressionRequest(
+                        chunks=chunks,
+                        query=query,
+                    )
+                ),
+            )
+
+            chunks = langchain_result.chunks
+
+            removed_chunks += langchain_result.statistics.removed_chunks
+
         compression_result = await self._compression.compress(
             strategy=(CompressionStrategy.TOKEN_BUDGET),
             request=(
                 CompressionRequest(
                     chunks=chunks,
+                    query=query,
                     max_tokens=6000,
                 )
             ),
         )
 
         chunks = compression_result.chunks
+
+        removed_chunks += compression_result.statistics.removed_chunks
 
         # Guardrails
         guardrail_result = await self._guardrails.validate(
@@ -191,10 +214,7 @@ class ContextBuilderService(
             statistics=ContextStatistics(
                 input_chunks=(len(retrieval.chunks)),
                 output_chunks=(len(chunks)),
-                compressed_chunks=(
-                    embedding_result.statistics.removed_chunks
-                    + compression_result.statistics.removed_chunks
-                ),
+                compressed_chunks=(removed_chunks),
                 total_tokens=(sum(len(chunk.content) // 4 for chunk in chunks)),
                 duration_ms=(duration_ms),
                 suspicious_chunks=(guardrail_result.statistics.suspicious_chunks),

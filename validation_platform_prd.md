@@ -9,7 +9,7 @@ Target Builder: Claude Code
 
 ---
 
-Implementation Status (as of 2026-07-16): Input, Output, and
+Implementation Status (as of 2026-07-17): Input, Output, and
 Hallucination Validation (Sections 8–10) are implemented under
 `generation/validation/` (part of the Generation Platform, not yet its
 own top-level platform), along with the `ValidationRegistry` (Section
@@ -25,16 +25,30 @@ Fast" intent — only reacts to the output stage: input-stage issues
 describe the request itself, not something regenerating the same
 request fixes.
 
-Not implemented: Runtime Validators (per-runtime contracts, Section
-11) and the Contracts layer (Section 12) — `ValidationStage.RUNTIME`
-and `ValidationReport.runtime_validation` exist as placeholders,
-always `None` today; the Acceptance/Fail-Fast policy objects from
-Section 16 (regeneration is still governed by `GenerationService`
-directly, as above); and the standalone `validation/` top-level folder
-structure described in Section 6 (the current implementation lives
-inside `generation/validation/`, following the Generation Platform's
-existing module layout rather than this PRD's proposed independent
-platform structure). See `docs/architecture/structured-output-platform.md`
+Runtime Validators (per-runtime contracts, Section 11) and the
+Contracts layer (Section 12) are now implemented too, per
+`runtime_validation_prd.md` — see `generation/validation/runtime/`: a
+`RuntimeType` enum (`GenerationRequest.runtime`), a `RuntimeRegistry`
++ `RuntimeValidationService` (composed into `ValidationRegistry`/
+`ValidationService` as a fourth stage), five generic, reusable
+validators (completeness, consistency, confidence, evidence, citation),
+and the first concrete contract, `ResearchRuntimeContract`. Planner/
+Reviewer/Agent/MCP contracts remain future work (`runtime_validation_prd.md`
+§16–19). `ValidationStage.RUNTIME` and `ValidationReport.runtime_validation`
+are populated whenever `GenerationRequest.runtime` is set and a
+matching contract is registered; both stay unset/`None` otherwise
+(e.g. no caller sets `runtime` yet — see Not implemented, below).
+
+Not implemented: the Acceptance/Fail-Fast policy objects from Section
+16 (regeneration is still governed by `GenerationService` directly, as
+above); the standalone `validation/` top-level folder structure
+described in Section 6 (the current implementation lives inside
+`generation/validation/`, following the Generation Platform's existing
+module layout rather than this PRD's proposed independent platform
+structure); and any caller actually setting `GenerationRequest.runtime`
+(e.g. a `/research` API) — the Research Runtime Contract exists and is
+registered, but nothing in the request path populates `runtime` yet,
+so it never runs outside tests. See `docs/architecture/structured-output-platform.md`
 → "Validation Platform Integration" for the current, continuously-updated
 state of what exists today. This PRD remains the target design for when
 Validation is promoted to a standalone, runtime-shared platform.

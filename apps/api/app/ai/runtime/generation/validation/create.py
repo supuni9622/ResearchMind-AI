@@ -30,6 +30,9 @@ from app.ai.runtime.generation.validation.output.schema_validator import (
 from app.ai.runtime.generation.validation.registry import (
     ValidationRegistry,
 )
+from app.ai.runtime.generation.validation.runtime.contracts.research import (
+    ResearchRuntimeContract,
+)
 from app.ai.runtime.generation.validation.service import (
     ValidationService,
 )
@@ -83,6 +86,14 @@ def create_validation_registry() -> ValidationRegistry:
 
     registry.register_hallucination_validator(
         HallucinationValidator(),
+    )
+
+    #
+    # Runtime
+    #
+
+    registry.register_runtime_contract(
+        ResearchRuntimeContract(),
     )
 
     return registry

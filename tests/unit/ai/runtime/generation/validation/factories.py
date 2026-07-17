@@ -20,6 +20,7 @@ from app.ai.runtime.generation.models import (
     GenerationResult,
     GenerationStatistics,
 )
+from app.ai.runtime.generation.validation.runtime.enums import RuntimeType
 
 _DOCUMENT_ID: UUID = uuid4()
 
@@ -78,6 +79,7 @@ def make_request(
     tools: list | None = None,
     cache_runtime: CacheRuntime | None = None,
     cache_policy: CachePolicy | None = None,
+    runtime: RuntimeType | None = None,
 ) -> GenerationRequest:
     return GenerationRequest(
         prompt_context=prompt_context or make_prompt_context(),
@@ -90,6 +92,7 @@ def make_request(
         tools=tools or [],
         cache_runtime=cache_runtime,
         cache_policy=cache_policy,
+        runtime=runtime,
     )
 
 

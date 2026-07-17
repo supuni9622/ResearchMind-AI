@@ -790,7 +790,7 @@ Implemented
 
 ## 2.9.4 Validation Platform Integration
 
-**Status:** 🟡 In Progress (Input/Output/Hallucination stage validators, a `ValidationRegistry`, weighted scoring, and a multi-stage `ValidationReport` done; per-runtime Contracts/Runtime Validators and a few PRD output checks remain)
+**Status:** 🟡 In Progress (Input/Output/Hallucination/Runtime stage validators, a `ValidationRegistry`, weighted scoring, and a multi-stage `ValidationReport` done; a few PRD output checks and the Acceptance/Fail-Fast policy layer remain)
 
 Implemented (`generation/validation/` — a narrow slice of `validation_platform_prd.md`'s full target design, still living inside the Generation Platform rather than as its own top-level platform; see that PRD's Implementation Status note and `docs/architecture/structured-output-platform.md` → "Validation Platform Integration" for full detail)
 
@@ -801,12 +801,14 @@ Implemented (`generation/validation/` — a narrow slice of `validation_platform
 - Output validators — `SchemaValidator` (`parsed_output` vs. `request.output_schema` via `jsonschema`, added `jsonschema` + `types-jsonschema` dependencies), `JsonValidator` (new — is `content` itself valid/repairable/unparseable JSON, independent of `SchemaValidator`'s shape check), `CitationValidator` (bracketed `[S1]`-style markers vs. `request.prompt_context.citations`/`chunks`, catching fabricated citations)
 - Hallucination validator — `HallucinationValidator` (new — deterministic lexical-overlap groundedness score against retrieved context, no LLM judge, WARNING-only to keep the false-positive rate low)
 - Regeneration only reacts to `output_validation.valid` — input-stage issues (token budget, missing capability) describe the request, not the response, so re-generating with the same request wouldn't fix them; hallucination issues are WARNING-only and never gate it either
+- Runtime Validators + Contracts layer (`generation/validation/runtime/`, per `runtime_validation_prd.md`) — a fourth `ValidationStage.RUNTIME` stage, resolved from a new `GenerationRequest.runtime: RuntimeType | None` field: `RuntimeRegistry` (per-`RuntimeType` contract/validator lookup) and `RuntimeValidationService` (crash-safe execution + aggregation, composed into `ValidationRegistry`/`ValidationService`), five generic reusable validators (`CompletenessValidator`, `ConsistencyValidator`, `ConfidenceValidator`, `EvidenceValidator`, `RuntimeCitationValidator`), and the first concrete contract, `ResearchRuntimeContract` (summary/≥2 sections/≥1 citation/≥1 evidence/confidence in `[0,1]`), all merged into one `ValidatorOutcome` tagged `"research_contract"`. `compute_overall_score()` already had a `runtime_score` weight (0.20) reserved for this. Nothing in the request path sets `GenerationRequest.runtime` yet, so the stage stays a no-op (`None`/trivially valid) until a caller (e.g. a future `/research` API) does. 109 new unit tests
+- Planner/Reviewer/Agent/MCP runtime contracts remain future work (`runtime_validation_prd.md` §16–19)
 
 Remaining
 
-- ❌ Runtime Validators (per-runtime contracts: research/planner/reviewer/agent/mcp) and the Contracts layer
-- ❌ Completeness / Consistency / Formatting / Response Size output checks (PRD §9 — no stub files for these ever existed, unlike `json_validator.py`/`hallucination_validator.py`)
+- ❌ Completeness / Consistency / Formatting / Response Size *output*-stage checks (PRD §9 — no stub files for these ever existed, unlike `json_validator.py`/`hallucination_validator.py`; distinct from the runtime-stage validators of the same name above)
 - ❌ Acceptance/Fail-Fast policy objects (regeneration is still governed directly inside `GenerationService`, as below)
+- ❌ Any caller setting `GenerationRequest.runtime` (e.g. a `/research` API) so the new runtime stage actually executes outside tests
 
 ## 2.9.5 Regeneration Strategy
 
@@ -921,7 +923,7 @@ Documentation
 
 - ❌ `POST /research` API (chat streaming is now implemented — see Milestone 2.9.10)
 - ❌ Artifact persistence
-- ❌ Runtime Validators / Contracts layer, Completeness/Consistency/Formatting/Response-Size output checks (see Milestone 2.9.4)
+- ❌ Completeness/Consistency/Formatting/Response-Size *output*-stage checks; Acceptance/Fail-Fast policy objects (see Milestone 2.9.4) — Runtime Validators/Contracts are now done (Milestone 2.9.4), just unreachable until a caller sets `GenerationRequest.runtime`
 - ❌ Adaptive/evaluation-driven routing, budget-aware routing, A/B experimentation (Routing Platform Phase 2+ — see Milestone 2.9.7)
 - ❌ Session Cache wiring — implemented and available (Milestone 2.9.9) but nothing calls it yet
 - ❌ Streaming rate limiting / per-user concurrent-stream cap, real multi-message chat history (Milestone 2.9.10)
@@ -1117,13 +1119,15 @@ Standalone (not yet wired into the pipeline above): the Guardrails Platform (`ap
 | Phase 2.6 — Indexing Platform (Hybrid Retrieval) | ✅ Complete |
 | Phase 2.7 — Retrieval Platform | ✅ Complete (incl. Metadata Filtering + Reranking + Parallel Retrieval) |
 | Phase 2.8 — Context Platform | 🟡 ~95% Complete (Parent Expansion, Adjacent Merge, Compression V1/V2/V3, Guardrails V1, Citations, Prompt Formatter done; LLM compression (V4) remains) |
-| Phase 2.9 — Generation Platform | 🟡 ~85% Complete (Structured Output Integration, Validation Platform integration incl. input/output/hallucination validators + scoring, Regeneration, Prompt Platform bridge, Routing Platform, Runtime Caching Platform, Streaming Platform (SSE+WS chat, wired) done; runtime validators/contracts, artifacts, /research API remain) |
+| Phase 2.9 — Generation Platform | 🟡 ~85% Complete (Structured Output Integration, Validation Platform integration incl. input/output/hallucination/runtime validators + scoring, Regeneration, Prompt Platform bridge, Routing Platform, Runtime Caching Platform, Streaming Platform (SSE+WS chat, wired) done; artifacts, /research API remain) |
 | Milestone 11.16 — Guardrails Platform | ✅ Complete (MVP Foundation — input/retrieval/generation/runtime guardrails, Source Trust, policies, scoring, artifacts; standalone, not yet wired into the generation pipeline) |
 | Benchmark Platform | ✅ Foundation Complete (incl. Retrieval, Metadata Filtering, Reranking Benchmarks) |
 
 ---
 
 # Recently Completed
+
+✅ Runtime Validation Platform (Generation Platform Milestone 2.9.4 extension, per `runtime_validation_prd.md`) — a fourth `ValidationStage.RUNTIME` stage added to the existing Validation Platform, not a separate platform: `generation/validation/runtime/` (`RuntimeType` enum + new `GenerationRequest.runtime` field, `RuntimeRegistry`/`RuntimeValidationService` keyed by `RuntimeType`, five generic reusable validators — completeness, consistency, confidence, evidence, citation — and the first concrete contract, `ResearchRuntimeContract`, composing them into one `ValidatorOutcome` tagged `"research_contract"`). `ValidationRegistry`/`ValidationService` extended (`register_runtime_validator()`/`register_runtime_contract()`, `runtime_validators`, `validate_runtime()`) rather than duplicated; `ValidationService`'s duplicate crash-handling/aggregation logic across stages was extracted into a shared `aggregation.py` in the process. `compute_overall_score()`'s pre-existing `runtime_score` weight (0.20) now actually gets fed. No caller sets `GenerationRequest.runtime` yet (needs a `/research` API), so the stage is a no-op in production today — exercised only by the 109 new unit tests. Full repo suite (840 tests), ruff, and mypy pass clean
 
 ✅ Streaming Platform (Generation Platform Milestone 2.9.10, per `streaming_platform_prd.md`/ADR-028) — Runtime Event Platform (`runtime/events/`: canonical `StreamEvent`, layered event-type model so future runtimes never touch shared code, one shared `GenericStreamChunkAdapter`) + Generation Streaming Platform (`generation/streaming/`: `GenerationService.stream_generate()`, `StreamingService` with cache-hit replay and cache-store-on-complete, SSE transport with heartbeat/timeout-ceiling, WebSocket transport), wired into a new `POST /api/v1/chat/stream` + `/api/v1/chat/ws` (previously an empty, unregistered `chat.py`). Required a new Conversation/Message persistence layer (models, repository, service, migration) since chat needed multi-turn history. Fixed a real bug found during the work: `CachingService` unconditionally bypassed the cache for every streaming request; now streaming participates in caching like any other request, with the hit-replay decision moved to `StreamingService`. Also fixed self-contradictions in the PRD/ADR-028/architecture docs (a flat event-type enum vs. the docs' own layered model, inconsistent `StreamEvent` field counts) before implementing. 24 new unit/integration tests; full repo suite (828 tests), ruff, and mypy pass clean
 
@@ -1215,7 +1219,7 @@ Parent Expansion, Adjacent Merge, Token Budget + Embedding + LangChain Compressi
 - Retrieval result cache
 - Scaling the retrieval benchmark dataset (5 → 20-50 documents, 20 → 100 queries, chunk-level relevance) — see `README.md` TODO
 
-The **Generation Platform** (Milestone 2.9) is now ~85% complete (see Milestone 2.9 above): provider abstraction, Structured Output Integration (native decoding + parser fallback + Markdown/XML registry + LangChain `with_structured_output()`), Validation Platform integration (input/output/hallucination validators, registry, weighted scoring, `ValidationReport`), Regeneration Strategy, a provider-capability guard, Prompt Platform integration, a Routing Platform (scored model catalog, task-based strategies, capability/policy filtering, fallback chains — Milestone 2.9.7), a Runtime Caching Platform (L1 exact/L2 semantic/L3 session caching, policy resolution — Milestone 2.9.9), and now a Streaming Platform (canonical event protocol, SSE + WebSocket transports, wired into a live `POST /api/v1/chat/stream` / `/api/v1/chat/ws` — Milestone 2.9.10) are all done. Remaining before it's complete: `/research` API, artifact persistence, per-runtime Validation Contracts/Runtime Validators, the remaining PRD output checks (completeness/consistency/formatting/response-size), streaming rate limiting, and a real multi-message chat history API. Then Evaluation Platform expansion (Milestone 6) and a LangGraph-based Research Runtime (Milestone 7) follow.
+The **Generation Platform** (Milestone 2.9) is now ~85% complete (see Milestone 2.9 above): provider abstraction, Structured Output Integration (native decoding + parser fallback + Markdown/XML registry + LangChain `with_structured_output()`), Validation Platform integration (input/output/hallucination/runtime validators, registry, weighted scoring, `ValidationReport`, and now per-runtime Validation Contracts — `ResearchRuntimeContract`), Regeneration Strategy, a provider-capability guard, Prompt Platform integration, a Routing Platform (scored model catalog, task-based strategies, capability/policy filtering, fallback chains — Milestone 2.9.7), a Runtime Caching Platform (L1 exact/L2 semantic/L3 session caching, policy resolution — Milestone 2.9.9), and now a Streaming Platform (canonical event protocol, SSE + WebSocket transports, wired into a live `POST /api/v1/chat/stream` / `/api/v1/chat/ws` — Milestone 2.9.10) are all done. Remaining before it's complete: `/research` API (needed for the new runtime stage to actually execute), artifact persistence, the remaining PRD output checks (completeness/consistency/formatting/response-size), streaming rate limiting, and a real multi-message chat history API. Then Evaluation Platform expansion (Milestone 6) and a LangGraph-based Research Runtime (Milestone 7) follow.
 
 The **Guardrails Platform** (Milestone 11.16, see above) is now complete as a standalone MVP foundation — input/retrieval/generation/runtime guardrails, a new Source Trust Platform, policies, weighted risk scoring, and artifact persistence. It is not yet wired into `GenerationService`, the context builder, or a router (the PRD's own "Generation Integration" is explicitly a later phase); `get_guardrail_service()` is the integration seam once that wiring is prioritized.
 
@@ -1249,7 +1253,7 @@ Context Platform (~95%) 🟡
 Generation Platform (~85%) 🟡
   Provider Abstraction (5 providers) ✅
   Structured Output Integration (native + fallback + registry + LangChain) ✅
-  Validation Platform Integration (input/output/hallucination validators, registry, scoring, ValidationReport) 🟡 — runtime validators/contracts, completeness/consistency/formatting/response-size ⏳
+  Validation Platform Integration (input/output/hallucination/runtime validators, registry, scoring, ValidationReport, research runtime contract) 🟡 — completeness/consistency/formatting/response-size (output-stage) ⏳
   Regeneration Strategy ✅
   Provider Capability Guard ✅
   Routing Platform (scored catalog, task-based strategies, fallback chains) ✅

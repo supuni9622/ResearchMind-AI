@@ -1,30 +1,32 @@
 from __future__ import annotations
 
-import structlog
 from app.ai.runtime.generation.models import (
     GenerationRequest,
     GenerationResult,
+)
+from app.ai.runtime.generation.validation.aggregation import (
+    aggregate_outcomes,
+    crash_outcome,
 )
 from app.ai.runtime.generation.validation.interfaces import (
     OutputValidatorInterface,
 )
 from app.ai.runtime.generation.validation.models import (
     InputValidationContext,
-    ValidationIssue,
     ValidationReport,
     ValidationResult,
-    ValidationSeverity,
     ValidationStage,
     ValidatorOutcome,
 )
 from app.ai.runtime.generation.validation.registry import (
     ValidationRegistry,
 )
+from app.ai.runtime.generation.validation.runtime.service import (
+    RuntimeValidationService,
+)
 from app.ai.runtime.generation.validation.scoring import (
     compute_overall_score,
 )
-
-logger = structlog.get_logger()
 
 
 class ValidationService:
@@ -41,6 +43,10 @@ class ValidationService:
     ) -> None:
         self._registry = registry
 
+        self._runtime_validation_service = RuntimeValidationService(
+            registry.runtime_registry,
+        )
+
     @property
     def validator_names(
         self,
@@ -49,6 +55,7 @@ class ValidationService:
             *(validator.name for validator in self._registry.input_validators),
             *(validator.name for validator in self._registry.output_validators),
             *(validator.name for validator in self._registry.hallucination_validators),
+            *(validator.name for validator in self._registry.runtime_validators),
         ]
 
     # ==========================================================
@@ -75,14 +82,14 @@ class ValidationService:
                 )
             except Exception as exc:
                 outcomes.append(
-                    self._crash_outcome(
+                    crash_outcome(
                         validator_name=validator.name,
                         stage=ValidationStage.INPUT,
                         exc=exc,
                     )
                 )
 
-        return self._aggregate(
+        return aggregate_outcomes(
             stage=ValidationStage.INPUT,
             outcomes=outcomes,
         )
@@ -107,6 +114,15 @@ class ValidationService:
             stage=ValidationStage.HALLUCINATION,
             validators=self._registry.hallucination_validators,
             result=result,
+        )
+
+    async def validate_runtime(
+        self,
+        result: GenerationResult,
+    ) -> ValidationResult:
+
+        return await self._runtime_validation_service.validate(
+            result,
         )
 
     # ==========================================================
@@ -134,20 +150,29 @@ class ValidationService:
             result,
         )
 
+        runtime_validation = await self.validate_runtime(
+            result,
+        )
+
         overall_score = compute_overall_score(
             input_score=input_validation.score,
             output_score=output_validation.score,
             hallucination_score=hallucination_validation.score,
+            runtime_score=runtime_validation.score,
         )
 
         valid = (
-            input_validation.valid and output_validation.valid and hallucination_validation.valid
+            input_validation.valid
+            and output_validation.valid
+            and hallucination_validation.valid
+            and runtime_validation.valid
         )
 
         return ValidationReport(
             input_validation=input_validation,
             output_validation=output_validation,
             hallucination_validation=hallucination_validation,
+            runtime_validation=runtime_validation,
             overall_score=overall_score,
             valid=valid,
         )
@@ -175,78 +200,14 @@ class ValidationService:
                 )
             except Exception as exc:
                 outcomes.append(
-                    self._crash_outcome(
+                    crash_outcome(
                         validator_name=validator.name,
                         stage=stage,
                         exc=exc,
                     )
                 )
 
-        return self._aggregate(
+        return aggregate_outcomes(
             stage=stage,
             outcomes=outcomes,
-        )
-
-    @staticmethod
-    def _crash_outcome(
-        *,
-        validator_name: str,
-        stage: ValidationStage,
-        exc: Exception,
-    ) -> ValidatorOutcome:
-        """Converts a validator crash into a WARNING issue instead of propagating it."""
-
-        logger.warning(
-            "validation.validator_failed",
-            validator=validator_name,
-            stage=stage.value,
-            error_type=type(exc).__name__,
-            error=str(exc),
-        )
-
-        return ValidatorOutcome(
-            issues=[
-                ValidationIssue(
-                    validator=validator_name,
-                    stage=stage,
-                    severity=ValidationSeverity.WARNING,
-                    message=f"Validator crashed: {exc}",
-                )
-            ],
-        )
-
-    @staticmethod
-    def _aggregate(
-        *,
-        stage: ValidationStage,
-        outcomes: list[ValidatorOutcome],
-    ) -> ValidationResult:
-
-        issues: list[ValidationIssue] = []
-
-        scores: list[float] = []
-
-        for outcome in outcomes:
-            issues.extend(
-                issue.model_copy(
-                    update={
-                        "stage": stage,
-                    },
-                )
-                for issue in outcome.issues
-            )
-
-            if outcome.score is not None:
-                scores.append(
-                    outcome.score,
-                )
-
-        valid = not any(issue.severity == ValidationSeverity.ERROR for issue in issues)
-
-        score = sum(scores) / len(scores) if scores else None
-
-        return ValidationResult(
-            valid=valid,
-            issues=issues,
-            score=score,
         )

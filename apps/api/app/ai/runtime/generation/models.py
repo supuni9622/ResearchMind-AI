@@ -28,6 +28,9 @@ from app.ai.runtime.generation.routing.enums import (
 from app.ai.runtime.generation.validation.models import (
     ValidationReport,
 )
+from app.ai.runtime.generation.validation.runtime.enums import (
+    RuntimeType,
+)
 from pydantic import (
     BaseModel,
     ConfigDict,
@@ -141,6 +144,16 @@ class GenerationRequest(BaseModel):
     `CachePolicy.NEVER` for a one-off non-deterministic call). Takes
     precedence over whatever `cache_runtime` would otherwise resolve
     to.
+    """
+
+    runtime: RuntimeType | None = None
+    """
+    Which runtime is issuing this request, for Runtime Validation
+    Platform contract resolution (see `validation/runtime/`).
+    Distinct from `cache_runtime`, which picks a caching profile
+    rather than an output-correctness contract. Left unset, no
+    runtime-specific contract applies and `ValidationReport.runtime_validation`
+    stays `None`.
     """
 
     @model_validator(mode="after")

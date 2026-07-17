@@ -4,6 +4,13 @@ from app.ai.runtime.generation.validation.interfaces import (
     InputValidatorInterface,
     OutputValidatorInterface,
 )
+from app.ai.runtime.generation.validation.runtime.interfaces import (
+    RuntimeContractInterface,
+    RuntimeValidatorInterface,
+)
+from app.ai.runtime.generation.validation.runtime.registry import (
+    RuntimeRegistry,
+)
 
 
 class ValidationRegistry:
@@ -24,6 +31,8 @@ class ValidationRegistry:
         self._output_validators: list[OutputValidatorInterface] = []
 
         self._hallucination_validators: list[OutputValidatorInterface] = []
+
+        self._runtime_registry = RuntimeRegistry()
 
     # ==========================================================
     # Registration
@@ -53,6 +62,22 @@ class ValidationRegistry:
             validator,
         )
 
+    def register_runtime_validator(
+        self,
+        validator: RuntimeValidatorInterface,
+    ) -> None:
+        self._runtime_registry.register_validator(
+            validator,
+        )
+
+    def register_runtime_contract(
+        self,
+        contract: RuntimeContractInterface,
+    ) -> None:
+        self._runtime_registry.register_contract(
+            contract,
+        )
+
     # ==========================================================
     # Lookup
     # ==========================================================
@@ -80,3 +105,22 @@ class ValidationRegistry:
         return list(
             self._hallucination_validators,
         )
+
+    @property
+    def runtime_validators(
+        self,
+    ) -> list[RuntimeValidatorInterface]:
+        return self._runtime_registry.all_validators
+
+    @property
+    def runtime_registry(
+        self,
+    ) -> RuntimeRegistry:
+        """
+        The underlying per-`RuntimeType` registry (PRD §8) — used by
+        `ValidationService` to build its `RuntimeValidationService`.
+        `runtime_validators` above is the flattened view PRD §10 asks
+        for on `ValidationRegistry` itself.
+        """
+
+        return self._runtime_registry

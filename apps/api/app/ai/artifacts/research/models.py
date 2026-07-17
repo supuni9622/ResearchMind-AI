@@ -1,26 +1,24 @@
 """
-Research artifact models (PRD §17) -- scaffold-only.
+Research artifact models.
 
-No runtime emits or consumes this today: `runtime/research/{decomposition,
-planner,workflows}/` are all empty directories, confirmed via repo
-search -- there is no Research Runtime yet to produce a plan, run
-queries, or generate a report. Built ahead of the API surface per this
-codebase's established pattern (see e.g. `runtime/events/research/
-models.py::ResearchEventType`, also reserved/unwired). Fields are left
-loosely typed (`dict[str, Any]`) rather than over-specified, since no
-`ResearchPlan`/`RetrievalResult`-shaped types exist yet for this to
-derive from -- wire in and tighten types once the Research Runtime
-itself is designed.
+Wired into `ResearchService` (research_api_prd.md) as a best-effort,
+write-only audit trail -- Postgres (`ResearchSession`) is the live read
+path, per that PRD's design decision to follow this codebase's existing
+Chat/Conversation precedent rather than its own "database as index"
+phrasing. There is still no Research Runtime (planner/decomposition),
+so `plan`/`queries` are always written empty; fields stay loosely typed
+(`dict[str, Any]`) since no `ResearchPlan`-shaped type exists to derive
+from yet.
 
-Storage layout (unwired):
+Storage layout:
 
     artifacts/research/{research_id}/
-        plan.json
-        queries.json
+        plan.json          -- always {} (no planning runtime yet)
+        queries.json        -- always {} (no planning runtime yet)
         retrievals.json
         citations.json
-        report.json
-        evaluation.json
+        report.json          -- includes the answer text
+        evaluation.json      -- optional, unused today
 """
 
 from __future__ import annotations

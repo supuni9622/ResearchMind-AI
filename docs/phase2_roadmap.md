@@ -343,7 +343,7 @@ but intentionally not part of the default pipeline.
 
 Status: COMPLETE
 
-✅ Phase 2.7 — Generation Platform (complete, per `generation_platform_complexion_prd.md` — structured output, validation (incl. all five runtime contracts and every PRD output validator), a validation policy layer, regeneration, prompt bridge, routing, caching, streaming, runtime metrics, and artifacts all done; only /research API remains)
+✅ Phase 2.7 — Generation Platform (complete, per `generation_platform_complexion_prd.md` — structured output, validation (incl. all five runtime contracts and every PRD output validator), a validation policy layer, regeneration, prompt bridge, routing, caching, streaming, runtime metrics, and artifacts all done; the Generation Runtime Platform (2.7.1) and Research API (2.7.2) below complete the picture)
 Prompt Context
 
 ↓
@@ -388,9 +388,13 @@ and an Artifact Platform (canonical, immutable, policy-gated
 every `generate()` call — `artifacts_platform_prd.md`), all per
 `generation_platform_complexion_prd.md`.
 
-Not yet built: only a `/research` API remains, which would set
-`GenerationRequest.runtime` so the five registered runtime contracts
-actually run — blocked on a Research Runtime that doesn't exist yet.
+Now built: a Generation Runtime Platform (see Phase 2.7.1 below,
+`generation_runtime_platform_prd.md`) gives every future runtime one
+canonical `execute_generation()` entrypoint, and a Research API (see
+Phase 2.7.2 below, `research_api_prd.md`) is its first real caller,
+setting `GenerationRequest.runtime = RESEARCH` so that runtime contract
+actually runs end-to-end; Planner/Reviewer/Agent/MCP contracts remain
+registered-but-dormant until their own runtimes exist.
 Hallucination validation and generation-level guardrails are both
 complete elsewhere: a `HallucinationValidator` ships as part of
 `generation/validation/`, and a Guardrails Platform
@@ -400,6 +404,84 @@ foundation — wired directly into this service (see
 `guardrail_integration_prd.md`): an input-stage gate runs before every
 provider call, and the full guardrail report lands on
 `GenerationResult.guardrails` before validation runs.
+
+Status: COMPLETE
+
+✅ Phase 2.7.1 — Generation Runtime Platform (Complete, per `generation_runtime_platform_prd.md`)
+Prompt Context + Generation Service (existing, frozen ordering)
+
+↓
+
+Orchestration (`runtime/generation/orchestration/`)
+
+↓
+
+execute_generation() / GenerationRuntime.execute()
+
+↓
+
+Future Runtime Callers (Research, Planner, Reviewer, Agent, MCP)
+
+A thin orchestration layer, not a reimplementation: `GenerationService.generate()`
+already runs the full frozen ordering (input validation → input guardrails →
+routing → cache → provider execution → structured outputs → generation
+guardrails → output validation → runtime validation → metrics → artifacts)
+from prior milestones. This platform adds one canonical entrypoint —
+`execute_generation(request, provider=None) -> GenerationResult` and
+`GenerationRuntime.execute()` — plus a new `get_generation_runtime()` FastAPI
+dependency, so future runtimes tag `GenerationRequest.runtime` and call this
+instead of reaching into `GenerationService` directly. No state machines, no
+DAGs, no LangGraph duplication (explicit Non-Goals, honored — LangGraph
+remains future work). 11 new unit tests, all passing.
+
+Status: COMPLETE
+
+✅ Phase 2.7.2 — Research API (Complete, per `research_api_prd.md`)
+Upload
+
+↓
+
+Ask (`POST /research`, `/research/stream`)
+
+↓
+
+Retrieval Platform (hybrid search + rerank)
+
+↓
+
+Context Platform (dedup/expand/merge/compress/cite)
+
+↓
+
+Generation Runtime Platform (execute_generation())
+
+↓
+
+Streaming Platform (SSE)
+
+↓
+
+Artifact Platform (Research artifact writer, best-effort persistence)
+
+↓
+
+research_sessions (Postgres, replay via `GET /research/{id}`)
+
+The first live, end-to-end product surface in ResearchMind: a user can
+upload documents, ask a question, and get a grounded, cited, streamable
+answer back. New routes: `POST /research`, `POST /research/stream` (SSE),
+`POST /research/citations` (citation-panel preview, no generation), `GET
+/research/{id}` (replay); all auth-required, owner-scoped. New
+`ResearchService` (`apps/api/app/ai/research/service.py`) composes the
+Retrieval, Context, Generation Runtime, Streaming, and Artifact Platforms.
+New Postgres `research_sessions` table (model + repository + Alembic
+migration). First real exercise of `RuntimeType.RESEARCH` and
+`ArtifactRuntime.RESEARCH` (previously reserved-but-unused). Deliberately
+linear/simple per its own PRD's Non-Goals: no query decomposition, no
+research planning/multi-step loops, no agents, no LangGraph — a Research
+Runtime, Deep Research Runtime, Agent Platform, and LangGraph all remain
+future roadmap items. 23 new tests, full suite passing (1068 tests),
+ruff/mypy clean.
 
 Status: COMPLETE
 

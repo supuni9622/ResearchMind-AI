@@ -4,7 +4,7 @@ Version: 2.0
 
 Status: Active
 
-**Current Maturity (2026-07-18):** NotebookLM++ + Perplexity Foundation. Hybrid Retrieval, Reranking, Parent Expansion, Compression, Context Guardrails, and strategy-based Prompt Formatting are all implemented — beyond a plain NotebookLM clone and closing in on Perplexity v1. The AI Runtime Platform (Phase 3) is now complete for its Generation slice, per `generation_platform_complexion_prd.md`: Provider Structured Output Integration, a multi-stage Validation Platform integration (input/output/hallucination/runtime validators, registry, scoring, `ValidationReport`, five runtime contracts), an Acceptance/Fail-Fast/Runtime Validation policy layer, regeneration, Prompt Platform bridging, a Routing Platform (scored model catalog, task-based strategies, fallback chains), a Runtime Caching Platform (L1 exact/L2 semantic/L3 session caching, policy resolution), Runtime Metrics Integration, and Artifact persistence are all done (see Phase 3.1/3.5 below and `docs/architecture/structured-output-platform.md` / `docs/architecture/model-routing-platform.md` / `docs/architecture/runtime-caching-platform.md`). Only a `/research` API remains, blocked on a Research Runtime that doesn't exist yet. A standalone, platform-wide Guardrails Platform (`app/ai/guardrails/`, see "AI Guardrails" below) is now complete as an MVP foundation and wired directly into the Generation Platform. Ladder: `NotebookLM++ → Perplexity v1 (almost here) → Open Deep Research → Manus / Glean`. See `PROJECT_STATUS.md` and `ROADMAP.md` for the authoritative, continuously-updated status; this document tracks the frozen technology decisions and long-range vision.
+**Current Maturity (2026-07-18):** NotebookLM++ + Perplexity v1. Hybrid Retrieval, Reranking, Parent Expansion, Compression, Context Guardrails, and strategy-based Prompt Formatting are all implemented — beyond a plain NotebookLM clone and now delivering a first Perplexity v1-shaped product surface. The AI Runtime Platform (Phase 3) is now complete for its Generation slice, per `generation_platform_complexion_prd.md`: Provider Structured Output Integration, a multi-stage Validation Platform integration (input/output/hallucination/runtime validators, registry, scoring, `ValidationReport`, five runtime contracts), an Acceptance/Fail-Fast/Runtime Validation policy layer, regeneration, Prompt Platform bridging, a Routing Platform (scored model catalog, task-based strategies, fallback chains), a Runtime Caching Platform (L1 exact/L2 semantic/L3 session caching, policy resolution), Runtime Metrics Integration, and Artifact persistence are all done (see Phase 3.1/3.5 below and `docs/architecture/structured-output-platform.md` / `docs/architecture/model-routing-platform.md` / `docs/architecture/runtime-caching-platform.md`). A Generation Runtime Platform (Phase 3.6, `generation_runtime_platform_prd.md`) now gives every future runtime caller one canonical `execute_generation()`/`GenerationRuntime.execute()` entrypoint. **`/research` is now live** — a first, deliberately linear slice of Phase 4 (`research_api_prd.md`): `POST /research`, `/research/stream`, `/research/citations`, `GET /research/{id}`, composing Retrieval → Context → Generation Runtime → Streaming → Artifacts into ResearchMind's first end-to-end, cited product answer, backed by a new `research_sessions` table. The full Planner/multi-agent Phase 4 workflow (4.1–4.6 below) remains future work. A standalone, platform-wide Guardrails Platform (`app/ai/guardrails/`, see "AI Guardrails" below) is now complete as an MVP foundation and wired directly into the Generation Platform. Ladder: `NotebookLM++ → Perplexity v1 (here) → Open Deep Research → Manus / Glean`. See `PROJECT_STATUS.md` and `ROADMAP.md` for the authoritative, continuously-updated status; this document tracks the frozen technology decisions and long-range vision.
 
 ---
 
@@ -1209,9 +1209,12 @@ Platform bridging, a Routing Platform (scored model catalog, task-based
 strategies, capability/policy filtering, fallback chains), a Runtime
 Caching Platform (L1 exact/L2 semantic/L3 session caching, policy
 resolution — see Phase 3.5 below), Runtime Metrics Integration, and
-Artifact persistence (incl. `metrics.json`) are all done. Only a
-`/research` API remains, blocked on a Research Runtime that doesn't
-exist yet. Tracked in day-to-day docs as
+Artifact persistence (incl. `metrics.json`) are all done. A Generation
+Runtime Platform (Phase 3.6 below, `generation_runtime_platform_prd.md`)
+now gives every future runtime caller one canonical entrypoint into
+this stack, and is itself the first real caller behind the now-live
+`/research` API (Phase 4's first, deliberately linear slice — see
+below). Tracked in day-to-day docs as
 the "Generation Platform" (see `ROADMAP.md` Phase 3.1,
 `phase-3-ai-runtime-roadmap.md` Phase 3.8,
 `docs/architecture/structured-output-platform.md` for Structured
@@ -1399,6 +1402,28 @@ Reduce latency and LLM costs — response caching (L1/L2) is done; the originall
 
 ---
 
+## Phase 3.6 — Generation Runtime Platform
+
+**Status:** ✅ Complete, per `generation_runtime_platform_prd.md`
+
+Implemented (`apps/api/app/ai/runtime/generation/orchestration/`: `context.py`, `state.py`, `interfaces.py`, `orchestrator.py`, `create.py`)
+
+- Canonical entrypoint — `execute_generation(request, provider=None) -> GenerationResult`, and `GenerationRuntime.execute()`
+- FastAPI dependency — `get_generation_runtime()`
+- 11 new unit tests, all passing
+
+Purpose
+
+Give every future runtime caller (Research/Planner/Reviewer/Agent/MCP) one canonical entrypoint into the Generation Platform, tagging `GenerationRequest.runtime` to identify themselves, instead of each reaching into `GenerationService` directly.
+
+Deliberately thin — no re-implementation of anything. `GenerationService.generate()` already runs the full frozen ordering (input validation → input guardrails → routing → cache → provider execution → structured outputs → generation guardrails → output validation → runtime validation → metrics → artifacts) delivered by Phase 3.1; this platform only orchestrates that call. Explicit Non-Goals honored: no state machines, no DAGs, no LangGraph duplication.
+
+Deliverable
+
+One canonical Generation Runtime entrypoint — its first real caller is the Research API (Phase 4, below).
+
+---
+
 # Phase 4 — Research Platform
 
 ## Goal
@@ -1434,6 +1459,30 @@ Report
 
 Human Feedback
 ```
+
+---
+
+## Phase 4.0 — Research API (foundation, live)
+
+**Status:** ✅ Complete, per `research_api_prd.md` — **the first live, end-to-end product surface in ResearchMind.** For the first time, a user can upload documents, ask a question, and get a grounded, cited, streamable answer back — the "NotebookLM + Perplexity" product vision, ahead of and deliberately simpler than the full Planner → Research → Summarization → Review → Evaluation → Report → Human Feedback workflow below.
+
+Implemented
+
+- Routes — `POST /research`, `POST /research/stream` (SSE), `POST /research/citations`, `GET /research/{id}` (replay). All auth-required, all owner-scoped.
+- `ResearchService` (`apps/api/app/ai/research/service.py`) — composes, for the first time in one flow, the Retrieval Platform (hybrid search + rerank) → Context Platform (dedup/expand/merge/compress/cite) → Generation Runtime Platform (Phase 3.6 — its first real caller) → Streaming Platform (for `/research/stream`) → Artifact Platform (best-effort persistence, via the previously-unwired Research artifact writer)
+- New Postgres table `research_sessions` (model + repository + Alembic migration `37117c83beb2_create_research_sessions_table`)
+- `RuntimeType.RESEARCH` (Runtime Validation Platform) and `ArtifactRuntime.RESEARCH` (Artifact Platform) go from reserved-but-unused enum values to actually-exercised-by-live-code
+- 23 new tests (unit + integration), full suite passing, ruff/mypy clean
+
+Deliberately out of scope, per the PRD's own Non-Goals — this is exactly what Milestones 4.1–4.6 below still deliver
+
+- Query decomposition / research planning (4.1 Planner)
+- Multi-step research loops, tool calling, evidence collection beyond a single retrieval pass (4.2 Research Engine)
+- Evidence synthesis across multiple sub-queries (4.3 Summarizer)
+- Gap detection / fact verification as a distinct review pass (4.4 Reviewer)
+- Markdown/PDF report generation (4.5 Report Generator)
+- Human-in-the-loop approve/reject/edit (4.6 Human Review)
+- Any LangGraph orchestration (Phase 5 — Agent Platform)
 
 ---
 
@@ -2922,8 +2971,14 @@ Reranking (Voyage AI + CrossEncoder) ✅
 Context Platform (Parent Expansion, Adjacent Merge, Compression, Guardrails, Citations, Prompt Formatter) ✅ Complete
    │
    ▼
-Generation Platform (LLM providers, structured output, validation, policy layer, regeneration, prompt bridge, routing, caching, metrics, artifacts) ✅ Complete, per `generation_platform_complexion_prd.md` — only /research API remains, blocked on a Research Runtime that doesn't exist yet
+Generation Platform (LLM providers, structured output, validation, policy layer, regeneration, prompt bridge, routing, caching, metrics, artifacts) ✅ Complete, per `generation_platform_complexion_prd.md`
+   │
+   ▼
+Generation Runtime Platform (canonical execute_generation() / GenerationRuntime.execute() entrypoint) ✅ Complete, per `generation_runtime_platform_prd.md`
    │
    ▼
 Guardrails Platform (Input, Retrieval, Generation, Runtime guardrails, Source Trust, policies, scoring, artifacts) ✅ MVP Foundation Complete — wired into Generation Platform and Context Building Platform, per `guardrail_integration_prd.md`
+   │
+   ▼
+Research API (POST /research, /research/stream, /research/citations, GET /research/{id}) ✅ Complete, per `research_api_prd.md` — first live, end-to-end, cited product answer; research_sessions table for replay
 ```

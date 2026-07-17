@@ -48,7 +48,7 @@ ResearchMind-AI/
 │   │       │   │   ├── streaming/           # Implemented, live — StreamArtifact, wired into StreamingService._stream_live()
 │   │       │   │   ├── conversation/        # Implemented, live — ConversationTurnArtifact (one immutable file per turn) + ConversationIdentity, wired into chat.py
 │   │       │   │   ├── session/             # Scaffold-only — SessionArtifact, unwired (no session concept distinct from Conversation yet)
-│   │       │   │   ├── research/            # Scaffold-only — ResearchArtifact, unwired (no Research Runtime yet)
+│   │       │   │   ├── research/            # Implemented, live — ResearchArtifact, wired into ResearchService (Phase 4, research_api_prd.md)
 │   │       │   │   ├── agent/               # Scaffold-only — AgentArtifact, unwired (no Agent Runtime yet)
 │   │       │   │   ├── evaluation/          # Scaffold-only — EvaluationArtifact, unwired (quality/evaluation/ still empty)
 │   │       │   │   └── replay/              # GenerationReplayService/StreamReplayService (real), ResearchReplayService (stub)

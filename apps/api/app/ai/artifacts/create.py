@@ -13,6 +13,7 @@ from functools import lru_cache
 from app.ai.artifacts.conversation.writers import ConversationArtifactWriter
 from app.ai.artifacts.generation.writers import GenerationArtifactWriter
 from app.ai.artifacts.policies.service import ArtifactPolicyService
+from app.ai.artifacts.research.writers import ResearchArtifactWriter
 from app.ai.artifacts.streaming.writers import StreamArtifactWriter
 from app.core.settings import settings
 from app.infrastructure.storage import create_storage
@@ -47,5 +48,12 @@ def create_stream_artifact_writer() -> StreamArtifactWriter:
 def create_conversation_artifact_writer() -> ConversationArtifactWriter:
 
     return ConversationArtifactWriter(
+        storage_provider=create_artifact_storage(),
+    )
+
+
+def create_research_artifact_writer() -> ResearchArtifactWriter:
+
+    return ResearchArtifactWriter(
         storage_provider=create_artifact_storage(),
     )

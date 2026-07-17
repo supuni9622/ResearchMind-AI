@@ -22,6 +22,12 @@ from app.ai.artifacts.policies.service import (
 from app.ai.runtime.generation.create import (
     create_generation_service,
 )
+from app.ai.runtime.generation.orchestration.create import (
+    create_generation_runtime,
+)
+from app.ai.runtime.generation.orchestration.orchestrator import (
+    GenerationRuntime,
+)
 from app.ai.runtime.generation.service import (
     GenerationService,
 )
@@ -42,6 +48,19 @@ def get_generation_service() -> GenerationService:
     """
 
     return create_generation_service()
+
+
+@lru_cache
+def get_generation_runtime() -> GenerationRuntime:
+    """
+    Return singleton GenerationRuntime -- the Generation Runtime
+    Platform's canonical entrypoint (see
+    generation_runtime_platform_prd.md). Future runtime routes
+    (Research/Planner/Reviewer/Agent/MCP) should depend on this instead
+    of `get_generation_service` directly.
+    """
+
+    return create_generation_runtime()
 
 
 @lru_cache

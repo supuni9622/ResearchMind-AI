@@ -1,5 +1,5 @@
 """
-Research artifact builder -- scaffold-only, see `models.py` docstring.
+Research artifact builder, see `models.py` docstring.
 """
 
 from __future__ import annotations

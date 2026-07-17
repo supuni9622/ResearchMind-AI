@@ -2,13 +2,35 @@
 
 **Original audit:** 2026-07-15
 **Re-audited:** 2026-07-17
-**Re-audited again:** 2026-07-18 (this revision — evidence re-verified directly against current code and a live test collection run, not carried forward from memory)
-**Scope:** `apps/api/app/ai/` (Knowledge Platform + Generation Platform), plus the app-wide infrastructure that supports it (observability, error handling, testing, API wiring).
+**Re-audited again:** 2026-07-18
+**Re-audited yet again:** 2026-07-18 (this revision — following the Generation Runtime Platform and Research API Platform; evidence re-verified directly against current code and a live test collection run, not carried forward from memory)
+**Scope:** `apps/api/app/ai/` (Knowledge Platform + Generation Platform + Research API Platform), plus the app-wide infrastructure that supports it (observability, error handling, testing, API wiring).
 **Purpose:** Establish an honest, evidence-based baseline of where the platform stands against current AI-engineering practice, and enumerate what's missing so future work can be planned deliberately. This report does not recommend rewriting anything already built — the gaps below are framed as **additions**, not corrections, per the constraint that existing implementations stay as-is.
 
 ---
 
-## 0. Re-Audit Delta (2026-07-18)
+## 0. Re-Audit Delta (2026-07-18, this revision)
+
+Two more platforms shipped on top of the 07-18 baseline (§0.1 below): the Generation Runtime Platform and the Research API Platform. The second of these is, by a wide margin, the most consequential change this report has covered across any of its revisions — it directly addresses the single finding this audit has repeated across every prior cycle.
+
+**Generation Runtime Platform** (`apps/api/app/ai/runtime/generation/orchestration/`, per `generation_runtime_platform_prd.md`) — a deliberately thin orchestration layer: `context.py`/`state.py`/`interfaces.py`/`orchestrator.py`/`create.py`, exposing one canonical entrypoint, `execute_generation(request, provider=None) -> GenerationResult` (and `GenerationRuntime.execute()`), plus a new `get_generation_runtime()` FastAPI dependency. Confirmed by direct read of `orchestrator.py`: it does not re-implement or reorder anything — `GenerationService.generate()` already owns the full frozen ordering (input validation → input guardrails → routing → cache → provider execution → structured outputs → generation guardrails → output validation → runtime validation → metrics → artifacts); `GenerationRuntime.execute()` only mints a trace context, delegates to `GenerationService.generate()`, and folds the result back into a `GenerationExecutionState` for logging. 11 new unit tests, all passing. This platform's value isn't new capability, it's a single seam every future runtime caller (Research/Planner/Reviewer/Agent/MCP) can call through instead of each reaching into `GenerationService` directly — and it has exactly one real caller so far (below).
+
+**Research API Platform** (`apps/api/app/ai/research/`, routes in `apps/api/app/api/v1/research.py`, per `research_api_prd.md`) — **this is the finding that changes the report's central thesis.** Every revision of this audit, from the original through 07-18, has identified the same single highest-leverage gap: a fully-real, well-tested retrieval → context-assembly → citation pipeline that no live route ever calls, because `chat.py` hardcodes an empty `PromptContext` and `retrieval.py` bypasses `ContextBuilderService` entirely. **That is no longer true for every route.** Confirmed by direct read of `apps/api/app/ai/research/service.py` and `apps/api/app/api/v1/research.py`:
+
+- Four new, authenticated, owner-scoped routes: `POST /research` (ask a question, get `{research_id, query, answer, citations, sources, duration_ms}`), `POST /research/stream` (SSE), `POST /research/citations` (citation-panel preview, retrieval + context only, no generation, no persistence), `GET /research/{research_id}` (replay a persisted session, 404 via `NotFoundException` if missing or not owned by the caller).
+- `ResearchService.research()` (the non-streaming path) genuinely calls `RetrievalService.search_hybrid()` → `ContextBuilderService.build()` → `GenerationRuntime.execute()` → persists a `ResearchSession` row → best-effort persists a `ResearchArtifact`. This is **the first time `ContextBuilderService` has ever been invoked by live code** in this codebase's history — every prior audit flagged it as built, tested, and never called; that is now false for this one route. Because `GenerationRuntime.execute()` calls `GenerationService.generate()` (not `stream_generate()`), `POST /research` also genuinely exercises the **generation-stage** guardrails (faithfulness/citation-integrity/PII-leakage) and the full runtime-validation contract for `RuntimeType.RESEARCH` — both previously 100% dark in production (§0.1/§4.6/§4.10).
+- `ResearchService.stream_research()` (the `/research/stream` path) still goes through `StreamingService.stream_generate()` directly, per the PRD's own flow diagram — so it inherits the same input-stage-only guardrail limitation `chat.py` has (§4.6): generation-stage checks don't run on this path, a real, documented trade-off (buffer-then-check wasn't in scope), not an oversight.
+- A new Postgres table, `research_sessions` (model + `ResearchRepository` + Alembic migration `37117c83beb2_create_research_sessions_table`), gives the product its first persistent, replayable Q&A history — distinct from and complementary to the Artifacts Platform's own best-effort `ResearchArtifact` (which, per §0.1/§4.11, was previously modeled and tested with zero live callers; it now has one).
+- `RuntimeType.RESEARCH` and `ArtifactRuntime.RESEARCH` — both reserved-but-unused enum values as of every prior audit — are now genuinely set on a real `GenerationRequest` and exercised by real traffic for the first time.
+- Test suite grew from 1,034 to **1,068 collected** (confirmed via a live `pytest --co` run), the +34 split matching the platforms' own claims (11 + 23) exactly.
+
+**What this does *not* change:** `chat.py` is untouched — it still hardcodes `PromptContext(context="", chunks=[])` and still never calls retrieval or `ContextBuilderService`; `retrieval.py` still bypasses `ContextBuilderService` directly. The P0 finding this report has repeated for four-then-five cycles is therefore not "fixed" so much as **superseded by a more precise one**: ResearchMind now has *two* live user-facing answer routes, and exactly one of them (`/research`) does real, cited, guarded RAG — `/chat` still doesn't. Concretely, a user asking a question via `/chat/stream` still gets an LLM's own knowledge with no citations; the same user asking via `/research` now gets a genuinely retrieved-and-cited answer. See §1, §2, and §5 P0 for how this reframes the rest of the report.
+
+**Net effect on the maturity scorecard:** composite moves from ~2.85/5 to **~3.15/5** — the single largest jump of any revision of this audit, because the fix that landed is exactly the one every prior revision named as highest-leverage. See §2 for the full updated scorecard.
+
+---
+
+## 0.1 Prior Re-Audit Delta (2026-07-17 → 2026-07-18)
 
 One day and five commits have passed since the 2026-07-17 re-audit: `implemented langchain compressor`, `added runtime validation to validation platform`, `modified guardrails platform with integration`, `implemented artifacts platform`, `completed compression platform`. This section is the honest scorecard of what changed, verified directly against current code (not the prior audit's memory of itself).
 
@@ -32,7 +54,7 @@ One day and five commits have passed since the 2026-07-17 re-audit: `implemented
 
 ---
 
-## 0.1 Prior Re-Audit Delta (2026-07-15 → 2026-07-17)
+## 0.2 Prior Re-Audit Delta (2026-07-15 → 2026-07-17)
 
 Two days and several milestones have passed since the original audit (Routing Platform, Runtime Caching Platform, Guardrails Platform, most of the Validation Platform, and — most recently — the Streaming Platform + first-ever HTTP wiring of the Generation Platform). This section is the honest scorecard of what actually changed versus what the original report flagged, verified directly against current code rather than assumed from memory of prior sessions.
 
@@ -69,16 +91,17 @@ Two days and several milestones have passed since the original audit (Routing Pl
 
 ResearchMind AI is built as two parallel platforms under `apps/api/app/ai/`, joined by a Generation-adjacent operational shell that has grown substantially since the original audit:
 
-- **Knowledge Platform** (`app/ai/knowledge/`, ~14.6k LOC+) — document upload, parsing, chunking, embedding, hybrid retrieval, reranking, context assembly, citations, guardrails, and (as of this cycle) a fully real four-provider compression stage. Still the most mature part of the codebase: real providers, real registries, real Qdrant/Valkey integration, real test coverage. **Still never invoked in production** — see below.
-- **Generation Platform** (`app/ai/runtime/generation/`) — five real LLM provider adapters (Groq, OpenAI, Claude, Gemini, Ollama), surrounded by a genuinely complete operational shell: Routing, Runtime Caching, Validation (now with a real policy layer and five runtime contracts), Streaming, and Artifacts are all implemented and wired into `GenerationService`/`StreamingService`. Only most of `observability/`'s finer-grained tracker files remain empty scaffolds.
-- **Guardrails Platform** (`app/ai/guardrails/`) — a standalone, platform-wide safety layer (input/retrieval/generation/runtime stages), now **genuinely wired for its input stage into every live chat request** via `GenerationService`. Retrieval and generation-stage checks still don't reach production, for the same reason retrieval itself doesn't (below).
-- **Artifacts Platform** (`app/ai/artifacts/`) — new this cycle: a centralized, cross-cutting persistence layer for generation/streaming/conversation runs, live-wired and best-effort, giving the platform its first real audit trail and replay capability.
+- **Knowledge Platform** (`app/ai/knowledge/`, ~14.6k LOC+) — document upload, parsing, chunking, embedding, hybrid retrieval, reranking, context assembly, citations, guardrails, and a fully real four-provider compression stage. Still the most mature part of the codebase: real providers, real registries, real Qdrant/Valkey integration, real test coverage. **Now genuinely invoked in production — by `/research`, still not by `/chat`** — see below.
+- **Generation Platform** (`app/ai/runtime/generation/`) — five real LLM provider adapters (Groq, OpenAI, Claude, Gemini, Ollama), surrounded by a genuinely complete operational shell: Routing, Runtime Caching, Validation (with a real policy layer and five runtime contracts), Streaming, and Artifacts are all implemented and wired into `GenerationService`/`StreamingService`. New this cycle: a **Generation Runtime Platform** (`orchestration/`) gives every future caller one canonical `execute_generation()`/`GenerationRuntime.execute()` entrypoint into all of that. Only most of `observability/`'s finer-grained tracker files remain empty scaffolds.
+- **Guardrails Platform** (`app/ai/guardrails/`) — a standalone, platform-wide safety layer (input/retrieval/generation/runtime stages), genuinely wired for its input stage into every live chat request via `GenerationService`, and — new this cycle, via `/research` only — now the **first live route where the retrieval-stage and generation-stage guardrails also execute against real traffic** (§4.6).
+- **Artifacts Platform** (`app/ai/artifacts/`) — a centralized, cross-cutting persistence layer for generation/streaming/conversation runs, live-wired and best-effort. New this cycle: the previously scaffold-only Research artifact writer now has its first live caller too.
+- **Research API Platform** (`app/ai/research/`) — new this cycle, and the platform that changes this report's central thesis: `POST /research`, `/research/stream`, `/research/citations`, `GET /research/{id}`, backed by a new `research_sessions` table. This is the first route in ResearchMind's history that composes retrieval, context assembly, generation, and persistence into one real, cited answer.
 
-**The single biggest finding from the original audit — no HTTP path reaches an LLM at all — remains only half true, in exactly the same shape it was on 2026-07-17.** `POST /api/v1/chat/stream` and `/api/v1/chat/ws` are live, authenticated, guardrail-gated on input, artifact-persisted, and genuinely stream a real provider's output back to a caller. **But the path that exists is still chat-only, not RAG.** `chat.py` builds an empty `PromptContext` and never calls retrieval, reranking, `ContextBuilderService`, or (transitively) the retrieval/generation-stage guardrails and the newly-completed compression pipeline. Four consecutive platform-completion cycles (Guardrails, Artifacts, Generation-completion, Compression) have now each added real capability to that dark pipeline without closing the one gap that would light it up. The honest current state, unchanged since the last audit: *ResearchMind can answer a question using an LLM's own knowledge, with an input-safety check and a durable audit trail, but still with no citations, no retrieved context, and no retrieval/generation-stage guardrails* — not yet the "cited, guarded, LLM-generated answer over your documents" the platform is built to deliver.
+**The single biggest finding every prior revision of this audit has repeated — a fully-real retrieval/context pipeline that no live route calls — is no longer true for every route.** `POST /api/v1/chat/stream` and `/api/v1/chat/ws` remain exactly as before: live, authenticated, input-guardrail-gated, artifact-persisted, chat-only — `chat.py` still builds an empty `PromptContext` and never calls retrieval or `ContextBuilderService`. But `POST /research`, confirmed by direct read of `apps/api/app/ai/research/service.py`, genuinely calls `RetrievalService.search_hybrid()` → `ContextBuilderService.build()` (dedup/expand/merge/compress/cite, plus the retrieval-stage guardrails and the four-provider compression stage — all newly reachable for the first time) → `GenerationRuntime.execute()` → `GenerationService.generate()` (the non-streaming path, so generation-stage guardrails and full runtime validation against `RuntimeType.RESEARCH` also run) → persists a `ResearchSession` row and a best-effort `ResearchArtifact`. The honest current state: *ResearchMind can now answer a question with a genuinely retrieved, cited, guarded-end-to-end answer over a user's own documents — through `/research`.* `/chat` still can't. Five consecutive platform-completion cycles (Guardrails, Artifacts, Generation-completion, Compression, and now Generation Runtime) built capability around the dark pipeline before this one finally lit it up — through a new route built specifically to do so, not through fixing `chat.py` itself.
 
-Beyond the RAG-wiring gap, the platform is still missing most of the "day 2" AI-engineering infrastructure that separates a working prototype from a production LLM system: no tracing/APM, no metrics backend (the metrics *interface* is now used in three places, all still `NoOp`), no evaluation harness, domain exceptions still don't participate in the app's structured-error-response machinery, and there's a live, confirmed logging bug (production logs aren't actually JSON despite the code's own docstring claiming they are). Agentic-flow readiness (LangGraph/MCP) remains 0% started, as originally found — though runtime validation now has typed contracts for planner/reviewer/agent/mcp shapes, ahead of any runtime that would produce output for them to validate.
+Beyond the RAG-wiring gap (now half-closed rather than fully open), the platform is still missing most of the "day 2" AI-engineering infrastructure that separates a working prototype from a production LLM system: no tracing/APM, no metrics backend (the metrics *interface* is now used in three places, all still `NoOp`), no evaluation harness, domain exceptions still don't participate in the app's structured-error-response machinery, and there's a live, confirmed logging bug (production logs aren't actually JSON despite the code's own docstring claiming they are). Agentic-flow readiness (LangGraph/MCP) remains 0% started, as originally found — though runtime validation now has typed contracts for planner/reviewer/agent/mcp shapes, and `RuntimeType.RESEARCH`'s contract is, for the first time, actually being exercised by live traffic rather than sitting dormant.
 
-None of this is a criticism of engineering quality — what's been added since the original audit (Routing, Caching, Validation, Streaming, Guardrails wiring, Artifacts, Compression) is well-structured, consistently typed, composition-rooted, and genuinely tested (1,034 collected tests as of this re-audit, confirmed via a live `pytest --co` run, up from 828). The gap is still one of **breadth of completion and of connecting subsystems that individually work**, not depth of what's been built — and it is now, after four cycles of the same pattern, the report's single most important recurring observation.
+None of this is a criticism of engineering quality — what's been added since the original audit (Routing, Caching, Validation, Streaming, Guardrails wiring, Artifacts, Compression, Generation Runtime, Research API) is well-structured, consistently typed, composition-rooted, and genuinely tested (1,068 collected tests as of this re-audit, confirmed via a live `pytest --co` run, up from 828 at the original audit and 1,034 last cycle). The gap is no longer one of "breadth of completion and connecting subsystems that individually work" for the platform's central seam — that seam is now closed for one live route. What remains is narrower but still real: `/chat` still doesn't do RAG, and most of the "day 2" infrastructure gaps below are unchanged.
 
 ---
 
@@ -86,30 +109,30 @@ None of this is a criticism of engineering quality — what's been added since t
 
 Scale: **0** = nonexistent · **1** = stub/placeholder only · **2** = minimal/partial · **3** = functional but incomplete · **4** = solid, production-leaning · **5** = production-grade with headroom for scale
 
-| Dimension | Score (2026-07-17 → 2026-07-18) | One-line verdict |
+| Dimension | Score (2026-07-18 → 2026-07-18, this revision) | One-line verdict |
 |---|:-:|---|
-| RAG / retrieval pipeline | 4/5 → **4/5** | Now includes a fully-real 4-provider compression stage (was partially stub); still real hybrid search + reranking; still never invoked in production |
-| Data modeling & type safety | 4.5/5 → **4.5/5** | Unchanged — consistent Pydantic `extra="forbid"` + `StrEnum` discipline throughout, including Artifacts and the policy layer |
+| RAG / retrieval pipeline | 4/5 → **4/5** | Unchanged in capability (still a fully-real 4-provider compression stage, hybrid search + reranking); reachability is scored separately below and moved a lot |
+| Data modeling & type safety | 4.5/5 → **4.5/5** | Unchanged — consistent Pydantic `extra="forbid"` + `StrEnum` discipline throughout, including the new Research API models |
 | Generation provider layer | 4/5 → **4/5** | Unchanged — providers themselves untouched this cycle |
-| **End-to-end wiring — generation reachable from API** | 3.5/5 → **4/5** | Input-stage guardrails now genuinely gate every live `/chat/stream`/`/chat/ws` request, and every successful call is now artifact-persisted for audit/replay |
-| **End-to-end wiring — retrieval reachable from generation (RAG)** | 1/5 → **1/5** | Unchanged — `chat.py` still hardcodes an empty `PromptContext`; `retrieval.py` still bypasses `ContextBuilderService`. Now the report's single most-repeated finding, unmoved across 4 completion cycles |
+| **End-to-end wiring — generation reachable from API** | 4/5 → **4/5** | Unchanged — `/chat/stream`/`/chat/ws` still guardrail-gated on input and artifact-persisted; `/research` now adds a second, independently-wired reachable path |
+| **End-to-end wiring — retrieval reachable from generation (RAG)** | 1/5 → **4/5** | The single biggest jump in this report's history. `POST /research` genuinely calls `RetrievalService` → `ContextBuilderService` → `GenerationRuntime` end-to-end — confirmed by direct read of `research/service.py`. Held below 5/5 because `chat.py`/`retrieval.py` are unchanged: only one of the two live answer routes does RAG |
 | Caching — embeddings | 4/5 → **4/5** | Unchanged |
 | Caching — generation | 4/5 → **4/5** | Unchanged — L1/L2/L3 all real; L3 still uncalled |
-| Routing (model/provider selection) | 4/5 → **4/5** | Unchanged |
+| Routing (model/provider selection) | 4/5 → **4/5** | Unchanged; `/research` accepts an optional `routing_strategy` override, exercising the same routing path as `/chat` |
 | Observability — structured logging | 2.5/5 → **2.5/5** | Unchanged — production JSON-logging bug reconfirmed present |
-| Observability — tracing/APM/metrics | 0.5/5 → **0.5/5** | Unchanged in effect — a third metrics-constants module (`generation.py`) was added, but every recorder is still `NoOpMetricsRecorder`; no real backend exists to observe any of it |
+| Observability — tracing/APM/metrics | 0.5/5 → **0.5/5** | Unchanged — every recorder is still `NoOpMetricsRecorder`; no real backend exists to observe any of it |
 | Cost tracking & token optimization | 3/5 → **3/5** | Unchanged |
-| Guardrails | 3/5 (capability) / 0/5 (wired) → **4/5** (capability) **/ 2/5** (wired) | Input-stage guardrails now genuinely run on every live chat request via `GenerationService.stream_generate()` — a real, confirmed change. Retrieval-stage (`ContextBuilderService`) and generation-stage (streaming path) checks still never execute in production |
-| Input/output validation | 3.5/5 → **4/5** | New policy layer (`AcceptancePolicy`/`FailFastPolicy`/`RuntimeValidationPolicy`) now drives accept/reject/regenerate instead of hardcoded booleans; 4 more output validators; runtime contracts extended from 1 to 5 runtime types |
+| Guardrails | 4/5 (capability) / 2/5 (wired) → **4/5** (capability) **/ 3/5** (wired) | `/research`'s non-streaming path is the **first live route where retrieval-stage and generation-stage guardrails both execute** (via `ContextBuilderService` and `GenerationService.generate()`), not just input-stage. `/research/stream` and `/chat/stream` remain input-stage-only |
+| Input/output validation | 4/5 → **4/5** | Unchanged in capability; `RuntimeType.RESEARCH`'s runtime-validation contract is now exercised by real traffic for the first time, not just registered |
 | Error handling / resilience | 3/5 → **3/5** | Unchanged — `AppException` inheritance gap for `GenerationError`/`EmbeddingError` persists unchanged |
-| Streaming | 4/5 → **4/5** | Unchanged core; now additionally artifact-persisted (events/timeline/metrics) and input-guardrail-gated on every call — real production-behavior improvements, not just internal plumbing |
-| Conversation memory | 2.5/5 → **3/5** | Still transcript-flattened at the provider boundary, but now has a real immutable per-turn audit trail (`ConversationTurnArtifact`) distinct from provider-native multi-turn |
-| Artifacts & audit trail | *(not scored separately before)* → **3.5/5** | Generation/streaming/conversation artifacts live, best-effort, persisted on every real request; replay services real for generation+streaming; session/research/agent/evaluation built and tested but zero live callers |
+| Streaming | 4/5 → **4/5** | Unchanged — `/research/stream` reuses `StreamingService.stream_generate()` as-is, no new streaming capability |
+| Conversation memory | 3/5 → **3/5** | Unchanged — `/research` has no conversation/multi-turn concept of its own; it persists single Q&A sessions, not a message history |
+| Artifacts & audit trail | 3.5/5 → **4/5** | The previously scaffold-only Research artifact writer now has its first live caller (`ResearchService`), best-effort, same catch-log-never-reraise pattern as Generation/Streaming/Conversation. `session/`, `agent/`, `evaluation/` remain zero-caller |
 | Evaluation & QA | 0/5 → **0/5** | Unchanged — `app/ai/quality/` and `tests/evaluation/`/`tests/security/` reconfirmed 100% empty by direct read |
-| Testing | 3.5/5 → **4/5** | 828 → 1,034 collected tests (confirmed via live `pytest --co` run); new coverage for artifacts, guardrails wiring, compression, policy layer; still no CI coverage gate |
-| Agentic-flow readiness (LangGraph/MCP/tools/memory) | 0.5/5 → **0.5/5** | Unchanged in substance — runtime validation contracts now exist for planner/reviewer/agent/mcp shapes, but that's validation-layer readiness for output that nothing produces yet; LangGraph/MCP/orchestration/tool-execution-loop still entirely absent |
+| Testing | 4/5 → **4/5** | 1,034 → **1,068 collected tests** (confirmed via live `pytest --co` run); +34 matches the two platforms' own claims (11 + 23) exactly; still no CI coverage gate |
+| Agentic-flow readiness (LangGraph/MCP/tools/memory) | 0.5/5 → **0.5/5** | Unchanged in substance — the Research API is explicitly linear (no decomposition/planning/agents, per its own PRD Non-Goals); LangGraph/MCP/orchestration/tool-execution-loop still entirely absent |
 
-**Composite: ~2.85/5 — incremental, real progress, concentrated entirely in safety and operational maturity rather than in closing the platform's central gap.** Guardrails moved from "built but unreachable" to "genuinely protecting live traffic for one of its four stages." The Generation Platform's internal completion is now essentially finished (policy layer, five runtime contracts, seven-stage output validation, artifact persistence). But the RAG-wiring gap that both prior audits identified as the single highest-leverage fix in the codebase is, after four consecutive completion cycles building capability around it, exactly where it was on 2026-07-15.
+**Composite: ~2.85/5 → ~3.15/5 — the single largest jump this report has recorded, because the fix that landed is exactly the one every prior revision named as highest-leverage.** `POST /research` is a new, real, end-to-end RAG route — retrieval, context assembly, generation, guardrails (three of four stages), validation, and persistence all genuinely composed for the first time. The gain is real but bounded: `/chat` is untouched, so the platform now has a live RAG surface and a live non-RAG surface side by side rather than one unified pipeline, and most of the "day 2" gaps (tracing, evaluation, error-handling, the logging bug) are unchanged.
 
 ---
 
@@ -120,51 +143,80 @@ Scale: **0** = nonexistent · **1** = stub/placeholder only · **2** = minimal/p
                     │              app/api/v1/  (FastAPI)              │
                     │  health ✅  auth ✅  documents ✅                 │
                     │  retrieval ✅ (dense/sparse/hybrid only)          │
-                    │  chat ✅ (SSE + WebSocket, NEW — plain LLM only)  │
+                    │  chat ✅ (SSE + WebSocket — plain LLM only)       │
+                    │  research ✅ NEW (POST/stream/citations/GET{id}) │
                     │  evaluation ❌ (0 bytes)                          │
-                    └──────┬───────────────────────────┬────────────────┘
-                           │ retrieval.py calls         │ chat.py calls
-                           │ RetrievalService directly  │ StreamingService
-                           │ — bypasses everything      │ directly — builds an
-                           │ below                       │ EMPTY PromptContext,
-                           ▼                             │ bypasses everything
-     ┌──────────────────────────────────────────┐        │ in the left column
-     │  Knowledge Platform (~14.6k LOC, real)    │        │
-     │                                            │        │
-     │  upload → processing/docling → chunking → │        │
-     │  embeddings (cached) → indexing (Qdrant)   │        │
-     │  → retrieval (dense+sparse+RRF+rerank) →   │        │
-     │  ContextBuilderService (dedup → expand →   │        │
-     │  merge → compress → GUARDRAILS(mini) →     │        │
-     │  CITATIONS → format) → PromptContext        │        │
-     │                                            │        │
-     │  ⚠ still never called by any live route     │        │
-     └───────────────────┬────────────────────────┘        │
-                          │ PromptContext is the designed   │
-                          │ hand-off point — still nothing  │
-                          │ constructs it live               │
-                          ▼                                  ▼
+                    └──────┬───────────────────┬─────────────┬─────────┘
+                           │ retrieval.py       │ chat.py     │ research.py
+                           │ calls               │ calls       │ calls
+                           │ RetrievalService    │ Streaming   │ ResearchService
+                           │ directly — bypasses │ Service     │ NEW — genuinely
+                           │ everything below     │ directly —  │ composes
+                           ▼                       │ builds an   │ everything below
+     ┌──────────────────────────────────────┐      │ EMPTY       │
+     │  Knowledge Platform (~14.6k LOC, real)│      │ PromptContext│
+     │                                        │      │             │
+     │  upload → processing/docling →         │      │             │
+     │  chunking → embeddings (cached) →      │      │             │
+     │  indexing (Qdrant) → retrieval          │      │             │
+     │  (dense+sparse+RRF+rerank) →            │      │             │
+     │  ContextBuilderService (dedup →         │      │             │
+     │  expand → merge → compress →            │      │             │
+     │  GUARDRAILS(mini) → CITATIONS →         │      │             │
+     │  format) → PromptContext                │      │             │
+     │                                        │      │             │
+     │  ✅ NEW: now called live by             │      │             │
+     │  ResearchService (research.py) — the    │      │             │
+     │  first live caller ever. retrieval.py   │      │             │
+     │  and chat.py still bypass it            │      │             │
+     └───────────────────┬────────────────────┘      │             │
+                          │ PromptContext is the       │             │
+                          │ designed hand-off point —  │             │
+                          │ now genuinely constructed   │             │
+                          │ live, by /research only     │             │
+                          ▼                             ▼             ▼
      ┌───────────────────────────────────────────────────────────────┐
      │  Generation Platform (app/ai/runtime/generation/)              │
      │                                                                  │
-     │  create.py → GenerationRegistry → GenerationService              │
+     │  orchestration/ (GenerationRuntime) ✅ NEW — canonical           │
+     │    execute_generation() entrypoint, /research's only caller     │
+     │    into everything below; chat.py still calls                   │
+     │    StreamingService directly, bypassing this layer               │
+     │  → create.py → GenerationRegistry → GenerationService            │
      │    .generate() / .stream_generate()                             │
-     │  → GuardrailService.evaluate_input() ✅ NEW — genuinely gates   │
-     │    every live call, before routing/provider                    │
+     │  → GuardrailService.evaluate_input() — genuinely gates every    │
+     │    live call, before routing/provider                          │
      │  → RoutingService (model/provider selection + fallback) ✅       │
      │  → CachingService (L1 exact / L2 semantic / L3 session) ✅       │
      │  → ValidationService (input/output/hallucination/runtime,       │
      │    7-stage output pipeline) ✅ + AcceptancePolicy/FailFastPolicy│
-     │    /RuntimeValidationPolicy ✅ NEW govern accept/reject/regen   │
+     │    /RuntimeValidationPolicy govern accept/reject/regen          │
      │  → 5 real provider adapters — retry, tools, cost, streaming ✅   │
      │  → StreamingService → runtime/events/ (StreamEvent) →           │
-     │    SSE / WebSocket transports ✅                                 │
-     │  → ArtifactWriter ✅ NEW — persists GenerationArtifact/          │
+     │    SSE / WebSocket transports ✅ — used by /chat/* and           │
+     │    /research/stream alike                                        │
+     │  → ArtifactWriter — persists GenerationArtifact/                │
      │    StreamArtifact (request/response/validation/guardrails/      │
      │    routing/cache/metrics.json) best-effort, on every call       │
      │                                                                  │
      │  ⚠ observability/ still empty except token_counter.py +         │
-     │    the new (NoOp-backed) GenerationMetricsService                │
+     │    the (NoOp-backed) GenerationMetricsService                    │
+     └──────────────────────────────────────────────────────────────┘
+
+     ┌──────────────────────────────────────────────────────────────┐
+     │  Research API Platform (app/ai/research/) — NEW this cycle    │
+     │  ResearchService — composes Retrieval → ContextBuilderService  │
+     │  → GenerationRuntime (non-streaming) / StreamingService        │
+     │  (streaming) → ResearchRepository → ResearchArtifactWriter     │
+     │                                                                  │
+     │  ✅ `POST /research`: full stack, incl. generation-stage         │
+     │     guardrails + RuntimeType.RESEARCH validation (calls         │
+     │     GenerationRuntime → GenerationService.generate())           │
+     │  ⚠ `POST /research/stream`: calls StreamingService directly,    │
+     │     same input-stage-only guardrail limit as /chat/stream       │
+     │  ✅ `research_sessions` Postgres table (model + repository +    │
+     │     migration `37117c83beb2`) — first persistent, replayable    │
+     │     Q&A history in the product                                  │
      └──────────────────────────────────────────────────────────────┘
 
      ┌──────────────────────────────────────────────────────────────┐
@@ -172,22 +224,26 @@ Scale: **0** = nonexistent · **1** = stub/placeholder only · **2** = minimal/p
      │  input/retrieval/generation/runtime stages, Source Trust,      │
      │  policies, scoring, artifacts — real MVP, fully implemented    │
      │                                                                  │
-     │  ✅ NEW input-stage: wired into GenerationService, live on      │
-     │     every /chat/stream + /chat/ws request                      │
-     │  ⚠ retrieval-stage: wired into ContextBuilderService, but      │
-     │     ContextBuilderService itself is still never called          │
-     │  ⚠ generation-stage (faithfulness/citation/PII): only runs      │
-     │     inside non-streaming generate(), which chat.py never calls  │
+     │  ✅ input-stage: wired into GenerationService, live on every    │
+     │     /chat/stream + /chat/ws + /research + /research/stream req  │
+     │  ✅ NEW retrieval-stage: wired into ContextBuilderService,      │
+     │     and now genuinely live — via /research only                 │
+     │  ✅ NEW generation-stage (faithfulness/citation/PII): live on   │
+     │     /research (non-streaming) — the first route to ever run    │
+     │     this stage in production. Still dark on /chat/stream and    │
+     │     /research/stream, both streaming-only                       │
      └──────────────────────────────────────────────────────────────┘
 
      ┌──────────────────────────────────────────────────────────────┐
-     │  Artifacts Platform (app/ai/artifacts/) — NEW this cycle       │
+     │  Artifacts Platform (app/ai/artifacts/)                        │
      │  generation/ streaming/ conversation/ — live, wired, tested    │
+     │  research/ ✅ NEW live caller — ResearchArtifactWriter,         │
+     │    best-effort, via ResearchService                            │
      │  replay/ — real for generation + streaming                     │
      │                                                                  │
-     │  ⚠ session/ research/ agent/ evaluation/ — built + tested,     │
-     │     zero live callers (no /research route, no agent runtime,   │
-     │     no session concept distinct from Conversation)              │
+     │  ⚠ session/ agent/ evaluation/ — built + tested, zero live     │
+     │     callers (no agent runtime, no session concept distinct      │
+     │     from Conversation)                                           │
      └──────────────────────────────────────────────────────────────┘
 
      ┌──────────────────────────────────────────────────────────────┐
@@ -196,24 +252,27 @@ Scale: **0** = nonexistent · **1** = stub/placeholder only · **2** = minimal/p
      │  — real DB-backed multi-turn history, loaded by chat.py        │
      │  ⚠ flattened into a text-prefixed user_prompt at generation     │
      │    time — providers still only build one system+user message  │
+     │  (research_sessions, above, is a separate, single-turn store)  │
      └──────────────────────────────────────────────────────────────┘
 ```
 
-Both platforms individually reflect a coherent design (composition-root factory functions, registry/provider patterns, interface segregation via ABCs), and that design keeps paying off — Routing/Caching/Validation/Streaming/Guardrails/Artifacts have all now slotted into `GenerationService` cleanly because the seams were designed in from the start. **The problem is no longer "construction stopped before the seams were connected" for Generation's own internals — it's specifically that the seam between Knowledge (retrieval) and Generation remains unconnected**, and it is now the *only* seam of its kind left unclosed, having survived four consecutive completion cycles that each had the opportunity (and, for Guardrails and Compression specifically, a direct structural reason) to close it and didn't.
+Both platforms individually reflect a coherent design (composition-root factory functions, registry/provider patterns, interface segregation via ABCs), and that design keeps paying off — Routing/Caching/Validation/Streaming/Guardrails/Artifacts/Generation Runtime have all now slotted into `GenerationService` cleanly because the seams were designed in from the start. **The seam between Knowledge (retrieval) and Generation, flagged as unconnected by every prior revision of this report, is now closed for one live route.** `ResearchService` is the proof that closing it required no rework of anything underneath — it composes `RetrievalService`, `ContextBuilderService`, and `GenerationRuntime` exactly as each already existed, per its own PRD's Non-Goals (no new retrieval/context/generation logic). What's left is not a design gap but a coverage gap: `chat.py` and `retrieval.py` are the same two call sites this report has flagged since the original audit, still bypassing everything below them, now standing out more starkly because a sibling route proves the fix was always this simple.
 
 ---
 
 ## 4. Detailed Findings by Category
 
-### 4.1 RAG Pipeline — strong, still orchestration-dead, now with a fully-real compression stage
+### 4.1 RAG Pipeline — strong, and now genuinely reachable — through one of two live answer routes
 
-Unchanged from the original audit in every respect that matters: upload, Docling parsing, three chunking strategies, three embedding providers with a real Valkey cache, hybrid retrieval with genuine RRF fusion, two reranking providers, and the full context-assembly pipeline are all real. **New this cycle:** the compression stage — previously part-stub — is now fully implemented across all four providers. `TokenBudgetCompressionProvider` and `EmbeddingCompressionProvider` were already real; `LangChainCompressionProvider` (LangChain `ContextualCompressionRetriever` + `LLMChainExtractor`, extracting only query-relevant spans from each chunk) and `LLMCompressionProvider` (per-chunk summarization via `GenerationService.generate()`, falling back to original content rather than dropping a chunk on failure) went from 1-line stubs (confirmed via `git log --follow`) to real, tested implementations, wired into `ContextBuilderService.build()` behind `settings.enable_langchain_compression`.
+Unchanged from the original audit in every respect that matters: upload, Docling parsing, three chunking strategies, three embedding providers with a real Valkey cache, hybrid retrieval with genuine RRF fusion, two reranking providers, and the full context-assembly pipeline (including the fully-real, 4-provider compression stage) are all real. **What changed this cycle isn't the pipeline itself, it's that something finally calls it.**
 
-None of this changes the pipeline's reachability. `chat.py` still constructs `PromptContext(context="", chunks=[])` rather than calling any of it, and `retrieval.py` still bypasses `ContextBuilderService` entirely, calling `RetrievalService` directly. The original audit's framing — "the entire pipeline is orchestration-dead at the API layer" — is now demonstrated a third and fourth time over: once by `retrieval.py`, once by `chat.py`'s empty `PromptContext`, and now twice more by the retrieval-stage guardrails (§4.6) and the newly-completed compression providers, both of which are real and tested but execute exactly zero times against real traffic.
+`ResearchService._retrieve_and_build_context()` (`app/ai/research/service.py`), confirmed by direct read, calls `RetrievalService.search_hybrid()` and then `ContextBuilderService.build()` for every `/research`, `/research/stream`, and `/research/citations` request — the first live invocation of `ContextBuilderService` in this codebase's history. That means dedup, parent expansion, adjacent merge, all four compression providers, the retrieval-stage guardrails (§4.6), and citation generation are now genuinely exercised by real traffic, not just by tests.
+
+This is deliberately partial, not a full fix: `chat.py` still constructs `PromptContext(context="", chunks=[])` and never calls any of it, and `retrieval.py` still bypasses `ContextBuilderService` entirely, calling `RetrievalService` directly. The original audit's framing — "the entire pipeline is orchestration-dead at the API layer" — no longer holds without qualification: it's dead at two of three call sites (`retrieval.py`, `chat.py`) and alive at the third (`research.py`).
 
 Still missing, unchanged: no semantic (embedding-similarity) chunking strategy; query-level prompt-injection detection still explicitly deferred; guardrail strategy still hardcoded to `RULE_BASED` with `LLAMA_GUARD`/`NEMO`/`LAKERA` as unimplemented enum values; `vectorstores/artifacts/{builder,models,writer}.py` still empty.
 
-### 4.2 Generation Platform — internal completion is now essentially finished
+### 4.2 Generation Platform — internal completion finished, now with one canonical entrypoint
 
 The five provider adapters are unchanged at their core, but the shell around them, and now its finer-grained internals, are substantially real:
 
@@ -221,7 +280,8 @@ The five provider adapters are unchanged at their core, but the shell around the
 - **Automatic routing** (`routing/`) — unchanged, implemented and wired.
 - **Structured output** (`structured_output/`) — unchanged, implemented.
 - **Output validation** (`validation/`) — **now a 7-stage pipeline**, up from 3-4 stages as of 07-17: JSON → Schema → Formatting → Completeness → Consistency → ResponseSize → Citation, plus the pre-existing input and hallucination validators. `formatting_validator.py`/`response_size_validator.py`/`completeness_validator.py`/`consistency_validator.py` are new this cycle; the latter two delegate to the generic `runtime/validators/{completeness,consistency}.py` classes rather than duplicating logic.
-- **Runtime validation contracts** — extended from Research-only to five runtime types: `validation/runtime/contracts/{research,planner,reviewer,agent,mcp}.py`, all registered in `validation/create.py`. A new `DependencyValidator` (DFS cycle detection) backs Planner's dependency-graph check; `ConsistencyValidator` was generalized to configurable field names so MCP could reuse it for `tool_outputs`/`tool_references`. Still a no-op in production — nothing sets `GenerationRequest.runtime` because no `/research` (or planner/reviewer/agent/mcp) API exists yet.
+- **Runtime validation contracts** — extended from Research-only to five runtime types: `validation/runtime/contracts/{research,planner,reviewer,agent,mcp}.py`, all registered in `validation/create.py`. A new `DependencyValidator` (DFS cycle detection) backs Planner's dependency-graph check; `ConsistencyValidator` was generalized to configurable field names so MCP could reuse it for `tool_outputs`/`tool_references`. **No longer a no-op for one of the five** — `ResearchService` sets `GenerationRequest.runtime = RuntimeType.RESEARCH` on every `/research` call (§4.10, §4.12), so the Research contract is now genuinely evaluated against live traffic. Planner/Reviewer/Agent/MCP remain dormant, since no runtime yet sets those.
+- **Generation Runtime Platform — new this cycle.** `generation/orchestration/{context,state,interfaces,orchestrator,create}.py`, per `generation_runtime_platform_prd.md`: a single canonical `execute_generation(request, provider=None) -> GenerationResult` / `GenerationRuntime.execute()` entrypoint, plus a `get_generation_runtime()` FastAPI dependency. Confirmed by direct read: it adds no new stage and reorders nothing — it mints a trace context, calls `GenerationService.generate()` unchanged, and folds the result into a `GenerationExecutionState` for logging. Its only real caller so far is `ResearchService` (§4.12); `chat.py` still calls `StreamingService`/`GenerationService` directly, not through this layer. 11 new unit tests.
 - **Validation Policy Layer — new this cycle.** `generation/policies/{acceptance,fail_fast,runtime}.py`: `AcceptancePolicy` decides Accept/Reject/Regenerate off a `ValidationReport`; `FailFastPolicy` decides whether an input-stage failure should stop execution before the provider call is even made (new `_enforce_fail_fast_input_validation()` pre-flight hook, currently a no-op safety net since every ERROR-severity input check it could catch is already caught earlier — but the ordering hook now exists); `RuntimeValidationPolicy` decides whether a failed runtime contract should also gate regeneration (defaults permissive, since nothing sets `runtime` yet). All three are optional `GenerationService` constructor params defaulting to permissive instances — default behavior is unchanged, but the decision logic is no longer hardcoded booleans.
 - **Runtime Metrics Integration — new this cycle.** `observability/{models,service}.py`, empty as of 07-17, now hosts `GenerationMetricsSnapshot` + `GenerationMetricsService`, logging a `generation.metrics.recorded` structured event on every `generate()` call (new constants in `infrastructure/metrics/generation.py`). Unlike every other optional collaborator, this one always defaults to a real instance rather than `None`-skipping — but it's still backed by `NoOpMetricsRecorder`, so the events are logged, not aggregated anywhere.
 - **Token-budget enforcement / config timeout gaps** — unchanged from 07-17 (word-count heuristic by design; Gemini/Ollama still don't receive `timeout_seconds`).
@@ -258,16 +318,15 @@ The model catalog's pricing data is now genuinely used: `estimate_cost()` multip
 
 Token optimization: `tiktoken` is now actually imported and used (`observability/token_counter.py`), closing the "installed but unused" half of the original finding. The other half — pre-flight token-budget enforcement — is implemented (`TokenBudgetValidator`) but deliberately uses a word-count heuristic rather than `tiktoken` itself, a documented trade-off for determinism inside the validator (not a gap so much as a design choice worth being aware of if precise counts ever matter more than determinism). Dynamic cost-based routing (`RoutingStrategy.CHEAPEST`) still has no dedicated strategy profile of its own, unlike the six strategies (planning, summarization, review, validation, coding, research) that do.
 
-### 4.6 Guardrails & Safety — now genuinely wired, for one of its four stages
+### 4.6 Guardrails & Safety — now genuinely wired for three of its four stages, on one route
 
-This section's verdict changed materially this cycle, and it's worth being precise about exactly how much. The **Guardrails Platform** (`app/ai/guardrails/`) — input (prompt injection, scope, PII), retrieval (context sanitization, Source Trust, citation integrity), generation (faithfulness, schema enforcement, PII leakage), and runtime (budget, loop detection) stages — was fully built as of 07-17 but had zero callers. As of this audit, confirmed by reading the actual call chain rather than the platform's own tests:
+This section's verdict changes materially again this cycle. The **Guardrails Platform** (`app/ai/guardrails/`) — input (prompt injection, scope, PII), retrieval (context sanitization, Source Trust, citation integrity), generation (faithfulness, schema enforcement, PII leakage), and runtime (budget, loop detection) stages — was fully built as of 07-17 but had zero callers; 07-18 wired its input stage into live chat traffic. As of this revision, confirmed by reading the actual call chain rather than the platform's own tests:
 
-- `GenerationService.__init__` takes a real `guardrail_service: GuardrailService`, wired by `runtime/generation/create.py::create_generation_service()`. `_enforce_input_guardrails()` runs `evaluate_input()` at the top of **both** `generate()` and `stream_generate()`, before routing or any provider call, raising `GuardrailViolationError` on a block.
-- `StreamingService` (`streaming/create.py`) wraps that same composed `GenerationService`, and `chat.py` calls `StreamingService.stream_generate()` for every `/chat/stream` and `/chat/ws` request. **This means input-stage guardrails now genuinely run on every live chat request** — the first guardrail stage in this codebase's history to actually execute against real traffic.
-- The full generation-stage `evaluate()` (faithfulness, citation integrity, PII leakage) only runs inside non-streaming `generate()`'s `_execute_once()`, after structured-output post-processing — an explicit, documented scope decision (buffering a full streamed response to evaluate it wasn't in scope), not an oversight. Since `chat.py` only ever calls `stream_generate()`, **this stage never runs in production today.**
-- `ContextBuilderService` gained an optional `guardrail_platform_service` param (`knowledge/context/create.py`) that runs `evaluate_retrieval()` on raw chunks before dedup/expansion/merge/compression, raising `GuardrailBlockedError` on a block. This closes the wiring gap cleanly — but `ContextBuilderService` itself is still never called by any route (§4.1), so this stage is also still 100% dark in production.
+- `GenerationService.__init__` takes a real `guardrail_service: GuardrailService`, wired by `runtime/generation/create.py::create_generation_service()`. `_enforce_input_guardrails()` runs `evaluate_input()` at the top of **both** `generate()` and `stream_generate()`, before routing or any provider call, raising `GuardrailViolationError` on a block — genuinely live on `/chat/stream`, `/chat/ws`, `/research`, and `/research/stream` alike, since all four ultimately call into `GenerationService`.
+- `ContextBuilderService`'s `guardrail_platform_service` param (`evaluate_retrieval()` before dedup/expansion/merge/compression) is **now genuinely live for the first time** — `ResearchService` is the first real caller of `ContextBuilderService` (§4.1), so the retrieval-stage guardrails execute on every `/research`, `/research/stream`, and `/research/citations` call. This was flagged as "wired but 100% dark" every prior revision; that's now false for one route.
+- The full generation-stage `evaluate()` (faithfulness, citation integrity, PII leakage) only runs inside non-streaming `generate()`'s `_execute_once()`. **`POST /research` is the first route to ever reach this code path in production**, because it calls `GenerationRuntime.execute()` → `GenerationService.generate()` (not `stream_generate()`). `/chat/stream`, `/chat/ws`, and `/research/stream` all only ever call `stream_generate()`, so this stage remains dark on all three of them — a real, documented scope decision (buffering a full streamed response to evaluate it wasn't in scope for either cycle that could have addressed it), not an oversight.
 
-Net effect: guardrail *capability* is unchanged from 07-17 (already a real, broader MVP); guardrail *production coverage* moved from a flat 0 to a genuine 1-of-4 stages live — a real, meaningful improvement, but still gated on the same unclosed retrieval seam for the other 3 stages.
+Net effect: guardrail *capability* is unchanged (already a real, broader MVP); guardrail *production coverage* is now genuinely 3-of-4 stages live on `/research` (input, retrieval, generation — only the runtime stage isn't separately exercised here), versus still 1-of-4 on `/chat/stream`/`/chat/ws`/`/research/stream`. The report's framing shifts from "which stages are wired" (now largely answered) to "which routes reach which stages" — a route-level question, not a platform-completeness one.
 
 ### 4.7 Validation & Error Handling
 

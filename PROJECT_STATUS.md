@@ -2,7 +2,7 @@
 
 **Last Updated:** 2026-07-18
 
-**Current Maturity:** NotebookLM++ + Perplexity Foundation — Hybrid Retrieval, Reranking, Parent Expansion, and Context Guardrails are all in place, putting the platform ahead of NotebookLM and closing in on a Perplexity v1 experience. The Context Platform's Compression stage is now complete end to end (V1-V4 — Token Budget, Embedding Redundancy, LangChain Contextual, and LLM per-chunk summarization — per `context_platform_complexion_prd.md`), with LangChain compression wired into `ContextBuilderService.build()`'s default pipeline behind an opt-in `settings.enable_langchain_compression` flag. A platform-wide Guardrails Platform (input/retrieval/generation/runtime stages, Source Trust, policies, scoring, artifacts) now sits alongside the Validation Platform as a completed foundation layer, and — per `guardrail_integration_prd.md` — is wired directly into both `GenerationService` (input gate before every provider call, full evaluate() report attached to `GenerationResult.guardrails`) and `ContextBuilderService` (retrieval-stage gate before context building). The Generation Platform is now fully complete, per `generation_platform_complexion_prd.md`: Routing Platform (model/provider selection, scored catalog, strategy-weighted fallback chains), Runtime Caching Platform (L1 exact/L2 semantic/L3 session caching, policy resolution, wired into `GenerationService`), Streaming Platform (canonical event protocol, SSE + WebSocket transports, `stream_generate()`, cache-hit replay), five per-runtime Validation Contracts (Research/Planner/Reviewer/Agent/MCP), a Validation Policy Layer, every PRD output validator, and Runtime Metrics Integration are all done — the only remaining gap is a `/research` API to actually set `GenerationRequest.runtime`, blocked on a Research Runtime that doesn't exist yet. Critically, the Generation Platform is now reachable over HTTP for the first time — `POST /api/v1/chat/stream` (SSE) and `/api/v1/chat/ws` (WebSocket) are live, backed by a new minimal Conversation/Message persistence layer. A new, centralized Artifact Platform (`app/ai/artifacts/`, per `artifacts_platform_prd.md`) now persists every generation call, completed stream, and conversation turn as an immutable, versioned, policy-gated artifact in S3 — the canonical execution history layer the ingestion side has always had, now extended to the runtime side; Session/Research/Agent/Evaluation artifacts are built but scaffold-only, since those runtimes don't exist yet. Maturity ladder: `NotebookLM++ → Perplexity v1 (almost here) → Open Deep Research → Manus / Glean`.
+**Current Maturity:** NotebookLM++ + Perplexity Foundation — Hybrid Retrieval, Reranking, Parent Expansion, and Context Guardrails are all in place, putting the platform ahead of NotebookLM and closing in on a Perplexity v1 experience. The Context Platform's Compression stage is now complete end to end (V1-V4 — Token Budget, Embedding Redundancy, LangChain Contextual, and LLM per-chunk summarization — per `context_platform_complexion_prd.md`), with LangChain compression wired into `ContextBuilderService.build()`'s default pipeline behind an opt-in `settings.enable_langchain_compression` flag. A platform-wide Guardrails Platform (input/retrieval/generation/runtime stages, Source Trust, policies, scoring, artifacts) now sits alongside the Validation Platform as a completed foundation layer, and — per `guardrail_integration_prd.md` — is wired directly into both `GenerationService` (input gate before every provider call, full evaluate() report attached to `GenerationResult.guardrails`) and `ContextBuilderService` (retrieval-stage gate before context building). The Generation Platform is now fully complete, per `generation_platform_complexion_prd.md`: Routing Platform (model/provider selection, scored catalog, strategy-weighted fallback chains), Runtime Caching Platform (L1 exact/L2 semantic/L3 session caching, policy resolution, wired into `GenerationService`), Streaming Platform (canonical event protocol, SSE + WebSocket transports, `stream_generate()`, cache-hit replay), five per-runtime Validation Contracts (Research/Planner/Reviewer/Agent/MCP), a Validation Policy Layer, every PRD output validator, and Runtime Metrics Integration are all done. Critically, the Generation Platform is now reachable over HTTP for the first time — `POST /api/v1/chat/stream` (SSE) and `/api/v1/chat/ws` (WebSocket) are live, backed by a new minimal Conversation/Message persistence layer. A new, centralized Artifact Platform (`app/ai/artifacts/`, per `artifacts_platform_prd.md`) now persists every generation call, completed stream, and conversation turn as an immutable, versioned, policy-gated artifact in S3 — the canonical execution history layer the ingestion side has always had, now extended to the runtime side. A thin Generation Runtime Platform (`app/ai/runtime/generation/orchestration/`, per `generation_runtime_platform_prd.md`) then gave every future caller one canonical entrypoint, `execute_generation()`, into that already-complete `GenerationService.generate()` flow instead of reaching into `GenerationService` directly — and that entrypoint now has its first real caller: the new Research API Platform (Phase 4, per `research_api_prd.md`) is ResearchMind's **first live, end-to-end product surface** — `POST /api/v1/research` (plus `/research/stream`, `/research/citations`, `GET /research/{research_id}`) lets a user upload documents, ask a question, and get back a grounded, cited, streamable answer, via a new `ResearchService` composing Retrieval (hybrid search + rerank) + Context (dedup/expand/merge/compress/cite) + Generation Runtime + Streaming + best-effort Artifact persistence. This is also the first live code exercising `RuntimeType.RESEARCH` and `ArtifactRuntime.RESEARCH` — previously reserved-but-unused enum values — and the first live caller of the previously scaffold-only Research Artifact writer. Session/Agent/Evaluation artifacts remain built but scaffold-only, since those runtimes still don't exist yet. Maturity ladder: `NotebookLM++ → Perplexity v1 (reached) → Open Deep Research → Manus / Glean`.
 
 ---
 
@@ -584,7 +584,7 @@ Documentation
 - ✅ `POST /api/v1/retrieve/sparse` — sparse
 - ✅ `POST /api/v1/retrieve/hybrid` — hybrid (RRF), reranks via Voyage AI by default
 - ✅ All three endpoints now require authentication (`Depends(get_current_user)`) and force `owner_id` from the authenticated user, never from the request body — closes a gap where an unauthenticated or spoofed request could read another user's documents
-- ❌ `POST /research`
+- ✅ `POST /research` (+ `/research/stream`, `/research/citations`, `GET /research/{id}`) — Phase 4, per `research_api_prd.md`
 - ❌ Streaming chat
 - ❌ Citations
 
@@ -922,21 +922,34 @@ A real bug was caught and fixed along the way: `artifacts/writers/base.py::write
 
 ~40 new test files/cases across `policies/`, `observability/`, the new contracts, the new output validators, and `GenerationService` integration; full repo suite (1034 tests), `ruff format --check`, `ruff check`, and `mypy` all pass clean.
 
+## 2.9.12 Generation Runtime Platform
+
+**Status:** ✅ Complete (per `generation_runtime_platform_prd.md`) — thin orchestration layer, no new generation behavior
+
+This milestone does not re-implement anything: `GenerationService.generate()` already runs the full frozen ordering (input validation → input guardrails → routing → cache → provider → structured outputs → generation guardrails → output/hallucination validation → runtime validation → metrics → artifacts) from every prior Generation Platform milestone. What was missing was a single canonical entrypoint that future runtimes call instead of reaching into `GenerationService` directly. New `apps/api/app/ai/runtime/generation/orchestration/`:
+
+- `context.py` — `GenerationExecutionContext` (trace id minted fresh per call, request/session/runtime ids, provider/routing/cache/validation/guardrail summaries, reserved `langsmith_trace_id`/`langgraph_run_id` fields for future integrations), built via `for_request()` and mutated in place by `finalize()` once `GenerationService.generate()` returns
+- `state.py` — `GenerationExecutionState` (context + request + result/failed/exception), a single object a future LangGraph node can hold and inspect across the call
+- `interfaces.py` — `GenerationRuntimeInterface` ABC (`execute()`), the contract Research/Planner/Reviewer/Agent/MCP runtimes depend on instead of `GenerationService` directly
+- `orchestrator.py` — `GenerationRuntime`, deliberately thin: mints a context, delegates to `GenerationService.generate()`, folds the result (or exception) back into the state, logs `generation_runtime.started/completed/failed`. Owns only what the PRD assigns to the runtime layer (tracing/timing) and explicitly not provider execution, planning, workflows, agent state, retrieval, reasoning loops, or checkpoints
+- `create.py` — composition root: `create_generation_runtime()` (wraps `create_generation_service()`), `@lru_cache`'d `get_generation_runtime()`, and the module-level `execute_generation(request, *, provider=None) -> GenerationResult` — the canonical entrypoint the PRD names in §11
+
+New `get_generation_runtime()` FastAPI dependency added to `dependencies/generation.py`. 11 new unit tests under `tests/unit/ai/runtime/generation/orchestration/` (`factories.py`, `test_context.py`, `test_state.py`, `test_orchestrator.py`, `test_create.py`). This platform had no real caller until the Research API Platform below — see Phase 4.
+
 ## Not Yet Built
 
-- ❌ `POST /research` API (chat streaming is now implemented — see Milestone 2.9.10) — the only remaining Generation Platform gap, blocked on a Research Runtime that doesn't exist yet. Everything downstream (five runtime contracts, artifact policy rows) is already built and waiting for it
 - ❌ Adaptive/evaluation-driven routing, budget-aware routing, A/B experimentation (Routing Platform Phase 2+ — see Milestone 2.9.7)
 - ❌ Session Cache wiring — implemented and available (Milestone 2.9.9) but nothing calls it yet
 - ❌ Streaming rate limiting / per-user concurrent-stream cap, real multi-message chat history (Milestone 2.9.10)
-- 🟡 Test suite — `validation/`, `policies/`, `observability/`, `providers/`, `prompts/`, `routing/`, `catalog/`, `caching/`, `streaming/`, `runtime/events/`, and core `service.py` all have unit test coverage now; `artifacts/` (the old empty in-package scaffold) is gone — see Milestone 3.10 below
+- 🟡 Test suite — `validation/`, `policies/`, `observability/`, `providers/`, `prompts/`, `routing/`, `catalog/`, `caching/`, `streaming/`, `runtime/events/`, `orchestration/`, and core `service.py` all have unit test coverage now; `artifacts/` (the old empty in-package scaffold) is gone — see Milestone 3.10 below
 
-Generation-level guardrails, previously listed here as a gap, are now implemented and wired into `GenerationService` — see Milestone 11.16 below. Artifact persistence, also previously listed here as a gap, is now implemented — see Milestone 3.10 below.
+Generation-level guardrails, previously listed here as a gap, are now implemented and wired into `GenerationService` — see Milestone 11.16 below. Artifact persistence, also previously listed here as a gap, is now implemented — see Milestone 3.10 below. The `POST /research` API, previously listed here as the only remaining Generation Platform gap, is now closed — see Phase 4 — Research API Platform below.
 
 ---
 
 # Milestone 3.10 — Artifact Platform
 
-**Status:** ✅ Complete (Generation/Streaming/Conversation live and wired, per `artifacts_platform_prd.md`) — 🟡 Session/Research/Agent/Evaluation built but scaffold-only (no runtime exists yet to call them)
+**Status:** ✅ Complete (Generation/Streaming/Conversation/Research live and wired, per `artifacts_platform_prd.md`) — 🟡 Session/Agent/Evaluation built but scaffold-only (no runtime exists yet to call them)
 
 The Artifact Platform provides canonical, immutable, versioned, policy-gated persistence for AI Runtime executions — the same "artifacts are the source of truth" principle the ingestion side (`chunking/`, `embeddings/`, `indexing/`, `processing/`) has always followed, now extended to the runtime side (generation calls, streams, conversations). It is a new, centralized, cross-cutting package (`apps/api/app/ai/artifacts/`, sibling to `knowledge/`, `runtime/`, `guardrails/`, `quality/`) — deliberately *not* nested inside `runtime/generation/`, since it spans multiple runtimes (generation, streaming, conversation, and eventually research/agent) rather than being owned by a single one. Supersedes and deletes the old empty 4-file scaffold that previously sat at `runtime/generation/artifacts/`.
 
@@ -987,12 +1000,15 @@ Implemented
 - `summary.json` from the PRD is intentionally not built — no summarization component exists anywhere in this codebase to produce one
 - Wired into `chat.py` (`_persist_on_complete()`), covering both `/chat/stream` (SSE) and `/chat/ws` (WebSocket) through the one shared hook; new `get_conversation_artifact_writer()`/`get_artifact_policy_service_dependency()` singletons in `dependencies/generation.py`
 
-## Session / Research / Agent / Evaluation Artifacts (PRD §16-19) — Scaffold-only, unwired
+## Research Artifacts (PRD §17) — Live (as of Phase 4 — Research API Platform)
 
-Built (models/builders/writers/readers, unit-tested with a fake `DocumentStorage`) but deliberately not wired to any live caller, matching this codebase's repeated, established pattern of building the platform layer ahead of the API surface (see the Runtime Caching Platform's unused `CacheRuntime.RESEARCH`, the Runtime Validation Platform's unwired `RuntimeType.RESEARCH` contract, and the Streaming Platform's reserved `ResearchEventType`/`AgentEventType`):
+`ResearchArtifact` (`plan`/`queries`/`retrievals`/`citations`/`report`/`evaluation`, loosely-typed `dict[str, Any]` via `JsonDictFile` since no `ResearchPlan`-shaped type exists yet) is no longer scaffold-only. `ResearchService._persist_artifact()` calls the pre-existing `ResearchArtifactBuilder`/`ResearchArtifactWriter` after every completed `/research`(`/stream`) call, best-effort and policy-gated exactly like `GenerationService`/`StreamingService`/`chat.py` already do. `plan`/`queries` are written empty (this milestone is deliberately linear — no planning/decomposition, per `research_api_prd.md`'s Non-Goals) and the answer is folded into `report` rather than a separate file. `runtime/research/{decomposition,planner,workflows}/` remain empty directories. See Phase 4 below for the full Research API Platform writeup.
+
+## Session / Agent / Evaluation Artifacts (PRD §16, §18-19) — Scaffold-only, unwired
+
+Built (models/builders/writers/readers, unit-tested with a fake `DocumentStorage`) but deliberately not wired to any live caller, matching this codebase's repeated, established pattern of building the platform layer ahead of the API surface (see the Streaming Platform's reserved `AgentEventType`):
 
 - `session/` — `SessionArtifact` (`session.json`/`timeline.json`/`statistics.json`); no session concept distinct from `Conversation` exists today (`GenerationRequest.session_id`/`StreamEvent.session_id` are real fields but nothing populates them)
-- `research/` — `ResearchArtifact` (`plan`/`queries`/`retrievals`/`citations`/`report`/`evaluation`, loosely-typed `dict[str, Any]` via `JsonDictFile` since no `ResearchPlan`-shaped type exists yet); `runtime/research/{decomposition,planner,workflows}/` are still empty directories
 - `agent/` — `AgentArtifact` (`state`/`tools`/`execution_graph`/`events`/`memory`); `ai/agents/*` are still empty directories
 - `evaluation/` — `EvaluationArtifact` (`dataset`/`results`/`metrics`/`comparison`); `quality/{evaluation,regression}/` are still empty `__init__.py`s
 
@@ -1007,9 +1023,42 @@ Built (models/builders/writers/readers, unit-tested with a fake `DocumentStorage
 
 ## Not Yet Built (by design)
 
-- ❌ Wiring for Session/Research/Agent/Evaluation artifacts — needs a real session concept, `/research` API, Agent Runtime, and evaluation harness respectively, none of which exist yet
+- ❌ Wiring for Session/Agent/Evaluation artifacts — needs a real session concept, an Agent Runtime, and an evaluation harness respectively, none of which exist yet (Research artifacts are now wired — see Phase 4 — Research API Platform)
 - ❌ Automated retention/expiry enforcement for the PRD §23 retention table — informational only in this pass, no deletion job
 - ❌ A local S3/MinIO dev stack — `docker-compose.yml` has no S3-compatible service, so a true storage round-trip smoke test needs real AWS credentials; unit tests use a fake `DocumentStorage` instead
+
+---
+
+# Phase 4 — Research API Platform
+
+**Status:** ✅ Complete (per `research_api_prd.md`) — **ResearchMind's first live, end-to-end product surface**: a user can upload documents, ask a question, and get a grounded, cited, streamable answer back
+
+Everything before this milestone was platform-layer work — Retrieval, Context, Generation, Guardrails, Validation, Caching, Streaming, Artifacts — with no single API tying them together into a product experience. This milestone adds exactly one thing on top: an orchestration layer that composes those already-complete platforms in the PRD's specified linear order (retrieve → build context → generate through the Generation Runtime → persist), and adds no new retrieval/context/generation logic of its own (PRD §4 Non-Goals — no query decomposition, no research planning or multi-step loops, no agents, no LangGraph; those are explicitly named as future milestones — a Research Runtime, a Deep Research Runtime, and an Agent Platform).
+
+New files
+
+- `apps/api/app/api/v1/research.py` — `POST /research`, `POST /research/stream`, `POST /research/citations`, `GET /research/{research_id}` (all auth-required via `get_current_user`, owner-scoped)
+- `apps/api/app/ai/research/service.py` — `ResearchService`: `research()` (full linear flow through the Generation Runtime), `stream_research()` (the streaming counterpart, going through `StreamingService` directly per the PRD's own `/research/stream` flow diagram, distinct from `/research`), `citations_only()` (retrieval + context building only, no generation, no persistence — powers the citation-panel preview)
+- `apps/api/app/ai/research/models.py` — internal DTOs `ResearchSource` (built from a `ContextChunk`, not the raw retrieved chunk, since `page` only becomes available after parent expansion) and `ResearchOutcome`
+- `apps/api/app/models/research.py` — `ResearchSession` (new Postgres table `research_sessions`: `query`/`answer`/`citations`/`sources`/`runtime_metadata` as JSONB) — Postgres is the live read path for `GET /research/{id}`, storing the answer directly rather than reconstructing it from the best-effort, write-only Research Artifact, mirroring the existing Conversation/Chat precedent
+- `apps/api/app/repositories/research.py` — `ResearchRepository` (`create()`, `get_by_id_for_owner()` — owner-scoped so a caller can never load another user's session by id)
+- `apps/api/app/schemas/research.py` — `ResearchRequest`/`ResearchStreamRequest`/`ResearchCitationsRequest` and `ResearchResponse`/`ResearchSessionResponse`/`ResearchCitationsResponse`
+- `apps/api/app/dependencies/research.py`, `apps/api/app/dependencies/context.py` — new FastAPI dependency wiring (`get_research_service()`, `get_research_repository()`, `get_context_builder()`)
+- `alembic/versions/37117c83beb2_create_research_sessions_table.py` — new migration, verified to round-trip cleanly
+
+Every `GenerationRequest` this service builds sets `runtime=RuntimeType.RESEARCH` and `artifact_runtime=ArtifactRuntime.RESEARCH` — the first live code to exercise either enum value, previously reserved-but-unused. That means the pre-existing `ResearchRuntimeContract` (Runtime Validation Platform, Milestone 2.9.4) now actually runs against real traffic for the first time, and the previously scaffold-only Research Artifact writer (Artifact Platform, Milestone 3.10) now actually gets called — see "Research Artifacts" above.
+
+`research()` and `stream_research()` both call `RetrievalService.search_hybrid()` (owner_id always injected server-side into filters, never trusted from the request body, mirroring `api/v1/retrieval.py`) and `ContextBuilderService.build()`, then persist a `ResearchSession` row and a best-effort `ResearchArtifact` (a storage failure is caught/logged as `artifacts.research.persist_failed`, never fails the request/stream — the same pattern `chat.py::_persist_on_complete` already established).
+
+## Testing
+
+23 new tests: `tests/unit/ai/research/` (`factories.py`, `test_service.py`), `tests/integration/test_research_repository.py`, `tests/integration/ai/test_research_api.py`. Full repo suite (1068 tests), `ruff format --check`, `ruff check`, and `mypy` all pass clean; migration verified to round-trip.
+
+## Not Yet Built (by design — PRD §4 Non-Goals)
+
+- ❌ Query decomposition, research planning, multi-step/agentic loops, LangGraph — explicitly out of scope for this milestone
+- ❌ Guardrails runtime stage (`evaluate_runtime()`) still has no live caller — this service has no reasoning loop for it to guard
+- ❌ Session/Agent/Evaluation artifacts remain scaffold-only (see Milestone 3.10 above)
 
 ---
 
@@ -1105,7 +1154,7 @@ A follow-up pass wired the already-complete platform above into the two live com
 ## Not Yet Built (by design — matches PRD §21/§22 MVP scope, plus `guardrail_integration_prd.md`'s own Phase 5)
 
 - ❌ LLM-based classifiers (Llama Guard, Lakera, NeMo Guardrails) — explicitly skipped for MVP
-- ❌ A router/agent-runtime caller for `evaluate_runtime()` — no `/research` API exists yet to drive it, same gap as the Runtime Validation Platform (Milestone 2.9.4)
+- ❌ A router/agent-runtime caller for `evaluate_runtime()` — the new `/research` API (Phase 4) is deliberately linear with no reasoning/tool loop, so it still has nothing to drive this stage; needs a future Research/Agent Runtime instead
 - ❌ Post-generation guardrails on the streaming path (`stream_generate()` only gets the pre-provider input gate — buffering a full streamed response to evaluate it wasn't in scope)
 - ❌ Enterprise ACL / multi-tenant Access Control, real Tool Policy providers, a working Approval Gate implementation (LangGraph interrupts/checkpoints)
 - ❌ Security dashboards, attack datasets, red-teaming (PRD's Phase 2-4 future roadmap)
@@ -1191,7 +1240,7 @@ Routing Platform (task-based strategy → scored model catalog → provider + fa
 Generation Platform (native structured output → parser fallback → input/output/hallucination validation → regeneration)
 ```
 
-Now wired into the pipeline above: the Guardrails Platform (`app/ai/guardrails/`, Milestone 11.16) — input/retrieval/generation checks run automatically inside `GenerationService`/`ContextBuilderService` (see Milestone 11.16's "Integration" subsection); only `evaluate_runtime()` still has no live caller, pending a `/research` API.
+Now wired into the pipeline above: the Guardrails Platform (`app/ai/guardrails/`, Milestone 11.16) — input/retrieval/generation checks run automatically inside `GenerationService`/`ContextBuilderService` (see Milestone 11.16's "Integration" subsection); only `evaluate_runtime()` still has no live caller — the new `/research` API (Phase 4) is deliberately linear with no reasoning/tool loop for it to guard.
 
 ---
 
@@ -1210,14 +1259,20 @@ Now wired into the pipeline above: the Guardrails Platform (`app/ai/guardrails/`
 | Phase 2.6 — Indexing Platform (Hybrid Retrieval) | ✅ Complete |
 | Phase 2.7 — Retrieval Platform | ✅ Complete (incl. Metadata Filtering + Reranking + Parallel Retrieval) |
 | Phase 2.8 — Context Platform | ✅ Complete (Parent Expansion, Adjacent Merge, Compression V1-V4, LangChain compression wired into `build()`'s default pipeline, Guardrails V1, Citations, Prompt Formatter — Phase 3.7, `context_platform_complexion_prd.md`) |
-| Phase 2.9 — Generation Platform | ✅ Complete, per `generation_platform_complexion_prd.md` (Structured Output Integration, Validation Platform integration incl. input/output/hallucination/runtime validators + scoring + five runtime contracts, a Validation Policy Layer, every PRD output validator, Regeneration, Prompt Platform bridge, Routing Platform, Runtime Caching Platform, Streaming Platform (SSE+WS chat, wired), Runtime Metrics Integration, Artifact Platform (generation results persisted incl. metrics.json) done; only /research API remains) |
+| Phase 2.9 — Generation Platform | ✅ Complete, per `generation_platform_complexion_prd.md` (Structured Output Integration, Validation Platform integration incl. input/output/hallucination/runtime validators + scoring + five runtime contracts, a Validation Policy Layer, every PRD output validator, Regeneration, Prompt Platform bridge, Routing Platform, Runtime Caching Platform, Streaming Platform (SSE+WS chat, wired), Runtime Metrics Integration, Artifact Platform (generation results persisted incl. metrics.json) done) |
+| Milestone 2.9.12 — Generation Runtime Platform | ✅ Complete, per `generation_runtime_platform_prd.md` (thin orchestration layer, `execute_generation()` canonical entrypoint, no new generation behavior) |
 | Milestone 11.16 — Guardrails Platform | ✅ Complete (MVP Foundation — input/retrieval/generation/runtime guardrails, Source Trust, policies, scoring, artifacts) + ✅ Integrated into `GenerationService`/`ContextBuilderService` (runtime stage still has no live caller) |
-| Milestone 3.10 — Artifact Platform | ✅ Generation/Streaming/Conversation artifacts complete and wired (`GenerationService`, `StreamingService`, `chat.py`) — 🟡 Session/Research/Agent/Evaluation artifacts built but scaffold-only (no runtime exists yet to call them) |
+| Milestone 3.10 — Artifact Platform | ✅ Generation/Streaming/Conversation/Research artifacts complete and wired (`GenerationService`, `StreamingService`, `chat.py`, `ResearchService`) — 🟡 Session/Agent/Evaluation artifacts built but scaffold-only (no runtime exists yet to call them) |
+| Phase 4 — Research API Platform | ✅ Complete, per `research_api_prd.md` — ResearchMind's first live, end-to-end product surface: `POST /research`, `/research/stream`, `/research/citations`, `GET /research/{id}` |
 | Benchmark Platform | ✅ Foundation Complete (incl. Retrieval, Metadata Filtering, Reranking Benchmarks) |
 
 ---
 
 # Recently Completed
+
+✅ Research API Platform (Phase 4, per `research_api_prd.md`) — **ResearchMind's first live, end-to-end product surface**: a user can upload documents, ask a question, and get a grounded, cited, streamable answer back. New `apps/api/app/api/v1/research.py` (`POST /research`, `/research/stream`, `/research/citations`, `GET /research/{research_id}`, all auth-required and owner-scoped) and a new `ResearchService` (`apps/api/app/ai/research/service.py`) that composes the Retrieval Platform (hybrid search + rerank), Context Platform (dedup/expand/merge/compress/cite), Generation Runtime Platform (its first real caller), Streaming Platform (for the streaming route), and best-effort Artifact persistence — adding no new retrieval/context/generation logic of its own, per the PRD's Non-Goals (no query decomposition, no research planning/multi-step loops, no agents, no LangGraph; a Research Runtime, Deep Research Runtime, and Agent Platform are named as future milestones). New `ResearchSession` Postgres table (`app/models/research.py`, `research_sessions`, migration `37117c83beb2`) is the live read path for replay; `ResearchRepository`/`research` schemas/`dependencies/research.py`+`dependencies/context.py` round out the wiring. Every request sets `runtime=RuntimeType.RESEARCH`/`artifact_runtime=ArtifactRuntime.RESEARCH` — the first live code exercising either enum value, and the first live caller of the previously scaffold-only Research Artifact writer (see Milestone 3.10). 23 new tests (`tests/unit/ai/research/`, `tests/integration/test_research_repository.py`, `tests/integration/ai/test_research_api.py`); full repo suite (1068 tests), ruff, and mypy pass clean; migration verified to round-trip
+
+✅ Generation Runtime Platform (Generation Platform Milestone 2.9.12, per `generation_runtime_platform_prd.md`) — a thin orchestration layer, `apps/api/app/ai/runtime/generation/orchestration/`, giving every future caller one canonical entrypoint, `execute_generation()`, into the already-complete `GenerationService.generate()` flow instead of reaching into `GenerationService` directly. Re-implements nothing: `GenerationRequest`/`GenerationResult` and the full frozen execution ordering (validation → guardrails → routing → cache → provider → structured outputs → guardrails → validation → runtime validation → metrics → artifacts) were already done. Adds `GenerationExecutionContext` (trace id, timing, provider/routing/cache/validation/guardrail summaries), `GenerationExecutionState` (context + request + result/failure), a `GenerationRuntimeInterface` ABC, and the `GenerationRuntime` orchestrator that mints the context, delegates to `GenerationService`, and folds the outcome back in for tracing. New `get_generation_runtime()` FastAPI dependency. Had no real caller until the Research API Platform above. 11 new unit tests under `tests/unit/ai/runtime/generation/orchestration/`
 
 ✅ Generation Platform Completion (Phase 3.8, per `generation_platform_complexion_prd.md`) — closes out the Generation Platform at 100% (see Milestone 2.9.11 above for full detail). Six deliverables: (1) **Runtime Contract Expansion** — `PlannerRuntimeContract`, `ReviewerRuntimeContract`, `AgentRuntimeContract`, `MCPRuntimeContract` join the pre-existing `ResearchRuntimeContract`, plus a new `DependencyValidator` (cycle detection for step dependencies) and a generalized `ConsistencyValidator` (configurable field names, reused by MCP instead of a bespoke check); all five remain registered-but-dormant until a `/research` API sets `GenerationRequest.runtime`. (2) **Validation Policy Layer** — `AcceptancePolicy`/`FailFastPolicy`/`RuntimeValidationPolicy` (`generation/policies/`), wired into `GenerationService` with unchanged default regeneration behavior; a new pre-flight `_enforce_fail_fast_input_validation()` runs input validation before guardrails/routing/provider. (3) **Remaining Output Validators** — `FormattingValidator`, `ResponseSizeValidator`, and top-level `CompletenessValidator`/`ConsistencyValidator` (thin delegates to the existing runtime validators), registered in the PRD's pipeline order. (4) **Runtime Metrics Integration** — `GenerationMetricsService`/`GenerationMetricsSnapshot` (`generation/observability/`), new Prometheus-ready counters (`infrastructure/metrics/generation.py`), and `generation.started/failed`/`validation.started/completed`/`provider.started/completed` structlog events. (5) **Artifact Completion** — `GenerationArtifact` now always persists a `metrics.json` snapshot. (6) **Flow Activation** — metrics recording now runs before artifact persistence, matching the target execution flow. Caught and fixed a real bug along the way: `write_json_artifact`'s `exclude_none=True` serialization silently requires an explicit `= None` default on every optional artifact-model field, or read-back fails validation. ~40 new test files/cases; full repo suite (1034 tests), ruff, and mypy pass clean
 
@@ -1315,11 +1370,19 @@ Parent Expansion, Adjacent Merge, Token Budget + Embedding + LangChain + LLM Com
 - Retrieval result cache
 - Scaling the retrieval benchmark dataset (5 → 20-50 documents, 20 → 100 queries, chunk-level relevance) — see `README.md` TODO
 
-The **Generation Platform** (Milestone 2.9) is now 100% complete, per `generation_platform_complexion_prd.md` (see Milestones 2.9 and 2.9.11 above): provider abstraction, Structured Output Integration (native decoding + parser fallback + Markdown/XML registry + LangChain `with_structured_output()`), Validation Platform integration (input/output/hallucination/runtime validators, registry, weighted scoring, `ValidationReport`, and all five per-runtime Validation Contracts — Research/Planner/Reviewer/Agent/MCP), a Validation Policy Layer (Acceptance/Fail-Fast/Runtime Validation), Regeneration Strategy, a provider-capability guard, Prompt Platform integration, a Routing Platform (scored model catalog, task-based strategies, capability/policy filtering, fallback chains — Milestone 2.9.7), a Runtime Caching Platform (L1 exact/L2 semantic/L3 session caching, policy resolution — Milestone 2.9.9), a Streaming Platform (canonical event protocol, SSE + WebSocket transports, wired into a live `POST /api/v1/chat/stream` / `/api/v1/chat/ws` — Milestone 2.9.10), Runtime Metrics Integration, and an Artifact Platform (canonical, immutable, policy-gated persistence for generation/streaming/conversation executions, incl. a `metrics.json` snapshot — Milestone 3.10) are all done. Only remaining item: `/research` API (needed for the runtime stage to actually execute, and for Research/Agent/Evaluation artifacts to have a live caller), blocked on a Research Runtime that doesn't exist yet — streaming rate limiting and a real multi-message chat history API remain separately as Streaming Platform (Milestone 2.9.10) gaps. Then Evaluation Platform expansion (Milestone 6) and a LangGraph-based Research Runtime (Milestone 7) follow.
+The **Generation Platform** (Milestone 2.9) is now 100% complete, per `generation_platform_complexion_prd.md` (see Milestones 2.9 and 2.9.11 above): provider abstraction, Structured Output Integration (native decoding + parser fallback + Markdown/XML registry + LangChain `with_structured_output()`), Validation Platform integration (input/output/hallucination/runtime validators, registry, weighted scoring, `ValidationReport`, and all five per-runtime Validation Contracts — Research/Planner/Reviewer/Agent/MCP), a Validation Policy Layer (Acceptance/Fail-Fast/Runtime Validation), Regeneration Strategy, a provider-capability guard, Prompt Platform integration, a Routing Platform (scored model catalog, task-based strategies, capability/policy filtering, fallback chains — Milestone 2.9.7), a Runtime Caching Platform (L1 exact/L2 semantic/L3 session caching, policy resolution — Milestone 2.9.9), a Streaming Platform (canonical event protocol, SSE + WebSocket transports, wired into a live `POST /api/v1/chat/stream` / `/api/v1/chat/ws` — Milestone 2.9.10), Runtime Metrics Integration, and an Artifact Platform (canonical, immutable, policy-gated persistence for generation/streaming/conversation/research executions, incl. a `metrics.json` snapshot — Milestone 3.10) are all done. Streaming rate limiting and a real multi-message chat history API remain separately as Streaming Platform (Milestone 2.9.10) gaps.
 
-The **Guardrails Platform** (Milestone 11.16, see above) is now complete as an MVP foundation — input/retrieval/generation/runtime guardrails, a new Source Trust Platform, policies, weighted risk scoring, and artifact persistence — and is now wired into both `GenerationService` and `ContextBuilderService` (per `guardrail_integration_prd.md`, see Milestone 11.16's "Integration" subsection). Only the runtime stage (`evaluate_runtime()`) still has no live caller, pending a `/research` API or other agent runtime.
+The **Guardrails Platform** (Milestone 11.16, see above) is now complete as an MVP foundation — input/retrieval/generation/runtime guardrails, a new Source Trust Platform, policies, weighted risk scoring, and artifact persistence — and is now wired into both `GenerationService` and `ContextBuilderService` (per `guardrail_integration_prd.md`, see Milestone 11.16's "Integration" subsection). Only the runtime stage (`evaluate_runtime()`) still has no live caller — the new `/research` API is deliberately linear with no reasoning/tool loop for it to guard.
 
-The **Artifact Platform** (Milestone 3.10, see above) is now complete for the two live AI Runtime execution types — a new centralized `app/ai/artifacts/` package persists every `GenerationService.generate()` call and every completed `StreamingService` stream as an immutable, versioned, policy-gated artifact, plus one immutable file per completed conversation turn from `chat.py`. Session/Research/Agent/Evaluation artifacts are fully built and unit-tested but remain unwired, since none of those runtimes exist yet — the same "build ahead of the API surface" pattern already used by the Runtime Caching and Runtime Validation Platforms.
+The **Artifact Platform** (Milestone 3.10, see above) is now complete for three live AI Runtime execution types — a new centralized `app/ai/artifacts/` package persists every `GenerationService.generate()` call and every completed `StreamingService` stream as an immutable, versioned, policy-gated artifact, plus one immutable file per completed conversation turn from `chat.py` and one per completed research call from `ResearchService`. Session/Agent/Evaluation artifacts are fully built and unit-tested but remain unwired, since none of those runtimes exist yet — the same "build ahead of the API surface" pattern already used by the Runtime Caching Platform.
+
+## Generation Runtime Platform (✅ complete) + Phase 4 — Research API Platform (✅ complete)
+
+The **Generation Runtime Platform** (Milestone 2.9.12, per `generation_runtime_platform_prd.md`) closed the last gap between "every platform is done" and "a product can call them": one canonical `execute_generation()` entrypoint over the already-complete `GenerationService.generate()` flow, so Research/Planner/Reviewer/Agent/MCP runtimes never need to reach into `GenerationService` directly. It re-implements nothing — see Milestone 2.9.12 above.
+
+The **Research API Platform** (Phase 4, per `research_api_prd.md`) is that entrypoint's first real caller, and **ResearchMind's first live, end-to-end product surface**: `POST /research` (+ `/research/stream`, `/research/citations`, `GET /research/{id}`) lets a user upload documents, ask a question, and get back a grounded, cited, streamable answer. `ResearchService` composes Retrieval + Context + Generation Runtime + Streaming + best-effort Artifact persistence in a deliberately linear flow — no query decomposition, planning, multi-step loops, agents, or LangGraph (PRD §4 Non-Goals; a Research Runtime, Deep Research Runtime, and Agent Platform are named as what comes next). This is the first live traffic to exercise `RuntimeType.RESEARCH`/`ArtifactRuntime.RESEARCH` and the first live caller of the previously scaffold-only Research Artifact writer. See Phase 4 above for full detail.
+
+Next up: Evaluation Platform expansion (Milestone 6) and a LangGraph-based Research Runtime (Milestone 7) — query decomposition, planning, multi-step agentic loops on top of this linear foundation.
 
 ---
 
@@ -1361,8 +1424,14 @@ Generation Platform (100%) ✅ — per `generation_platform_complexion_prd.md`
   Runtime Caching Platform (L1 exact, L2 semantic, L3 session, policy resolution) ✅ — Session Cache not yet wired to a caller ⏳
   Streaming Platform (runtime/events + generation/streaming, SSE + WebSocket, chat.py wired) ✅ — rate limiting, real multi-message history ⏳
   Runtime Metrics Integration (GenerationMetricsService, Prometheus-ready counters) ✅
-  Artifact Platform (generation/streaming/conversation artifacts incl. metrics.json, S3-persisted) ✅ — session/research/agent/evaluation artifacts scaffold-only ⏳
-  /research API ❌ — blocked on a Research Runtime that doesn't exist yet; everything downstream is built and waiting
+  Artifact Platform (generation/streaming/conversation/research artifacts incl. metrics.json, S3-persisted) ✅ — session/agent/evaluation artifacts scaffold-only ⏳
+
+↓
+
+Generation Runtime Platform (Milestone 2.9.12) ✅ — per `generation_runtime_platform_prd.md`
+  execute_generation() canonical entrypoint over GenerationService.generate() ✅
+  GenerationExecutionContext / GenerationExecutionState (trace id, timing) ✅
+  get_generation_runtime() FastAPI dependency ✅
 
 ↓
 
@@ -1370,10 +1439,19 @@ Guardrails Platform (Milestone 11.16) ✅ Foundation — ✅ wired into Generati
   Input Guardrails (Prompt Injection, Scope, PII) ✅
   Retrieval Guardrails (Context Sanitization, Source Trust, Citation Integrity) ✅
   Generation Guardrails (Faithfulness, Schema Enforcement, PII Leakage) ✅
-  Runtime Guardrails (Budget, Loop Detection) ✅ — Tool Policy, Approval Gate interfaces only ⏳; no live caller until a router/agent runtime exists
+  Runtime Guardrails (Budget, Loop Detection) ✅ — Tool Policy, Approval Gate interfaces only ⏳; no live caller yet — /research is deliberately linear, no reasoning loop
   Wiring into GenerationService (input gate + full report on GenerationResult.guardrails) ✅
   Wiring into ContextBuilderService (retrieval-stage gate) ✅
-  Wiring into a router / agent runtime ⏳ (needs /research API)
+  Wiring into a router / agent runtime ⏳ (needs a Research/Agent Runtime with an actual loop)
+
+↓
+
+Phase 4 — Research API Platform ✅ — per `research_api_prd.md`, ResearchMind's first live, end-to-end product surface
+  POST /research, /research/stream, /research/citations, GET /research/{id} ✅ (auth-required, owner-scoped)
+  ResearchService — Retrieval + Context + Generation Runtime + Streaming + best-effort Artifacts ✅
+  ResearchSession Postgres table (research_sessions) for replay ✅
+  RuntimeType.RESEARCH / ArtifactRuntime.RESEARCH exercised by live traffic for the first time ✅
+  Query decomposition, planning, multi-step/agentic loops, LangGraph ❌ (deliberate Non-Goals — next milestone)
 
 ↓
 
@@ -1385,7 +1463,7 @@ Evaluation Platform Expansion (NDCG, Groundedness, Faithfulness, Hallucinations,
 
 ↓
 
-Research Runtime (Query Decomposition, Planner, Agents, Reviewer, Summarizer, LangGraph)
+Research Runtime (Query Decomposition, Planner, Agents, Reviewer, Summarizer, LangGraph) — builds on top of the now-live, deliberately linear Research API Platform above
 
 ↓
 

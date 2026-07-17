@@ -27,7 +27,7 @@ NotebookLM++
 Perplexity Foundation
 ```
 
-Hybrid Retrieval, Reranking, Parent Expansion, Compression, Context Guardrails, and strategy-based Prompt Formatting are all implemented — beyond a plain NotebookLM clone and closing in on Perplexity v1. A platform-wide Guardrails Platform (Milestone 3.13 below — input/retrieval/generation/runtime stages, Source Trust, policies, scoring, artifacts) is now complete as an MVP foundation and wired directly into both the Generation Platform and the Context Building Platform (per `guardrail_integration_prd.md`). A new, centralized Artifact Platform (Milestone 3.14 below — canonical, immutable, policy-gated persistence for AI Runtime executions) is now also complete for generation/streaming/conversation, per `artifacts_platform_prd.md`.
+Hybrid Retrieval, Reranking, Parent Expansion, Compression, Context Guardrails, and strategy-based Prompt Formatting are all implemented — beyond a plain NotebookLM clone and closing in on Perplexity v1. A platform-wide Guardrails Platform (Milestone 3.13 below — input/retrieval/generation/runtime stages, Source Trust, policies, scoring, artifacts) is now complete as an MVP foundation and wired directly into both the Generation Platform and the Context Building Platform (per `guardrail_integration_prd.md`). A new, centralized Artifact Platform (Milestone 3.14 below — canonical, immutable, policy-gated persistence for AI Runtime executions) is now also complete for generation/streaming/conversation, per `artifacts_platform_prd.md`. A Generation Runtime Platform (Milestone 3.15 below — a thin orchestration layer giving every future runtime one canonical `execute_generation()` entrypoint) is now complete, per `generation_runtime_platform_prd.md`. And the Research API (Milestone 3.9 below) is now complete too, per `research_api_prd.md` — ResearchMind's first live, end-to-end product surface: a user can upload documents, ask a question, and get a grounded, cited, streamable answer back.
 
 Current Focus:
 
@@ -43,9 +43,23 @@ Validation policy layer, every PRD output validator (completeness/
 consistency/formatting/response-size), regeneration, prompt bridge,
 Routing Platform, Runtime Caching Platform, Streaming Platform, Runtime
 Metrics Integration, and Artifact Platform (incl. metrics.json) done —
-per `generation_platform_complexion_prd.md`; only a /research API
-setting GenerationRequest.runtime remains, which needs a Research
-Runtime that doesn't exist yet)
+per `generation_platform_complexion_prd.md`)
+    ↓
+Phase 3.15
+Generation Runtime Platform (✅ Complete — thin orchestration layer,
+`runtime/generation/orchestration/`, canonical `execute_generation()` /
+`GenerationRuntime.execute()` entrypoint + `get_generation_runtime()`
+FastAPI dependency, per `generation_runtime_platform_prd.md`; no
+reimplementation of the frozen Generation Platform ordering, no state
+machines, no DAGs, no LangGraph duplication)
+    ↓
+Phase 3.9
+Research APIs (✅ Complete — `POST /research`, `/research/stream`,
+`/research/citations`, `GET /research/{id}`, per `research_api_prd.md`;
+first real caller of the Generation Runtime Platform above; deliberately
+linear — no query decomposition, no planning/multi-step loops, no agents,
+no LangGraph, all of which remain future work under Milestone 3.11
+Research Runtime and Phase 5 AI Agent Platform)
 ```
 
 ---
@@ -570,6 +584,39 @@ Frameworks remain implementation details.
 - ✅ Runtime Caching Platform (L1 exact/L2 semantic/L3 session, policy resolution)
 - ✅ Runtime Metrics Integration (`GenerationMetricsService`, Prometheus-ready counters)
 - ✅ Artifact Platform (`GenerationArtifact` incl. `metrics.json`, persisted on every `generate()` call)
+
+# Phase 3.9 — Research APIs
+
+**Status:** ✅ Complete, per `research_api_prd.md` — ResearchMind's first live, end-to-end product surface: upload a document, ask a question, get a grounded, cited, streamable answer back, replayable later (the "NotebookLM + Perplexity" product vision).
+
+---
+
+## Goal
+
+Give ResearchMind a single question-answering surface, composing the already-complete Retrieval, Context, Generation Runtime, Streaming, and Artifact Platforms into one product loop.
+
+---
+
+## Responsibilities
+
+- ✅ `POST /research` — ask a question, get `{research_id, query, answer, citations, sources, duration_ms}`
+- ✅ `POST /research/stream` — the same, over SSE
+- ✅ `POST /research/citations` — citation-panel preview, no generation
+- ✅ `GET /research/{id}` — replay a past research session
+- ✅ All routes auth-required and owner-scoped
+- ✅ New `ResearchService` (`apps/api/app/ai/research/service.py`) — composes the Retrieval Platform (hybrid search + rerank) → Context Platform (dedup/expand/merge/compress/cite) → Generation Runtime Platform (3.15 below, its first real caller) → Streaming Platform (streaming route) → Artifact Platform (best-effort persistence via the Research artifact writer, previously unwired scaffolding)
+- ✅ New Postgres `research_sessions` table (model + repository + Alembic migration) for session replay
+- ✅ First real exercise of `RuntimeType.RESEARCH` (Runtime Validation Platform) and `ArtifactRuntime.RESEARCH` (Artifact Platform) — both go from reserved-but-unused to live
+- ❌ Query decomposition, research planning/multi-step loops, agents, LangGraph — explicitly out of scope per the PRD's Non-Goals; see Milestone 3.11 (Research Runtime) and Phase 5 (AI Agent Platform)
+
+---
+
+## Deliverables
+
+- ✅ 23 new tests, full suite passing (1068 tests), ruff/mypy clean
+- ✅ Deliberately linear/simple per the PRD's own Non-Goals — no Research Runtime, no Deep Research Runtime, no Agent Platform, no LangGraph; all remain future roadmap items
+
+---
 
 # Phase 3.13 — Guardrails Platform
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import AsyncGenerator
+from datetime import datetime
 from uuid import UUID
 
 import structlog
@@ -14,6 +15,11 @@ from fastapi.responses import StreamingResponse
 from langchain_core.messages import BaseMessage, HumanMessage
 from pydantic import ValidationError
 
+from app.ai.artifacts.conversation.builders import ConversationTurnArtifactBuilder
+from app.ai.artifacts.conversation.models import ConversationIdentity
+from app.ai.artifacts.conversation.writers import ConversationArtifactWriter
+from app.ai.artifacts.enums import ArtifactCategory, ArtifactRuntime
+from app.ai.artifacts.policies.service import ArtifactPolicyService
 from app.ai.knowledge.context.models import PromptContext
 from app.ai.runtime.events.enums import CoreEventType
 from app.ai.runtime.events.models import StreamEvent
@@ -24,7 +30,12 @@ from app.ai.runtime.generation.streaming.transports.sse import sse_stream_respon
 from app.ai.runtime.generation.streaming.transports.websocket import run_websocket_stream
 from app.auth.dependencies import authenticate_token, get_current_user
 from app.db.session import SessionFactory
-from app.dependencies.generation import get_conversation_service, get_streaming_service
+from app.dependencies.generation import (
+    get_artifact_policy_service_dependency,
+    get_conversation_artifact_writer,
+    get_conversation_service,
+    get_streaming_service,
+)
 from app.exceptions.base import AppException
 from app.models.user import User
 from app.schemas.chat import ChatStreamRequest
@@ -84,7 +95,42 @@ async def _build_request(
         stream=True,
         conversation_id=conversation_id,
         routing_strategy=payload.routing_strategy,
+        artifact_runtime=ArtifactRuntime.CHAT,
     )
+
+
+async def _persist_conversation_identity(
+    *,
+    conversation_artifact_writer: ConversationArtifactWriter,
+    conversation_id: UUID,
+    owner_id: UUID,
+    title: str | None,
+    created_at: datetime,
+) -> None:
+    """
+    Best-effort (Artifact Platform PRD §24): writes `conversation.json`.
+    `ConversationArtifactWriter.write_identity()` itself no-ops once the
+    key already exists, so this is safe to call on every request rather
+    than only on first creation.
+    """
+
+    try:
+        await conversation_artifact_writer.write_identity(
+            ConversationIdentity(
+                conversation_id=conversation_id,
+                owner_id=owner_id,
+                title=title,
+                created_at=created_at,
+            ),
+        )
+    except Exception as exc:
+        logger.warning(
+            "artifacts.conversation.identity_failed",
+            conversation_id=str(conversation_id),
+            reason="artifact_persistence_failed",
+            error_type=type(exc).__name__,
+            error=str(exc),
+        )
 
 
 async def _persist_on_complete(
@@ -92,8 +138,11 @@ async def _persist_on_complete(
     events: AsyncGenerator[StreamEvent, None],
     conversation_service: ConversationService,
     conversation_id: UUID,
+    owner_id: UUID,
     user_prompt: str,
     provider: GenerationProvider | None,
+    conversation_artifact_writer: ConversationArtifactWriter | None,
+    artifact_policy_service: ArtifactPolicyService | None,
 ) -> AsyncGenerator[StreamEvent, None]:
     """
     Forwards every event untouched, accumulating TOKEN content along the
@@ -101,7 +150,9 @@ async def _persist_on_complete(
     COMPLETE. Persistence lives here at the route/consumer level rather
     than inside StreamingService, keeping the Generation Streaming
     Platform itself conversation-agnostic (per ADR-028's actual scope --
-    Conversation Runtime is listed there as future work).
+    Conversation Runtime is listed there as future work). The Artifact
+    Platform's immutable turn snapshot is written the same way,
+    best-effort, right after the Postgres-backed turn is committed.
     """
 
     content_parts: list[str] = []
@@ -113,12 +164,46 @@ async def _persist_on_complete(
         yield event
 
         if event.type == CoreEventType.COMPLETE.value:
+            assistant_content = "".join(content_parts)
+
             await conversation_service.append_turn(
                 conversation_id=conversation_id,
                 user_prompt=user_prompt,
-                assistant_content="".join(content_parts),
+                assistant_content=assistant_content,
                 provider=provider.value if provider else None,
             )
+
+            if conversation_artifact_writer is None:
+                continue
+
+            artifact_runtime = ArtifactRuntime.CHAT
+
+            if artifact_policy_service is not None and not (
+                artifact_policy_service.should_persist(
+                    artifact_runtime,
+                    ArtifactCategory.CONVERSATION,
+                )
+            ):
+                continue
+
+            try:
+                turn = ConversationTurnArtifactBuilder().build(
+                    conversation_id=conversation_id,
+                    owner_id=owner_id,
+                    user_prompt=user_prompt,
+                    assistant_content=assistant_content,
+                    provider=provider.value if provider else None,
+                )
+
+                await conversation_artifact_writer.write_turn(turn)
+            except Exception as exc:
+                logger.warning(
+                    "artifacts.conversation.turn_failed",
+                    conversation_id=str(conversation_id),
+                    reason="artifact_persistence_failed",
+                    error_type=type(exc).__name__,
+                    error=str(exc),
+                )
 
 
 @router.post(
@@ -130,6 +215,12 @@ async def stream_chat(
     current_user: User = Depends(get_current_user),
     streaming_service: StreamingService = Depends(get_streaming_service),
     conversation_service: ConversationService = Depends(get_conversation_service),
+    conversation_artifact_writer: ConversationArtifactWriter = Depends(
+        get_conversation_artifact_writer
+    ),
+    artifact_policy_service: ArtifactPolicyService = Depends(
+        get_artifact_policy_service_dependency
+    ),
 ) -> StreamingResponse:
     """
     A `POST` consumed via `fetch` + `ReadableStream` on the frontend, not
@@ -141,6 +232,14 @@ async def stream_chat(
     conversation = await conversation_service.get_or_create(
         conversation_id=payload.conversation_id,
         owner_id=current_user.id,
+    )
+
+    await _persist_conversation_identity(
+        conversation_artifact_writer=conversation_artifact_writer,
+        conversation_id=conversation.id,
+        owner_id=conversation.owner_id,
+        title=conversation.title,
+        created_at=conversation.created_at,
     )
 
     request = await _build_request(
@@ -159,8 +258,11 @@ async def stream_chat(
             events=events,
             conversation_service=conversation_service,
             conversation_id=conversation.id,
+            owner_id=current_user.id,
             user_prompt=payload.user_prompt,
             provider=payload.provider,
+            conversation_artifact_writer=conversation_artifact_writer,
+            artifact_policy_service=artifact_policy_service,
         )
     )
 
@@ -207,10 +309,20 @@ async def stream_chat_ws(
 
         conversation_service = ConversationService(session)
         streaming_service = get_streaming_service()
+        conversation_artifact_writer = get_conversation_artifact_writer()
+        artifact_policy_service = get_artifact_policy_service_dependency()
 
         conversation = await conversation_service.get_or_create(
             conversation_id=payload.conversation_id,
             owner_id=current_user.id,
+        )
+
+        await _persist_conversation_identity(
+            conversation_artifact_writer=conversation_artifact_writer,
+            conversation_id=conversation.id,
+            owner_id=conversation.owner_id,
+            title=conversation.title,
+            created_at=conversation.created_at,
         )
 
         request = await _build_request(
@@ -231,8 +343,11 @@ async def stream_chat_ws(
                     events=events,
                     conversation_service=conversation_service,
                     conversation_id=conversation.id,
+                    owner_id=current_user.id,
                     user_prompt=payload.user_prompt,
                     provider=payload.provider,
+                    conversation_artifact_writer=conversation_artifact_writer,
+                    artifact_policy_service=artifact_policy_service,
                 ),
             )
         finally:

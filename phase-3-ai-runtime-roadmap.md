@@ -27,7 +27,7 @@ NotebookLM++
 Perplexity Foundation
 ```
 
-Hybrid Retrieval, Reranking, Parent Expansion, Compression, Context Guardrails, and strategy-based Prompt Formatting are all implemented — beyond a plain NotebookLM clone and closing in on Perplexity v1. A standalone, platform-wide Guardrails Platform (Milestone 3.13 below — input/retrieval/generation/runtime stages, Source Trust, policies, scoring, artifacts) is now complete as an MVP foundation.
+Hybrid Retrieval, Reranking, Parent Expansion, Compression, Context Guardrails, and strategy-based Prompt Formatting are all implemented — beyond a plain NotebookLM clone and closing in on Perplexity v1. A platform-wide Guardrails Platform (Milestone 3.13 below — input/retrieval/generation/runtime stages, Source Trust, policies, scoring, artifacts) is now complete as an MVP foundation and wired directly into both the Generation Platform and the Context Building Platform (per `guardrail_integration_prd.md`). A new, centralized Artifact Platform (Milestone 3.14 below — canonical, immutable, policy-gated persistence for AI Runtime executions) is now also complete for generation/streaming/conversation, per `artifacts_platform_prd.md`.
 
 Current Focus:
 
@@ -36,10 +36,11 @@ Phase 3.7
 Context Building Platform (~90% complete — closing out)
     ↓
 Phase 3.8
-Generation Platform (~75% complete — structured output, input/output/
+Generation Platform (~85% complete — structured output, input/output/
 hallucination validation + scoring, regeneration, prompt bridge,
-Routing Platform done; runtime validators/contracts, caching/artifacts
-remain)
+Routing Platform, Runtime Caching Platform, Streaming Platform, and
+Artifact Platform done; runtime validators/contracts remain unwired
+pending a /research API)
 ```
 
 ---
@@ -393,15 +394,19 @@ Compressed Chunk
 
 # Phase 3.8 — Generation Platform
 
-**Status:** 🟡 ~75% Complete — structured output, a multi-stage
+**Status:** 🟡 ~85% Complete — structured output, a multi-stage
 Validation Platform integration (input/output/hallucination validators,
 registry, scoring, `ValidationReport`), regeneration, prompt-template
-integration, and a Routing Platform (scored model catalog, task-based
-strategies, capability/policy filtering, fallback chains) are done;
-per-runtime Validation Contracts/Runtime Validators, caching, and
-artifacts remain. Generation-level guardrails are no longer part of
-this gap — see Milestone 3.13 (Guardrails Platform) below, now complete
-as a standalone MVP foundation not yet wired into this service.
+integration, a Routing Platform (scored model catalog, task-based
+strategies, capability/policy filtering, fallback chains), a Runtime
+Caching Platform (L1/L2/L3), and an Artifact Platform (canonical
+`GenerationArtifact` persistence — Milestone 3.14 below) are done;
+per-runtime Validation Contracts/Runtime Validators remain built but
+unreachable until a `/research` API sets `GenerationRequest.runtime`.
+Generation-level guardrails are no longer part of this gap — see
+Milestone 3.13 (Guardrails Platform) below, now complete and wired
+directly into this service (input gate before every provider call,
+full `evaluate()` report on `GenerationResult.guardrails`).
 
 ---
 
@@ -438,6 +443,12 @@ Generate answers from prepared context.
   fallback chain; `GenerationService.generate()` routes automatically
   (with fallback retry) when no `provider` is given — see
   `routing_platform_prd.md`, ADR-026
+- ✅ Caching — Runtime Caching Platform (L1 exact/L2 semantic/L3
+  session, policy resolution), wired into `GenerationService` — see
+  `runtime_caching_platform_prd.md`, ADR-027
+- ✅ Artifacts — canonical `GenerationArtifact` persistence (Artifact
+  Platform, Milestone 3.14 below), wired into `GenerationService.generate()`
+  — see `artifacts_platform_prd.md`
 - ❌ Research chains — not started
 
 ---
@@ -529,12 +540,12 @@ Frameworks remain implementation details.
 - ✅ Structured output (native + fallback + registry + LangChain + regeneration)
 - 🟡 Validation Platform integration (input/output/hallucination validators, registry, scoring, `ValidationReport` done; runtime validators/contracts, completeness/consistency/formatting/response-size remain)
 - ✅ Routing Platform (scored catalog, task-based strategies, fallback chains)
-- ❌ Caching
-- ❌ Artifacts
+- ✅ Runtime Caching Platform (L1 exact/L2 semantic/L3 session, policy resolution)
+- ✅ Artifact Platform (`GenerationArtifact` persisted on every `generate()` call)
 
 # Phase 3.13 — Guardrails Platform
 
-**Status:** ✅ Complete (MVP Foundation, per `guardrails_platform_prd.md`)
+**Status:** ✅ Complete (MVP Foundation, per `guardrails_platform_prd.md`) — ✅ Integrated into the Generation Platform and Context Building Platform (per `guardrail_integration_prd.md`)
 
 ---
 
@@ -551,16 +562,52 @@ Answer a different question than Validation: not "did the system produce a good 
 - ✅ Generation Guardrails — Faithfulness Enforcement and Schema Enforcement (both wrap the Validation Platform's validators per the PRD's explicit reuse instruction), PII Leakage; Moderation is a foundation interface (always-allow)
 - ✅ Runtime Guardrails — Budget Guardrail (P1, "implement immediately"), Loop Detection (real algorithm); Tool Policy and Approval Gate are foundation interfaces only, deliberately unimplemented (the future LangGraph-interrupt seam)
 - ✅ `GuardrailService`, `GuardrailRegistry`, weighted risk scoring, fail/risk/regeneration/runtime policies, `GuardrailArtifactWriter`
-- ❌ Wiring into `GenerationService`, the context builder, or a router — the PRD's own "Generation Integration" is a later phase, same posture the Validation Platform shipped with
+- ✅ Wiring into `GenerationService` (input gate before every provider call + full report on `GenerationResult.guardrails`) and `ContextBuilderService` (retrieval-stage gate before context building) — per `guardrail_integration_prd.md`
+- ❌ Wiring into a router or agent runtime for `evaluate_runtime()` — needs a `/research` API first, same gap as the Runtime Validation Platform
 
 ---
 
 ## Deliverables
 
-- ✅ Standalone `apps/api/app/ai/guardrails/` package, 113 new unit tests, full repo suite/ruff/mypy clean
+- ✅ `apps/api/app/ai/guardrails/` package, 113 unit tests from the original build + 14 more from the integration pass, full repo suite/ruff/mypy clean
 - ✅ Two dead, zero-reference scaffolds removed (`app/ai/guardrails/{policies,scanners}.py`, all of `app/ai/runtime/generation/guardrails/`)
+- ✅ Wired into the live generation pipeline (`GenerationService`) and the Context Building Platform (`ContextBuilderService`), plus artifact persistence and metrics/logging on `GuardrailService.evaluate()` itself
 - ❌ LLM-based classifiers (Llama Guard, Lakera, NeMo Guardrails) — explicitly skipped for MVP
-- ❌ Wiring into the live generation pipeline
+- ❌ Wiring into a router/agent runtime for the runtime stage — needs `/research` first
+
+# Phase 3.14 — Artifact Platform
+
+**Status:** ✅ Complete for Generation/Streaming/Conversation (per `artifacts_platform_prd.md`) — 🟡 Session/Research/Agent/Evaluation built but scaffold-only, unwired
+
+Numbered 3.14 here (next free slot after Guardrails' 3.13) rather than the PRD's own self-declared "Milestone 3.10" — that number is already taken in this roadmap's table by the Evaluation Platform. `PROJECT_STATUS.md` uses the PRD's own "Milestone 3.10" label instead, since its numbering scheme doesn't collide.
+
+---
+
+## Goal
+
+Canonical, immutable, versioned, policy-gated persistence for AI Runtime executions — the foundation for replay, debugging, evaluation datasets, and future observability, extending to the runtime side the same "artifacts are the source of truth" principle the ingestion side (Knowledge Platform) has always followed.
+
+---
+
+## Responsibilities
+
+- ✅ Foundation — `ArtifactPolicy`/`ArtifactCategory`/`ArtifactRuntime` enums, `ArtifactMetadata`, `ArtifactPolicyService.should_persist(runtime, category)`, shared `BaseArtifactWriter`/`BaseArtifactReader`
+- ✅ Generation Artifacts — `GenerationArtifact` (request/response/metadata/validation/guardrails/routing/cache.json), wired into `GenerationService.generate()`
+- ✅ Streaming Artifacts — `StreamArtifact` (events/timeline/stream/metrics.json), wired into `StreamingService._stream_live()`
+- ✅ Conversation Artifacts — `ConversationTurnArtifact` (one immutable file per turn) + `ConversationIdentity`, wired into `chat.py`
+- ✅ Replay Platform — `GenerationReplayService`/`StreamReplayService` (real, reconstruct from persisted artifacts)
+- 🟡 Session/Research/Agent/Evaluation Artifacts — fully built and unit-tested, deliberately unwired (no session concept, Research Runtime, Agent Runtime, or evaluation harness exists yet); `ResearchReplayService` is a `NotImplementedError` stub
+- ❌ Automated retention/expiry enforcement — informational-only in this pass
+
+---
+
+## Deliverables
+
+- ✅ New centralized `apps/api/app/ai/artifacts/` package, 39 unit tests, full repo suite (931 tests)/ruff clean
+- ✅ Old dead, zero-reference scaffold removed (`app/ai/runtime/generation/artifacts/`, 4 empty files)
+- ✅ `DocumentStorage.list_keys(*, prefix)` added to `infrastructure/storage/` — required for `ConversationArtifactReader`
+- ✅ Wired into the live Generation, Streaming, and Conversation paths, best-effort (storage failures are caught/logged, never fail the run that already succeeded)
+- ❌ Session/Research/Agent/Evaluation wiring — needs a real session concept, `/research` API, Agent Runtime, and evaluation harness respectively
 
 # Final MVP Pipeline
 
@@ -610,12 +657,13 @@ Milestone	Platform	Deliverables	Status
 3.5	Result Processing	Metadata filtering, Top-K	✅ Complete
 3.6	Reranking Platform	Voyage, CrossEncoder	✅ Complete
 3.7	Context Building Platform	Parent Expansion, Merge, Compression, Guardrails, Citations, Prompt Formatter	🟡 ~95% Complete (LLM compression (V4) remains)
-3.8	Generation Platform	Multi-provider LLM runtime, structured output, validation, regeneration, routing	🟡 ~75% Complete — runtime validators/contracts, caching/artifacts remain
+3.8	Generation Platform	Multi-provider LLM runtime, structured output, validation, regeneration, routing, caching, streaming, artifacts	🟡 ~85% Complete — runtime validators/contracts remain unwired, pending a /research API
 3.9	Research APIs	/research, streaming, citations	❌ Not Started
 3.10	Evaluation Platform	Groundedness, Hallucinations, Citation Accuracy	🟡 Retrieval evaluation complete
 3.11	Research Runtime	Planner, Query Decomposition, Agents	❌ Not Started
 3.12	Long-Term Platform	Research Sessions, Memory, MCP	❌ Not Started
-3.13	Guardrails Platform	Input/Retrieval/Generation/Runtime guardrails, Source Trust, policies, scoring, artifacts	✅ MVP Foundation Complete (standalone, not yet wired into Generation Platform)
+3.13	Guardrails Platform	Input/Retrieval/Generation/Runtime guardrails, Source Trust, policies, scoring, artifacts	✅ MVP Foundation Complete + ✅ Integrated into Generation Platform and Context Building Platform (runtime stage still needs a router/agent runtime caller)
+3.14	Artifact Platform	Canonical persistence/replay for Generation/Streaming/Conversation, policy-gated, S3-backed	✅ Complete for Generation/Streaming/Conversation + 🟡 Session/Research/Agent/Evaluation built but scaffold-only
 
 # Architecture Principles
 

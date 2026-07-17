@@ -6,6 +6,19 @@ from time import perf_counter
 from typing import Any
 
 import structlog
+from app.ai.artifacts.enums import (
+    ArtifactCategory,
+    ArtifactRuntime,
+)
+from app.ai.artifacts.policies.service import (
+    ArtifactPolicyService,
+)
+from app.ai.artifacts.streaming.builders import (
+    StreamArtifactBuilder,
+)
+from app.ai.artifacts.streaming.writers import (
+    StreamArtifactWriter,
+)
 from app.ai.runtime.events.enums import (
     CoreEventType,
     EventCategory,
@@ -79,11 +92,15 @@ class StreamingService:
         registry: GenerationRegistry,
         event_adapter: ProviderEventAdapterInterface,
         caching_service: CachingService | None = None,
+        artifact_writer: StreamArtifactWriter | None = None,
+        artifact_policy_service: ArtifactPolicyService | None = None,
     ) -> None:
         self._generation_service = generation_service
         self._registry = registry
         self._event_adapter = event_adapter
         self._caching_service = caching_service
+        self._artifact_writer = artifact_writer
+        self._artifact_policy_service = artifact_policy_service
 
     async def stream_generate(
         self,
@@ -180,8 +197,10 @@ class StreamingService:
     ) -> AsyncGenerator[StreamEvent, None]:
 
         content_parts: list[str] = []
+        emitted_events: list[StreamEvent] = []
 
         started = perf_counter()
+        started_at = datetime.now(UTC)
 
         try:
             async for chunk in self._generation_service.stream_generate(
@@ -191,11 +210,14 @@ class StreamingService:
                 if chunk.event == ProviderStreamEventType.TOKEN and chunk.content:
                     content_parts.append(chunk.content)
 
-                yield self._event_adapter.to_stream_event(
+                event = self._event_adapter.to_stream_event(
                     chunk,
                     session_id=request.session_id,
                     request_id=request.request_id,
                 )
+                emitted_events.append(event)
+
+                yield event
         except GenerationError as exc:
             logger.warning(
                 "streaming.live.failed",
@@ -222,16 +244,82 @@ class StreamingService:
             )
             return
 
-        if self._caching_service is None:
+        completed_at = datetime.now(UTC)
+
+        if self._caching_service is not None:
+            await self._store_completed_stream(
+                request=request,
+                provider=provider,
+                model=generation_provider_config_model,
+                content="".join(content_parts),
+                latency_ms=(perf_counter() - started) * 1000,
+            )
+
+        if self._artifact_writer is not None:
+            await self._persist_stream_artifact(
+                request=request,
+                provider=provider,
+                model=generation_provider_config_model,
+                events=emitted_events,
+                started_at=started_at,
+                completed_at=completed_at,
+            )
+
+    async def _persist_stream_artifact(
+        self,
+        *,
+        request: GenerationRequest,
+        provider: GenerationProvider,
+        model: str,
+        events: list[StreamEvent],
+        started_at: datetime,
+        completed_at: datetime,
+    ) -> None:
+        """
+        Best-effort (Artifact Platform PRD §24): mirrors `GenerationService.
+        _persist_generation_artifact` -- a storage hiccup must not fail a
+        stream that already completed successfully.
+        """
+
+        assert self._artifact_writer is not None
+
+        artifact_runtime = request.artifact_runtime or ArtifactRuntime.CHAT
+
+        if self._artifact_policy_service is not None and not (
+            self._artifact_policy_service.should_persist(
+                artifact_runtime,
+                ArtifactCategory.STREAM,
+            )
+        ):
+            logger.debug(
+                "artifacts.stream.skipped",
+                request_id=str(request.request_id),
+                runtime=artifact_runtime.value,
+            )
             return
 
-        await self._store_completed_stream(
-            request=request,
-            provider=provider,
-            model=generation_provider_config_model,
-            content="".join(content_parts),
-            latency_ms=(perf_counter() - started) * 1000,
-        )
+        try:
+            artifact = StreamArtifactBuilder().build(
+                provider=provider,
+                model=model,
+                events=events,
+                started_at=started_at,
+                completed_at=completed_at,
+                request_id=request.request_id,
+                session_id=request.session_id,
+            )
+
+            await self._artifact_writer.write(
+                artifact,
+            )
+        except Exception as exc:
+            logger.warning(
+                "artifacts.stream.failed",
+                request_id=str(request.request_id),
+                reason="artifact_persistence_failed",
+                error_type=type(exc).__name__,
+                error=str(exc),
+            )
 
     async def _store_completed_stream(
         self,

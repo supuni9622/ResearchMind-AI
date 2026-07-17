@@ -340,6 +340,9 @@ class _FakeDocumentStorage(DocumentStorage):
     async def generate_presigned_url(self, *, key: str, expires_in: int = 3600) -> str:
         return f"https://example.test/{key}"
 
+    async def list_keys(self, *, prefix: str) -> list[str]:
+        return [key for key in self.uploads if key.startswith(prefix)]
+
 
 async def test_evaluate_input_increments_checks_and_failures_metrics() -> None:
     registry = GuardrailRegistry()

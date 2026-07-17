@@ -5,6 +5,19 @@ from typing import Any
 from uuid import uuid4
 
 import structlog
+from app.ai.artifacts.enums import (
+    ArtifactCategory,
+    ArtifactRuntime,
+)
+from app.ai.artifacts.generation.builders import (
+    GenerationArtifactBuilder,
+)
+from app.ai.artifacts.generation.writers import (
+    GenerationArtifactWriter,
+)
+from app.ai.artifacts.policies.service import (
+    ArtifactPolicyService,
+)
 from app.ai.guardrails.service import (
     GuardrailService,
 )
@@ -109,6 +122,8 @@ class GenerationService:
         routing_service: RoutingService | None = None,
         caching_service: CachingService | None = None,
         guardrail_service: GuardrailService | None = None,
+        artifact_writer: GenerationArtifactWriter | None = None,
+        artifact_policy_service: ArtifactPolicyService | None = None,
     ):
         self._registry = registry
 
@@ -123,6 +138,17 @@ class GenerationService:
         self._caching_service = caching_service
 
         self._guardrail_service = guardrail_service
+
+        self._artifact_writer = artifact_writer
+        """
+        Optional (Artifact Platform PRD §24). When set, `generate()`
+        persists every result via `GenerationArtifactBuilder` + this
+        writer, gated by `_artifact_policy_service`. `None` skips
+        persistence entirely -- matches how every other optional
+        collaborator on this service degrades.
+        """
+
+        self._artifact_policy_service = artifact_policy_service
 
     @property
     def registry(
@@ -164,14 +190,22 @@ class GenerationService:
         )
 
         if provider is not None:
-            return await self._generate_with_provider(
+            result = await self._generate_with_provider(
                 provider=provider,
                 request=request,
             )
+        else:
+            result = await self._generate_with_routing(
+                request=request,
+            )
 
-        return await self._generate_with_routing(
-            request=request,
-        )
+        if self._artifact_writer is not None:
+            await self._persist_generation_artifact(
+                request=request,
+                result=result,
+            )
+
+        return result
 
     async def stream_generate(
         self,
@@ -1050,6 +1084,55 @@ class GenerationService:
             raise GuardrailViolationError(
                 f"Generation blocked by guardrails: "
                 f"{'; '.join(issue.message for issue in result.guardrails.issues)}"
+            )
+
+    async def _persist_generation_artifact(
+        self,
+        *,
+        request: GenerationRequest,
+        result: GenerationResult,
+    ) -> None:
+        """
+        Best-effort (Artifact Platform PRD §24): a storage hiccup while
+        persisting the artifact must not fail a generation that already
+        succeeded -- `GenerationArtifactWriter.write()` itself re-raises
+        on failure (see its own logging), so that's caught and downgraded
+        to an `artifacts.generation.failed` event here instead of
+        propagating. Mirrors `GuardrailService._persist_artifact`.
+        """
+
+        assert self._artifact_writer is not None
+
+        artifact_runtime = request.artifact_runtime or ArtifactRuntime.CHAT
+
+        if self._artifact_policy_service is not None and not (
+            self._artifact_policy_service.should_persist(
+                artifact_runtime,
+                ArtifactCategory.GENERATION,
+            )
+        ):
+            logger.debug(
+                "artifacts.generation.skipped",
+                generation_id=str(result.generation_id),
+                runtime=artifact_runtime.value,
+            )
+            return
+
+        try:
+            artifact = GenerationArtifactBuilder().build(
+                result=result,
+            )
+
+            await self._artifact_writer.write(
+                artifact,
+            )
+        except Exception as exc:
+            logger.warning(
+                "artifacts.generation.failed",
+                generation_id=str(result.generation_id),
+                reason="artifact_persistence_failed",
+                error_type=type(exc).__name__,
+                error=str(exc),
             )
 
     @staticmethod

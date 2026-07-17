@@ -29,6 +29,9 @@ class _FakeDocumentStorage(DocumentStorage):
     async def generate_presigned_url(self, *, key: str, expires_in: int = 3600) -> str:
         return f"https://example.test/{key}"
 
+    async def list_keys(self, *, prefix: str) -> list[str]:
+        return [key for key in self.uploads if key.startswith(prefix)]
+
 
 def _result(stage: GuardrailStage) -> GuardrailResult:
     return GuardrailResult(stage=stage, passed=True, blocked=False, action=GuardrailAction.ALLOW)

@@ -74,6 +74,8 @@ Artifacts are versioned and written to Amazon S3.
 
 Artifacts are never modified after creation.
 
+This principle is no longer unique to the ingestion side described in this document. As of Milestone 3.10 (`artifacts_platform_prd.md`), a new centralized Artifact Platform (`apps/api/app/ai/artifacts/`) extends it to the AI Runtime side — canonical, immutable, versioned, policy-gated persistence for Generation, Streaming, and Conversation executions, with Session/Research/Agent/Evaluation artifacts built but not yet wired to a live runtime. See `PROJECT_STATUS.md` Milestone 3.10 for full detail.
+
 ---
 
 ## Independent Platforms

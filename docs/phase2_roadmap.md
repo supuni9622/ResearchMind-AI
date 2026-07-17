@@ -341,7 +341,7 @@ is implemented but not yet wired into the default pipeline.
 
 Status: IN PROGRESS
 
-🟨 Phase 2.7 — Generation Platform (~60% complete — structured output, validation, regeneration, prompt bridge done; routing/caching/artifacts remain)
+🟨 Phase 2.7 — Generation Platform (~85% complete — structured output, validation, regeneration, prompt bridge, routing, caching, streaming, and artifacts done; per-runtime validators/contracts remain unwired, /research API remains)
 Prompt Context
 
 ↓
@@ -367,16 +367,31 @@ provider-capability-mismatch guard, and `generate_from_template()`
 bridging the existing Prompt Platform into Generation with schema-aware
 format instructions. Detail: `docs/architecture/structured-output-platform.md`.
 
-Not yet built: capability-based provider routing/selection (flags exist,
-no selection engine), caching, artifact persistence, and completeness
-validators. Hallucination validation and generation-level guardrails are
-now both complete elsewhere: a `HallucinationValidator` ships as part of
-`generation/validation/`, and a standalone Guardrails Platform
-(`apps/api/app/ai/guardrails/`, see `guardrails_platform_prd.md`) covers
-input/retrieval/generation/runtime guardrails as an MVP foundation — not
-yet wired into this service.
+Also now complete: a Routing Platform (scored model catalog, task-based
+strategies, capability/policy filtering, fallback chains —
+`routing_platform_prd.md`, ADR-026), a Runtime Caching Platform (L1
+exact/L2 semantic/L3 session, policy resolution —
+`runtime_caching_platform_prd.md`, ADR-027), a Streaming Platform
+(canonical event protocol, SSE/WebSocket, wired into `POST
+/api/v1/chat/stream` / `/api/v1/chat/ws` — `streaming_platform_prd.md`,
+ADR-028), and an Artifact Platform (canonical, immutable, policy-gated
+`GenerationArtifact` persistence on every `generate()` call —
+`artifacts_platform_prd.md`).
 
-Status: IN PROGRESS (~60%)
+Not yet built: per-runtime Validation Contracts/Runtime Validators are
+implemented but unreachable until a caller (e.g. a future `/research`
+API) sets `GenerationRequest.runtime`, and a few PRD output-validation
+checks (completeness/consistency/formatting/response-size). Hallucination
+validation and generation-level guardrails are both complete elsewhere: a
+`HallucinationValidator` ships as part of `generation/validation/`, and a
+Guardrails Platform (`apps/api/app/ai/guardrails/`, see
+`guardrails_platform_prd.md`) covers input/retrieval/generation/runtime
+guardrails as an MVP foundation — wired directly into this service (see
+`guardrail_integration_prd.md`): an input-stage gate runs before every
+provider call, and the full guardrail report lands on
+`GenerationResult.guardrails` before validation runs.
+
+Status: IN PROGRESS (~85%)
 
 ⏳ Phase 2.8 — Queue & Workers
 

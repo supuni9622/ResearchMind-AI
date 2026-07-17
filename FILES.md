@@ -18,6 +18,7 @@ Every file and folder in the ResearchMind-AI monorepo.
 | `.python-version` | Pinned Python version for uv/pyenv |
 | `AI_ENGINEERING_AUDIT.md` | Evidence-based audit of the AI subsystem (Knowledge + Generation Platforms) against current AI-engineering practice — enumerates gaps as additions, not corrections; several items from this audit (Provider Structured Output Integration, Output Validation, Regeneration Strategy, Provider Capability Flags, Prompt Platform Integration) have since been implemented — see `docs/architecture/structured-output-platform.md` |
 | `alembic.ini` | Alembic configuration (points to `alembic/env.py`) |
+| `artifacts_platform_prd.md` | Artifact Platform PRD (v1.1, Milestone 3.10) — canonical persistence/replay/observability-foundation layer for AI Runtime executions, implemented under the new top-level `app/ai/artifacts/`. Generation/Streaming/Conversation artifacts are live and wired; Session/Research/Agent/Evaluation artifacts are built and unit-tested but scaffold-only (no runtime exists yet to call them) |
 | `CHANGELOG.md` | Version changelog |
 | `docker-compose.yml` | Local dev stack — PostgreSQL (5432), Valkey (6379), Qdrant (6333/6334), `semantic-cache` — dedicated `redis-stack-server` (6380) backing the Runtime Caching Platform's L2 Semantic Cache (plain Valkey has no vector-search module) |
 | `FILES.md` | This file — complete file and folder map |
@@ -106,6 +107,27 @@ All subdirectories are empty — planned AI agent implementations.
 
 AI subsystem. Document processing, metadata/statistics enrichment, and upload (including duplicate detection) are implemented; most other subdirectories are still scaffolded and empty.
 
+##### `ai/artifacts/` — **Implemented (Generation/Streaming/Conversation live; Session/Research/Agent/Evaluation scaffold-only)**
+
+Artifact Platform (`artifacts_platform_prd.md`, v1.1, Milestone 3.10). A new, centralized, cross-cutting package — distinct from the decentralized per-stage `artifacts/` sub-packages already used by the ingestion side (`chunking/artifacts/`, `embeddings/artifacts/`, `indexing/artifacts/`, `processing/`, `guardrails/artifacts/`, all untouched) — providing canonical, immutable, versioned, policy-gated persistence for AI Runtime executions. Supersedes and deletes the old empty 4-file scaffold that previously sat at `ai/runtime/generation/artifacts/`.
+
+| Directory / File | Status |
+|-----------|--------|
+| (root files) | **Implemented** — `models.py` (`ArtifactMetadata`), `enums.py` (`ArtifactPolicy`/`ArtifactCategory`/`ArtifactRuntime`), `interfaces.py`, `exceptions.py`, `create.py` (composition root — storage + per-category writer factories) |
+| `policies/` | **Implemented** — `ArtifactPolicyService.should_persist(runtime, category)`, `DEFAULT_ARTIFACT_POLICY_RULES` |
+| `writers/` | **Implemented** — `write_json_artifact()` / `BaseArtifactWriter`, shared upload boilerplate extracted from `guardrails/artifacts/writers.py`'s pattern |
+| `readers/` | **Implemented** — `BaseArtifactReader._read_json()`/`_read_json_optional()` |
+| `generation/` | **Implemented, live** — `GenerationArtifact` (request/response/metadata/validation/guardrails/routing/cache.json), wired into `GenerationService.generate()` |
+| `streaming/` | **Implemented, live** — `StreamArtifact` (events/timeline/stream/metrics.json), wired into `StreamingService._stream_live()` |
+| `conversation/` | **Implemented, live** — `ConversationTurnArtifact` (one immutable file per turn, `turns/{turn_id}/turn.json` — never overwrites, unlike the PRD's literal fixed `messages.json`), `ConversationIdentity` (`conversation.json`, written once), wired into `chat.py` |
+| `session/` | **Scaffold-only** — `SessionArtifact` per PRD §16; unwired, since no session concept distinct from `Conversation` exists yet (`GenerationRequest.session_id`/`StreamEvent.session_id` are unpopulated fields) |
+| `research/` | **Scaffold-only** — `ResearchArtifact` per PRD §17 (loosely-typed `dict[str, Any]` fields via `JsonDictFile`); unwired, no Research Runtime exists |
+| `agent/` | **Scaffold-only** — `AgentArtifact` per PRD §18; unwired, no Agent Runtime exists |
+| `evaluation/` | **Scaffold-only** — `EvaluationArtifact` per PRD §19; unwired, `quality/evaluation/` is still empty |
+| `replay/` | **Implemented** — `GenerationReplayService`/`StreamReplayService` (real, reconstruct from persisted artifacts), `ResearchReplayService` (stub, raises `NotImplementedError`) |
+
+`tests/unit/ai/artifacts/` mirrors this tree 1:1 (39 tests). Also required adding `DocumentStorage.list_keys(*, prefix)` to `infrastructure/storage/` (S3 `list_objects_v2` paginator) so `ConversationArtifactReader` can enumerate turns with no mutable index file.
+
 ##### `ai/config/`
 
 | File | Description |
@@ -113,9 +135,9 @@ AI subsystem. Document processing, metadata/statistics enrichment, and upload (i
 | `__init__.py` | (empty) |
 | `settings.py` | AI-specific configuration settings |
 
-##### `ai/guardrails/` — **Implemented (MVP Foundation)**
+##### `ai/guardrails/` — **Implemented (MVP Foundation) + Integrated**
 
-Guardrails Platform (PRD Milestone 11.16, `guardrails_platform_prd.md`). Standalone, platform-wide package answering "should the system do this?" (distinct from the Validation Platform's "did it work?"), spanning input/retrieval/generation/runtime stages. Not yet wired into `GenerationService`, the context builder, or a router — `create.get_guardrail_service()` is the future integration seam. See `PROJECT_STATUS.md` Milestone 11.16 for full detail. The two previous empty scaffold files here (`policies.py`, `scanners.py`) and the entire empty `ai/runtime/generation/guardrails/` scaffold (see below) were deleted as part of this build.
+Guardrails Platform (PRD Milestone 11.16, `guardrails_platform_prd.md`). Standalone, platform-wide package answering "should the system do this?" (distinct from the Validation Platform's "did it work?"), spanning input/retrieval/generation/runtime stages. **Wired into both `GenerationService` and `ContextBuilderService`** (per `guardrail_integration_prd.md`) — an input-stage gate runs before every provider call, and the full guardrail report lands on `GenerationResult.guardrails`. See `PROJECT_STATUS.md` Milestone 11.16 for full detail. The two previous empty scaffold files here (`policies.py`, `scanners.py`) and the entire empty `ai/runtime/generation/guardrails/` scaffold (see below) were deleted as part of this build.
 
 | Directory / File | Status |
 |-----------|--------|
@@ -486,7 +508,7 @@ Provider-independent canonical event protocol, the "Layer 2" of the Streaming Pl
 
 ##### `ai/runtime/generation/` — **~85% Implemented**
 
-Generation Platform. Owns all LLM interactions, consuming the Context Platform's `PromptContext` output. Provider-independent runtime over five LLM providers, with native structured-output decoding, a parser/repair fallback, input/output/hallucination/runtime validation, a regenerate-on-invalid-output loop, an optional bridge into the pre-existing Prompt Platform, a Routing Platform that resolves a model/provider (with automatic fallback) from a task-based strategy when no provider is given explicitly, a Runtime Caching Platform that short-circuits the provider call on a cache hit, and a Streaming Platform providing SSE/WebSocket delivery. **Now wired into an API route** — `POST /api/v1/chat/stream` and `/api/v1/chat/ws` (see `api/v1/chat.py` below) call `GenerationService` via `StreamingService`; `/research` still does not exist. Detail: `docs/architecture/structured-output-platform.md` (Structured Output/Validation, continuously updated), `docs/architecture/model-routing-platform.md` + ADR-026 (Routing), `docs/architecture/runtime-caching-platform.md` + ADR-027 (Caching), and `docs/architecture/streaming-platform.md` + ADR-028 (Streaming). Generation-level guardrails no longer live here — the empty `guardrails/` scaffold that previously sat in this directory was deleted; generation-stage guardrails are implemented at the new top-level `ai/guardrails/generation/` platform instead (see above).
+Generation Platform. Owns all LLM interactions, consuming the Context Platform's `PromptContext` output. Provider-independent runtime over five LLM providers, with native structured-output decoding, a parser/repair fallback, input/output/hallucination/runtime validation, a regenerate-on-invalid-output loop, an optional bridge into the pre-existing Prompt Platform, a Routing Platform that resolves a model/provider (with automatic fallback) from a task-based strategy when no provider is given explicitly, a Runtime Caching Platform that short-circuits the provider call on a cache hit, a Streaming Platform providing SSE/WebSocket delivery, and — as of the Artifact Platform (`artifacts_platform_prd.md`) — persistence of every `generate()` result as an immutable, policy-gated artifact. **Now wired into an API route** — `POST /api/v1/chat/stream` and `/api/v1/chat/ws` (see `api/v1/chat.py` below) call `GenerationService` via `StreamingService`; `/research` still does not exist. Detail: `docs/architecture/structured-output-platform.md` (Structured Output/Validation, continuously updated), `docs/architecture/model-routing-platform.md` + ADR-026 (Routing), `docs/architecture/runtime-caching-platform.md` + ADR-027 (Caching), and `docs/architecture/streaming-platform.md` + ADR-028 (Streaming). Generation-level guardrails no longer live here — the empty `guardrails/` scaffold that previously sat in this directory was deleted; generation-stage guardrails are implemented at the new top-level `ai/guardrails/generation/` platform instead (see above), and are now wired into `GenerationService` (per `guardrail_integration_prd.md`).
 
 | Directory | Status |
 |-----------|--------|
@@ -500,7 +522,7 @@ Generation Platform. Owns all LLM interactions, consuming the Context Platform's
 | `routing/` | **Implemented** — Routing Platform: capability/policy filtering, task-based strategy scoring, fallback chains |
 | `caching/` | **Implemented** — Runtime Caching Platform: L1 exact (Valkey), L2 semantic (LangChain `RedisSemanticCache` against a dedicated `redis-stack-server`), L3 session (Valkey, not yet called by anything), policy resolution; streaming requests now participate identically to non-streaming ones (the old blanket `request.stream` bypass was removed — see `streaming/` below) |
 | `streaming/` | **Implemented** — Generation Streaming Platform: `StreamingService`, SSE + WebSocket transports; see below |
-| `artifacts/` | ❌ Empty stubs |
+| `artifacts/` | **Deleted** — the old empty 4-file scaffold here was removed in favor of the new centralized `ai/artifacts/generation/` (see the top-level `ai/artifacts/` section above); `GenerationService.generate()` now persists a real `GenerationArtifact` there |
 | `observability/` | **Partial** — `token_counter.py` implemented; `cost_tracker.py`/`latency_tracker.py`/`metrics_collector.py`/`token_tracker.py`/`models.py`/`service.py` empty |
 
 ###### `ai/runtime/generation/` (root)
@@ -694,8 +716,9 @@ Real-time execution support for generation workloads — the "Layer 2 orchestrat
 
 | Directory | Purpose (planned) |
 |-----------|--------|
-| `artifacts/` | Generation result persistence |
 | `observability/` (most files) | Cost/latency/token tracking, metrics collection — `token_counter.py` is the one implemented exception |
+
+Generation result persistence — previously listed here as the empty `artifacts/` scaffold — is now implemented at the top-level `ai/artifacts/generation/` (see above), not in this directory.
 
 ##### `ai/shared/`
 
@@ -719,7 +742,7 @@ Mostly empty — planned shared AI types and interfaces. `local_embeddings.py` i
 | `v1/api.py` | Central router — includes all v1 sub-routers |
 | `v1/admin.py` | (empty) |
 | `v1/auth.py` | `POST /auth/callback` (Cognito code exchange) and `GET /auth/me` |
-| `v1/chat.py` | **Implemented** (Streaming Platform, Milestone 2.9.10) — `POST /chat/stream` (SSE; `get_current_user` auth, since this is a `POST` consumed via `fetch`/`ReadableStream` on the frontend rather than a bare `EventSource`, which can't attach a custom `Authorization` header) and `WebSocket /chat/ws` (`?token=` query-param auth, since a browser's WS handshake has the same header limitation). Both load/create a `Conversation` via `ConversationService`, fold prior turns into a transcript-prefixed `user_prompt`, call `StreamingService.stream_generate()`, and persist the completed turn once the stream reaches `COMPLETE` (`_persist_on_complete` — accumulation/persistence lives at the route level, not inside the generic Streaming Platform, keeping that platform conversation-agnostic) |
+| `v1/chat.py` | **Implemented** (Streaming Platform, Milestone 2.9.10; Artifact Platform, Milestone 3.10) — `POST /chat/stream` (SSE; `get_current_user` auth, since this is a `POST` consumed via `fetch`/`ReadableStream` on the frontend rather than a bare `EventSource`, which can't attach a custom `Authorization` header) and `WebSocket /chat/ws` (`?token=` query-param auth, since a browser's WS handshake has the same header limitation). Both load/create a `Conversation` via `ConversationService`, fold prior turns into a transcript-prefixed `user_prompt`, call `StreamingService.stream_generate()`, and persist the completed turn once the stream reaches `COMPLETE` (`_persist_on_complete` — accumulation/persistence lives at the route level, not inside the generic Streaming Platform, keeping that platform conversation-agnostic). Also best-effort persists a `ConversationIdentity` (once, via `_persist_conversation_identity`) and a `ConversationTurnArtifact` per completed turn through `ConversationArtifactWriter`, policy-gated by `ArtifactPolicyService` |
 | `v1/documents.py` | `GET /documents` — lists the current user's documents; `POST /documents/upload` — validates filename, measures file size, delegates to `UploadService` (upload now enqueues async processing instead of processing synchronously — the old inline `ProcessingService` call is commented out) |
 | `v1/evaluation.py` | (empty) |
 | `v1/feedback.py` | (empty) |
@@ -781,7 +804,7 @@ Mostly empty — planned shared AI types and interfaces. `local_embeddings.py` i
 | `__init__.py` | Package exports |
 | `cache.py` | (empty) |
 | `database.py` | (empty) |
-| `generation.py` | **Implemented** (Streaming Platform, Milestone 2.9.10) — `get_generation_service()` / `get_streaming_service()` (`@lru_cache`d singletons, wrap `create_generation_service()`/`create_streaming_service()`), `get_conversation_service(session)` — request-scoped (not cached — carries the per-request DB session), builds a `ConversationService` |
+| `generation.py` | **Implemented** (Streaming Platform, Milestone 2.9.10; Artifact Platform, Milestone 3.10) — `get_generation_service()` / `get_streaming_service()` (`@lru_cache`d singletons, wrap `create_generation_service()`/`create_streaming_service()`), `get_conversation_service(session)` — request-scoped (not cached — carries the per-request DB session), builds a `ConversationService`, `get_conversation_artifact_writer()` / `get_artifact_policy_service_dependency()` — `@lru_cache`d singletons for the Artifact Platform, threaded into the chat routes |
 | `settings.py` | (empty) |
 | `upload.py` | FastAPI dependency providers for the upload/processing workflow: `get_document_storage`, `get_file_hasher`, `get_document_repository`, `get_processing_queue`, `get_processing_service` (now also wires the Chunking Platform — `_get_chunking_service`, `_get_chunk_artifact_builder`, `ChunkArtifactWriter` — the Embedding Platform — `_get_embedding_service`, `_get_embedding_artifact_builder`, `EmbeddingArtifactWriter` — and the Indexing Platform — `_get_indexing_service`, `_get_indexing_artifact_builder`, `IndexingArtifactWriter`), `get_document_processing_service`, `get_queued_document_processing_service`, `get_upload_service`, `get_processing_worker` |
 | `reranking.py` | `get_reranking_service()` — `@lru_cache`d singleton, wraps `create_reranking_service()` |
@@ -855,7 +878,7 @@ Async queue abstraction backing asynchronous document processing. `UploadService
 | `__init__.py` | Package exports (`DocumentStorage`, `create_storage`) |
 | `exceptions.py` | `StorageUploadError`, `StorageDownloadError`, `StorageDeleteError`, `StorageNotFoundError` |
 | `factory.py` | `create_storage(settings)` factory — selects backend based on config |
-| `interfaces.py` | `DocumentStorage` abstract interface — upload, download, delete, exists, generate_presigned_url |
+| `interfaces.py` | `DocumentStorage` abstract interface — upload, download, delete, exists, generate_presigned_url, `list_keys(*, prefix)` (added for the Artifact Platform's `ConversationArtifactReader`, which has no mutable index file to consult) |
 | `key_generator.py` | `StorageKeyGenerator` — generates deterministic S3 object keys |
 | `models.py` | Storage-related data models |
 | `s3.py` | `S3StorageService` — AWS S3 implementation via `asyncio.to_thread`; logs each operation with key and `duration_ms`; logs failures with reason |

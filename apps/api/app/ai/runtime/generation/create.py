@@ -13,6 +13,10 @@ without modifying the rest of the application.
 from __future__ import annotations
 
 import structlog
+from app.ai.artifacts.create import (
+    create_generation_artifact_writer,
+    get_artifact_policy_service,
+)
 from app.ai.guardrails.create import (
     get_guardrail_service,
 )
@@ -238,4 +242,6 @@ def create_generation_service() -> GenerationService:
         routing_service=create_routing_service(),
         caching_service=create_caching_service(),
         guardrail_service=get_guardrail_service(),
+        artifact_writer=create_generation_artifact_writer(),
+        artifact_policy_service=get_artifact_policy_service(),
     )

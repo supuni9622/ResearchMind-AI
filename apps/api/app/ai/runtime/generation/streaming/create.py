@@ -9,6 +9,10 @@ from __future__ import annotations
 
 from functools import lru_cache
 
+from app.ai.artifacts.create import (
+    create_stream_artifact_writer,
+    get_artifact_policy_service,
+)
 from app.ai.runtime.events.create import (
     get_event_adapter,
 )
@@ -40,4 +44,6 @@ def create_streaming_service() -> StreamingService:
         registry=generation_service.registry,
         event_adapter=get_event_adapter(),
         caching_service=create_caching_service(),
+        artifact_writer=create_stream_artifact_writer(),
+        artifact_policy_service=get_artifact_policy_service(),
     )

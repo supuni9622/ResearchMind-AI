@@ -59,6 +59,9 @@ class InMemoryDocumentStorage(DocumentStorage):
     async def generate_presigned_url(self, *, key: str, expires_in: int = 3600) -> str:
         return f"https://fake-storage.test/{key}"
 
+    async def list_keys(self, *, prefix: str) -> list[str]:
+        return [key for key in self.objects if key.startswith(prefix)]
+
 
 class InMemoryProcessingQueue(ProcessingQueue):
     """Fake ProcessingQueue that keeps enqueued jobs in memory."""

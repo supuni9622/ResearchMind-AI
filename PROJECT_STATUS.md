@@ -2,7 +2,7 @@
 
 **Last Updated:** 2026-07-17
 
-**Current Maturity:** NotebookLM++ + Perplexity Foundation — Hybrid Retrieval, Reranking, Parent Expansion, Compression, Context Guardrails, and Prompt Formatter strategies are all in place, putting the platform ahead of NotebookLM and closing in on a Perplexity v1 experience. A standalone, platform-wide Guardrails Platform (input/retrieval/generation/runtime stages, Source Trust, policies, scoring, artifacts) now sits alongside the Validation Platform as a completed foundation layer. The Generation Platform's Routing Platform (model/provider selection, scored catalog, strategy-weighted fallback chains), Runtime Caching Platform (L1 exact/L2 semantic/L3 session caching, policy resolution, wired into `GenerationService`), and Streaming Platform (canonical event protocol, SSE + WebSocket transports, `stream_generate()`, cache-hit replay) are now complete, bringing Generation to ~85%. Critically, the Generation Platform is now reachable over HTTP for the first time — `POST /api/v1/chat/stream` (SSE) and `/api/v1/chat/ws` (WebSocket) are live, backed by a new minimal Conversation/Message persistence layer. Maturity ladder: `NotebookLM++ → Perplexity v1 (almost here) → Open Deep Research → Manus / Glean`.
+**Current Maturity:** NotebookLM++ + Perplexity Foundation — Hybrid Retrieval, Reranking, Parent Expansion, Compression, Context Guardrails, and Prompt Formatter strategies are all in place, putting the platform ahead of NotebookLM and closing in on a Perplexity v1 experience. A platform-wide Guardrails Platform (input/retrieval/generation/runtime stages, Source Trust, policies, scoring, artifacts) now sits alongside the Validation Platform as a completed foundation layer, and — per `guardrail_integration_prd.md` — is wired directly into both `GenerationService` (input gate before every provider call, full evaluate() report attached to `GenerationResult.guardrails`) and `ContextBuilderService` (retrieval-stage gate before context building). The Generation Platform's Routing Platform (model/provider selection, scored catalog, strategy-weighted fallback chains), Runtime Caching Platform (L1 exact/L2 semantic/L3 session caching, policy resolution, wired into `GenerationService`), and Streaming Platform (canonical event protocol, SSE + WebSocket transports, `stream_generate()`, cache-hit replay) are now complete, bringing Generation to ~85%. Critically, the Generation Platform is now reachable over HTTP for the first time — `POST /api/v1/chat/stream` (SSE) and `/api/v1/chat/ws` (WebSocket) are live, backed by a new minimal Conversation/Message persistence layer. A new, centralized Artifact Platform (`app/ai/artifacts/`, per `artifacts_platform_prd.md`) now persists every generation call, completed stream, and conversation turn as an immutable, versioned, policy-gated artifact in S3 — the canonical execution history layer the ingestion side has always had, now extended to the runtime side; Session/Research/Agent/Evaluation artifacts are built but scaffold-only, since those runtimes don't exist yet. Maturity ladder: `NotebookLM++ → Perplexity v1 (almost here) → Open Deep Research → Manus / Glean`.
 
 ---
 
@@ -871,7 +871,7 @@ Implemented (`generation/caching/`)
 - **Policy Resolution (FR-4)** — `CachePolicy` (`AUTO`/`NEVER`/`EXACT_ONLY`/`SEMANTIC`/`SESSION`) resolved per `CacheRuntime` (Chat/Research/Benchmark/Planner/Tool Agent/Summarizer/Reviewer/Critic) via `CachePolicyResolver`, with an explicit `GenerationRequest.cache_policy` override always winning; `GenerationRequest` gained `cache_runtime`/`cache_policy` fields, mirroring how `routing_strategy` already lives directly on the request
 - **Statistics (FR-5)** — in-memory `CacheStatistics` (exact/semantic/session hits, misses, hit ratio, tokens saved, cost saved) plus a structured `caching.lookup` log line per call (`cache_hit`, `cache_level`, `cache_latency_ms`, `tokens_saved`, `cost_saved`)
 - **Streaming integration** — originally `request.stream` skipped lookup/store entirely per the PRD; corrected in Milestone 2.9.10 so streaming requests participate in caching identically to non-streaming ones, with `StreamingService` (not `CachingService`) deciding to replay a hit as a synthetic token stream
-- **Artifact shape** — `GenerationResult.metadata["cache"]` populated with `{hit, level, tokens_saved, cost_saved}` on every call (hit or miss), mirroring the existing `metadata["routing"]` pattern; the Artifacts platform itself (`generation/artifacts/`) is still an empty scaffold, so there's no persistence layer yet to consume this
+- **Artifact shape** — `GenerationResult.metadata["cache"]` populated with `{hit, level, tokens_saved, cost_saved}` on every call (hit or miss), mirroring the existing `metadata["routing"]` pattern; at the time this milestone shipped, the Artifacts platform itself (`generation/artifacts/`) was still an empty scaffold with no persistence layer to consume this — since corrected by Milestone 3.10 (Artifact Platform, below), whose `GenerationArtifact.cache` field now persists exactly this shape
 - Null-object providers (`exact/null.py`, `semantic/null.py`, `session/null.py`) back each layer's `settings.*_cache_enabled` flag, so a disabled layer no-ops instead of every call site needing an `is not None` check
 - 22 new unit tests (`tests/unit/ai/runtime/generation/caching/`) — key builder determinism/sensitivity, policy resolution precedence, `CachingService` policy branching (AUTO/EXACT_ONLY/SEMANTIC/NEVER/streaming), statistics, session cache independence
 
@@ -922,22 +922,100 @@ Documentation
 ## Not Yet Built
 
 - ❌ `POST /research` API (chat streaming is now implemented — see Milestone 2.9.10)
-- ❌ Artifact persistence
 - ❌ Completeness/Consistency/Formatting/Response-Size *output*-stage checks; Acceptance/Fail-Fast policy objects (see Milestone 2.9.4) — Runtime Validators/Contracts are now done (Milestone 2.9.4), just unreachable until a caller sets `GenerationRequest.runtime`
 - ❌ Adaptive/evaluation-driven routing, budget-aware routing, A/B experimentation (Routing Platform Phase 2+ — see Milestone 2.9.7)
 - ❌ Session Cache wiring — implemented and available (Milestone 2.9.9) but nothing calls it yet
 - ❌ Streaming rate limiting / per-user concurrent-stream cap, real multi-message chat history (Milestone 2.9.10)
-- 🟡 Test suite — `validation/`, `providers/`, `prompts/`, `routing/`, `catalog/`, `caching/`, `streaming/`, `runtime/events/`, and core `service.py` all have unit test coverage now; still nothing under `artifacts/`
+- 🟡 Test suite — `validation/`, `providers/`, `prompts/`, `routing/`, `catalog/`, `caching/`, `streaming/`, `runtime/events/`, and core `service.py` all have unit test coverage now; `artifacts/` (the old empty in-package scaffold) is gone — see Milestone 3.10 below
 
-Generation-level guardrails, previously listed here as a gap, are now implemented — see Milestone 11.16 below.
+Generation-level guardrails, previously listed here as a gap, are now implemented and wired into `GenerationService` — see Milestone 11.16 below. Artifact persistence, also previously listed here as a gap, is now implemented — see Milestone 3.10 below.
+
+---
+
+# Milestone 3.10 — Artifact Platform
+
+**Status:** ✅ Complete (Generation/Streaming/Conversation live and wired, per `artifacts_platform_prd.md`) — 🟡 Session/Research/Agent/Evaluation built but scaffold-only (no runtime exists yet to call them)
+
+The Artifact Platform provides canonical, immutable, versioned, policy-gated persistence for AI Runtime executions — the same "artifacts are the source of truth" principle the ingestion side (`chunking/`, `embeddings/`, `indexing/`, `processing/`) has always followed, now extended to the runtime side (generation calls, streams, conversations). It is a new, centralized, cross-cutting package (`apps/api/app/ai/artifacts/`, sibling to `knowledge/`, `runtime/`, `guardrails/`, `quality/`) — deliberately *not* nested inside `runtime/generation/`, since it spans multiple runtimes (generation, streaming, conversation, and eventually research/agent) rather than being owned by a single one. Supersedes and deletes the old empty 4-file scaffold that previously sat at `runtime/generation/artifacts/`.
+
+Pipeline (PRD §10)
+
+```
+Runtime
+      ↓
+Artifact Builder
+      ↓
+Artifact Policy
+      ↓
+Artifact Writer
+      ↓
+Storage
+      ↓
+Artifact Reader
+      ↓
+Replay / Evaluation / Observability
+```
+
+## Foundation
+
+Implemented
+
+- `models.py` — `ArtifactMetadata` (`artifact_id`/`version`/`created_at`/`owner_id`/`session_id`), `JsonDictFile` (generic single-object wrapper so the scaffold-only domains' loosely-typed `dict[str, Any]` fields can still go through the shared JSON writer)
+- `enums.py` — `ArtifactPolicy` (`never`/`session`/`short_term`/`long_term`/`permanent`, PRD §8 verbatim), `ArtifactCategory` (mirrors the PRD §12 S3 prefixes), `ArtifactRuntime` (`internal_helper`/`chat`/`research`/`agent`/`benchmark`/`evaluation`) — a new, dedicated runtime enum rather than reusing `caching.enums.CacheRuntime` or `validation.runtime.enums.RuntimeType`, matching this codebase's established convention that each platform owns its own runtime concept (confirmed twice already by those two prior platforms)
+- `policies/` — `ArtifactPolicyService.should_persist(runtime, category)` / `resolve_policy()`, `DEFAULT_ARTIFACT_POLICY_RULES` encoding PRD §8's example table; unmapped combinations fail safe to `NEVER`
+- `writers/base.py` / `readers/base.py` — `write_json_artifact()`/`BaseArtifactWriter` and `BaseArtifactReader._read_json()`/`_read_json_optional()`, extracted from `guardrails/artifacts/writers.py`'s pattern so the upload/parse boilerplate isn't re-declared per runtime
+- `create.py` — composition root: `create_artifact_storage()`, `get_artifact_policy_service()`, and per-category writer factories, imported into each live platform's own `create.py`
+- Infra: `DocumentStorage.list_keys(*, prefix) -> list[str]` added to `infrastructure/storage/` (S3 `list_objects_v2` paginator) — a hard dependency for `ConversationArtifactReader`, which has no mutable index file to consult
+
+## Generation Artifacts (PRD §13) — Live
+
+- `GenerationArtifact` — `request.json`/`response.json`/`metadata.json` always written; `validation.json`/`guardrails.json`/`routing.json`/`cache.json` written only when the corresponding `GenerationResult` field is set
+- `GenerationArtifactBuilder`/`GenerationArtifactWriter`/`GenerationArtifactReader` under `artifacts/generation/`
+- Wired into `GenerationService.generate()` (new optional `artifact_writer`/`artifact_policy_service` constructor params) — persists after every successful call, gated by policy, best-effort (a storage failure is caught/logged as `artifacts.generation.failed`, never fails the generation that already succeeded, mirroring `GuardrailService._persist_artifact`)
+- New `GenerationRequest.artifact_runtime: ArtifactRuntime | None` field — defaults to `ArtifactRuntime.CHAT` at the policy-lookup call site when unset, since 100% of live `generate()` traffic today is chat traffic; `chat.py` sets it explicitly
+
+## Streaming Artifacts (PRD §14) — Live
+
+- `StreamArtifact` — `events.json` (every emitted `StreamEvent`), `timeline.json` (`generation_started`/`first_token`/`completion` entries derived from the event list), `stream.json` (= metadata), `metrics.json` (`first_token_latency_ms`, `stream_duration_ms`, `tokens_per_second` — a documented character-count approximation, same shape of gap as the Streaming Platform's own cache-hit-replay/statistics approximations, since provider `stream()` implementations don't surface real token counts)
+- Wired into `StreamingService._stream_live()` — now accumulates `emitted_events`/`started_at` alongside the pre-existing `content_parts`; the old `if self._caching_service is None: return` early-exit was restructured so artifact persistence runs independently of whether caching is wired
+
+## Conversation Artifacts (PRD §15, adapted) — Live
+
+- Diverges from the PRD's literal fixed `messages.json`: overwriting one file on every turn would violate the platform's own immutability principle (PRD §5), so each completed turn instead writes a fresh, never-overwritten `artifacts/conversations/{conversation_id}/turns/{turn_id}/turn.json` (`turn_id` a new UUID every call) — satisfies both "immutable" and "append-only" literally. `conversation.json` (`ConversationIdentity`) is written once, guarded by an `exists()` check
+- `summary.json` from the PRD is intentionally not built — no summarization component exists anywhere in this codebase to produce one
+- Wired into `chat.py` (`_persist_on_complete()`), covering both `/chat/stream` (SSE) and `/chat/ws` (WebSocket) through the one shared hook; new `get_conversation_artifact_writer()`/`get_artifact_policy_service_dependency()` singletons in `dependencies/generation.py`
+
+## Session / Research / Agent / Evaluation Artifacts (PRD §16-19) — Scaffold-only, unwired
+
+Built (models/builders/writers/readers, unit-tested with a fake `DocumentStorage`) but deliberately not wired to any live caller, matching this codebase's repeated, established pattern of building the platform layer ahead of the API surface (see the Runtime Caching Platform's unused `CacheRuntime.RESEARCH`, the Runtime Validation Platform's unwired `RuntimeType.RESEARCH` contract, and the Streaming Platform's reserved `ResearchEventType`/`AgentEventType`):
+
+- `session/` — `SessionArtifact` (`session.json`/`timeline.json`/`statistics.json`); no session concept distinct from `Conversation` exists today (`GenerationRequest.session_id`/`StreamEvent.session_id` are real fields but nothing populates them)
+- `research/` — `ResearchArtifact` (`plan`/`queries`/`retrievals`/`citations`/`report`/`evaluation`, loosely-typed `dict[str, Any]` via `JsonDictFile` since no `ResearchPlan`-shaped type exists yet); `runtime/research/{decomposition,planner,workflows}/` are still empty directories
+- `agent/` — `AgentArtifact` (`state`/`tools`/`execution_graph`/`events`/`memory`); `ai/agents/*` are still empty directories
+- `evaluation/` — `EvaluationArtifact` (`dataset`/`results`/`metrics`/`comparison`); `quality/{evaluation,regression}/` are still empty `__init__.py`s
+
+## Replay Platform (PRD §21)
+
+- `GenerationReplayService` / `StreamReplayService` (`artifacts/replay/`) — real and unit-tested, reconstruct a `GenerationResult` or re-emit a stored `StreamEvent` sequence in order from persisted artifacts; no new API route added for either, just the services
+- `ResearchReplayService` — scaffold stub, `replay()` raises `NotImplementedError` naming the missing Research Runtime rather than silently returning empty data
+
+## Testing
+
+39 unit tests under `tests/unit/ai/artifacts/`, following the `_FakeDocumentStorage`/fixture pattern already established by `tests/unit/ai/guardrails/artifacts/`. Full repo suite (931 tests), ruff, and composition-root smoke construction (`create_generation_service()`, `create_streaming_service()`) all pass clean.
+
+## Not Yet Built (by design)
+
+- ❌ Wiring for Session/Research/Agent/Evaluation artifacts — needs a real session concept, `/research` API, Agent Runtime, and evaluation harness respectively, none of which exist yet
+- ❌ Automated retention/expiry enforcement for the PRD §23 retention table — informational only in this pass, no deletion job
+- ❌ A local S3/MinIO dev stack — `docker-compose.yml` has no S3-compatible service, so a true storage round-trip smoke test needs real AWS credentials; unit tests use a fake `DocumentStorage` instead
 
 ---
 
 # Milestone 11.16 — Guardrails Platform
 
-**Status:** ✅ Complete (MVP Foundation, per `guardrails_platform_prd.md`)
+**Status:** ✅ Complete (MVP Foundation, per `guardrails_platform_prd.md`) — ✅ Integrated into `GenerationService` and `ContextBuilderService` (per `guardrail_integration_prd.md`)
 
-The Guardrails Platform answers a different question than the Validation Platform: not "did the system produce a good output?" but "should the system even perform this operation?" It is a new, standalone, platform-wide package (`apps/api/app/ai/guardrails/`, sibling to `knowledge/`, `runtime/`, `quality/`) spanning Input → Retrieval → Generation → Runtime stages, built to the same conventions as the Validation Platform (deterministic checks, a crash-safe `GuardrailService`, a `GuardrailRegistry`, weighted risk scoring, an `@lru_cache` composition root).
+The Guardrails Platform answers a different question than the Validation Platform: not "did the system produce a good output?" but "should the system even perform this operation?" It is a platform-wide package (`apps/api/app/ai/guardrails/`, sibling to `knowledge/`, `runtime/`, `quality/`) spanning Input → Retrieval → Generation → Runtime stages, built to the same conventions as the Validation Platform (deterministic checks, a crash-safe `GuardrailService`, a `GuardrailRegistry`, weighted risk scoring, an `@lru_cache` composition root). It shipped standalone first (this milestone's original scope), then was wired into the two live composition roots in a follow-up integration pass — see the new "Integration" subsection below.
 
 Pipeline
 
@@ -974,7 +1052,7 @@ Implemented
 - `scoring/` — weighted `overall_risk` (input 0.30 / retrieval 0.30 / generation 0.20 / runtime 0.20), renormalized over whichever stages actually scored
 - `artifacts/` — `GuardrailArtifact`/`GuardrailArtifactBuilder`/`GuardrailArtifactWriter`, persisting `guardrails/{run_id}/{input,retrieval,generation,runtime,report}.json` to the same storage abstraction as `ChunkArtifactWriter`
 - `reports/` — `summarize_report()`, `stage_summaries()`, issue grouping helpers
-- `create.py` — `get_guardrail_service()`, the integration seam for future callers (not yet wired into `GenerationService`/context builder/a router — same standalone-but-complete posture the Validation Platform shipped with)
+- `create.py` — `get_guardrail_service()`; now injected into both `create_generation_service()` and `create_context_builder()` (see "Integration" below) — a router/agent-runtime caller remains future work
 
 ## Input Guardrails
 
@@ -1008,14 +1086,25 @@ Implemented
 
 Two empty, zero-reference scaffolds discovered during this work were deleted: `app/ai/guardrails/{policies.py,scanners.py}` and the entire (all 0-byte) `app/ai/runtime/generation/guardrails/` tree.
 
+## Integration (per `guardrail_integration_prd.md`)
+
+A follow-up pass wired the already-complete platform above into the two live composition roots, introducing no new registries/interfaces/services (per the PRD's own Non-Goals):
+
+- `GenerationService` (`runtime/generation/service.py`) takes an optional `guardrail_service: GuardrailService | None`. `evaluate_input()` runs once at the top of both `generate()` and `stream_generate()`, before any provider call — a blocked result raises `GuardrailViolationError` (a `generation/exceptions.py` exception that pre-dated this wiring, unused until now) and generation never starts. The full `evaluate()` (input + retrieval + generation, reusing `request.prompt_context.chunks/citations`) runs inside `_execute_once()` after structured-output post-processing but before `ValidationService`, populating a new `GenerationResult.guardrails: GuardrailReport | None` field and raising on block.
+- `ContextBuilderService` (`knowledge/context/service.py`) takes an optional `guardrail_platform_service: GuardrailService | None`, distinct from the pre-existing required `guardrail_service: ContextGuardrailService` (the Milestone 2.8.4 regex sanitizer, which the platform's own `ContextSanitizationGuardrail` already composes rather than duplicates). `evaluate_retrieval()` runs on the raw retrieved chunks before dedup/expansion/merge/compression — a blocked result raises a new `GuardrailBlockedError` (`guardrails/exceptions.py`), stopping downstream context building and generation.
+- `GuardrailService.evaluate()` now persists a `GuardrailArtifact` via the pre-existing `GuardrailArtifactBuilder`/`GuardrailArtifactWriter` when an `artifact_writer` is configured (best-effort — a storage failure is caught/logged, never fails the run) and emits `guardrails.started`/`guardrails.completed`/`guardrails.blocked`/`guardrails.failed` structlog events plus `guardrail_checks_total`/`guardrail_failures_total`/`guardrail_blocks_total`/`prompt_injection_attempts`/`pii_detections`/`policy_violations` metrics via a new `MetricsRecorder` (`infrastructure/metrics/guardrails.py`, same not-yet-Prometheus-backed interface the Upload platform already used).
+- Both composition roots (`guardrails/create.py`, `runtime/generation/create.py`, `knowledge/context/create.py`) wire this together automatically — no other caller needs to change.
+- 14 new unit tests covering the block/allow paths on both integration points plus the new metrics/artifact behavior; full repo suite (854 tests), `ruff format --check`, `ruff check`, and `mypy` all pass clean.
+
 ## Testing
 
-113 new unit tests under `tests/unit/ai/guardrails/`, mirroring the Validation Platform's test-tree conventions (shared `factories.py`, local `_Fake...` doubles, real-dependency composition tests for the reuse points). Full repo suite (744 tests), `ruff format --check`, `ruff check`, and `mypy` all pass clean across all 706 source files.
+113 unit tests under `tests/unit/ai/guardrails/` from the original platform build, mirroring the Validation Platform's test-tree conventions (shared `factories.py`, local `_Fake...` doubles, real-dependency composition tests for the reuse points), plus 14 more from the Integration pass above (see "Integration").
 
-## Not Yet Built (by design — matches PRD §21/§22 MVP scope)
+## Not Yet Built (by design — matches PRD §21/§22 MVP scope, plus `guardrail_integration_prd.md`'s own Phase 5)
 
 - ❌ LLM-based classifiers (Llama Guard, Lakera, NeMo Guardrails) — explicitly skipped for MVP
-- ❌ Wiring into `GenerationService`, the context builder, or a router (PRD's "Phase 6 — Generation Integration", intentionally deferred, same as Validation Platform)
+- ❌ A router/agent-runtime caller for `evaluate_runtime()` — no `/research` API exists yet to drive it, same gap as the Runtime Validation Platform (Milestone 2.9.4)
+- ❌ Post-generation guardrails on the streaming path (`stream_generate()` only gets the pre-provider input gate — buffering a full streamed response to evaluate it wasn't in scope)
 - ❌ Enterprise ACL / multi-tenant Access Control, real Tool Policy providers, a working Approval Gate implementation (LangGraph interrupts/checkpoints)
 - ❌ Security dashboards, attack datasets, red-teaming (PRD's Phase 2-4 future roadmap)
 
@@ -1100,7 +1189,7 @@ Routing Platform (task-based strategy → scored model catalog → provider + fa
 Generation Platform (native structured output → parser fallback → input/output/hallucination validation → regeneration)
 ```
 
-Standalone (not yet wired into the pipeline above): the Guardrails Platform (`app/ai/guardrails/`, Milestone 11.16) — input/retrieval/generation/runtime checks, `GuardrailService.evaluate()` as the future integration seam. Same posture the Validation Platform shipped with before its narrow slice was integrated into `GenerationService`.
+Now wired into the pipeline above: the Guardrails Platform (`app/ai/guardrails/`, Milestone 11.16) — input/retrieval/generation checks run automatically inside `GenerationService`/`ContextBuilderService` (see Milestone 11.16's "Integration" subsection); only `evaluate_runtime()` still has no live caller, pending a `/research` API.
 
 ---
 
@@ -1119,13 +1208,16 @@ Standalone (not yet wired into the pipeline above): the Guardrails Platform (`ap
 | Phase 2.6 — Indexing Platform (Hybrid Retrieval) | ✅ Complete |
 | Phase 2.7 — Retrieval Platform | ✅ Complete (incl. Metadata Filtering + Reranking + Parallel Retrieval) |
 | Phase 2.8 — Context Platform | 🟡 ~95% Complete (Parent Expansion, Adjacent Merge, Compression V1/V2/V3, Guardrails V1, Citations, Prompt Formatter done; LLM compression (V4) remains) |
-| Phase 2.9 — Generation Platform | 🟡 ~85% Complete (Structured Output Integration, Validation Platform integration incl. input/output/hallucination/runtime validators + scoring, Regeneration, Prompt Platform bridge, Routing Platform, Runtime Caching Platform, Streaming Platform (SSE+WS chat, wired) done; artifacts, /research API remain) |
-| Milestone 11.16 — Guardrails Platform | ✅ Complete (MVP Foundation — input/retrieval/generation/runtime guardrails, Source Trust, policies, scoring, artifacts; standalone, not yet wired into the generation pipeline) |
+| Phase 2.9 — Generation Platform | 🟡 ~85% Complete (Structured Output Integration, Validation Platform integration incl. input/output/hallucination/runtime validators + scoring, Regeneration, Prompt Platform bridge, Routing Platform, Runtime Caching Platform, Streaming Platform (SSE+WS chat, wired), Artifact Platform (generation results persisted) done; /research API remains) |
+| Milestone 11.16 — Guardrails Platform | ✅ Complete (MVP Foundation — input/retrieval/generation/runtime guardrails, Source Trust, policies, scoring, artifacts) + ✅ Integrated into `GenerationService`/`ContextBuilderService` (runtime stage still has no live caller) |
+| Milestone 3.10 — Artifact Platform | ✅ Generation/Streaming/Conversation artifacts complete and wired (`GenerationService`, `StreamingService`, `chat.py`) — 🟡 Session/Research/Agent/Evaluation artifacts built but scaffold-only (no runtime exists yet to call them) |
 | Benchmark Platform | ✅ Foundation Complete (incl. Retrieval, Metadata Filtering, Reranking Benchmarks) |
 
 ---
 
 # Recently Completed
+
+✅ Guardrails Platform Integration (per `guardrail_integration_prd.md`) — wired the already-complete Guardrails Platform (Milestone 11.16) into the two live composition roots, introducing no new registries/interfaces/services. `GenerationService` gets an optional `guardrail_service`: `evaluate_input()` gates every `generate()`/`stream_generate()` call before the provider runs, and the full `evaluate()` report lands on a new `GenerationResult.guardrails` field before `ValidationService` runs. `ContextBuilderService` gets an optional `guardrail_platform_service`: `evaluate_retrieval()` gates the raw retrieved chunks before dedup/expansion/compression. `GuardrailService.evaluate()` now persists artifacts via the pre-existing `GuardrailArtifactWriter` (best-effort) and emits `guardrails.started/completed/blocked/failed` events plus six new Prometheus-shaped counters through the same `MetricsRecorder` interface the Upload platform already used. 14 new unit tests; full repo suite (854 tests), ruff, and mypy pass clean
 
 ✅ Runtime Validation Platform (Generation Platform Milestone 2.9.4 extension, per `runtime_validation_prd.md`) — a fourth `ValidationStage.RUNTIME` stage added to the existing Validation Platform, not a separate platform: `generation/validation/runtime/` (`RuntimeType` enum + new `GenerationRequest.runtime` field, `RuntimeRegistry`/`RuntimeValidationService` keyed by `RuntimeType`, five generic reusable validators — completeness, consistency, confidence, evidence, citation — and the first concrete contract, `ResearchRuntimeContract`, composing them into one `ValidatorOutcome` tagged `"research_contract"`). `ValidationRegistry`/`ValidationService` extended (`register_runtime_validator()`/`register_runtime_contract()`, `runtime_validators`, `validate_runtime()`) rather than duplicated; `ValidationService`'s duplicate crash-handling/aggregation logic across stages was extracted into a shared `aggregation.py` in the process. `compute_overall_score()`'s pre-existing `runtime_score` weight (0.20) now actually gets fed. No caller sets `GenerationRequest.runtime` yet (needs a `/research` API), so the stage is a no-op in production today — exercised only by the 109 new unit tests. Full repo suite (840 tests), ruff, and mypy pass clean
 
@@ -1219,9 +1311,11 @@ Parent Expansion, Adjacent Merge, Token Budget + Embedding + LangChain Compressi
 - Retrieval result cache
 - Scaling the retrieval benchmark dataset (5 → 20-50 documents, 20 → 100 queries, chunk-level relevance) — see `README.md` TODO
 
-The **Generation Platform** (Milestone 2.9) is now ~85% complete (see Milestone 2.9 above): provider abstraction, Structured Output Integration (native decoding + parser fallback + Markdown/XML registry + LangChain `with_structured_output()`), Validation Platform integration (input/output/hallucination/runtime validators, registry, weighted scoring, `ValidationReport`, and now per-runtime Validation Contracts — `ResearchRuntimeContract`), Regeneration Strategy, a provider-capability guard, Prompt Platform integration, a Routing Platform (scored model catalog, task-based strategies, capability/policy filtering, fallback chains — Milestone 2.9.7), a Runtime Caching Platform (L1 exact/L2 semantic/L3 session caching, policy resolution — Milestone 2.9.9), and now a Streaming Platform (canonical event protocol, SSE + WebSocket transports, wired into a live `POST /api/v1/chat/stream` / `/api/v1/chat/ws` — Milestone 2.9.10) are all done. Remaining before it's complete: `/research` API (needed for the new runtime stage to actually execute), artifact persistence, the remaining PRD output checks (completeness/consistency/formatting/response-size), streaming rate limiting, and a real multi-message chat history API. Then Evaluation Platform expansion (Milestone 6) and a LangGraph-based Research Runtime (Milestone 7) follow.
+The **Generation Platform** (Milestone 2.9) is now ~85% complete (see Milestone 2.9 above): provider abstraction, Structured Output Integration (native decoding + parser fallback + Markdown/XML registry + LangChain `with_structured_output()`), Validation Platform integration (input/output/hallucination/runtime validators, registry, weighted scoring, `ValidationReport`, and now per-runtime Validation Contracts — `ResearchRuntimeContract`), Regeneration Strategy, a provider-capability guard, Prompt Platform integration, a Routing Platform (scored model catalog, task-based strategies, capability/policy filtering, fallback chains — Milestone 2.9.7), a Runtime Caching Platform (L1 exact/L2 semantic/L3 session caching, policy resolution — Milestone 2.9.9), a Streaming Platform (canonical event protocol, SSE + WebSocket transports, wired into a live `POST /api/v1/chat/stream` / `/api/v1/chat/ws` — Milestone 2.9.10), and now an Artifact Platform (canonical, immutable, policy-gated persistence for generation/streaming/conversation executions — Milestone 3.10) are all done. Remaining before it's complete: `/research` API (needed for the new runtime stage to actually execute, and for Research/Agent/Evaluation artifacts to have a live caller), the remaining PRD output checks (completeness/consistency/formatting/response-size), streaming rate limiting, and a real multi-message chat history API. Then Evaluation Platform expansion (Milestone 6) and a LangGraph-based Research Runtime (Milestone 7) follow.
 
-The **Guardrails Platform** (Milestone 11.16, see above) is now complete as a standalone MVP foundation — input/retrieval/generation/runtime guardrails, a new Source Trust Platform, policies, weighted risk scoring, and artifact persistence. It is not yet wired into `GenerationService`, the context builder, or a router (the PRD's own "Generation Integration" is explicitly a later phase); `get_guardrail_service()` is the integration seam once that wiring is prioritized.
+The **Guardrails Platform** (Milestone 11.16, see above) is now complete as an MVP foundation — input/retrieval/generation/runtime guardrails, a new Source Trust Platform, policies, weighted risk scoring, and artifact persistence — and is now wired into both `GenerationService` and `ContextBuilderService` (per `guardrail_integration_prd.md`, see Milestone 11.16's "Integration" subsection). Only the runtime stage (`evaluate_runtime()`) still has no live caller, pending a `/research` API or other agent runtime.
+
+The **Artifact Platform** (Milestone 3.10, see above) is now complete for the two live AI Runtime execution types — a new centralized `app/ai/artifacts/` package persists every `GenerationService.generate()` call and every completed `StreamingService` stream as an immutable, versioned, policy-gated artifact, plus one immutable file per completed conversation turn from `chat.py`. Session/Research/Agent/Evaluation artifacts are fully built and unit-tested but remain unwired, since none of those runtimes exist yet — the same "build ahead of the API surface" pattern already used by the Runtime Caching and Runtime Validation Platforms.
 
 ---
 
@@ -1260,20 +1354,23 @@ Generation Platform (~85%) 🟡
   Prompt Platform Integration ✅
   Runtime Caching Platform (L1 exact, L2 semantic, L3 session, policy resolution) ✅ — Session Cache not yet wired to a caller ⏳
   Streaming Platform (runtime/events + generation/streaming, SSE + WebSocket, chat.py wired) ✅ — rate limiting, real multi-message history ⏳
-  /research API, artifacts ❌
+  Artifact Platform (generation/streaming/conversation artifacts, S3-persisted) ✅ — session/research/agent/evaluation artifacts scaffold-only ⏳
+  /research API ❌
 
 ↓
 
-Guardrails Platform (Milestone 11.16) ✅ Foundation — standalone, not yet wired in
+Guardrails Platform (Milestone 11.16) ✅ Foundation — ✅ wired into GenerationService + ContextBuilderService
   Input Guardrails (Prompt Injection, Scope, PII) ✅
   Retrieval Guardrails (Context Sanitization, Source Trust, Citation Integrity) ✅
   Generation Guardrails (Faithfulness, Schema Enforcement, PII Leakage) ✅
-  Runtime Guardrails (Budget, Loop Detection) ✅ — Tool Policy, Approval Gate interfaces only ⏳
-  Wiring into GenerationService / context builder / a router ⏳
+  Runtime Guardrails (Budget, Loop Detection) ✅ — Tool Policy, Approval Gate interfaces only ⏳; no live caller until a router/agent runtime exists
+  Wiring into GenerationService (input gate + full report on GenerationResult.guardrails) ✅
+  Wiring into ContextBuilderService (retrieval-stage gate) ✅
+  Wiring into a router / agent runtime ⏳ (needs /research API)
 
 ↓
 
-Chat 🟡 — basic streaming chat (SSE + WebSocket, Conversation/Message history) is live via the Streaming Platform (Milestone 2.9.10); not yet wired to Retrieval/Context (no `PromptContext.chunks`) or the Guardrails Platform
+Chat 🟡 — basic streaming chat (SSE + WebSocket, Conversation/Message history) is live via the Streaming Platform (Milestone 2.9.10); not yet wired to Retrieval/Context (no `PromptContext.chunks`), so the now-guardrail-aware `ContextBuilderService` still isn't reachable from this path — see `guardrail_integration_prd.md`'s "Retrieval Integration" note
 
 ↓
 

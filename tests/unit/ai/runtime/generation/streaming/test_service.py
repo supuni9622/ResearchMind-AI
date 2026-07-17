@@ -80,12 +80,14 @@ def _make_service(
     generation_service: MagicMock,
     provider: MagicMock,
     caching_service: AsyncMock | None,
+    artifact_writer: AsyncMock | None = None,
 ) -> StreamingService:
     return StreamingService(
         generation_service=generation_service,
         registry=GenerationRegistry(providers=[provider]),
         event_adapter=get_event_adapter(),
         caching_service=caching_service,
+        artifact_writer=artifact_writer,
     )
 
 
@@ -208,6 +210,83 @@ async def test_streams_live_without_error_when_no_caching_service_is_wired() -> 
         generation_service=generation_service,
         provider=provider,
         caching_service=None,
+    )
+
+    events = await _collect(
+        service.stream_generate(request=_make_request(), provider=GenerationProvider.GROQ)
+    )
+
+    assert len(events) == 1
+    assert events[0].content == "hi"
+
+
+async def test_stream_artifact_is_persisted_on_successful_completion() -> None:
+    provider = _make_registered_provider()
+
+    chunks = [StreamChunk(event=StreamEventType.TOKEN, content="hi")]
+
+    generation_service = MagicMock()
+    generation_service.resolve_streaming_provider = MagicMock(return_value=GenerationProvider.GROQ)
+    generation_service.stream_generate = MagicMock(return_value=_fake_stream(chunks))
+
+    artifact_writer = AsyncMock()
+
+    service = _make_service(
+        generation_service=generation_service,
+        provider=provider,
+        caching_service=None,
+        artifact_writer=artifact_writer,
+    )
+
+    await _collect(
+        service.stream_generate(request=_make_request(), provider=GenerationProvider.GROQ)
+    )
+
+    artifact_writer.write.assert_awaited_once()
+    written = artifact_writer.write.await_args.args[0]
+    assert written.events[0].content == "hi"
+
+
+async def test_stream_artifact_is_not_persisted_when_no_writer_wired() -> None:
+    provider = _make_registered_provider()
+
+    chunks = [StreamChunk(event=StreamEventType.TOKEN, content="hi")]
+
+    generation_service = MagicMock()
+    generation_service.resolve_streaming_provider = MagicMock(return_value=GenerationProvider.GROQ)
+    generation_service.stream_generate = MagicMock(return_value=_fake_stream(chunks))
+
+    service = _make_service(
+        generation_service=generation_service,
+        provider=provider,
+        caching_service=None,
+        artifact_writer=None,
+    )
+
+    events = await _collect(
+        service.stream_generate(request=_make_request(), provider=GenerationProvider.GROQ)
+    )
+
+    assert len(events) == 1
+
+
+async def test_stream_artifact_write_failure_does_not_break_the_stream() -> None:
+    provider = _make_registered_provider()
+
+    chunks = [StreamChunk(event=StreamEventType.TOKEN, content="hi")]
+
+    generation_service = MagicMock()
+    generation_service.resolve_streaming_provider = MagicMock(return_value=GenerationProvider.GROQ)
+    generation_service.stream_generate = MagicMock(return_value=_fake_stream(chunks))
+
+    artifact_writer = AsyncMock()
+    artifact_writer.write = AsyncMock(side_effect=RuntimeError("storage unavailable"))
+
+    service = _make_service(
+        generation_service=generation_service,
+        provider=provider,
+        caching_service=None,
+        artifact_writer=artifact_writer,
     )
 
     events = await _collect(

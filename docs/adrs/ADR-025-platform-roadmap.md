@@ -200,11 +200,14 @@ Status:
 🚧 In Progress — structured output, output validation, regeneration, and
 prompt-template integration are now substantially complete (see
 `docs/architecture/structured-output-platform.md`, ~99% complete in its
-own scope). Routing is now complete (see
-`docs/architecture/model-routing-platform.md`, ADR-026). Caching and
-artifacts remain unbuilt. Generation-level guardrails are covered
-separately by the new standalone Guardrails Platform (below), which is
-complete as an MVP foundation but not yet wired into this service.
+own scope). Routing (see `docs/architecture/model-routing-platform.md`,
+ADR-026), Caching (see `docs/architecture/runtime-caching-platform.md`,
+ADR-027), Streaming (see `docs/architecture/streaming-platform.md`,
+ADR-028), and Artifacts (see `artifacts_platform_prd.md`) are now all
+complete. Generation-level guardrails are covered separately by the new
+standalone Guardrails Platform (below), which is complete as an MVP
+foundation and now wired directly into this service (per
+`guardrail_integration_prd.md`).
 
 Purpose:
 
@@ -232,7 +235,9 @@ Responsibilities:
   `guardrails_platform_prd.md`) now exists outside this phase's own
   scope, spanning input/retrieval/generation/runtime stages (distinct
   from the Context Platform's retrieval-time-only guardrails above);
-  complete as an MVP foundation, not yet wired into `GenerationService`
+  complete as an MVP foundation and wired directly into
+  `GenerationService` (input gate + full report on
+  `GenerationResult.guardrails`) per `guardrail_integration_prd.md`
 - ✅ Structured outputs — native provider structured decoding for all
   five providers (OpenAI `text.format`, Gemini `response_json_schema`,
   Claude `output_config.format`, Groq `response_format.json_schema`,
@@ -251,11 +256,21 @@ Responsibilities:
   `generation/catalog/`); `GenerationService.generate()` routes
   automatically (with fallback retry) when no `provider` is given —
   see `routing_platform_prd.md`, ADR-026
-- ✅ Streaming — per-provider `stream()` implementations
-- ❌ Caching — `generation/caching/` scaffolding exists, not wired
+- ✅ Streaming — per-provider `stream()` implementations, plus a full
+  Streaming Platform (canonical event protocol, SSE/WebSocket
+  transports) wired into `POST /api/v1/chat/stream` / `/api/v1/chat/ws`
+  — see `docs/architecture/streaming-platform.md`, ADR-028
+- ✅ Caching — Runtime Caching Platform (`generation/caching/`): L1
+  exact/L2 semantic/L3 session, policy resolution, wired into
+  `GenerationService` — see `docs/architecture/runtime-caching-platform.md`,
+  ADR-027
 - 🟡 Observability — structured logging throughout; `cost_tracker` /
   `latency_tracker` / `token_counter` pre-exist, not newly verified
-- ❌ Artifacts — not addressed this phase
+- ✅ Artifacts — a new centralized Artifact Platform (`app/ai/artifacts/`,
+  distinct from this directory's own now-deleted empty `artifacts/`
+  scaffold) persists a canonical `GenerationArtifact` on every
+  `generate()` call, policy-gated and immutable — see
+  `artifacts_platform_prd.md`
 
 Providers:
 
@@ -283,12 +298,12 @@ Generation (native structured output → parser fallback → regeneration)
 Validation (input + output + hallucination stages, registry, scoring, ValidationReport)
 ↓
 
-Artifacts (not built)
+Artifacts (GenerationArtifact persisted, policy-gated, immutable)
 ```
 
 Current maturity:
 
-~75%
+~85%
 
 ---
 

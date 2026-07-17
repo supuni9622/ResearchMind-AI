@@ -8,6 +8,9 @@ from enum import StrEnum
 from typing import Any
 from uuid import UUID, uuid4
 
+from app.ai.artifacts.enums import (
+    ArtifactRuntime,
+)
 from app.ai.guardrails.models import (
     GuardrailReport,
 )
@@ -157,6 +160,18 @@ class GenerationRequest(BaseModel):
     rather than an output-correctness contract. Left unset, no
     runtime-specific contract applies and `ValidationReport.runtime_validation`
     stays `None`.
+    """
+
+    artifact_runtime: ArtifactRuntime | None = None
+    """
+    Which runtime is issuing this request, for Artifact Platform policy
+    resolution (see `app/ai/artifacts/policies/`). Distinct from both
+    `cache_runtime` and `runtime` -- this codebase's established
+    convention is that each platform owns its own runtime concept rather
+    than sharing one, since the policy dimensions don't line up 1:1.
+    Left unset, `GenerationService._persist_generation_artifact()` falls
+    back to `ArtifactRuntime.CHAT` (100% of live `generate()` traffic
+    today).
     """
 
     @model_validator(mode="after")

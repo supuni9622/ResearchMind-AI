@@ -1,8 +1,8 @@
 # ResearchMind AI — Project Status
 
-**Last Updated:** 2026-07-16
+**Last Updated:** 2026-07-17
 
-**Current Maturity:** NotebookLM++ + Perplexity Foundation — Hybrid Retrieval, Reranking, Parent Expansion, Compression, Context Guardrails, and Prompt Formatter strategies are all in place, putting the platform ahead of NotebookLM and closing in on a Perplexity v1 experience. A standalone, platform-wide Guardrails Platform (input/retrieval/generation/runtime stages, Source Trust, policies, scoring, artifacts) now sits alongside the Validation Platform as a completed foundation layer. Maturity ladder: `NotebookLM++ → Perplexity v1 (almost here) → Open Deep Research → Manus / Glean`.
+**Current Maturity:** NotebookLM++ + Perplexity Foundation — Hybrid Retrieval, Reranking, Parent Expansion, Compression, Context Guardrails, and Prompt Formatter strategies are all in place, putting the platform ahead of NotebookLM and closing in on a Perplexity v1 experience. A standalone, platform-wide Guardrails Platform (input/retrieval/generation/runtime stages, Source Trust, policies, scoring, artifacts) now sits alongside the Validation Platform as a completed foundation layer. The Generation Platform's Routing Platform (model/provider selection, scored catalog, strategy-weighted fallback chains) is now complete, bringing Generation to ~75%. Maturity ladder: `NotebookLM++ → Perplexity v1 (almost here) → Open Deep Research → Manus / Glean`.
 
 ---
 
@@ -730,14 +730,16 @@ Remaining before Milestone 2.8 closes:
 
 # Milestone 2.9 — Generation Platform
 
-**Status:** 🟡 ~65% Complete
+**Status:** 🟡 ~75% Complete
 
-The Generation Platform owns all LLM interactions, consuming the Context Platform's `Prompt Context` output. Provider abstraction (all five providers), Structured Output Integration, a multi-stage Validation Platform integration (input/output/hallucination validators, a `ValidationRegistry`, weighted scoring, and a `ValidationReport`), a regenerate-on-invalid-output loop, and a Prompt Platform bridge are all implemented this milestone. Detail: `docs/architecture/structured-output-platform.md` (the continuously-updated architecture doc for this subsystem).
+The Generation Platform owns all LLM interactions, consuming the Context Platform's `Prompt Context` output. Provider abstraction (all five providers), Structured Output Integration, a multi-stage Validation Platform integration (input/output/hallucination validators, a `ValidationRegistry`, weighted scoring, and a `ValidationReport`), a regenerate-on-invalid-output loop, a Prompt Platform bridge, and a Routing Platform (model/provider selection with fallback chains) are all implemented this milestone. Detail: `docs/architecture/structured-output-platform.md` (Structured Output/Validation) and `docs/architecture/model-routing-platform.md` + ADR-026 (Routing).
 
 Pipeline
 
 ```
 GenerationRequest (+ optional PromptService template rendering)
+        ↓
+GenerationService — resolves a provider explicitly, or via RoutingService from routing_strategy (falls back across the decision's fallback_models on failure)
         ↓
 GenerationService — routes to generate_structured() when a schema/JSON/STRUCTURED response is requested
         ↓
@@ -820,13 +822,33 @@ Implemented
 
 ## 2.9.6 Provider Capability Flags
 
-**Status:** 🟡 Guard implemented; no selection engine
+**Status:** ✅ Complete
 
 - `ProviderCapabilities` and `supports_*` accessors pre-date this milestone
-- New: `GenerationService._check_capability_support()` — a best-effort guard that logs `generation.capability_mismatch` when the caller's explicitly-chosen provider doesn't declare support for what the request needs; never blocks the call
-- Not built: `generation/routing/` (capability-based provider selection, cost/latency/quality strategies) remains entirely empty stubs — every caller still names an explicit provider
+- `GenerationService._check_capability_support()` — a best-effort guard that logs `generation.capability_mismatch` when the caller's explicitly-chosen provider doesn't declare support for what the request needs; never blocks the call
+- Capability-based provider *selection* (as opposed to this after-the-fact guard) is now implemented — see Milestone 2.9.8 below
 
-## 2.9.7 Prompt Platform Integration
+## 2.9.7 Routing Platform
+
+**Status:** ✅ Complete (per `routing_platform_prd.md`, ADR-026)
+
+The Routing Platform is the decision layer between callers (agents, planners, runtime services) and the Generation Platform's providers: it decides which model and provider to use, why, and what the fallback chain is. It does not execute prompts or perform generation itself — see `docs/architecture/model-routing-platform.md`.
+
+Implemented (`generation/catalog/` + `generation/routing/`)
+
+- **Model Catalog** — `ModelMetadata` extended with per-task 0-1 scores (planning, reasoning, coding, review, summarization, classification, extraction, speed, reliability, quality), `average_latency_ms`, and policy flags (`priority`, `enabled`, `experimental`, `local`) for all 12 known models; `ModelCatalogRegistry` (`all()`/`enabled()`/`by_provider()`/`get()`/`local_models()`) with a cached factory
+- **Routing Strategies** — a 15-value task-based `RoutingStrategy` enum (`AUTO`, `FAST`, `CHEAP`, `QUALITY`, `REASONING`, `CODING`, `LONG_CONTEXT`, `STRUCTURED_OUTPUT`, `SUMMARIZATION`, `CLASSIFICATION`, `EXTRACTION`, `VALIDATION`, `PLANNING`, `REVIEW`, `LOCAL`); six of these (planning, summarization, review, validation, coding, research/reasoning) carry dedicated weight profiles plus their own capability/context requirements in `routing/strategies/`, the rest use generic weight profiles
+- **Scoring Engine** — `ScoringService` blends weighted per-task scores into a single ranking; cost and context-window are normalized relative to the candidate set (cheapest/largest scores 1.0), boolean capabilities score 0/1; produces a 0-10 score plus explainable `reasons` (top contributing dimensions, e.g. "highest planning score", "supports long context")
+- **Routing Service** — capability filter → policy filter (disabled models always excluded; experimental/local models excluded unless requested or the `LOCAL` strategy explicitly opts in) → strategy resolution → scoring → primary selection → fallback chain (prefers a distinct provider per fallback slot before repeating one, so a single provider outage can't take out the whole chain); every decision is logged via structlog (`routing.decision` — strategy, selected model, fallbacks, score, reasons, latency)
+- **Generation Integration** — `GenerationRequest` gained `routing_strategy`/`required_capabilities`; `GenerationService.generate()`'s `provider` argument is now optional — when omitted, it routes via the strategy (defaulting to `AUTO`), tries the selected model, and automatically retries through the decision's fallback chain on execution failure, stamping a compact routing summary (`strategy`, `selected_provider`/`model`, `score`, `reasons`, `used_fallback`) onto `GenerationResult.metadata["routing"]`
+- 44 new unit tests (catalog registry, scoring engine, routing service filtering/fallback, generation-service routing integration); full repo suite (746 tests), `ruff format --check`, `ruff check`, and `mypy` all pass clean
+
+Not built (explicitly out of scope per the PRD's Non-Goals — routing only decides, it doesn't execute)
+
+- ❌ Adaptive/evaluation-driven routing, A/B experimentation, budget-aware routing, multi-model ensembles (PRD Phases 2-5, future work)
+- ❌ Per-request model switching *within* a single provider — a provider instance is still configured with one model at composition time (`create.py`); routing selects the provider, not a specific model override mid-request
+
+## 2.9.8 Prompt Platform Integration
 
 **Status:** ✅ Complete
 
@@ -837,11 +859,11 @@ Implemented
 ## Not Yet Built
 
 - ❌ `POST /research` API, streaming chat API
-- ❌ Capability-based routing/selection engine
 - ❌ Caching (`generation/caching/` scaffolding exists, not wired)
 - ❌ Artifact persistence
 - ❌ Runtime Validators / Contracts layer, Completeness/Consistency/Formatting/Response-Size output checks (see Milestone 2.9.4)
-- 🟡 Test suite — `validation/` (17 test files, ~100 cases), `providers/`, `prompts/`, and core `service.py` all have unit test coverage now; still nothing under `routing/`, `caching/`, or `artifacts/`
+- ❌ Adaptive/evaluation-driven routing, budget-aware routing, A/B experimentation (Routing Platform Phase 2+ — see Milestone 2.9.7)
+- 🟡 Test suite — `validation/`, `providers/`, `prompts/`, `routing/`, `catalog/`, and core `service.py` all have unit test coverage now; still nothing under `caching/` or `artifacts/`
 
 Generation-level guardrails, previously listed here as a gap, are now implemented — see Milestone 11.16 below.
 
@@ -1007,6 +1029,10 @@ Context Platform (parent expansion, adjacent merge, compression, guardrails, cit
 
 ↓
 
+Routing Platform (task-based strategy → scored model catalog → provider + fallback chain)
+
+↓
+
 Generation Platform (native structured output → parser fallback → input/output/hallucination validation → regeneration)
 ```
 
@@ -1029,13 +1055,15 @@ Standalone (not yet wired into the pipeline above): the Guardrails Platform (`ap
 | Phase 2.6 — Indexing Platform (Hybrid Retrieval) | ✅ Complete |
 | Phase 2.7 — Retrieval Platform | ✅ Complete (incl. Metadata Filtering + Reranking + Parallel Retrieval) |
 | Phase 2.8 — Context Platform | 🟡 ~90% Complete (Parent Expansion, Adjacent Merge, Compression V1/V2, Guardrails V1, Citations, Prompt Formatter done; LangChain + LLM compression remain) |
-| Phase 2.9 — Generation Platform | 🟡 ~65% Complete (Structured Output Integration, Validation Platform integration incl. input/output/hallucination validators + scoring, Regeneration, Prompt Platform bridge done; runtime validators/contracts, routing engine, caching, artifacts, /research API remain) |
+| Phase 2.9 — Generation Platform | 🟡 ~75% Complete (Structured Output Integration, Validation Platform integration incl. input/output/hallucination validators + scoring, Regeneration, Prompt Platform bridge, Routing Platform done; runtime validators/contracts, caching, artifacts, /research API remain) |
 | Milestone 11.16 — Guardrails Platform | ✅ Complete (MVP Foundation — input/retrieval/generation/runtime guardrails, Source Trust, policies, scoring, artifacts; standalone, not yet wired into the generation pipeline) |
 | Benchmark Platform | ✅ Foundation Complete (incl. Retrieval, Metadata Filtering, Reranking Benchmarks) |
 
 ---
 
 # Recently Completed
+
+✅ Routing Platform (Generation Platform Milestone 2.9.7, per `routing_platform_prd.md`/ADR-026) — a new decision layer between callers and the Generation Platform's providers: a scored `ModelCatalogRegistry` (12 models, per-task 0-1 scores, cost/context/policy metadata), a `RoutingService` (capability filter → policy filter → strategy-weighted scoring → distinct-provider-preferred fallback chain), 15 task-based `RoutingStrategy` values (6 with dedicated profiles — planning, summarization, review, validation, coding, research), structlog-logged `RoutingDecision`s, and a `GenerationService.generate()` integration that routes automatically (with fallback retry) when no explicit `provider` is given. 44 new unit tests; full repo suite (746 tests), ruff, and mypy pass clean
 
 ✅ Guardrails Platform (Milestone 11.16) — new standalone platform (`app/ai/guardrails/`) spanning input/retrieval/generation/runtime stages: prompt injection/jailbreak detection, scope validation, PII detection, a new Source Trust Platform (`trust/`), citation integrity, faithfulness enforcement + schema enforcement (both reusing the Validation Platform's validators), PII leakage detection, and a runtime budget guardrail + loop detection. `GuardrailService` (crash-safe aggregation, weighted risk scoring, fail/risk/regeneration/runtime policies), `GuardrailArtifactWriter`, and 113 new unit tests. Composes rather than duplicates the pre-existing `ContextGuardrailService` (Milestone 2.8.4). Deleted two dead, zero-reference guardrails scaffolds discovered during the work. Standalone — not yet wired into `GenerationService`, matching how the Validation Platform itself shipped
 
@@ -1109,7 +1137,7 @@ Standalone (not yet wired into the pipeline above): the Guardrails Platform (`ap
 
 # Current Focus
 
-## Phase 2.8 — Context Platform (wrapping up) + Phase 2.9 — Generation Platform (~65% complete, in progress)
+## Phase 2.8 — Context Platform (wrapping up) + Phase 2.9 — Generation Platform (~75% complete, in progress)
 
 Parent Expansion, Adjacent Merge, Token Budget + Embedding Compression, Guardrails V1, Citations, and Prompt Formatter are all implemented (see Milestone 2.8 above), bringing the Context Platform to ~90% complete. Remaining scope to close it out:
 
@@ -1119,7 +1147,7 @@ Parent Expansion, Adjacent Merge, Token Budget + Embedding Compression, Guardrai
 - Retrieval result cache
 - Scaling the retrieval benchmark dataset (5 → 20-50 documents, 20 → 100 queries, chunk-level relevance) — see `README.md` TODO
 
-The **Generation Platform** (Milestone 2.9) is now ~65% complete (see Milestone 2.9 above): provider abstraction, Structured Output Integration (native decoding + parser fallback + Markdown/XML registry + LangChain `with_structured_output()`), Validation Platform integration (input/output/hallucination validators, registry, weighted scoring, `ValidationReport`), Regeneration Strategy, a provider-capability guard, and Prompt Platform integration are all done. Remaining before it's complete: `/research` API, streaming chat API, a capability-based routing/selection engine, caching, artifact persistence, per-runtime Validation Contracts/Runtime Validators, and the remaining PRD output checks (completeness/consistency/formatting/response-size). Then Evaluation Platform expansion (Milestone 6) and a LangGraph-based Research Runtime (Milestone 7) follow.
+The **Generation Platform** (Milestone 2.9) is now ~75% complete (see Milestone 2.9 above): provider abstraction, Structured Output Integration (native decoding + parser fallback + Markdown/XML registry + LangChain `with_structured_output()`), Validation Platform integration (input/output/hallucination validators, registry, weighted scoring, `ValidationReport`), Regeneration Strategy, a provider-capability guard, Prompt Platform integration, and now a Routing Platform (scored model catalog, task-based strategies, capability/policy filtering, fallback chains — Milestone 2.9.7) are all done. Remaining before it's complete: `/research` API, streaming chat API, caching, artifact persistence, per-runtime Validation Contracts/Runtime Validators, and the remaining PRD output checks (completeness/consistency/formatting/response-size). Then Evaluation Platform expansion (Milestone 6) and a LangGraph-based Research Runtime (Milestone 7) follow.
 
 The **Guardrails Platform** (Milestone 11.16, see above) is now complete as a standalone MVP foundation — input/retrieval/generation/runtime guardrails, a new Source Trust Platform, policies, weighted risk scoring, and artifact persistence. It is not yet wired into `GenerationService`, the context builder, or a router (the PRD's own "Generation Integration" is explicitly a later phase); `get_guardrail_service()` is the integration seam once that wiring is prioritized.
 
@@ -1150,12 +1178,13 @@ Context Platform (~90%) 🟡
 
 ↓
 
-Generation Platform (~65%) 🟡
+Generation Platform (~75%) 🟡
   Provider Abstraction (5 providers) ✅
   Structured Output Integration (native + fallback + registry + LangChain) ✅
   Validation Platform Integration (input/output/hallucination validators, registry, scoring, ValidationReport) 🟡 — runtime validators/contracts, completeness/consistency/formatting/response-size ⏳
   Regeneration Strategy ✅
-  Provider Capability Guard ✅ — routing/selection engine ⏳
+  Provider Capability Guard ✅
+  Routing Platform (scored catalog, task-based strategies, fallback chains) ✅
   Prompt Platform Integration ✅
   /research API, streaming chat, caching, artifacts ❌
 

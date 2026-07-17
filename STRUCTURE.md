@@ -324,18 +324,18 @@ ResearchMind-AI/
 │   │       │   │   ├── prompts.py           # Prompt template registry
 │   │       │   │   ├── providers.py         # LLM provider registry
 │   │       │   │   └── rerankers.py         # Reranker registry
-│   │       │   ├── runtime/                 # ~65% Implemented — Generation Platform
-│   │       │   │   ├── routing/__init__.py        # (empty) — vestigial, superseded by generation/routing/ (also empty)
+│   │       │   ├── runtime/                 # ~75% Implemented — Generation Platform
+│   │       │   │   ├── routing/__init__.py        # (empty) — vestigial, superseded by generation/routing/
 │   │       │   │   ├── streaming/__init__.py      # (empty) — vestigial, superseded by generation/streaming/ (also empty; per-provider stream() is the real thing)
 │   │       │   │   └── generation/                # Generation Platform — see docs/architecture/structured-output-platform.md
 │   │       │   │       ├── models.py               # GenerationRequest (output_schema/output_model/max_regeneration_attempts/...), GenerationResult (parsed_output/validation/regeneration_attempts), ProviderCapabilities
 │   │       │   │       ├── interfaces.py           # GenerationProviderInterface ABC — generate()/generate_structured()/stream(), supports_* capability accessors
-│   │       │   │       ├── enums.py                # GenerationProvider, ResponseFormat (incl. xml), RoutingStrategy (enum only, no engine)
+│   │       │   │       ├── enums.py                # GenerationProvider, ResponseFormat (incl. xml)
 │   │       │   │       ├── exceptions.py           # GenerationError hierarchy
 │   │       │   │       ├── config.py               # BaseGenerationConfig + per-provider configs
 │   │       │   │       ├── registry.py             # GenerationRegistry — provider → implementation resolution
-│   │       │   │       ├── service.py              # GenerationService — generate() (capability guard → native structured output → parser fallback → input/output/hallucination validation → regeneration loop), generate_from_template() (PromptService bridge + format instructions)
-│   │       │   │       ├── create.py               # create_generation_service() — composition root wiring providers + structured_output_registry + validation_service + prompt_service
+│   │       │   │       ├── service.py              # GenerationService — generate() (explicit provider, or routes via RoutingService from request.routing_strategy with automatic fallback across the decision's fallback_models) → capability guard → native structured output → parser fallback → input/output/hallucination validation → regeneration loop; generate_from_template() (PromptService bridge + format instructions)
+│   │       │   │       ├── create.py               # create_generation_service() — composition root wiring providers + structured_output_registry + validation_service + prompt_service + routing_service
 │   │       │   │       ├── providers/
 │   │       │   │       │   ├── base.py             # BaseGenerationProvider[ConfigT] — retry, parse_structured_output() (json.loads → StructuredOutputRepair fallback)
 │   │       │   │       │   ├── claude.py           # ClaudeProvider — native output_config.format (Structured Outputs API) + prompt-JSON fallback
@@ -378,8 +378,21 @@ ResearchMind-AI/
 │   │       │   │       │   ├── create.py           # get_prompt_service() — composition root
 │   │       │   │       │   ├── models.py           # PromptTemplate, PromptMetadata, PromptRenderRequest/Result
 │   │       │   │       │   └── langchain/prompt_factory.py  # PromptFactory.build() — ChatPromptTemplate + few-shot
-│   │       │   │       ├── catalog/models.py       # ModelMetadata catalog (capabilities + cost) per known model, ALL_MODELS/MODELS_BY_PROVIDER
-│   │       │   │       ├── routing/                # (all empty) — capability flags exist, no selection engine
+│   │       │   │       ├── catalog/                # Implemented — Model Catalog
+│   │       │   │       │   ├── models.py           # ModelMetadata (capabilities, cost, per-task 0-1 scores, priority/enabled/experimental/local), ALL_MODELS/MODELS_BY_PROVIDER
+│   │       │   │       │   └── registry.py         # ModelCatalogRegistry — all()/enabled()/by_provider()/get(); get_model_catalog_registry() cached factory
+│   │       │   │       ├── routing/                # Implemented — Routing Platform (Model Routing Platform; see docs/architecture/model-routing-platform.md, ADR-026)
+│   │       │   │       │   ├── enums.py            # RoutingStrategy (15 task-based values), RequiredCapability
+│   │       │   │       │   ├── models.py           # RoutingRequest, RoutingDecision, RoutingStrategyProfile
+│   │       │   │       │   ├── interfaces.py       # RoutingServiceInterface — sync route()
+│   │       │   │       │   ├── exceptions.py       # RoutingError, NoEligibleModelsError
+│   │       │   │       │   ├── service.py          # RoutingService — capability filter → policy filter (disabled/experimental/local) → strategy resolution → scoring → fallback chain (distinct-provider preferred) → RoutingDecision, logged via structlog
+│   │       │   │       │   ├── create.py           # create_routing_service() — composition root; build_strategy_profiles() merges task + default profiles
+│   │       │   │       │   ├── scoring/
+│   │       │   │       │   │   ├── weights.py      # ScoringWeights, DEFAULT_STRATEGY_WEIGHTS (9 generic strategies)
+│   │       │   │       │   │   ├── interfaces.py   # ScoringEngineInterface, ScoredModel
+│   │       │   │       │   │   └── service.py      # ScoringService — normalizes cost/context across candidates, blends weighted score (0-10 scale) + top-dimension reasons
+│   │       │   │       │   └── strategies/         # PLANNING/SUMMARIZATION/REVIEW/VALIDATION/CODING/RESEARCH profiles (weights + capability/context requirements)
 │   │       │   │       ├── caching/                # (all empty)
 │   │       │   │       ├── streaming/               # (all empty) — per-provider stream() is the real implementation
 │   │       │   │       ├── artifacts/               # (all empty)
@@ -997,14 +1010,15 @@ ResearchMind-AI/
 ├── docker-compose.yml           # Local dev stack (PostgreSQL, Valkey, Qdrant)
 ├── FILES.md                     # Complete file and folder map
 ├── LICENSE
-├── phase-3-ai-runtime-roadmap.md  # Frozen v2.0 — Retrieval, Context, Generation & Research Runtime roadmap (Phase 3.4–3.12), progress tracked inline — Generation Platform (3.8) ~65% complete
+├── phase-3-ai-runtime-roadmap.md  # Frozen v2.0 — Retrieval, Context, Generation & Research Runtime roadmap (Phase 3.4–3.12), progress tracked inline — Generation Platform (3.8) ~75% complete
 ├── prompt_guardrails.md         # Prompt-injection defense snippet for prompt templates
 ├── PROJECT_STATUS.md            # Current project status and progress
 ├── pyproject.toml               # Python project config, deps, and tool settings
 ├── README.md                    # Project overview and quickstart
 ├── RESEARCHMIND_PROJECT_CONTEXT_AND_HANDOFF.md  # Project context and engineering handoff (v1.0)
-├── ResearchMind-Roadmap-v2.md   # AI Engineering Roadmap v2 — 10-phase vision, frozen tech decisions — AI Runtime Platform (Phase 3) ~65% complete
+├── ResearchMind-Roadmap-v2.md   # AI Engineering Roadmap v2 — 10-phase vision, frozen tech decisions — AI Runtime Platform (Phase 3) ~75% complete
 ├── ROADMAP.md                   # Feature and milestone roadmap
+├── routing_platform_prd.md      # Routing Platform PRD — model/provider selection implemented under generation/routing/ + generation/catalog/
 ├── SECURITY.md                  # Security policy
 ├── setup_commands.md            # Makefile-style shortcut commands (docker compose up/down)
 ├── STRUCTURE.md                 # This file
@@ -1027,7 +1041,8 @@ ResearchMind-AI/
 | Retrieval Platform | `apps/api/app/ai/knowledge/retrieval/` | Queries the hybrid Qdrant index: dense search, sparse (SPLADE) search, hybrid search via Reciprocal Rank Fusion (`fusion/`), parallel dense+sparse execution (`asyncio.gather`), and metadata filtering (`owner_id`/`document_id`/`filename`/`language`); query validation/normalization, Voyage/FastEmbed query embedding (cached), `/retrieve`, `/retrieve/sparse`, `/retrieve/hybrid` (all three auth-protected, server-scoped to `owner_id`) — ADR-018, ADR-019, ADR-020, ADR-021. Parent/Child retrieval was reclassified into the Context Platform; query decomposition is deferred to the future Research Runtime |
 | Reranking Platform | `apps/api/app/ai/knowledge/reranking/` | Reorders a hybrid candidate pool using deeper (query, chunk) relevance scoring: `VoyageReranker` (Voyage AI `rerank-2`) and `CrossEncoderReranker` (local `BAAI/bge-reranker-base`), behind a shared provider abstraction/registry/service. Wired into `RetrievalService.search_hybrid(rerank=True)` by default — ADR-022 |
 | Context Platform | `apps/api/app/ai/knowledge/context/` | Turns a `RetrievalResult` into a `PromptContext`: dedup → Parent Expansion (`ChunkArtifactReader`) → Adjacent Merge → ordering → Compression (Token Budget + Embedding Redundancy implemented; LangChain + LLM stubs raise `NotImplementedError`) → Guardrails V1 (`RuleBasedGuardrailProvider`, regex-based prompt-injection detection) → Citation Platform → strategy-based Prompt Formatter (`DEFAULT`/`NOTEBOOKLM`/`PERPLEXITY`/`RESEARCH`/`AGENT`). ~90% complete; not yet wired into a dependency provider or API route |
-| Generation Platform | `apps/api/app/ai/runtime/generation/` | Owns all LLM interactions over 5 providers (Groq, OpenAI, Claude, Gemini, Ollama): native structured-output decoding, a parser/repair fallback, input/output/hallucination Validation Platform integration (registry, weighted scoring, `ValidationReport`), a regenerate-on-invalid-output loop, and a Prompt Platform bridge (`generate_from_template()`). ~65% complete — see `docs/architecture/structured-output-platform.md`; not yet wired into an API route |
+| Generation Platform | `apps/api/app/ai/runtime/generation/` | Owns all LLM interactions over 5 providers (Groq, OpenAI, Claude, Gemini, Ollama): native structured-output decoding, a parser/repair fallback, input/output/hallucination Validation Platform integration (registry, weighted scoring, `ValidationReport`), a regenerate-on-invalid-output loop, a Prompt Platform bridge (`generate_from_template()`), and a Routing Platform bridge — `generate()` resolves a model via `routing_strategy` and falls back across the decision's `fallback_models` when no `provider` is given explicitly. ~70% complete — see `docs/architecture/structured-output-platform.md`; not yet wired into an API route |
+| Routing Platform | `apps/api/app/ai/runtime/generation/routing/`, `catalog/` | Model/provider selection layer between callers and the Generation Platform: a scored `ModelCatalogRegistry` (12 models, per-task 0-1 scores, cost/context/policy metadata), a `RoutingService` (capability + policy filtering → strategy-weighted scoring → distinct-provider-preferred fallback chain), 15 `RoutingStrategy` values (6 with dedicated task profiles), and structlog-logged `RoutingDecision`s. Implemented — see `docs/architecture/model-routing-platform.md`, ADR-026 |
 | Guardrails Platform | `apps/api/app/ai/guardrails/` | Standalone, platform-wide policy/safety layer answering "should the system do this?" (Milestone 11.16, `guardrails_platform_prd.md`) — Input (prompt injection/jailbreak, scope, PII), Retrieval (Context Sanitization composing the pre-existing `context/guardrails/`, a new Source Trust Platform, Citation Integrity), Generation (Faithfulness + Schema Enforcement, both reusing Validation Platform validators, PII Leakage), and Runtime (Budget, Loop Detection) guardrails, plus policies/scoring/artifacts. MVP foundation complete — not yet wired into `GenerationService` |
 | Upload pipeline | `apps/api/app/ai/knowledge/upload/` | File validation, duplicate detection, S3 upload, checksum hashing, enqueues async processing job |
 | Async worker | `apps/worker/` | Standalone process consuming the queue, running `DocumentProcessingService` per job, retry/dead-letter handling |

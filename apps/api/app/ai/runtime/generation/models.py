@@ -17,6 +17,10 @@ from app.ai.runtime.generation.enums import (
     PromptStrategy,
     ResponseFormat,
 )
+from app.ai.runtime.generation.routing.enums import (
+    RequiredCapability,
+    RoutingStrategy,
+)
 from app.ai.runtime.generation.validation.models import (
     ValidationReport,
 )
@@ -102,6 +106,21 @@ class GenerationRequest(BaseModel):
     request_id: UUID = Field(default_factory=uuid4)
 
     metadata: dict[str, Any] = Field(default_factory=dict)
+
+    routing_strategy: RoutingStrategy | None = None
+    """
+    When `GenerationService.generate()` is called without an explicit
+    `provider`, this picks which routing strategy resolves the model —
+    see `routing/`. Defaults to `RoutingStrategy.AUTO` if left unset.
+    Ignored when `provider` is given explicitly.
+    """
+
+    required_capabilities: list[RequiredCapability] = Field(default_factory=list)
+    """
+    Capabilities the routed model must support (e.g. tool calling).
+    Only consulted alongside `routing_strategy` — has no effect when
+    `provider` is given explicitly.
+    """
 
     @model_validator(mode="after")
     def _derive_output_schema_from_model(self) -> GenerationRequest:

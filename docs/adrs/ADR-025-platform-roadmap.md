@@ -200,10 +200,11 @@ Status:
 🚧 In Progress — structured output, output validation, regeneration, and
 prompt-template integration are now substantially complete (see
 `docs/architecture/structured-output-platform.md`, ~99% complete in its
-own scope). Routing, caching, and artifacts remain unbuilt. Generation-
-level guardrails are covered separately by the new standalone Guardrails
-Platform (below), which is complete as an MVP foundation but not yet
-wired into this service.
+own scope). Routing is now complete (see
+`docs/architecture/model-routing-platform.md`, ADR-026). Caching and
+artifacts remain unbuilt. Generation-level guardrails are covered
+separately by the new standalone Guardrails Platform (below), which is
+complete as an MVP foundation but not yet wired into this service.
 
 Purpose:
 
@@ -241,10 +242,15 @@ Responsibilities:
   4 of 5 providers — `langchain-groq` is incompatible with the pinned
   `groq` SDK version), and a regenerate-on-invalid-output loop with
   corrective feedback (`GenerationRequest.max_regeneration_attempts`)
-- 🟡 Routing — `ProviderCapabilities` flags and `supports_*` accessors
-  pre-date this phase; a capability-mismatch guard now makes silent
-  degradation observable, but there is still no capability-based
-  provider selection engine (`generation/routing/` is empty stubs)
+- ✅ Routing — `ProviderCapabilities` flags, `supports_*` accessors, and
+  a capability-mismatch guard pre-date this phase; a full Routing
+  Platform now sits on top: a scored `ModelCatalogRegistry`, a
+  15-value task-based `RoutingStrategy`, capability/policy filtering,
+  a weighted scoring engine with explainable reasons, and a
+  distinct-provider-preferred fallback chain (`generation/routing/`,
+  `generation/catalog/`); `GenerationService.generate()` routes
+  automatically (with fallback retry) when no `provider` is given —
+  see `routing_platform_prd.md`, ADR-026
 - ✅ Streaming — per-provider `stream()` implementations
 - ❌ Caching — `generation/caching/` scaffolding exists, not wired
 - 🟡 Observability — structured logging throughout; `cost_tracker` /
@@ -268,7 +274,7 @@ Prompt (PromptService, optional — generate_from_template)
 Input Validation (empty prompt, token budget, provider limits, context quality)
 ↓
 
-Routing (capability guard only — no provider-selection engine)
+Routing (task-based strategy → scored model catalog → provider + fallback chain)
 ↓
 
 Generation (native structured output → parser fallback → regeneration)
@@ -282,7 +288,7 @@ Artifacts (not built)
 
 Current maturity:
 
-~65%
+~75%
 
 ---
 

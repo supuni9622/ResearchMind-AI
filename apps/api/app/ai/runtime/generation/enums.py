@@ -39,17 +39,3 @@ class PromptStrategy(StrEnum):
     CHAIN_OF_THOUGHT = "chain_of_thought"
 
     REACT = "react"
-
-
-class RoutingStrategy(StrEnum):
-    MANUAL = "manual"
-
-    CHEAPEST = "cheapest"
-
-    FASTEST = "fastest"
-
-    QUALITY = "quality"
-
-    PRIVACY = "privacy"
-
-    AUTO = "auto"

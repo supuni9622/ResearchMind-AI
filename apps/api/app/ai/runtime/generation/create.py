@@ -51,6 +51,9 @@ from app.ai.runtime.generation.providers.openai import (
 from app.ai.runtime.generation.registry import (
     GenerationRegistry,
 )
+from app.ai.runtime.generation.routing.create import (
+    create_routing_service,
+)
 from app.ai.runtime.generation.service import (
     GenerationService,
 )
@@ -226,4 +229,5 @@ def create_generation_service() -> GenerationService:
         structured_output_registry=get_structured_output_registry(),
         validation_service=get_validation_service(),
         prompt_service=get_prompt_service(),
+        routing_service=create_routing_service(),
     )

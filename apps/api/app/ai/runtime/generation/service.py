@@ -13,6 +13,7 @@ from app.ai.runtime.generation.enums import (
 from app.ai.runtime.generation.exceptions import (
     GenerationError,
     GenerationExecutionError,
+    GenerationProviderNotFoundError,
     GenerationValidationError,
 )
 from app.ai.runtime.generation.interfaces import (
@@ -31,6 +32,19 @@ from app.ai.runtime.generation.prompts.service import (
 )
 from app.ai.runtime.generation.registry import (
     GenerationRegistry,
+)
+from app.ai.runtime.generation.routing.enums import (
+    RoutingStrategy,
+)
+from app.ai.runtime.generation.routing.exceptions import (
+    NoEligibleModelsError,
+)
+from app.ai.runtime.generation.routing.models import (
+    RoutingDecision,
+    RoutingRequest,
+)
+from app.ai.runtime.generation.routing.service import (
+    RoutingService,
 )
 from app.ai.runtime.generation.structured_output.models import (
     OutputFormat,
@@ -79,6 +93,7 @@ class GenerationService:
         structured_output_registry: StructuredOutputRegistry | None = None,
         validation_service: ValidationService | None = None,
         prompt_service: PromptService | None = None,
+        routing_service: RoutingService | None = None,
     ):
         self._registry = registry
 
@@ -88,6 +103,8 @@ class GenerationService:
 
         self._prompt_service = prompt_service
 
+        self._routing_service = routing_service
+
     # ==========================================================
     # Public
     # ==========================================================
@@ -95,13 +112,128 @@ class GenerationService:
     async def generate(
         self,
         *,
-        provider: GenerationProvider,
         request: GenerationRequest,
+        provider: GenerationProvider | None = None,
     ) -> GenerationResult:
+        """
+        Generates against an explicit `provider`, or — when omitted —
+        resolves one via the Routing Platform from
+        `request.routing_strategy` (defaulting to `RoutingStrategy.AUTO`),
+        trying the selected model and then each fallback in order until
+        one succeeds. See `_generate_with_routing`.
+        """
 
         self._validate(
             request,
         )
+
+        if provider is not None:
+            return await self._generate_with_provider(
+                provider=provider,
+                request=request,
+            )
+
+        return await self._generate_with_routing(
+            request=request,
+        )
+
+    async def _generate_with_routing(
+        self,
+        *,
+        request: GenerationRequest,
+    ) -> GenerationResult:
+
+        if self._routing_service is None:
+            raise GenerationValidationError(
+                "generate() was called without a provider, which requires a "
+                "RoutingService wired into this GenerationService (see "
+                "generation/create.py) to resolve request.routing_strategy."
+            )
+
+        try:
+            decision = self._routing_service.route(
+                RoutingRequest(
+                    strategy=request.routing_strategy or RoutingStrategy.AUTO,
+                    required_capabilities=request.required_capabilities,
+                )
+            )
+        except NoEligibleModelsError as exc:
+            raise GenerationValidationError(
+                str(exc),
+            ) from exc
+
+        candidates = [decision.selected_model, *decision.fallback_models]
+
+        last_error: Exception | None = None
+
+        for attempt, candidate in enumerate(candidates):
+            if not self._registry.has(candidate.provider):
+                logger.warning(
+                    "generation.routing.candidate_not_registered",
+                    provider=candidate.provider.value,
+                    model=candidate.model_name,
+                )
+                continue
+
+            try:
+                result = await self._generate_with_provider(
+                    provider=candidate.provider,
+                    request=request,
+                )
+            except (GenerationExecutionError, GenerationProviderNotFoundError) as exc:
+                last_error = exc
+
+                logger.warning(
+                    "generation.routing.candidate_failed",
+                    provider=candidate.provider.value,
+                    model=candidate.model_name,
+                    error_type=type(exc).__name__,
+                    error=str(exc),
+                )
+                continue
+
+            if attempt > 0:
+                logger.info(
+                    "generation.routing.fallback_used",
+                    strategy=decision.strategy.value,
+                    selected_provider=decision.selected_model.provider.value,
+                    used_provider=candidate.provider.value,
+                    attempt=attempt + 1,
+                )
+
+            result.metadata["routing"] = self._routing_metadata(
+                decision=decision,
+                used_fallback=attempt > 0,
+            )
+
+            return result
+
+        raise GenerationExecutionError(
+            f"All routed candidate models failed for strategy '{decision.strategy.value}'."
+        ) from last_error
+
+    @staticmethod
+    def _routing_metadata(
+        *,
+        decision: RoutingDecision,
+        used_fallback: bool,
+    ) -> dict[str, Any]:
+
+        return {
+            "strategy": decision.strategy.value,
+            "selected_provider": decision.selected_model.provider.value,
+            "selected_model": decision.selected_model.model_name,
+            "score": decision.score,
+            "reasons": decision.reasons,
+            "used_fallback": used_fallback,
+        }
+
+    async def _generate_with_provider(
+        self,
+        *,
+        provider: GenerationProvider,
+        request: GenerationRequest,
+    ) -> GenerationResult:
 
         generation_provider = self._registry.get(
             provider,

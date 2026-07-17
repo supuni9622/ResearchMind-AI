@@ -16,10 +16,12 @@ Covers:
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
+from uuid import uuid4
 
 import pytest
 from app.ai.knowledge.context.models import PromptContext
+from app.ai.runtime.generation.catalog.models import ModelMetadata
 from app.ai.runtime.generation.enums import GenerationProvider
 from app.ai.runtime.generation.exceptions import (
     GenerationExecutionError,
@@ -35,6 +37,9 @@ from app.ai.runtime.generation.models import (
     ProviderCapabilities,
 )
 from app.ai.runtime.generation.registry import GenerationRegistry
+from app.ai.runtime.generation.routing.enums import RoutingStrategy
+from app.ai.runtime.generation.routing.exceptions import NoEligibleModelsError
+from app.ai.runtime.generation.routing.models import RoutingDecision
 from app.ai.runtime.generation.service import GenerationService
 from app.ai.runtime.generation.validation.models import (
     ValidationIssue,
@@ -316,3 +321,185 @@ async def test_generate_regenerates_on_output_stage_validation_failure() -> None
     # Exhausts every attempt (1 initial + 2 regenerations) since the
     # fake ValidationService always returns the same failing report.
     assert provider.generate.await_count == 3
+
+
+# ==========================================================
+# Routing integration (generate() called without a provider)
+# ==========================================================
+
+
+def _make_model(
+    model_name: str,
+    provider: GenerationProvider = GenerationProvider.GROQ,
+) -> ModelMetadata:
+    return ModelMetadata(
+        provider=provider,
+        model_name=model_name,
+        display_name=model_name,
+        context_window=100_000,
+        capabilities=ProviderCapabilities(),
+    )
+
+
+def _make_decision(
+    *,
+    selected: ModelMetadata,
+    fallbacks: list[ModelMetadata] | None = None,
+    strategy: RoutingStrategy = RoutingStrategy.AUTO,
+) -> RoutingDecision:
+    return RoutingDecision(
+        request_id=uuid4(),
+        strategy=strategy,
+        selected_model=selected,
+        fallback_models=fallbacks or [],
+        score=8.5,
+        reasons=["highest quality score"],
+    )
+
+
+def _make_routing_service(decision: RoutingDecision) -> MagicMock:
+    routing_service = MagicMock()
+    routing_service.route = MagicMock(return_value=decision)
+    return routing_service
+
+
+async def test_generate_without_provider_routes_to_the_selected_model() -> None:
+    request = _make_request()
+    result = _make_result(request)
+
+    provider = _make_provider(GenerationProvider.GROQ)
+    provider.generate = AsyncMock(return_value=result)
+
+    selected = _make_model("llama-3.3-70b-versatile", GenerationProvider.GROQ)
+    decision = _make_decision(selected=selected)
+
+    registry = GenerationRegistry(providers=[provider])
+    service = GenerationService(
+        registry=registry,
+        routing_service=_make_routing_service(decision),
+    )
+
+    returned = await service.generate(request=request)
+
+    assert returned is result
+    provider.generate.assert_awaited_once()
+    assert returned.metadata["routing"]["selected_provider"] == "groq"
+    assert returned.metadata["routing"]["used_fallback"] is False
+
+
+async def test_generate_without_provider_raises_when_no_routing_service_wired() -> None:
+    registry = GenerationRegistry(providers=[])
+    service = GenerationService(registry=registry)
+
+    with pytest.raises(GenerationValidationError, match="RoutingService"):
+        await service.generate(request=_make_request())
+
+
+async def test_generate_without_provider_defaults_routing_strategy_to_auto() -> None:
+    request = _make_request()
+    result = _make_result(request)
+
+    provider = _make_provider(GenerationProvider.GROQ)
+    provider.generate = AsyncMock(return_value=result)
+
+    selected = _make_model("llama-3.3-70b-versatile", GenerationProvider.GROQ)
+    routing_service = _make_routing_service(_make_decision(selected=selected))
+
+    registry = GenerationRegistry(providers=[provider])
+    service = GenerationService(registry=registry, routing_service=routing_service)
+
+    assert request.routing_strategy is None
+
+    await service.generate(request=request)
+
+    passed_request = routing_service.route.call_args.args[0]
+    assert passed_request.strategy == RoutingStrategy.AUTO
+
+
+async def test_generate_falls_back_to_the_next_candidate_on_execution_failure() -> None:
+    request = _make_request()
+    result = _make_result(request)
+
+    failing_provider = _make_provider(GenerationProvider.CLAUDE)
+    failing_provider.generate = AsyncMock(side_effect=GenerationExecutionError("down"))
+
+    healthy_provider = _make_provider(GenerationProvider.GROQ)
+    healthy_provider.generate = AsyncMock(return_value=result)
+
+    selected = _make_model("claude-sonnet-4", GenerationProvider.CLAUDE)
+    fallback = _make_model("llama-3.3-70b-versatile", GenerationProvider.GROQ)
+    decision = _make_decision(selected=selected, fallbacks=[fallback])
+
+    registry = GenerationRegistry(providers=[failing_provider, healthy_provider])
+    service = GenerationService(
+        registry=registry,
+        routing_service=_make_routing_service(decision),
+    )
+
+    returned = await service.generate(request=request)
+
+    assert returned is result
+    failing_provider.generate.assert_awaited_once()
+    healthy_provider.generate.assert_awaited_once()
+    assert returned.metadata["routing"]["used_fallback"] is True
+    assert returned.metadata["routing"]["selected_provider"] == "claude"
+
+
+async def test_generate_skips_candidates_whose_provider_is_not_registered() -> None:
+    request = _make_request()
+    result = _make_result(request)
+
+    registered_provider = _make_provider(GenerationProvider.GROQ)
+    registered_provider.generate = AsyncMock(return_value=result)
+
+    unregistered = _make_model("gpt-5", GenerationProvider.OPENAI)
+    registered = _make_model("llama-3.3-70b-versatile", GenerationProvider.GROQ)
+    decision = _make_decision(selected=unregistered, fallbacks=[registered])
+
+    registry = GenerationRegistry(providers=[registered_provider])
+    service = GenerationService(
+        registry=registry,
+        routing_service=_make_routing_service(decision),
+    )
+
+    returned = await service.generate(request=request)
+
+    assert returned is result
+    registered_provider.generate.assert_awaited_once()
+
+
+async def test_generate_raises_when_every_routed_candidate_fails() -> None:
+    request = _make_request()
+
+    first = _make_provider(GenerationProvider.CLAUDE)
+    first.generate = AsyncMock(side_effect=GenerationExecutionError("down"))
+
+    second = _make_provider(GenerationProvider.GROQ)
+    second.generate = AsyncMock(side_effect=GenerationExecutionError("also down"))
+
+    decision = _make_decision(
+        selected=_make_model("claude-sonnet-4", GenerationProvider.CLAUDE),
+        fallbacks=[_make_model("llama-3.3-70b-versatile", GenerationProvider.GROQ)],
+    )
+
+    registry = GenerationRegistry(providers=[first, second])
+    service = GenerationService(
+        registry=registry,
+        routing_service=_make_routing_service(decision),
+    )
+
+    with pytest.raises(GenerationExecutionError, match="All routed candidate models failed"):
+        await service.generate(request=request)
+
+
+async def test_generate_wraps_no_eligible_models_error_as_validation_error() -> None:
+    request = _make_request()
+
+    routing_service = MagicMock()
+    routing_service.route = MagicMock(side_effect=NoEligibleModelsError("nothing eligible"))
+
+    registry = GenerationRegistry(providers=[])
+    service = GenerationService(registry=registry, routing_service=routing_service)
+
+    with pytest.raises(GenerationValidationError, match="nothing eligible"):
+        await service.generate(request=request)

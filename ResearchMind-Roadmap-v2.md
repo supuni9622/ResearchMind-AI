@@ -4,7 +4,7 @@ Version: 2.0
 
 Status: Active
 
-**Current Maturity (2026-07-16):** NotebookLM++ + Perplexity Foundation. Hybrid Retrieval, Reranking, Parent Expansion, Compression, Context Guardrails, and strategy-based Prompt Formatting are all implemented — beyond a plain NotebookLM clone and closing in on Perplexity v1. The AI Runtime Platform (Phase 3) is now ~65% complete: Provider Structured Output Integration, a multi-stage Validation Platform integration (input/output/hallucination validators, registry, scoring, `ValidationReport`), regeneration, and Prompt Platform bridging are done (see Phase 3.1/3.2 below and `docs/architecture/structured-output-platform.md`). A standalone, platform-wide Guardrails Platform (`app/ai/guardrails/`, see "AI Guardrails" below) is now complete as an MVP foundation. Ladder: `NotebookLM++ → Perplexity v1 (almost here) → Open Deep Research → Manus / Glean`. See `PROJECT_STATUS.md` and `ROADMAP.md` for the authoritative, continuously-updated status; this document tracks the frozen technology decisions and long-range vision.
+**Current Maturity (2026-07-17):** NotebookLM++ + Perplexity Foundation. Hybrid Retrieval, Reranking, Parent Expansion, Compression, Context Guardrails, and strategy-based Prompt Formatting are all implemented — beyond a plain NotebookLM clone and closing in on Perplexity v1. The AI Runtime Platform (Phase 3) is now ~75% complete: Provider Structured Output Integration, a multi-stage Validation Platform integration (input/output/hallucination validators, registry, scoring, `ValidationReport`), regeneration, Prompt Platform bridging, and a Routing Platform (scored model catalog, task-based strategies, fallback chains) are done (see Phase 3.1/3.2 below and `docs/architecture/structured-output-platform.md` / `docs/architecture/model-routing-platform.md`). A standalone, platform-wide Guardrails Platform (`app/ai/guardrails/`, see "AI Guardrails" below) is now complete as an MVP foundation. Ladder: `NotebookLM++ → Perplexity v1 (almost here) → Open Deep Research → Manus / Glean`. See `PROJECT_STATUS.md` and `ROADMAP.md` for the authoritative, continuously-updated status; this document tracks the frozen technology decisions and long-range vision.
 
 ---
 
@@ -1201,16 +1201,18 @@ Status
 
 # Phase 3 — AI Runtime Platform
 
-**Status:** 🟡 ~65% Complete — Provider Structured Output Integration,
+**Status:** 🟡 ~75% Complete — Provider Structured Output Integration,
 Validation Platform integration (input/output/hallucination validators,
 a `ValidationRegistry`, weighted scoring, and a `ValidationReport`),
-regeneration, and Prompt Platform bridging are done. Per-runtime
-Validation Contracts/Runtime Validators, capability-based routing,
-caching, and artifacts remain. Tracked in day-to-day docs as the
-"Generation Platform" (see `ROADMAP.md` Phase 3.1,
+regeneration, Prompt Platform bridging, and a Routing Platform (scored
+model catalog, task-based strategies, capability/policy filtering,
+fallback chains) are done. Per-runtime Validation Contracts/Runtime
+Validators, caching, and artifacts remain. Tracked in day-to-day docs as
+the "Generation Platform" (see `ROADMAP.md` Phase 3.1,
 `phase-3-ai-runtime-roadmap.md` Phase 3.8,
-`docs/architecture/structured-output-platform.md` for the detailed,
-continuously-updated breakdown).
+`docs/architecture/structured-output-platform.md` for Structured
+Output/Validation, `docs/architecture/model-routing-platform.md` +
+ADR-026 for Routing).
 
 ## Goal
 
@@ -1224,8 +1226,8 @@ Knowledge retrieval remains inside the Knowledge Platform. Context assembly (com
 
 ## Phase 3.1 — LLM Provider Platform
 
-**Status:** ✅ Provider abstraction complete; 🟡 structured output,
-routing, caching sub-scopes at varying completion (see below)
+**Status:** ✅ Provider abstraction and routing complete; 🟡 structured
+output and caching sub-scopes at varying completion (see below)
 
 ### Goal
 
@@ -1262,15 +1264,22 @@ generation/
     validation/            # registry, scoring, input/output/hallucination validation
     langchain/              # with_structured_output() (4/5 providers)
     prompts/                 # template platform, bridged in
+    catalog/                 # scored ModelMetadata + ModelCatalogRegistry
+    routing/                 # RoutingService — strategies, scoring, fallback chains
 ```
 
 Features
 
 - ✅ Provider registry
-- ❌ Model registry (per-model catalog exists in `catalog/models.py`;
-  not exposed as a runtime registry endpoint)
-- 🟡 Model routing — `ProviderCapabilities` flags + a capability-mismatch
-  guard exist; no selection engine (`generation/routing/` is empty stubs)
+- 🟡 Model registry — a scored `ModelMetadata` catalog (`catalog/models.py`)
+  and `ModelCatalogRegistry` (`catalog/registry.py`) exist and back the
+  Routing Platform; not yet exposed as its own runtime HTTP endpoint
+- ✅ Model routing — a scored `ModelCatalogRegistry`, a 15-value
+  task-based `RoutingStrategy`, capability/policy filtering, a weighted
+  scoring engine with explainable reasons, and a distinct-provider-
+  preferred fallback chain (`generation/routing/`); `GenerationService.
+  generate()` routes automatically when no `provider` is given — see
+  `routing_platform_prd.md`, ADR-026
 - ✅ Streaming
 - ✅ Retries (request-level, exponential backoff)
 - ✅ Timeouts
@@ -2900,7 +2909,7 @@ Reranking (Voyage AI + CrossEncoder) ✅
 Context Platform (Parent Expansion, Adjacent Merge, Compression, Guardrails, Citations, Prompt Formatter) 🟡 ~90%
    │
    ▼
-Generation Platform (LLM providers, structured output, validation, regeneration, prompt bridge) 🟡 ~65% — /research API, routing, caching, runtime validators/contracts remain
+Generation Platform (LLM providers, structured output, validation, regeneration, prompt bridge, routing) 🟡 ~75% — /research API, caching, runtime validators/contracts remain
    │
    ▼
 Guardrails Platform (Input, Retrieval, Generation, Runtime guardrails, Source Trust, policies, scoring, artifacts) ✅ MVP Foundation Complete — standalone, not yet wired into Generation Platform

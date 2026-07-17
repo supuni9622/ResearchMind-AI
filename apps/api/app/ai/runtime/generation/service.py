@@ -1,10 +1,17 @@
 from __future__ import annotations
 
 from typing import Any
+from uuid import uuid4
 
 import structlog
 from app.ai.knowledge.context.models import (
     PromptContext,
+)
+from app.ai.runtime.generation.caching.models import (
+    CacheResult,
+)
+from app.ai.runtime.generation.caching.service import (
+    CachingService,
 )
 from app.ai.runtime.generation.enums import (
     GenerationProvider,
@@ -94,6 +101,7 @@ class GenerationService:
         validation_service: ValidationService | None = None,
         prompt_service: PromptService | None = None,
         routing_service: RoutingService | None = None,
+        caching_service: CachingService | None = None,
     ):
         self._registry = registry
 
@@ -104,6 +112,8 @@ class GenerationService:
         self._prompt_service = prompt_service
 
         self._routing_service = routing_service
+
+        self._caching_service = caching_service
 
     # ==========================================================
     # Public
@@ -239,6 +249,19 @@ class GenerationService:
             provider,
         )
 
+        if self._caching_service is not None:
+            cache_result = await self._caching_service.lookup(
+                request=request,
+                provider=provider,
+                model=generation_provider.config.model_name,
+                routing_strategy=request.routing_strategy,
+            )
+
+            if cache_result.hit:
+                return self._apply_cache_hit(
+                    cache_result,
+                )
+
         self._check_capability_support(
             provider=provider,
             generation_provider=generation_provider,
@@ -310,7 +333,53 @@ class GenerationService:
             regeneration_attempts=result.regeneration_attempts,
         )
 
+        if self._caching_service is not None:
+            result.metadata["cache"] = {
+                "hit": False,
+                "level": None,
+            }
+
+            await self._caching_service.store(
+                request=request,
+                provider=provider,
+                model=generation_provider.config.model_name,
+                routing_strategy=request.routing_strategy,
+                result=result,
+            )
+
         return result
+
+    @staticmethod
+    def _apply_cache_hit(
+        cache_result: CacheResult,
+    ) -> GenerationResult:
+        """
+        Returns a cached `GenerationResult` as if it were a fresh
+        response: a new `generation_id` (so repeated hits are
+        individually traceable) and `metadata["cache"]` populated per
+        the Runtime Caching Platform's artifact schema (ADR-027). The
+        original `execution`/`statistics` are carried over as-is — they
+        describe the generation that actually happened, not this reuse.
+        """
+
+        cached = cache_result.generation_result
+
+        assert cached is not None
+
+        return cached.model_copy(
+            update={
+                "generation_id": uuid4(),
+                "metadata": {
+                    **cached.metadata,
+                    "cache": {
+                        "hit": True,
+                        "level": (cache_result.level.value if cache_result.level else None),
+                        "tokens_saved": cached.statistics.total_tokens,
+                        "cost_saved": cached.statistics.estimated_cost_usd,
+                    },
+                },
+            },
+        )
 
     async def generate_from_template(
         self,

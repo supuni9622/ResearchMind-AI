@@ -11,6 +11,10 @@ from uuid import UUID, uuid4
 from app.ai.knowledge.context.models import (
     PromptContext,
 )
+from app.ai.runtime.generation.caching.enums import (
+    CachePolicy,
+    CacheRuntime,
+)
 from app.ai.runtime.generation.enums import (
     GenerationOperation,
     GenerationProvider,
@@ -120,6 +124,23 @@ class GenerationRequest(BaseModel):
     Capabilities the routed model must support (e.g. tool calling).
     Only consulted alongside `routing_strategy` — has no effect when
     `provider` is given explicitly.
+    """
+
+    cache_runtime: CacheRuntime | None = None
+    """
+    Which runtime is issuing this request, for Runtime Caching
+    Platform policy/TTL resolution (see `caching/policies/`). Distinct
+    from `routing_strategy`, which picks a model rather than a
+    caching profile. Left unset, requests fall back to the caching
+    platform's default profile (`CachePolicy.AUTO`).
+    """
+
+    cache_policy: CachePolicy | None = None
+    """
+    Explicit override of the resolved `CachePolicy` (e.g. force
+    `CachePolicy.NEVER` for a one-off non-deterministic call). Takes
+    precedence over whatever `cache_runtime` would otherwise resolve
+    to.
     """
 
     @model_validator(mode="after")

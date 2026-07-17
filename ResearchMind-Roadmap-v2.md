@@ -4,7 +4,7 @@ Version: 2.0
 
 Status: Active
 
-**Current Maturity (2026-07-17):** NotebookLM++ + Perplexity Foundation. Hybrid Retrieval, Reranking, Parent Expansion, Compression, Context Guardrails, and strategy-based Prompt Formatting are all implemented — beyond a plain NotebookLM clone and closing in on Perplexity v1. The AI Runtime Platform (Phase 3) is now ~75% complete: Provider Structured Output Integration, a multi-stage Validation Platform integration (input/output/hallucination validators, registry, scoring, `ValidationReport`), regeneration, Prompt Platform bridging, and a Routing Platform (scored model catalog, task-based strategies, fallback chains) are done (see Phase 3.1/3.2 below and `docs/architecture/structured-output-platform.md` / `docs/architecture/model-routing-platform.md`). A standalone, platform-wide Guardrails Platform (`app/ai/guardrails/`, see "AI Guardrails" below) is now complete as an MVP foundation. Ladder: `NotebookLM++ → Perplexity v1 (almost here) → Open Deep Research → Manus / Glean`. See `PROJECT_STATUS.md` and `ROADMAP.md` for the authoritative, continuously-updated status; this document tracks the frozen technology decisions and long-range vision.
+**Current Maturity (2026-07-17):** NotebookLM++ + Perplexity Foundation. Hybrid Retrieval, Reranking, Parent Expansion, Compression, Context Guardrails, and strategy-based Prompt Formatting are all implemented — beyond a plain NotebookLM clone and closing in on Perplexity v1. The AI Runtime Platform (Phase 3) is now ~80% complete: Provider Structured Output Integration, a multi-stage Validation Platform integration (input/output/hallucination validators, registry, scoring, `ValidationReport`), regeneration, Prompt Platform bridging, a Routing Platform (scored model catalog, task-based strategies, fallback chains), and a Runtime Caching Platform (L1 exact/L2 semantic/L3 session caching, policy resolution) are done (see Phase 3.1/3.5 below and `docs/architecture/structured-output-platform.md` / `docs/architecture/model-routing-platform.md` / `docs/architecture/runtime-caching-platform.md`). A standalone, platform-wide Guardrails Platform (`app/ai/guardrails/`, see "AI Guardrails" below) is now complete as an MVP foundation. Ladder: `NotebookLM++ → Perplexity v1 (almost here) → Open Deep Research → Manus / Glean`. See `PROJECT_STATUS.md` and `ROADMAP.md` for the authoritative, continuously-updated status; this document tracks the frozen technology decisions and long-range vision.
 
 ---
 
@@ -1201,18 +1201,21 @@ Status
 
 # Phase 3 — AI Runtime Platform
 
-**Status:** 🟡 ~75% Complete — Provider Structured Output Integration,
+**Status:** 🟡 ~80% Complete — Provider Structured Output Integration,
 Validation Platform integration (input/output/hallucination validators,
 a `ValidationRegistry`, weighted scoring, and a `ValidationReport`),
-regeneration, Prompt Platform bridging, and a Routing Platform (scored
+regeneration, Prompt Platform bridging, a Routing Platform (scored
 model catalog, task-based strategies, capability/policy filtering,
-fallback chains) are done. Per-runtime Validation Contracts/Runtime
-Validators, caching, and artifacts remain. Tracked in day-to-day docs as
+fallback chains), and a Runtime Caching Platform (L1 exact/L2
+semantic/L3 session caching, policy resolution — see Phase 3.5 below)
+are done. Per-runtime Validation Contracts/Runtime Validators and
+artifacts remain. Tracked in day-to-day docs as
 the "Generation Platform" (see `ROADMAP.md` Phase 3.1,
 `phase-3-ai-runtime-roadmap.md` Phase 3.8,
 `docs/architecture/structured-output-platform.md` for Structured
 Output/Validation, `docs/architecture/model-routing-platform.md` +
-ADR-026 for Routing).
+ADR-026 for Routing, `docs/architecture/runtime-caching-platform.md` +
+ADR-027 for Caching).
 
 ## Goal
 
@@ -1226,8 +1229,8 @@ Knowledge retrieval remains inside the Knowledge Platform. Context assembly (com
 
 ## Phase 3.1 — LLM Provider Platform
 
-**Status:** ✅ Provider abstraction and routing complete; 🟡 structured
-output and caching sub-scopes at varying completion (see below)
+**Status:** ✅ Provider abstraction, routing, and caching complete; 🟡 structured
+output sub-scope at varying completion (see below)
 
 ### Goal
 
@@ -1363,26 +1366,31 @@ Unified memory platform.
 
 ---
 
-## Phase 3.5 — Runtime Cache
+## Phase 3.5 — Runtime Caching Platform
 
-Introduce
+**Status:** ✅ Complete (per `runtime_caching_platform_prd.md`, ADR-027; see `docs/architecture/runtime-caching-platform.md` and `PROJECT_STATUS.md` Milestone 2.9.9 for full detail)
 
-- Conversation cache
-- Semantic cache
-- Response cache
+Implemented (`apps/api/app/ai/runtime/generation/caching/`), wired directly into `GenerationService`
+
+- L1 Exact Cache — Valkey-backed, content-hash keyed (provider/model/routing_strategy/prompt_hash/context_hash/schema_hash/temperature/top_p)
+- L2 Semantic Cache — LangChain `RedisSemanticCache` against a dedicated `redis-stack-server` instance (plain Valkey has no vector-search module); context-hash isolated so a hit can never cross a document boundary
+- L3 Session Cache — Valkey-backed, general-purpose session-scoped store; implemented and exposed but not yet called by anything (no conversation/research-session runtime exists yet — that's the "Conversation cache" scope originally envisioned here)
+- Policy resolution (`CachePolicy`: AUTO/NEVER/EXACT_ONLY/SEMANTIC/SESSION) per `CacheRuntime` (Chat/Research/Benchmark/Planner/Tool Agent/Summarizer/Reviewer/Critic)
+- Streaming bypass, in-memory hit/miss/tokens-saved/cost-saved statistics, `GenerationResult.metadata["cache"]` artifact stamping
 
 Purpose
 
-Reduce latency and LLM costs.
+Reduce latency and LLM costs — response caching (L1/L2) is done; the originally-envisioned conversation/response *memory* use case for L3 awaits a session-aware runtime caller.
 
 ---
 
 ### Exit Criteria
 
-- Runtime operational
-- Chat operational
-- Memory operational
-- Streaming operational
+- ✅ Exact Cache operational
+- ✅ Semantic Cache operational
+- ✅ Session Cache operational (backend done; not yet consumed by a caller)
+- ✅ Policy resolution operational
+- ❌ Streaming operational — streaming requests bypass the cache by design (PRD), not yet a caching concern themselves
 
 ---
 
@@ -2909,7 +2917,7 @@ Reranking (Voyage AI + CrossEncoder) ✅
 Context Platform (Parent Expansion, Adjacent Merge, Compression, Guardrails, Citations, Prompt Formatter) 🟡 ~90%
    │
    ▼
-Generation Platform (LLM providers, structured output, validation, regeneration, prompt bridge, routing) 🟡 ~75% — /research API, caching, runtime validators/contracts remain
+Generation Platform (LLM providers, structured output, validation, regeneration, prompt bridge, routing, caching) 🟡 ~80% — /research API, runtime validators/contracts, artifacts remain
    │
    ▼
 Guardrails Platform (Input, Retrieval, Generation, Runtime guardrails, Source Trust, policies, scoring, artifacts) ✅ MVP Foundation Complete — standalone, not yet wired into Generation Platform

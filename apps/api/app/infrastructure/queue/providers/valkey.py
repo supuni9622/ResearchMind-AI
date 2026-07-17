@@ -50,7 +50,7 @@ class ValkeyQueue(ProcessingQueue):
         try:
             payload = job.model_dump_json()
 
-            await self._client.lpush(
+            await self._client.lpush(  # type: ignore[misc]
                 self._queue_name,
                 payload,
             )
@@ -68,7 +68,7 @@ class ValkeyQueue(ProcessingQueue):
         """
 
         try:
-            result = await self._client.rpop(
+            result = await self._client.rpop(  # type: ignore[misc]
                 self._queue_name,
             )
 
@@ -116,7 +116,7 @@ class ValkeyQueue(ProcessingQueue):
             queue=self._dead_letter_queue_name,
         )
 
-        await self._client.lpush(
+        await self._client.lpush(  # type: ignore[misc]
             self._dead_letter_queue_name,
             payload,
         )
@@ -131,7 +131,7 @@ class ValkeyQueue(ProcessingQueue):
         """
 
         try:
-            await self._client.ping()
+            await self._client.ping()  # type: ignore[misc]
 
         except Exception as exc:
             raise QueueConnectionError("Unable to connect to Valkey.") from exc

@@ -12,6 +12,7 @@ from uuid import UUID, uuid4
 
 from app.ai.knowledge.context.citations.models import Citation
 from app.ai.knowledge.context.models import ContextChunk, PromptContext
+from app.ai.runtime.generation.caching.enums import CachePolicy, CacheRuntime
 from app.ai.runtime.generation.enums import GenerationProvider, ResponseFormat
 from app.ai.runtime.generation.models import (
     GenerationExecution,
@@ -75,6 +76,8 @@ def make_request(
     max_tokens: int | None = None,
     stream: bool = False,
     tools: list | None = None,
+    cache_runtime: CacheRuntime | None = None,
+    cache_policy: CachePolicy | None = None,
 ) -> GenerationRequest:
     return GenerationRequest(
         prompt_context=prompt_context or make_prompt_context(),
@@ -85,6 +88,8 @@ def make_request(
         max_tokens=max_tokens,
         stream=stream,
         tools=tools or [],
+        cache_runtime=cache_runtime,
+        cache_policy=cache_policy,
     )
 
 

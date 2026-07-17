@@ -2,7 +2,7 @@
 
 **Last Updated:** 2026-07-17
 
-**Current Maturity:** NotebookLM++ + Perplexity Foundation — Hybrid Retrieval, Reranking, Parent Expansion, Compression, Context Guardrails, and Prompt Formatter strategies are all in place, putting the platform ahead of NotebookLM and closing in on a Perplexity v1 experience. A standalone, platform-wide Guardrails Platform (input/retrieval/generation/runtime stages, Source Trust, policies, scoring, artifacts) now sits alongside the Validation Platform as a completed foundation layer. The Generation Platform's Routing Platform (model/provider selection, scored catalog, strategy-weighted fallback chains) is now complete, bringing Generation to ~75%. Maturity ladder: `NotebookLM++ → Perplexity v1 (almost here) → Open Deep Research → Manus / Glean`.
+**Current Maturity:** NotebookLM++ + Perplexity Foundation — Hybrid Retrieval, Reranking, Parent Expansion, Compression, Context Guardrails, and Prompt Formatter strategies are all in place, putting the platform ahead of NotebookLM and closing in on a Perplexity v1 experience. A standalone, platform-wide Guardrails Platform (input/retrieval/generation/runtime stages, Source Trust, policies, scoring, artifacts) now sits alongside the Validation Platform as a completed foundation layer. The Generation Platform's Routing Platform (model/provider selection, scored catalog, strategy-weighted fallback chains) and Runtime Caching Platform (L1 exact/L2 semantic/L3 session caching, policy resolution, wired into `GenerationService`) are now complete, bringing Generation to ~80%. Maturity ladder: `NotebookLM++ → Perplexity v1 (almost here) → Open Deep Research → Manus / Glean`.
 
 ---
 
@@ -730,9 +730,9 @@ Remaining before Milestone 2.8 closes:
 
 # Milestone 2.9 — Generation Platform
 
-**Status:** 🟡 ~75% Complete
+**Status:** 🟡 ~80% Complete
 
-The Generation Platform owns all LLM interactions, consuming the Context Platform's `Prompt Context` output. Provider abstraction (all five providers), Structured Output Integration, a multi-stage Validation Platform integration (input/output/hallucination validators, a `ValidationRegistry`, weighted scoring, and a `ValidationReport`), a regenerate-on-invalid-output loop, a Prompt Platform bridge, and a Routing Platform (model/provider selection with fallback chains) are all implemented this milestone. Detail: `docs/architecture/structured-output-platform.md` (Structured Output/Validation) and `docs/architecture/model-routing-platform.md` + ADR-026 (Routing).
+The Generation Platform owns all LLM interactions, consuming the Context Platform's `Prompt Context` output. Provider abstraction (all five providers), Structured Output Integration, a multi-stage Validation Platform integration (input/output/hallucination validators, a `ValidationRegistry`, weighted scoring, and a `ValidationReport`), a regenerate-on-invalid-output loop, a Prompt Platform bridge, a Routing Platform (model/provider selection with fallback chains), and a Runtime Caching Platform (L1/L2/L3 caching with policy resolution) are all implemented this milestone. Detail: `docs/architecture/structured-output-platform.md` (Structured Output/Validation), `docs/architecture/model-routing-platform.md` + ADR-026 (Routing), and `docs/architecture/runtime-caching-platform.md` + ADR-027 (Caching).
 
 Pipeline
 
@@ -856,14 +856,43 @@ Not built (explicitly out of scope per the PRD's Non-Goals — routing only deci
 - `GenerationService.generate_from_template()` — renders a named template via `PromptService`, flattens the resulting messages into `GenerationRequest.system_prompt`/`user_prompt`, and — when `output_model` is set — appends schema-aware format instructions (`PydanticOutputParser(pydantic_object=output_model).get_format_instructions()`) that reinforce (not replace) native provider structured output
 - Composition root (`generation/create.py`) now wires `structured_output_registry`, `validation_service`, and `prompt_service` together into `GenerationService`
 
+## 2.9.9 Runtime Caching Platform
+
+**Status:** ✅ Complete (per `runtime_caching_platform_prd.md`, ADR-027)
+
+The Runtime Caching Platform reduces provider costs, latency, and duplicate execution by caching `GenerationResult`s. It is a standalone platform (`generation/caching/`) wired directly into `GenerationService._generate_with_provider`: a cache lookup runs right after a candidate model is resolved (before the provider call), and a store runs after generation — including any regeneration attempts — completes.
+
+Implemented (`generation/caching/`)
+
+- **L1 Exact Cache** — Valkey-backed, keyed on `provider`/`model`/`routing_strategy`/`prompt_hash`/`context_hash`/`schema_hash`/`temperature`/`top_p` (`exact/key_builder.py`); `ValkeyExactCacheProvider` stores/retrieves full `GenerationResult` JSON, fails open on backend errors
+- **L2 Semantic Cache** — wraps LangChain's `langchain_redis.RedisSemanticCache` (per the ADR's "leverage LangChain" directive) against a **dedicated** `redis-stack-server` instance (see Infra below), embedding prompts via a thin `Embeddings` adapter over OpenAI; `context_hash` plus every other non-prompt `CacheKey` field is folded into the library's `llm_string` post-retrieval filter so a hit can never cross a provider/model/schema/document boundary (ADR-027's isolation constraint)
+- **L3 Session Cache** — Valkey-backed, general-purpose session-scoped store (`get_session`/`set_session`/`invalidate_session`/`clear_session`); implemented and exposed on `CachingService` but not yet called from anywhere — no conversation/research-session runtime exists yet to call it (PRD Phase 3 territory)
+- **Policy Resolution (FR-4)** — `CachePolicy` (`AUTO`/`NEVER`/`EXACT_ONLY`/`SEMANTIC`/`SESSION`) resolved per `CacheRuntime` (Chat/Research/Benchmark/Planner/Tool Agent/Summarizer/Reviewer/Critic) via `CachePolicyResolver`, with an explicit `GenerationRequest.cache_policy` override always winning; `GenerationRequest` gained `cache_runtime`/`cache_policy` fields, mirroring how `routing_strategy` already lives directly on the request
+- **Statistics (FR-5)** — in-memory `CacheStatistics` (exact/semantic/session hits, misses, hit ratio, tokens saved, cost saved) plus a structured `caching.lookup` log line per call (`cache_hit`, `cache_level`, `cache_latency_ms`, `tokens_saved`, `cost_saved`)
+- **Streaming bypass** — `request.stream` skips lookup and store entirely, per the PRD
+- **Artifact shape** — `GenerationResult.metadata["cache"]` populated with `{hit, level, tokens_saved, cost_saved}` on every call (hit or miss), mirroring the existing `metadata["routing"]` pattern; the Artifacts platform itself (`generation/artifacts/`) is still an empty scaffold, so there's no persistence layer yet to consume this
+- Null-object providers (`exact/null.py`, `semantic/null.py`, `session/null.py`) back each layer's `settings.*_cache_enabled` flag, so a disabled layer no-ops instead of every call site needing an `is not None` check
+- 22 new unit tests (`tests/unit/ai/runtime/generation/caching/`) — key builder determinism/sensitivity, policy resolution precedence, `CachingService` policy branching (AUTO/EXACT_ONLY/SEMANTIC/NEVER/streaming), statistics, session cache independence
+
+Infra decisions (flagged during implementation, not silent)
+
+- ADR-027 mandates LangChain's `RedisSemanticCache`, but the existing `valkey:8-alpine` docker-compose service has no RediSearch/vector-index module. Added a **second**, dedicated `redis/redis-stack-server:7.4.0-v6` service (`semantic-cache`, port 6380) rather than modifying the app's main `valkey` service, so L1/L3 traffic and data are unaffected
+- `langchain-redis`'s dependency (`redisvl`) caps `redis<8.0`, conflicting with the previously-pinned `redis>=8.0.1`. Downgraded to `redis>=5.0.1,<8.0` — verified safe, every existing redis call in the codebase (`get`/`set`/`mget`/`pipeline`/`lpush`/`rpop`/`ping`) is basic and has no 8.x-specific dependency. This did surface redis-py 7.x stub regressions in the pre-existing `ValkeyQueue` (`infrastructure/queue/providers/valkey.py`) — fixed with scoped `# type: ignore[misc]` comments (a stub-quality issue, not a runtime bug)
+- `CacheKey` uses the PRD/architecture-doc's 8-field key rather than ADR-027's slightly larger one (which adds `prompt_version`/`validation_version`/`guardrail_version` — concepts that don't exist anywhere else in the codebase yet)
+
+Documentation
+
+- ADR-027 — Runtime Caching Platform
+- `docs/architecture/runtime-caching-platform.md`
+
 ## Not Yet Built
 
 - ❌ `POST /research` API, streaming chat API
-- ❌ Caching (`generation/caching/` scaffolding exists, not wired)
 - ❌ Artifact persistence
 - ❌ Runtime Validators / Contracts layer, Completeness/Consistency/Formatting/Response-Size output checks (see Milestone 2.9.4)
 - ❌ Adaptive/evaluation-driven routing, budget-aware routing, A/B experimentation (Routing Platform Phase 2+ — see Milestone 2.9.7)
-- 🟡 Test suite — `validation/`, `providers/`, `prompts/`, `routing/`, `catalog/`, and core `service.py` all have unit test coverage now; still nothing under `caching/` or `artifacts/`
+- ❌ Session Cache wiring — implemented and available (Milestone 2.9.9) but nothing calls it yet
+- 🟡 Test suite — `validation/`, `providers/`, `prompts/`, `routing/`, `catalog/`, `caching/`, and core `service.py` all have unit test coverage now; still nothing under `artifacts/`
 
 Generation-level guardrails, previously listed here as a gap, are now implemented — see Milestone 11.16 below.
 
@@ -1055,13 +1084,15 @@ Standalone (not yet wired into the pipeline above): the Guardrails Platform (`ap
 | Phase 2.6 — Indexing Platform (Hybrid Retrieval) | ✅ Complete |
 | Phase 2.7 — Retrieval Platform | ✅ Complete (incl. Metadata Filtering + Reranking + Parallel Retrieval) |
 | Phase 2.8 — Context Platform | 🟡 ~90% Complete (Parent Expansion, Adjacent Merge, Compression V1/V2, Guardrails V1, Citations, Prompt Formatter done; LangChain + LLM compression remain) |
-| Phase 2.9 — Generation Platform | 🟡 ~75% Complete (Structured Output Integration, Validation Platform integration incl. input/output/hallucination validators + scoring, Regeneration, Prompt Platform bridge, Routing Platform done; runtime validators/contracts, caching, artifacts, /research API remain) |
+| Phase 2.9 — Generation Platform | 🟡 ~80% Complete (Structured Output Integration, Validation Platform integration incl. input/output/hallucination validators + scoring, Regeneration, Prompt Platform bridge, Routing Platform, Runtime Caching Platform done; runtime validators/contracts, artifacts, /research API remain) |
 | Milestone 11.16 — Guardrails Platform | ✅ Complete (MVP Foundation — input/retrieval/generation/runtime guardrails, Source Trust, policies, scoring, artifacts; standalone, not yet wired into the generation pipeline) |
 | Benchmark Platform | ✅ Foundation Complete (incl. Retrieval, Metadata Filtering, Reranking Benchmarks) |
 
 ---
 
 # Recently Completed
+
+✅ Runtime Caching Platform (Generation Platform Milestone 2.9.9, per `runtime_caching_platform_prd.md`/ADR-027) — L1 Exact Cache (Valkey-backed), L2 Semantic Cache (LangChain `RedisSemanticCache` against a dedicated `redis-stack-server` instance, context-isolated via a folded discriminator), L3 Session Cache (implemented, not yet wired to a caller), a `CachePolicyResolver` (AUTO/NEVER/EXACT_ONLY/SEMANTIC/SESSION per `CacheRuntime`), in-memory `CacheStatistics`, streaming bypass, and `GenerationResult.metadata["cache"]` artifact stamping. Wired directly into `GenerationService`. Required downgrading `redis` to `<8.0` to satisfy `langchain-redis`'s `redisvl` dependency (verified safe against actual usage) and fixing resulting stub regressions in the pre-existing `ValkeyQueue`. 22 new unit tests
 
 ✅ Routing Platform (Generation Platform Milestone 2.9.7, per `routing_platform_prd.md`/ADR-026) — a new decision layer between callers and the Generation Platform's providers: a scored `ModelCatalogRegistry` (12 models, per-task 0-1 scores, cost/context/policy metadata), a `RoutingService` (capability filter → policy filter → strategy-weighted scoring → distinct-provider-preferred fallback chain), 15 task-based `RoutingStrategy` values (6 with dedicated profiles — planning, summarization, review, validation, coding, research), structlog-logged `RoutingDecision`s, and a `GenerationService.generate()` integration that routes automatically (with fallback retry) when no explicit `provider` is given. 44 new unit tests; full repo suite (746 tests), ruff, and mypy pass clean
 
@@ -1137,7 +1168,7 @@ Standalone (not yet wired into the pipeline above): the Guardrails Platform (`ap
 
 # Current Focus
 
-## Phase 2.8 — Context Platform (wrapping up) + Phase 2.9 — Generation Platform (~75% complete, in progress)
+## Phase 2.8 — Context Platform (wrapping up) + Phase 2.9 — Generation Platform (~80% complete, in progress)
 
 Parent Expansion, Adjacent Merge, Token Budget + Embedding Compression, Guardrails V1, Citations, and Prompt Formatter are all implemented (see Milestone 2.8 above), bringing the Context Platform to ~90% complete. Remaining scope to close it out:
 
@@ -1147,7 +1178,7 @@ Parent Expansion, Adjacent Merge, Token Budget + Embedding Compression, Guardrai
 - Retrieval result cache
 - Scaling the retrieval benchmark dataset (5 → 20-50 documents, 20 → 100 queries, chunk-level relevance) — see `README.md` TODO
 
-The **Generation Platform** (Milestone 2.9) is now ~75% complete (see Milestone 2.9 above): provider abstraction, Structured Output Integration (native decoding + parser fallback + Markdown/XML registry + LangChain `with_structured_output()`), Validation Platform integration (input/output/hallucination validators, registry, weighted scoring, `ValidationReport`), Regeneration Strategy, a provider-capability guard, Prompt Platform integration, and now a Routing Platform (scored model catalog, task-based strategies, capability/policy filtering, fallback chains — Milestone 2.9.7) are all done. Remaining before it's complete: `/research` API, streaming chat API, caching, artifact persistence, per-runtime Validation Contracts/Runtime Validators, and the remaining PRD output checks (completeness/consistency/formatting/response-size). Then Evaluation Platform expansion (Milestone 6) and a LangGraph-based Research Runtime (Milestone 7) follow.
+The **Generation Platform** (Milestone 2.9) is now ~80% complete (see Milestone 2.9 above): provider abstraction, Structured Output Integration (native decoding + parser fallback + Markdown/XML registry + LangChain `with_structured_output()`), Validation Platform integration (input/output/hallucination validators, registry, weighted scoring, `ValidationReport`), Regeneration Strategy, a provider-capability guard, Prompt Platform integration, a Routing Platform (scored model catalog, task-based strategies, capability/policy filtering, fallback chains — Milestone 2.9.7), and now a Runtime Caching Platform (L1 exact/L2 semantic/L3 session caching, policy resolution — Milestone 2.9.9) are all done. Remaining before it's complete: `/research` API, streaming chat API, artifact persistence, per-runtime Validation Contracts/Runtime Validators, and the remaining PRD output checks (completeness/consistency/formatting/response-size). Then Evaluation Platform expansion (Milestone 6) and a LangGraph-based Research Runtime (Milestone 7) follow.
 
 The **Guardrails Platform** (Milestone 11.16, see above) is now complete as a standalone MVP foundation — input/retrieval/generation/runtime guardrails, a new Source Trust Platform, policies, weighted risk scoring, and artifact persistence. It is not yet wired into `GenerationService`, the context builder, or a router (the PRD's own "Generation Integration" is explicitly a later phase); `get_guardrail_service()` is the integration seam once that wiring is prioritized.
 
@@ -1178,7 +1209,7 @@ Context Platform (~90%) 🟡
 
 ↓
 
-Generation Platform (~75%) 🟡
+Generation Platform (~80%) 🟡
   Provider Abstraction (5 providers) ✅
   Structured Output Integration (native + fallback + registry + LangChain) ✅
   Validation Platform Integration (input/output/hallucination validators, registry, scoring, ValidationReport) 🟡 — runtime validators/contracts, completeness/consistency/formatting/response-size ⏳
@@ -1186,7 +1217,8 @@ Generation Platform (~75%) 🟡
   Provider Capability Guard ✅
   Routing Platform (scored catalog, task-based strategies, fallback chains) ✅
   Prompt Platform Integration ✅
-  /research API, streaming chat, caching, artifacts ❌
+  Runtime Caching Platform (L1 exact, L2 semantic, L3 session, policy resolution) ✅ — Session Cache not yet wired to a caller ⏳
+  /research API, streaming chat, artifacts ❌
 
 ↓
 

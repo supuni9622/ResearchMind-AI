@@ -19,7 +19,7 @@ Every file and folder in the ResearchMind-AI monorepo.
 | `AI_ENGINEERING_AUDIT.md` | Evidence-based audit of the AI subsystem (Knowledge + Generation Platforms) against current AI-engineering practice — enumerates gaps as additions, not corrections; several items from this audit (Provider Structured Output Integration, Output Validation, Regeneration Strategy, Provider Capability Flags, Prompt Platform Integration) have since been implemented — see `docs/architecture/structured-output-platform.md` |
 | `alembic.ini` | Alembic configuration (points to `alembic/env.py`) |
 | `CHANGELOG.md` | Version changelog |
-| `docker-compose.yml` | Local dev stack — PostgreSQL (5432), Valkey (6379), Qdrant (6333/6334) |
+| `docker-compose.yml` | Local dev stack — PostgreSQL (5432), Valkey (6379), Qdrant (6333/6334), `semantic-cache` — dedicated `redis-stack-server` (6380) backing the Runtime Caching Platform's L2 Semantic Cache (plain Valkey has no vector-search module) |
 | `FILES.md` | This file — complete file and folder map |
 | `LICENSE` | Project license |
 | `phase-3-ai-runtime-roadmap.md` | Frozen v2.0 Retrieval, Context, Generation & Research Runtime roadmap (Phase 3.4–3.12); architecture frozen, progress status tracked inline per phase — Phase 3.8 (Generation Platform) now ~75% complete |
@@ -28,9 +28,10 @@ Every file and folder in the ResearchMind-AI monorepo.
 | `pyproject.toml` | Python project config: dependencies, ruff, mypy, pytest settings |
 | `README.md` | Project overview, quickstart, auth guide, Alembic troubleshooting |
 | `RESEARCHMIND_PROJECT_CONTEXT_AND_HANDOFF.md` | Project context and engineering handoff document (v1.0) |
-| `ResearchMind-Roadmap-v2.md` | AI Engineering Roadmap v2 — vision, objectives, frozen technology decisions, and the full 10-phase platform roadmap (Phase 0 Engineering Foundation through Phase 9 Enterprise Platform); Phase 3 (AI Runtime Platform) now ~75% complete |
+| `ResearchMind-Roadmap-v2.md` | AI Engineering Roadmap v2 — vision, objectives, frozen technology decisions, and the full 10-phase platform roadmap (Phase 0 Engineering Foundation through Phase 9 Enterprise Platform); Phase 3 (AI Runtime Platform) now ~80% complete |
 | `ROADMAP.md` | Feature and milestone roadmap |
 | `routing_platform_prd.md` | Routing Platform PRD — model/provider selection implemented under `generation/routing/` + `generation/catalog/` (companion to ADR-026) |
+| `runtime_caching_platform_prd.md` | Runtime Caching Platform PRD — L1 exact/L2 semantic/L3 session caching implemented under `generation/caching/` (companion to ADR-027) |
 | `SECURITY.md` | (empty) |
 | `setup_commands.md` | Makefile-style shortcut commands (`docker compose up/down`) |
 | `STRUCTURE.md` | High-level folder/file structure with layer descriptions |
@@ -458,13 +459,13 @@ All files empty — planned model and provider registries.
 | File / Directory | Status |
 |-----------|--------|
 | `__init__.py` | (empty) |
-| `generation/` | **~75% Implemented** — Generation Platform; see below |
+| `generation/` | **~80% Implemented** — Generation Platform; see below |
 | `routing/__init__.py` | (empty) — vestigial top-level scaffold, superseded by `generation/routing/` |
 | `streaming/__init__.py` | (empty) — vestigial top-level scaffold, superseded by `generation/streaming/` (also empty; per-provider `stream()` methods are what's actually implemented) |
 
-##### `ai/runtime/generation/` — **~75% Implemented**
+##### `ai/runtime/generation/` — **~80% Implemented**
 
-Generation Platform. Owns all LLM interactions, consuming the Context Platform's `PromptContext` output. Provider-independent runtime over five LLM providers, with native structured-output decoding, a parser/repair fallback, input/output/hallucination validation, a regenerate-on-invalid-output loop, an optional bridge into the pre-existing Prompt Platform, and a Routing Platform that resolves a model/provider (with automatic fallback) from a task-based strategy when no provider is given explicitly. Not yet wired into an API route (no `POST /research` / chat endpoint calls `GenerationService` yet). Detail: `docs/architecture/structured-output-platform.md` (Structured Output/Validation, continuously updated) and `docs/architecture/model-routing-platform.md` + ADR-026 (Routing). Generation-level guardrails no longer live here — the empty `guardrails/` scaffold that previously sat in this directory was deleted; generation-stage guardrails are implemented at the new top-level `ai/guardrails/generation/` platform instead (see above).
+Generation Platform. Owns all LLM interactions, consuming the Context Platform's `PromptContext` output. Provider-independent runtime over five LLM providers, with native structured-output decoding, a parser/repair fallback, input/output/hallucination validation, a regenerate-on-invalid-output loop, an optional bridge into the pre-existing Prompt Platform, a Routing Platform that resolves a model/provider (with automatic fallback) from a task-based strategy when no provider is given explicitly, and a Runtime Caching Platform that short-circuits the provider call on a cache hit. Not yet wired into an API route (no `POST /research` / chat endpoint calls `GenerationService` yet). Detail: `docs/architecture/structured-output-platform.md` (Structured Output/Validation, continuously updated), `docs/architecture/model-routing-platform.md` + ADR-026 (Routing), and `docs/architecture/runtime-caching-platform.md` + ADR-027 (Caching). Generation-level guardrails no longer live here — the empty `guardrails/` scaffold that previously sat in this directory was deleted; generation-stage guardrails are implemented at the new top-level `ai/guardrails/generation/` platform instead (see above).
 
 | Directory | Status |
 |-----------|--------|
@@ -476,7 +477,7 @@ Generation Platform. Owns all LLM interactions, consuming the Context Platform's
 | `prompts/` | **Implemented** (pre-existing) — template loading, rendering, few-shot, versioning; now bridged into Generation |
 | `catalog/` | **Implemented** — scored per-model capability/cost/policy catalog + `ModelCatalogRegistry` |
 | `routing/` | **Implemented** — Routing Platform: capability/policy filtering, task-based strategy scoring, fallback chains |
-| `caching/` | ❌ Empty stubs |
+| `caching/` | **Implemented** — Runtime Caching Platform: L1 exact (Valkey), L2 semantic (LangChain `RedisSemanticCache` against a dedicated `redis-stack-server`), L3 session (Valkey, not yet called by anything), policy resolution |
 | `streaming/` | ❌ Empty stubs — per-provider `stream()` methods are the real implementation |
 | `artifacts/` | ❌ Empty stubs |
 | `observability/` | **Partial** — `token_counter.py` implemented; `cost_tracker.py`/`latency_tracker.py`/`metrics_collector.py`/`token_tracker.py`/`models.py`/`service.py` empty |
@@ -601,11 +602,37 @@ The decision layer between callers (agents, planners, runtime services) and the 
 | `scoring/service.py` | `ScoringService` — blends each weighted dimension (direct 0-1 catalog fields; `cost`/`context` min-max normalized across the candidate set, cheapest/largest scoring 1.0; `structured_output` scored 0/1); reasons surface the top-3 weighted contributing dimensions (e.g. "highest planning score") plus a bonus "supports long context" rule for the widest window above a 500k-token threshold |
 | `strategies/planning.py`, `summarization.py`, `review.py`, `validation.py`, `coding.py`, `research.py` | One `RoutingStrategyProfile` constant each (`PLANNING_PROFILE`, ... `RESEARCH_PROFILE`, the last mapping to `RoutingStrategy.REASONING`) — weights transcribed from the PRD's per-task tables, plus any dedicated `required_capabilities`/`min_context_window` (e.g. `VALIDATION_PROFILE` requires `STRUCTURED_OUTPUT`, `RESEARCH_PROFILE` requires a 100k-token minimum context window) |
 
+###### `ai/runtime/generation/caching/` — **Implemented** (Runtime Caching Platform — `runtime_caching_platform_prd.md`, ADR-027, `docs/architecture/runtime-caching-platform.md`)
+
+Caches `GenerationResult`s to cut provider cost, latency, and duplicate execution. Wired directly into `GenerationService._generate_with_provider`: a lookup runs once a candidate model is resolved (before the provider call), a store runs after generation (incl. any regeneration attempts) completes. L3 Session Cache is a deliberately separate API surface — keyed by a caller-tracked session id rather than request content — implemented and exposed but not yet called by anything (no conversation/research-session runtime exists yet).
+
+| File | Description |
+|------|-------------|
+| `models.py` | `CacheKey` (frozen, `redis_key()` — provider/model/routing_strategy/prompt_hash/context_hash/schema_hash/temperature/top_p), `CacheResult` (`hit`, `level`, `generation_result`, optional `similarity`, `lookup_latency_ms`), `CacheStatistics` (exact/semantic/session hits, misses, `total_lookups`/`hit_ratio` properties, `tokens_saved`, `cost_saved`) |
+| `enums.py` | `CacheLevel` (exact/semantic/session), `CachePolicy` (auto/never/exact_only/semantic/session), `CacheRuntime` (chat/research/benchmark/planner/tool_agent/summarizer/reviewer/critic) |
+| `interfaces.py` | `ExactCacheProviderInterface`/`SemanticCacheProviderInterface`/`SessionCacheProviderInterface` ABCs — all fail-open by contract (a backend error is a miss/no-op, never raised) |
+| `exceptions.py` | `CachingError`, `CacheBackendUnavailableError` |
+| `service.py` | `CachingService` — `lookup()`/`store()` (L1 Exact → L2 Semantic per resolved `CachePolicy`; streaming requests bypass entirely), `get_session()`/`set_session()`/`invalidate_session()`/`clear_session()` (L3), `statistics` property, structlog `caching.lookup` per call |
+| `create.py` | `create_caching_service()` — `@lru_cache`d composition root; `create_exact_cache_provider()`/`create_semantic_cache_provider()`/`create_session_cache_provider()` each return a `Null*` no-op when their `settings.*_cache_enabled` flag is off; wires a shared Valkey client (L1/L3) and a `RedisSemanticCache` against `settings.semantic_cache_redis_url` (L2) |
+| `exact/key_builder.py` | `hash_prompt()`/`hash_context()`/`hash_schema()` (sha256, unit-separator-joined to avoid system/user-split collisions), `build_exact_cache_key()` |
+| `exact/provider.py` | `ValkeyExactCacheProvider` — stores/retrieves full `GenerationResult` JSON under `CacheKey.redis_key()` |
+| `exact/null.py` | `NullExactCacheProvider` |
+| `semantic/embeddings_adapter.py` | `OpenAISemanticCacheEmbeddings` — thin `langchain_core.embeddings.Embeddings` adapter over the OpenAI client (only sync `embed_query`/`embed_documents` implemented; LangChain's default async delegation via executor is sufficient) |
+| `semantic/provider.py` | `RedisSemanticCacheProvider` — wraps `langchain_redis.RedisSemanticCache`; stores the full `GenerationResult` JSON as the `Generation.text` payload; folds `context_hash` + every other non-prompt `CacheKey` field into the library's `llm_string` post-retrieval filter (ADR-027's cross-document isolation constraint); `CacheResult.similarity` always `None` — the library's `BaseCache` interface doesn't surface the matched distance |
+| `semantic/null.py` | `NullSemanticCacheProvider` |
+| `session/provider.py` | `ValkeySessionCacheProvider` — namespaced `cache:session:{session_id}:{key}` store; `clear()` uses `scan_iter(match=...)` |
+| `session/null.py` | `NullSessionCacheProvider` |
+| `policies/models.py` | `RuntimeCacheProfile` (`runtime`, `policy`, `exact_ttl_seconds`) |
+| `policies/service.py` | `CachePolicyResolver` — explicit `GenerationRequest.cache_policy` override wins, else the `CacheRuntime` profile, else a default profile (mirrors `RoutingService._resolve_profile`'s fallback-to-AUTO shape) |
+
+Infra: L2 requires a RediSearch-capable server, which plain Valkey doesn't provide — see the dedicated `semantic-cache` (`redis-stack-server`) docker-compose service and the `redis` client downgrade (`<8.0`, to satisfy `langchain-redis`'s `redisvl` dependency) noted in `PROJECT_STATUS.md` Milestone 2.9.9.
+
+`tests/unit/ai/runtime/generation/caching/` — 22 tests: key builder determinism/sensitivity, policy resolution precedence/fallback, `CachingService` policy branching (AUTO/EXACT_ONLY/SEMANTIC/NEVER/streaming), statistics, session cache independence.
+
 ###### Not Yet Implemented (all files empty)
 
 | Directory | Purpose (planned) |
 |-----------|--------|
-| `caching/` | Exact/semantic/session response caching |
 | `streaming/` | A shared streaming abstraction — per-provider `stream()` methods already work independently |
 | `artifacts/` | Generation result persistence |
 | `observability/` (most files) | Cost/latency/token tracking, metrics collection — `token_counter.py` is the one implemented exception |

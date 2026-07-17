@@ -42,6 +42,27 @@ services:
     volumes:
       - qdrant_data:/qdrant/storage
 
+  semantic-cache:
+    image: redis/redis-stack-server:7.4.0-v6
+    container_name: researchmind-semantic-cache
+
+    #
+    # Dedicated vector-search-capable Redis instance for the Runtime
+    # Caching Platform's L2 Semantic Cache (langchain_redis.RedisSemanticCache
+    # requires a RediSearch-enabled server for vector similarity queries,
+    # which the plain `valkey` service above does not provide). Kept
+    # separate from `valkey` so this platform's data and availability
+    # don't interact with the rest of the app's Valkey usage.
+    #
+
+    restart: unless-stopped
+
+    ports:
+      - "6380:6379"
+
+    volumes:
+      - semantic_cache_data:/data
+
 volumes:
 
   postgres_data:
@@ -49,3 +70,5 @@ volumes:
   valkey_data:
 
   qdrant_data:
+
+  semantic_cache_data:

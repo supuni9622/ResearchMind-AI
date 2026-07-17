@@ -136,5 +136,30 @@ class Settings(BaseSettings):
 
     voyage_reranker_model: str = "rerank-2"
 
+    # ==========================================================================
+    # Runtime Caching Platform
+    # ==========================================================================
+
+    # L1 Exact Cache (Valkey)
+
+    exact_cache_enabled: bool = True
+    exact_cache_default_ttl_seconds: int = 60 * 60 * 2  # Chat: 2h
+    exact_cache_research_ttl_seconds: int = 60 * 60 * 24  # Research: 24h
+    exact_cache_benchmark_ttl_seconds: int | None = None  # Benchmark: infinite
+
+    # L2 Semantic Cache (dedicated RediSearch-capable instance, see
+    # docker-compose.yml `semantic-cache` service)
+
+    semantic_cache_enabled: bool = True
+    semantic_cache_redis_url: str = "redis://localhost:6380"
+    semantic_cache_similarity_threshold: float = 0.92
+    semantic_cache_ttl_seconds: int = 60 * 60 * 24
+    semantic_cache_embedding_model: str = "text-embedding-3-small"
+
+    # L3 Session Cache (Valkey)
+
+    session_cache_enabled: bool = True
+    session_cache_default_ttl_seconds: int = 60 * 60 * 6
+
 
 settings = Settings()  # pyright: ignore[reportCallIssue]

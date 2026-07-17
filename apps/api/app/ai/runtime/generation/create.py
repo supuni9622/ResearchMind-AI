@@ -13,6 +13,9 @@ without modifying the rest of the application.
 from __future__ import annotations
 
 import structlog
+from app.ai.runtime.generation.caching.create import (
+    create_caching_service,
+)
 from app.ai.runtime.generation.catalog.models import (
     CLAUDE_SONNET_4,
     GEMINI_2_5_FLASH,
@@ -230,4 +233,5 @@ def create_generation_service() -> GenerationService:
         validation_service=get_validation_service(),
         prompt_service=get_prompt_service(),
         routing_service=create_routing_service(),
+        caching_service=create_caching_service(),
     )

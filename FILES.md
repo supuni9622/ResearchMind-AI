@@ -138,7 +138,7 @@ Guardrails Platform (PRD Milestone 11.16, `guardrails_platform_prd.md`). Standal
 |-----------|--------|
 | `cache/` | **Implemented** — Valkey-backed embedding cache + query-embedding cache, see below |
 | `chunking/` | **Implemented** — see below |
-| `context/` | **~90% Implemented** — Context Platform: parent expansion, adjacent merge, compression, guardrails, citations, prompt formatter; see below |
+| `context/` | **~95% Implemented** — Context Platform: parent expansion, adjacent merge, compression, guardrails, citations, prompt formatter; see below |
 | `embeddings/` | **Implemented** — see below |
 | `indexing/` | **Implemented** — see below |
 | `processing/` | **Implemented** — see below |
@@ -191,9 +191,9 @@ Chunking pipeline. Transforms a canonical `ProcessedDocument` into retrieval-rea
 | `artifacts/writer.py` | `ChunkArtifactWriter` — persists a `ChunkArtifact` to storage under `documents/{owner_id}/{document_id}/chunking/{strategy}/{artifact_id}/chunks.json` |
 | `evaluators/` | (empty) — planned chunk quality evaluators |
 
-##### `ai/knowledge/context/` — **~90% Implemented**
+##### `ai/knowledge/context/` — **~95% Implemented**
 
-Context Platform. Sits between Retrieval/Reranking and Generation: takes a `RetrievalResult` and produces a `PromptContext` ready to send to an LLM. Parent/child expansion was deliberately reclassified here from the Retrieval Platform, since ResearchMind's persisted `ChunkArtifact`s — not the vector index — are the source of truth for parent resolution. `ContextBuilderService.build()` runs the full pipeline: dedupe → parent expansion → adjacent merge → ordering → embedding-redundancy compression → token-budget compression → guardrails → citations → prompt formatting. Not yet wired into a dependency provider or API route — `create_context_builder()` exists but nothing outside the package calls it yet. Test coverage: `builders/`, `artifacts/`, `citations/`, and `compression/` all have unit tests (see `tests/unit/ai/knowledge/context/`); `guardrails/` and `formatter/` do not yet.
+Context Platform. Sits between Retrieval/Reranking and Generation: takes a `RetrievalResult` and produces a `PromptContext` ready to send to an LLM. Parent/child expansion was deliberately reclassified here from the Retrieval Platform, since ResearchMind's persisted `ChunkArtifact`s — not the vector index — are the source of truth for parent resolution. `ContextBuilderService.build()` runs the full pipeline: dedupe → parent expansion → adjacent merge → ordering → embedding-redundancy compression → token-budget compression → guardrails → citations → prompt formatting (the now-implemented LangChain compression provider is registered but not yet part of this default pipeline — it's query-aware and `build()` doesn't currently thread a query through). Not yet wired into a dependency provider or API route — `create_context_builder()` exists but nothing outside the package calls it yet. Test coverage: `builders/`, `artifacts/`, `citations/`, and `compression/` all have unit tests (see `tests/unit/ai/knowledge/context/`); `guardrails/` and `formatter/` do not yet.
 
 | File | Description |
 |------|-------------|
@@ -216,13 +216,14 @@ Context Platform. Sits between Retrieval/Reranking and Generation: takes a `Retr
 | `citations/create.py` | `create_citation_service()` — composition root |
 | `compression/enums.py` | `CompressionStrategy` — `TOKEN_BUDGET`, `EMBEDDING_REDUNDANCY`, `LANGCHAIN_CONTEXTUAL`, `LLM` |
 | `compression/interfaces.py` | `CompressionProvider` ABC — `compress(request) -> CompressionResult` |
-| `compression/models.py` | `CompressionRequest` (`chunks`, `query`, `top_k`, `max_tokens`, `similarity_threshold`), `CompressionStatistics`, `CompressionResult` |
+| `compression/exceptions.py` | `CompressionError` hierarchy — `CompressionProviderError`, `CompressionTimeoutError` (new) |
+| `compression/models.py` | `CompressionRequest` (`chunks`, `query`, `top_k`, `max_tokens`, `similarity_threshold`), `CompressionStatistics` (chunk counts + `estimated_saved_tokens`, plus `original_tokens`/`compressed_tokens`/`duration_ms` — populated by `LangChainCompressionProvider`, left at 0 by providers that don't measure them), `CompressionResult` |
 | `compression/registry.py` | `CompressionRegistry` — strategy → provider resolution |
-| `compression/service.py` | `CompressionService` — resolves the strategy from the registry, delegates |
+| `compression/service.py` | `CompressionService` — resolves the strategy from the registry, delegates; a provider raising `CompressionError` mid-compression now falls back to returning the original, uncompressed chunks (logged as `context.compression.fallback`) rather than propagating — an unregistered strategy still raises `ValueError` as before, since that's a caller/wiring bug, not a runtime failure |
 | `compression/create.py` | `create_compression_service()` — registers all four providers (Token Budget, Embedding, LangChain, LLM) |
 | `compression/providers/token_budget.py` | `TokenBudgetCompressionProvider` (V1) — sorts by score descending, greedily packs chunks into a token budget (default 6000, `len(content)//4` heuristic), skipping any chunk that would overflow it |
 | `compression/providers/embedding.py` | `EmbeddingCompressionProvider` (V2) — encodes chunk text with the local `sentence-transformers/all-MiniLM-L6-v2` model (`get_local_embedding_model()`), computes a cosine-similarity matrix, and drops later chunks whose similarity to an earlier kept chunk is ≥ 0.95 (configurable) |
-| `compression/providers/langchain.py` | `LangChainCompressionProvider` (V3) — scaffolded, `compress()` `raise NotImplementedError` |
+| `compression/providers/langchain.py` | `LangChainCompressionProvider` (V3) — **Implemented**. Query-aware extraction via LangChain's `ContextualCompressionRetriever` + `LLMChainExtractor` (from the new `langchain-classic` dependency — these classes moved out of core `langchain` in the 1.x split); a `_StaticDocumentRetriever` adapts the already-retrieved chunk list into the retriever interface `ContextualCompressionRetriever` expects, since there's no real retrieval step left to perform. Chunks the LLM extracts nothing relevant from are dropped; every field but `content` (citations, scores, parent links, risk metadata) survives via `chunk.model_copy()` keyed by `chunk_id`. The LLM is DI'd via constructor, lazily defaulting to `ChatOpenAI(gpt-5-nano)` off `settings.openai_api_key` only when actually needed. Emits `context.compression.langchain.started/completed/failed` via structlog. `providers/llm.py` (V4) remains unimplemented by design — this scaffold's LLM is only used to power `LLMChainExtractor`, not as the future standalone LLM compression strategy |
 | `compression/providers/llm.py` | `LLMCompressionProvider` (V4) — scaffolded, `compress()` `raise NotImplementedError` |
 | `guardrails/enums.py` | `ChunkRiskLevel` (safe/suspicious/malicious), `GuardrailStrategy` (`RULE_BASED` implemented; `LLAMA_GUARD`/`NEMO`/`LAKERA` reserved for future providers) |
 | `guardrails/interfaces.py` | `GuardrailProvider` ABC — `validate(chunks) -> GuardrailResult` |
@@ -1437,12 +1438,14 @@ All empty — planned cross-cutting code.
 | `unit/ai/knowledge/context/citations/test_service.py` | `CitationService.build()` — citations are numbered starting at `S1`, the `citation_id` is written back onto the source chunk, citation fields are mapped from the chunk, `chunk_ids` uses the chunk's own id when it wasn't merged and `merged_chunk_ids` when it was, empty input returns an empty result |
 | `unit/ai/knowledge/context/compression/__init__.py` | Package marker |
 | `unit/ai/knowledge/context/compression/test_registry.py` | `CompressionRegistry` — `get` resolves a registered provider / raises for an unregistered strategy, `register` overwrites the previous provider for a strategy |
-| `unit/ai/knowledge/context/compression/test_service.py` | `CompressionService` — delegates to the resolved provider, raises when the strategy isn't registered |
+| `unit/ai/knowledge/context/compression/test_service.py` | `CompressionService` — delegates to the resolved provider, raises `ValueError` when the strategy isn't registered, falls back to the original chunks (unchanged) when the resolved provider raises `CompressionError` |
 | `unit/ai/knowledge/context/compression/test_create.py` | `create_compression_service()` — registers all four strategies (Token Budget, Embedding Redundancy, LangChain, LLM) |
+| `unit/ai/knowledge/context/compression/test_exceptions.py` | Compression exception hierarchy — `CompressionProviderError`/`CompressionTimeoutError` are both catchable as `CompressionError` (new) |
 | `unit/ai/knowledge/context/compression/providers/__init__.py` | Package marker |
 | `unit/ai/knowledge/context/compression/providers/test_token_budget.py` | `TokenBudgetCompressionProvider` — prefers highest score first, keeps every chunk that fits the budget, skips an oversized chunk while continuing to pack smaller ones, falls back to the default budget when `max_tokens` is `None`, reports accurate statistics, empty input returns an empty result |
 | `unit/ai/knowledge/context/compression/providers/test_embedding.py` | `EmbeddingCompressionProvider` — zero or one chunk never calls the model, a later near-duplicate chunk is dropped, dissimilar chunks are kept, a custom `similarity_threshold` is honored, statistics are accurate, every chunk's content text is encoded |
-| `unit/ai/knowledge/context/compression/providers/test_stub_providers.py` | `LangChainCompressionProvider` / `LLMCompressionProvider` — both confirmed to still `raise NotImplementedError` (V3/V4 not built yet) |
+| `unit/ai/knowledge/context/compression/providers/test_langchain.py` | `LangChainCompressionProvider` (new) — 0 chunks never builds an LLM, a missing/blank query raises `CompressionProviderError`, chunks the (`FakeListChatModel`-faked) LLM extracts nothing relevant from are dropped, every non-content field survives on kept chunks, statistics are accurate, a provider failure/timeout is wrapped in `CompressionProviderError`/`CompressionTimeoutError`, no injected LLM + no configured API key raises |
+| `unit/ai/knowledge/context/compression/providers/test_stub_providers.py` | `LLMCompressionProvider` — confirmed to still `raise NotImplementedError` (V4 not built yet; the former `LangChainCompressionProvider` case here was replaced by `test_langchain.py` now that V3 is implemented) |
 | `unit/ai/knowledge/embeddings/__init__.py` | Package marker |
 | `unit/ai/knowledge/embeddings/test_registry.py` | `EmbeddingRegistry` registration, lookup, duplicate rejection, unregister/clear, defensive `providers` copy |
 | `unit/ai/knowledge/embeddings/test_service.py` | `EmbeddingService` — delegates to the resolved provider; raises on unknown provider, empty chunk artifact, and blank-text chunks |

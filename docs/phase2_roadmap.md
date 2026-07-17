@@ -306,7 +306,7 @@ APIs: `POST /retrieve`, `POST /retrieve/sparse`, `POST /retrieve/hybrid`.
 
 Status: COMPLETE
 
-🟨 Phase 2.6 — Context Platform (~90% Complete)
+🟨 Phase 2.6 — Context Platform (~95% Complete)
 Parent Expansion ✅
 
 ↓
@@ -315,7 +315,7 @@ Adjacent Merge ✅
 
 ↓
 
-Compression (Token Budget + Embedding) ✅ — LangChain + LLM compression ❌
+Compression (Token Budget + Embedding + LangChain) ✅ — LLM compression ❌
 
 ↓
 
@@ -330,12 +330,14 @@ Citation Platform ✅
 Prompt Formatter ✅
 
 Implemented: `ChunkArtifactReader`, `ParentExpansionService`,
-`AdjacentMergeService`, Token Budget + Embedding Compression providers,
-`RuleBasedGuardrailProvider` with risk scoring, citation IDs/pages/
+`AdjacentMergeService`, Token Budget + Embedding + LangChain
+(`ContextualCompressionRetriever` + `LLMChainExtractor`) Compression
+providers, `RuleBasedGuardrailProvider` with risk scoring, citation IDs/pages/
 headings/chunk IDs, and strategy-based prompt formatting (`DEFAULT`,
 `NOTEBOOKLM`, `PERPLEXITY`, `RESEARCH`, `AGENT`).
 
-Not started: LangChain contextual compression (V3), LLM compression (V4).
+Not started: LLM compression (V4). The LangChain compression provider (V3)
+is implemented but not yet wired into the default pipeline.
 
 Status: IN PROGRESS
 

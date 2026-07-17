@@ -1046,11 +1046,11 @@ Retrieval benchmark suite.
 
 2.8 Knowledge Platform Integration 🚧 In Progress
 
-2.9 Context Platform 🟡 ~90% Complete
+2.9 Context Platform 🟡 ~95% Complete
 
     • ✅ Parent Expansion (`ChunkArtifactReader`, `ParentExpansionService`)
     • ✅ Adjacent Merge (`AdjacentMergeService`)
-    • 🟡 Compression — Token Budget (V1) ✅, Embedding Redundancy (V2) ✅, LangChain (V3) ❌, LLM Compression (V4) ❌
+    • 🟡 Compression — Token Budget (V1) ✅, Embedding Redundancy (V2) ✅, LangChain (V3) ✅ (`ContextualCompressionRetriever` + `LLMChainExtractor`, registered but not yet in `ContextBuilderService.build()`'s default pipeline), LLM Compression (V4) ❌
     • ✅ Context Guardrails V1 (`RuleBasedGuardrailProvider`, risk scoring, statistics)
     • ✅ Citation Platform (citation IDs, pages, headings, chunk IDs)
     • ✅ Prompt Formatter (`DEFAULT`, `NOTEBOOKLM`, `PERPLEXITY`, `RESEARCH`, `AGENT`)
@@ -1060,7 +1060,8 @@ Retrieval benchmark suite.
     persisted chunk artifacts — not the vector index — are the source of
     truth for parent resolution.
 
-    Remaining: LangChain compression provider (V3), LLM compression provider (V4).
+    Remaining: LLM compression provider (V4); wiring the LangChain compression
+    provider (V3) into the default pipeline.
 
 ---
 
@@ -2914,7 +2915,7 @@ Retrieval (dense + sparse + hybrid RRF, metadata-filtered, parallel) ✅
 Reranking (Voyage AI + CrossEncoder) ✅
    │
    ▼
-Context Platform (Parent Expansion, Adjacent Merge, Compression, Guardrails, Citations, Prompt Formatter) 🟡 ~90%
+Context Platform (Parent Expansion, Adjacent Merge, Compression, Guardrails, Citations, Prompt Formatter) 🟡 ~95%
    │
    ▼
 Generation Platform (LLM providers, structured output, validation, regeneration, prompt bridge, routing, caching) 🟡 ~80% — /research API, runtime validators/contracts, artifacts remain

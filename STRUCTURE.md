@@ -126,7 +126,7 @@ ResearchMind-AI/
 │   │       │   │   │   ├── models.py               # Chunk + sub-models (content, structure, statistics, provenance, experiment)
 │   │       │   │   │   ├── registry.py             # ChunkingRegistry — strategy → provider resolution
 │   │       │   │   │   └── service.py              # ChunkingService — validates document, delegates to provider
-│   │       │   │   ├── context/             # Context Platform — Retrieval/Reranking → Generation (~90% complete)
+│   │       │   │   ├── context/             # Context Platform — Retrieval/Reranking → Generation (~95% complete)
 │   │       │   │   │   ├── artifacts/
 │   │       │   │   │   │   ├── create.py           # create_chunk_artifact_reader() — composition root
 │   │       │   │   │   │   └── reader.py           # ChunkArtifactReader — loads a persisted ChunkArtifact from storage by owner/document/strategy/artifact id
@@ -141,18 +141,19 @@ ResearchMind-AI/
 │   │       │   │   │   │   ├── interfaces.py       # CitationServiceInterface ABC
 │   │       │   │   │   │   ├── models.py           # Citation, CitationResult
 │   │       │   │   │   │   └── service.py          # CitationService — numbers chunks S1/S2/..., builds one Citation per chunk
-│   │       │   │   │   ├── compression/            # Compression Platform (V1–V4)
+│   │       │   │   │   ├── compression/            # Compression Platform (V1–V3 implemented, V4 remains)
 │   │       │   │   │   │   ├── providers/
 │   │       │   │   │   │   │   ├── embedding.py        # EmbeddingCompressionProvider (V2) — drops near-duplicate chunks via cosine similarity ≥ 0.95
-│   │       │   │   │   │   │   ├── langchain.py        # LangChainCompressionProvider (V3) — raise NotImplementedError
+│   │       │   │   │   │   │   ├── langchain.py        # LangChainCompressionProvider (V3) — Implemented: ContextualCompressionRetriever + LLMChainExtractor (langchain-classic), query-aware extraction, metadata/citations preserved via chunk.model_copy()
 │   │       │   │   │   │   │   ├── llm.py              # LLMCompressionProvider (V4) — raise NotImplementedError
 │   │       │   │   │   │   │   └── token_budget.py     # TokenBudgetCompressionProvider (V1) — greedy score-sorted packing into a token budget
 │   │       │   │   │   │   ├── create.py           # create_compression_service() — registers all four strategies
 │   │       │   │   │   │   ├── enums.py            # CompressionStrategy (token_budget/embedding_redundancy/langchain_contextual/llm)
+│   │       │   │   │   │   ├── exceptions.py       # CompressionError hierarchy — CompressionProviderError, CompressionTimeoutError
 │   │       │   │   │   │   ├── interfaces.py       # CompressionProvider ABC
-│   │       │   │   │   │   ├── models.py           # CompressionRequest, CompressionStatistics, CompressionResult
+│   │       │   │   │   │   ├── models.py           # CompressionRequest, CompressionStatistics (+ original_tokens/compressed_tokens/duration_ms), CompressionResult
 │   │       │   │   │   │   ├── registry.py         # CompressionRegistry — strategy → provider resolution
-│   │       │   │   │   │   └── service.py          # CompressionService — resolves strategy, delegates
+│   │       │   │   │   │   └── service.py          # CompressionService — resolves strategy, delegates; falls back to original chunks if the provider raises CompressionError
 │   │       │   │   │   ├── formatter/               # Prompt Formatter — strategy-based knowledge representation
 │   │       │   │   │   │   ├── providers/
 │   │       │   │   │   │   │   ├── agent.py            # AgentFormatterProvider — FACTS/EVIDENCE machine-oriented output
@@ -938,11 +939,13 @@ ResearchMind-AI/
 │   │   │   ├── compression/
 │   │   │   │   ├── providers/
 │   │   │   │   │   ├── test_embedding.py        # EmbeddingCompressionProvider — near-duplicate dropping, threshold, statistics
-│   │   │   │   │   ├── test_stub_providers.py   # LangChain/LLM providers still raise NotImplementedError
+│   │   │   │   │   ├── test_langchain.py        # LangChainCompressionProvider — FakeListChatModel-faked extraction, metadata/citation preservation, statistics, timeout/failure wrapping, no-API-key error
+│   │   │   │   │   ├── test_stub_providers.py   # LLMCompressionProvider still raises NotImplementedError (V4)
 │   │   │   │   │   └── test_token_budget.py     # TokenBudgetCompressionProvider — packing, budget overflow, defaults
 │   │   │   │   ├── test_create.py           # create_compression_service() registers all four strategies
+│   │   │   │   ├── test_exceptions.py       # CompressionError hierarchy
 │   │   │   │   ├── test_registry.py         # CompressionRegistry — get/register/overwrite
-│   │   │   │   └── test_service.py          # CompressionService — delegates to resolved provider
+│   │   │   │   └── test_service.py          # CompressionService — delegates to resolved provider, falls back to original chunks on CompressionError
 │   │   │   ├── factories.py                 # make_context_chunk() — shared test factory (not a test module)
 │   │   │   └── test_service.py              # ContextBuilderService.build() — full pipeline ordering and output shape
 │   │   ├── ai/knowledge/embeddings/
@@ -1082,7 +1085,7 @@ ResearchMind-AI/
 | Vector Store Platform | `apps/api/app/ai/knowledge/vectorstores/` | Provider-independent vector database abstraction; Qdrant is the only implemented provider, using named dense+sparse vectors per point for native hybrid retrieval |
 | Retrieval Platform | `apps/api/app/ai/knowledge/retrieval/` | Queries the hybrid Qdrant index: dense search, sparse (SPLADE) search, hybrid search via Reciprocal Rank Fusion (`fusion/`), parallel dense+sparse execution (`asyncio.gather`), and metadata filtering (`owner_id`/`document_id`/`filename`/`language`); query validation/normalization, Voyage/FastEmbed query embedding (cached), `/retrieve`, `/retrieve/sparse`, `/retrieve/hybrid` (all three auth-protected, server-scoped to `owner_id`) — ADR-018, ADR-019, ADR-020, ADR-021. Parent/Child retrieval was reclassified into the Context Platform; query decomposition is deferred to the future Research Runtime |
 | Reranking Platform | `apps/api/app/ai/knowledge/reranking/` | Reorders a hybrid candidate pool using deeper (query, chunk) relevance scoring: `VoyageReranker` (Voyage AI `rerank-2`) and `CrossEncoderReranker` (local `BAAI/bge-reranker-base`), behind a shared provider abstraction/registry/service. Wired into `RetrievalService.search_hybrid(rerank=True)` by default — ADR-022 |
-| Context Platform | `apps/api/app/ai/knowledge/context/` | Turns a `RetrievalResult` into a `PromptContext`: dedup → Parent Expansion (`ChunkArtifactReader`) → Adjacent Merge → ordering → Compression (Token Budget + Embedding Redundancy implemented; LangChain + LLM stubs raise `NotImplementedError`) → Guardrails V1 (`RuleBasedGuardrailProvider`, regex-based prompt-injection detection) → Citation Platform → strategy-based Prompt Formatter (`DEFAULT`/`NOTEBOOKLM`/`PERPLEXITY`/`RESEARCH`/`AGENT`). ~90% complete; not yet wired into a dependency provider or API route |
+| Context Platform | `apps/api/app/ai/knowledge/context/` | Turns a `RetrievalResult` into a `PromptContext`: dedup → Parent Expansion (`ChunkArtifactReader`) → Adjacent Merge → ordering → Compression (Token Budget + Embedding Redundancy + LangChain `ContextualCompressionRetriever`/`LLMChainExtractor` implemented — the LangChain provider is registered but not yet part of `ContextBuilderService.build()`'s default pipeline, since it's query-aware and `build()` doesn't thread a query through yet; LLM stub (V4) still raises `NotImplementedError`) → Guardrails V1 (`RuleBasedGuardrailProvider`, regex-based prompt-injection detection) → Citation Platform → strategy-based Prompt Formatter (`DEFAULT`/`NOTEBOOKLM`/`PERPLEXITY`/`RESEARCH`/`AGENT`). ~95% complete; not yet wired into a dependency provider or API route |
 | Generation Platform | `apps/api/app/ai/runtime/generation/` | Owns all LLM interactions over 5 providers (Groq, OpenAI, Claude, Gemini, Ollama): native structured-output decoding, a parser/repair fallback, input/output/hallucination Validation Platform integration (registry, weighted scoring, `ValidationReport`), a regenerate-on-invalid-output loop, a Prompt Platform bridge (`generate_from_template()`), a Routing Platform bridge — `generate()`/`stream_generate()` resolve a model via `routing_strategy` when no `provider` is given explicitly — a Runtime Caching Platform bridge, and a Streaming Platform bridge. ~85% complete — see `docs/architecture/structured-output-platform.md`; now reachable over HTTP via `POST /api/v1/chat/stream` / `/api/v1/chat/ws` (`/research` still does not exist) |
 | Routing Platform | `apps/api/app/ai/runtime/generation/routing/`, `catalog/` | Model/provider selection layer between callers and the Generation Platform: a scored `ModelCatalogRegistry` (12 models, per-task 0-1 scores, cost/context/policy metadata), a `RoutingService` (capability + policy filtering → strategy-weighted scoring → distinct-provider-preferred fallback chain), 15 `RoutingStrategy` values (6 with dedicated task profiles), and structlog-logged `RoutingDecision`s. Implemented — see `docs/architecture/model-routing-platform.md`, ADR-026 |
 | Runtime Caching Platform | `apps/api/app/ai/runtime/generation/caching/` | Caches `GenerationResult`s to cut provider cost/latency/duplicate execution: L1 Exact Cache (Valkey, content-hash keyed), L2 Semantic Cache (LangChain `RedisSemanticCache` against a dedicated `redis-stack-server` instance, context-isolated), L3 Session Cache (Valkey, implemented but not yet called by anything), and a `CachePolicyResolver` (AUTO/NEVER/EXACT_ONLY/SEMANTIC/SESSION per `CacheRuntime`). Wired into `GenerationService`. Streaming requests are no longer bypassed (see Streaming Platform row) — Implemented — see `docs/architecture/runtime-caching-platform.md`, ADR-027 |

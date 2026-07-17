@@ -882,7 +882,7 @@ RerankingArtifact
 
 ## Milestone 2.8 — Context Platform
 
-**Status:** 🟡 ~90% Complete
+**Status:** 🟡 ~95% Complete
 
 The Context Platform sits between Reranking and Generation. It enriches, deduplicates, compresses, guards, cites, and formats retrieved knowledge before it reaches an LLM. Parent/child expansion was reclassified here from the Retrieval Platform once it became clear that ResearchMind's persisted chunk artifacts — not the vector index — are the source of truth for parent resolution.
 
@@ -892,7 +892,7 @@ The Context Platform sits between Reranking and Generation. It enriches, dedupli
 
 - ✅ Parent Expansion
 - ✅ Adjacent Merge
-- 🟡 Compression (Token Budget + Embedding done; LangChain + LLM compression remain)
+- 🟡 Compression (Token Budget + Embedding + LangChain done; LLM compression remains)
 - ✅ Context Guardrails (V1)
 - ✅ Citation Building
 - ✅ Prompt Formatting (strategy-based)
@@ -919,16 +919,16 @@ The Context Platform sits between Reranking and Generation. It enriches, dedupli
 
 ### 2.8.3 Compression Platform
 
-**Status:** 🟡 In Progress
+**Status:** 🟡 Nearly Complete (V1-V3 done, V4 remains)
 
 Implemented
 
 - ✅ Token Budget Provider (V1) — sort by score, fit into token budget
 - ✅ Embedding Compression Provider (V2) — drop chunks above a similarity threshold
+- ✅ LangChain Provider (V3) — query-aware extraction via `ContextualCompressionRetriever` + `LLMChainExtractor` (`langchain-classic`); registered but not yet part of `ContextBuilderService.build()`'s default pipeline
 
 Remaining
 
-- ❌ LangChain Provider (V3) — `ContextualCompressionRetriever`
 - ❌ LLM Compression Provider (V4) — chunk-level relevant-summary compression
 
 ---
@@ -970,7 +970,7 @@ Providers: `DEFAULT`, `NOTEBOOKLM`, `PERPLEXITY`, `RESEARCH`, `AGENT`.
 
 - ✅ Parent Expansion operational
 - ✅ Adjacent Merge operational
-- 🟡 Compression Platform (2 of 4 providers complete)
+- 🟡 Compression Platform (3 of 4 providers complete)
 - ✅ Guardrails V1 operational
 - ✅ Citation Platform operational
 - ✅ Prompt Formatter operational
@@ -1817,7 +1817,7 @@ The major AI Engineering platforms interact as follows.
 | Phase 2.5 — Vector Store Platform | ✅ Complete |
 | Phase 2.6 — Retrieval Platform | ✅ Complete (Foundation + Metadata Filtering + Reranking + Parallel Retrieval) |
 | Phase 2.7 — Reranking Platform | ✅ Complete (Foundation) |
-| Phase 2.8 — Context Platform | 🟡 ~90% Complete (Parent Expansion, Adjacent Merge, Compression V1/V2, Guardrails V1, Citations, Prompt Formatter done; LangChain + LLM compression remain) |
+| Phase 2.8 — Context Platform | 🟡 ~95% Complete (Parent Expansion, Adjacent Merge, Compression V1/V2/V3, Guardrails V1, Citations, Prompt Formatter done; LLM compression (V4) remains) |
 | Phase 2.9 — Conversation Memory Platform | ⏳ Planned |
 | Phase 2.10 — Knowledge Service | ⏳ Planned |
 | Phase 3.1 — Generation Platform | 🟡 ~80% Complete (structured output, input/output/hallucination validation + scoring, regeneration, prompt bridge, Routing Platform, Runtime Caching Platform done; runtime validators/contracts, artifacts remain) |
@@ -1835,7 +1835,7 @@ The major AI Engineering platforms interact as follows.
 
 ## Phase 2.8 — Context Platform (wrapping up) + Phase 3.1 — Generation Platform (~80% complete, in progress)
 
-Vector Store, Retrieval (dense/sparse/hybrid/parallel), Metadata Filtering, and Reranking are all complete (Phases 2.5–2.7). The Context Platform (Phase 2.8) is ~90% complete. The Generation Platform (Phase 3.1) is now ~80% complete: Provider Structured Output Integration (native decoding for all 5 providers, parser/repair fallback, Markdown/XML registry connection, an optional LangChain `with_structured_output()` path), Validation Platform integration (input/output/hallucination validators, a `ValidationRegistry`, weighted scoring, and a multi-stage `ValidationReport`), a regenerate-on-invalid-output loop (now correctly scoped to only the output stage), a provider-capability-mismatch guard, a Prompt Platform → Generation bridge (`generate_from_template()` with schema-aware format instructions), a Routing Platform (scored `ModelCatalogRegistry`, 15-value task-based `RoutingStrategy`, weighted scoring engine, distinct-provider-preferred fallback chains, automatic routing inside `GenerationService.generate()`), and a Runtime Caching Platform (L1 Exact/L2 Semantic/L3 Session caching, policy resolution, wired directly into the provider-call path) are all done. Detail: `docs/architecture/structured-output-platform.md`, `docs/architecture/model-routing-platform.md` (ADR-026), and `docs/architecture/runtime-caching-platform.md` (ADR-027).
+Vector Store, Retrieval (dense/sparse/hybrid/parallel), Metadata Filtering, and Reranking are all complete (Phases 2.5–2.7). The Context Platform (Phase 2.8) is ~95% complete. The Generation Platform (Phase 3.1) is now ~80% complete: Provider Structured Output Integration (native decoding for all 5 providers, parser/repair fallback, Markdown/XML registry connection, an optional LangChain `with_structured_output()` path), Validation Platform integration (input/output/hallucination validators, a `ValidationRegistry`, weighted scoring, and a multi-stage `ValidationReport`), a regenerate-on-invalid-output loop (now correctly scoped to only the output stage), a provider-capability-mismatch guard, a Prompt Platform → Generation bridge (`generate_from_template()` with schema-aware format instructions), a Routing Platform (scored `ModelCatalogRegistry`, 15-value task-based `RoutingStrategy`, weighted scoring engine, distinct-provider-preferred fallback chains, automatic routing inside `GenerationService.generate()`), and a Runtime Caching Platform (L1 Exact/L2 Semantic/L3 Session caching, policy resolution, wired directly into the provider-call path) are all done. Detail: `docs/architecture/structured-output-platform.md`, `docs/architecture/model-routing-platform.md` (ADR-026), and `docs/architecture/runtime-caching-platform.md` (ADR-027).
 
 Remaining before Phase 3.1 — Generation Platform is complete:
 
@@ -1849,7 +1849,8 @@ Remaining before Phase 3.1 — Generation Platform is complete:
 
 Also remaining to close out Phase 2.8 — Context Platform:
 
-- LangChain compression provider (V3) and LLM compression provider (V4)
+- LLM compression provider (V4)
+- Wiring the LangChain compression provider (V3) into `ContextBuilderService.build()`'s default pipeline (registered but not yet called)
 - Conversation Memory Platform (Phase 2.9)
 - Knowledge Service — unified orchestration API (Phase 2.10)
 - Forward `HybridRetrieveRequest.rerank` from `/retrieve/hybrid` into `RetrievalService.search_hybrid` (currently always uses the service's `rerank=True` default)
@@ -1866,7 +1867,7 @@ This project intentionally prioritizes completing the production AI platform (Ti
 1. ~~Vector Store Platform (Phase 2.5)~~ ✅
 2. ~~Retrieval Platform (Phase 2.6)~~ ✅
 3. ~~Reranking Platform (Phase 2.7)~~ ✅
-4. ~~Context Platform (Phase 2.8) — Parent Expansion, Adjacent Merge, Guardrails V1, Citations, Prompt Formatter~~ ✅ (~90%, compression V3/V4 remain)
+4. ~~Context Platform (Phase 2.8) — Parent Expansion, Adjacent Merge, Guardrails V1, Citations, Prompt Formatter~~ ✅ (~95%, compression V4 remains)
 5. **Generation Platform (Phase 3.1) — ~80% complete, highest priority to finish**: `/research` API, streaming chat, artifacts, per-runtime Validation Contracts/Runtime Validators, remaining output checks (completeness/consistency/formatting/response-size)
 6. ~~LangChain Adoption for Generation (Phase 3.2)~~ 🟡 mostly complete for structured output (LCEL not adopted)
 7. ~~Guardrails Platform (Milestone 11.16) — input/retrieval/generation/runtime guardrails, Source Trust, policies, scoring, artifacts~~ ✅ MVP foundation complete; wiring into `GenerationService` is future work

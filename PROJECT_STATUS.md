@@ -656,17 +656,17 @@ Implemented
 
 ## 2.8.3 Compression Platform
 
-**Status:** 🟡 In Progress
+**Status:** 🟡 Nearly Complete (V1-V3 done, V4 remains)
 
 Implemented
 
-- Provider architecture (`context/compression/interfaces.py`, `models.py`, `enums.py`, `service.py`, `registry.py`, `create.py`)
+- Provider architecture (`context/compression/interfaces.py`, `models.py`, `enums.py`, `exceptions.py`, `service.py`, `registry.py`, `create.py`)
 - ✅ Token Budget Provider — sorts by score, fits into token budget (V1)
 - ✅ Embedding Compression Provider — drops redundant chunks by embedding similarity (V2)
+- ✅ LangChain Provider — query-aware extraction via `ContextualCompressionRetriever` + `LLMChainExtractor` (V3, `langchain-classic` — these classes moved out of core `langchain` in the 1.x split). A `_StaticDocumentRetriever` adapts the already-retrieved chunk list into the retriever interface `ContextualCompressionRetriever` expects; chunks the LLM extracts nothing relevant from are dropped, and every field but `content` (citations, scores, parent links, risk metadata) survives via `chunk.model_copy()`. The LLM is DI'd via constructor, lazily defaulting to `ChatOpenAI(gpt-5-nano)` off `settings.openai_api_key`. `CompressionStatistics` gained `original_tokens`/`compressed_tokens`/`duration_ms`. `CompressionService.compress()` now catches `CompressionError` from any provider and falls back to the original, uncompressed chunks (an unregistered strategy still raises `ValueError`, unchanged) — compression can no longer break generation. Registered in `create_compression_service()` but not yet part of `ContextBuilderService.build()`'s default pipeline (it's query-aware; `build()` doesn't thread a query through yet). 12 new unit tests (`FakeListChatModel`-faked, no network calls), plus a fallback test in `test_service.py` and an exception-hierarchy test — full repo suite, ruff, and mypy pass clean
 
 Remaining
 
-- ❌ LangChain Provider — `ContextualCompressionRetriever` (V3)
 - ❌ LLM Compression Provider — chunk-level relevant-summary compression (V4)
 
 ## 2.8.4 Context Guardrails
@@ -719,11 +719,10 @@ Providers
 
 ## Context Platform Status
 
-~90% complete.
+~95% complete.
 
 Remaining before Milestone 2.8 closes:
 
-- LangChain compression provider (V3)
 - LLM compression provider (V4)
 
 ---
@@ -1117,7 +1116,7 @@ Standalone (not yet wired into the pipeline above): the Guardrails Platform (`ap
 | Phase 2.5 — Vector Store Platform | ✅ Complete |
 | Phase 2.6 — Indexing Platform (Hybrid Retrieval) | ✅ Complete |
 | Phase 2.7 — Retrieval Platform | ✅ Complete (incl. Metadata Filtering + Reranking + Parallel Retrieval) |
-| Phase 2.8 — Context Platform | 🟡 ~90% Complete (Parent Expansion, Adjacent Merge, Compression V1/V2, Guardrails V1, Citations, Prompt Formatter done; LangChain + LLM compression remain) |
+| Phase 2.8 — Context Platform | 🟡 ~95% Complete (Parent Expansion, Adjacent Merge, Compression V1/V2/V3, Guardrails V1, Citations, Prompt Formatter done; LLM compression (V4) remains) |
 | Phase 2.9 — Generation Platform | 🟡 ~85% Complete (Structured Output Integration, Validation Platform integration incl. input/output/hallucination validators + scoring, Regeneration, Prompt Platform bridge, Routing Platform, Runtime Caching Platform, Streaming Platform (SSE+WS chat, wired) done; runtime validators/contracts, artifacts, /research API remain) |
 | Milestone 11.16 — Guardrails Platform | ✅ Complete (MVP Foundation — input/retrieval/generation/runtime guardrails, Source Trust, policies, scoring, artifacts; standalone, not yet wired into the generation pipeline) |
 | Benchmark Platform | ✅ Foundation Complete (incl. Retrieval, Metadata Filtering, Reranking Benchmarks) |
@@ -1127,6 +1126,8 @@ Standalone (not yet wired into the pipeline above): the Guardrails Platform (`ap
 # Recently Completed
 
 ✅ Streaming Platform (Generation Platform Milestone 2.9.10, per `streaming_platform_prd.md`/ADR-028) — Runtime Event Platform (`runtime/events/`: canonical `StreamEvent`, layered event-type model so future runtimes never touch shared code, one shared `GenericStreamChunkAdapter`) + Generation Streaming Platform (`generation/streaming/`: `GenerationService.stream_generate()`, `StreamingService` with cache-hit replay and cache-store-on-complete, SSE transport with heartbeat/timeout-ceiling, WebSocket transport), wired into a new `POST /api/v1/chat/stream` + `/api/v1/chat/ws` (previously an empty, unregistered `chat.py`). Required a new Conversation/Message persistence layer (models, repository, service, migration) since chat needed multi-turn history. Fixed a real bug found during the work: `CachingService` unconditionally bypassed the cache for every streaming request; now streaming participates in caching like any other request, with the hit-replay decision moved to `StreamingService`. Also fixed self-contradictions in the PRD/ADR-028/architecture docs (a flat event-type enum vs. the docs' own layered model, inconsistent `StreamEvent` field counts) before implementing. 24 new unit/integration tests; full repo suite (828 tests), ruff, and mypy pass clean
+
+✅ LangChain Compression Provider (Context Platform Milestone 2.8.3, V3, per `langchain-compression-prd.md`) — query-aware compression via `ContextualCompressionRetriever` + `LLMChainExtractor` (`langchain-classic`, added as a new dependency now that these classes live outside core `langchain` 1.x). Extends the pre-existing compression scaffold (`interfaces.py`/`create.py`/`registry.py`) rather than the PRD's literal `base.py`/standalone-provider file layout, since that scaffold was already production-wired into `ContextBuilderService`. Metadata/citations preserved via `chunk.model_copy()` keyed by `chunk_id`; a new `exceptions.py` (`CompressionError`/`CompressionProviderError`/`CompressionTimeoutError`) backs a new fallback path in `CompressionService.compress()` — a provider failure now returns the original chunks instead of breaking generation. `providers/llm.py` (V4) intentionally left unimplemented. 12 new unit tests (LangChain's own `FakeListChatModel`, no network calls) plus fallback/exception-hierarchy tests
 
 ✅ Runtime Caching Platform (Generation Platform Milestone 2.9.9, per `runtime_caching_platform_prd.md`/ADR-027) — L1 Exact Cache (Valkey-backed), L2 Semantic Cache (LangChain `RedisSemanticCache` against a dedicated `redis-stack-server` instance, context-isolated via a folded discriminator), L3 Session Cache (implemented, not yet wired to a caller), a `CachePolicyResolver` (AUTO/NEVER/EXACT_ONLY/SEMANTIC/SESSION per `CacheRuntime`), in-memory `CacheStatistics`, streaming bypass, and `GenerationResult.metadata["cache"]` artifact stamping. Wired directly into `GenerationService`. Required downgrading `redis` to `<8.0` to satisfy `langchain-redis`'s `redisvl` dependency (verified safe against actual usage) and fixing resulting stub regressions in the pre-existing `ValkeyQueue`. 22 new unit tests
 
@@ -1206,10 +1207,10 @@ Standalone (not yet wired into the pipeline above): the Guardrails Platform (`ap
 
 ## Phase 2.8 — Context Platform (wrapping up) + Phase 2.9 — Generation Platform (~85% complete, in progress)
 
-Parent Expansion, Adjacent Merge, Token Budget + Embedding Compression, Guardrails V1, Citations, and Prompt Formatter are all implemented (see Milestone 2.8 above), bringing the Context Platform to ~90% complete. Remaining scope to close it out:
+Parent Expansion, Adjacent Merge, Token Budget + Embedding + LangChain Compression, Guardrails V1, Citations, and Prompt Formatter are all implemented (see Milestone 2.8 above), bringing the Context Platform to ~95% complete. Remaining scope to close it out:
 
-- LangChain compression provider (V3 — `ContextualCompressionRetriever`)
 - LLM compression provider (V4 — chunk-level relevant-summary compression)
+- Wire the LangChain compression provider (V3) into `ContextBuilderService.build()`'s default pipeline (it's registered but not yet called — `build()` doesn't thread a query through to compression today)
 - Forward `HybridRetrieveRequest.rerank` from the `/retrieve/hybrid` endpoint into `RetrievalService.search_hybrid` (it currently always uses the service's `rerank=True` default regardless of the request body)
 - Retrieval result cache
 - Scaling the retrieval benchmark dataset (5 → 20-50 documents, 20 → 100 queries, chunk-level relevance) — see `README.md` TODO
@@ -1235,10 +1236,10 @@ Reranking ✅
 
 ↓
 
-Context Platform (~90%) 🟡
+Context Platform (~95%) 🟡
   Parent Expansion ✅
   Adjacent Merge ✅
-  Compression (Token Budget + Embedding) ✅ — LangChain / LLM compression ⏳
+  Compression (Token Budget + Embedding + LangChain) ✅ — not yet wired into build()'s default pipeline; LLM compression (V4) ⏳
   Guardrails V1 ✅
   Citation Platform ✅
   Prompt Formatter ✅

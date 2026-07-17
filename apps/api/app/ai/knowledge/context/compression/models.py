@@ -33,6 +33,19 @@ class CompressionStatistics(BaseModel):
 
     estimated_saved_tokens: int = 0
 
+    #
+    # Populated by providers that measure token counts and timing
+    # (e.g. LangChainCompressionProvider). Left at their defaults by
+    # providers that don't -- existing callers only rely on the chunk
+    # counts above.
+    #
+
+    original_tokens: int = 0
+
+    compressed_tokens: int = 0
+
+    duration_ms: float = 0.0
+
 
 class CompressionResult(BaseModel):
     model_config = ConfigDict(extra="forbid")

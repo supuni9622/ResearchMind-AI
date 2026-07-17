@@ -36,9 +36,59 @@ ResearchMind-AI/
 │   │       ├── ai/              # AI subsystem
 │   │       │   ├── config/
 │   │       │   │   └── settings.py          # AI-specific configuration
-│   │       │   ├── guardrails/              # (empty) — unused scaffold, superseded by ai/knowledge/context/guardrails/
-│   │       │   │   ├── policies.py          # (empty)
-│   │       │   │   └── scanners.py          # (empty)
+│   │       │   ├── guardrails/               # Guardrails Platform (Milestone 11.16) — standalone, spans input/retrieval/generation/runtime; not yet wired into GenerationService
+│   │       │   │   ├── models.py            # GuardrailIssue, GuardrailResult, GuardrailReport
+│   │       │   │   ├── enums.py             # GuardrailSeverity, GuardrailStage, GuardrailCategory, GuardrailAction
+│   │       │   │   ├── interfaces.py        # Input/Retrieval/Generation/RuntimeGuardrailInterface ABCs
+│   │       │   │   ├── exceptions.py        # GuardrailError hierarchy
+│   │       │   │   ├── registry.py          # GuardrailRegistry — per-stage ordered registration
+│   │       │   │   ├── service.py           # GuardrailService — evaluate_input/retrieval/generation/runtime/evaluate(), crash-safe aggregation
+│   │       │   │   ├── create.py            # create_guardrail_registry(), get_guardrail_service() (@lru_cache)
+│   │       │   │   ├── constants.py         # shared thresholds/limits
+│   │       │   │   ├── input/
+│   │       │   │   │   ├── prompt_injection.py     # PromptInjectionGuardrail — regex, P0, jailbreak escalation
+│   │       │   │   │   ├── scope_validation.py     # ScopeValidationGuardrail — off-topic heuristic
+│   │       │   │   │   ├── pii_detection.py        # PiiDetectionGuardrail — email/CC/API-key/token regex
+│   │       │   │   │   ├── rate_limit.py           # RateLimitGuardrail — foundation, always-allow
+│   │       │   │   │   └── toxicity.py             # ToxicityGuardrail — foundation, always-allow
+│   │       │   │   ├── retrieval/
+│   │       │   │   │   ├── context_sanitization.py # ContextSanitizationGuardrail — composes ai/knowledge/context/guardrails/
+│   │       │   │   │   ├── access_control.py       # AccessControlGuardrail — foundation, permissive default
+│   │       │   │   │   ├── source_trust.py         # SourceTrustGuardrail — uses trust/
+│   │       │   │   │   └── citation_integrity.py   # CitationIntegrityGuardrail — chunk/citation existence check
+│   │       │   │   ├── generation/
+│   │       │   │   │   ├── faithfulness.py         # FaithfulnessGuardrail — wraps HallucinationValidator (Validation Platform)
+│   │       │   │   │   ├── schema_enforcement.py   # SchemaEnforcementGuardrail — wraps SchemaValidator/JsonValidator
+│   │       │   │   │   ├── pii_leakage.py          # PiiLeakageGuardrail — regex on generated content
+│   │       │   │   │   └── moderation.py           # ModerationGuardrail — foundation, always-allow
+│   │       │   │   ├── runtime/
+│   │       │   │   │   ├── execution_limits.py     # BudgetPolicy, ExecutionState
+│   │       │   │   │   ├── budget_guardrail.py     # BudgetGuardrail — max_tokens/cost/tool_calls/iterations/runtime_seconds
+│   │       │   │   │   ├── loop_detection.py       # LoopDetectionGuardrail — max_iterations + repeated-state-hash detection
+│   │       │   │   │   ├── tool_policy.py          # ToolPolicyGuardrail — foundation, allow-all default
+│   │       │   │   │   └── approval_gate.py        # ApprovalRequest/Response + ApprovalGateInterface — interfaces only, unregistered
+│   │       │   │   ├── trust/                       # new Source Trust Platform (PRD §9)
+│   │       │   │   │   ├── models.py               # SourceTrust, SourceType
+│   │       │   │   │   ├── trust_registry.py       # TrustRegistry — static trust-score-by-source-type table
+│   │       │   │   │   ├── trust_policies.py       # action_for_trust_score() — RiskPolicy -> GuardrailAction
+│   │       │   │   │   └── scoring.py              # compute_trust_score() — base + peer-reviewed bonus
+│   │       │   │   ├── policies/
+│   │       │   │   │   ├── fail_policy.py          # FailPolicy (FAIL_OPEN/FAIL_CLOSED)
+│   │       │   │   │   ├── risk_policy.py          # RiskPolicy (LOW/MEDIUM/HIGH/CRITICAL) + thresholds
+│   │       │   │   │   ├── regeneration_policy.py  # RegenerationPolicy
+│   │       │   │   │   └── runtime_policy.py       # RuntimePolicy
+│   │       │   │   ├── scoring/
+│   │       │   │   │   ├── weights.py              # STAGE_WEIGHTS (input .30/retrieval .30/generation .20/runtime .20)
+│   │       │   │   │   └── overall_risk.py         # compute_overall_risk() — renormalizing weighted average
+│   │       │   │   ├── artifacts/
+│   │       │   │   │   ├── models.py               # GuardrailArtifact — versioned wrapper over GuardrailReport
+│   │       │   │   │   ├── builders.py             # GuardrailArtifactBuilder — pure build()
+│   │       │   │   │   └── writers.py              # GuardrailArtifactWriter — persists guardrails/{run_id}/*.json
+│   │       │   │   ├── reports/
+│   │       │   │   │   ├── guardrail_report.py     # summarize_report(), stage_summaries()
+│   │       │   │   │   └── issue_report.py         # group_by_severity/category, count_by_severity
+│   │       │   │   └── utils/
+│   │       │   │       └── patterns.py             # match_any() + shared PII_PATTERNS
 │   │       │   ├── knowledge/               # RAG knowledge pipeline
 │   │       │   │   ├── cache/               # Embedding + query-embedding caches
 │   │       │   │   │   ├── embeddings/
@@ -331,7 +381,6 @@ ResearchMind-AI/
 │   │       │   │       ├── catalog/models.py       # ModelMetadata catalog (capabilities + cost) per known model, ALL_MODELS/MODELS_BY_PROVIDER
 │   │       │   │       ├── routing/                # (all empty) — capability flags exist, no selection engine
 │   │       │   │       ├── caching/                # (all empty)
-│   │       │   │       ├── guardrails/             # (all empty) — distinct from context/guardrails/
 │   │       │   │       ├── streaming/               # (all empty) — per-provider stream() is the real implementation
 │   │       │   │       ├── artifacts/               # (all empty)
 │   │       │   │       └── observability/           # token_counter.py implemented; cost_tracker.py/latency_tracker.py/metrics_collector.py/token_tracker.py/models.py/service.py empty
@@ -896,6 +945,22 @@ ResearchMind-AI/
 │   │   │       ├── test_service.py          # ValidationService — per-stage aggregation + stage-stamping, crash → WARNING (other validators still run), full validate() report assembly
 │   │   │       ├── input/                   # test_empty_prompt.py, test_context_validation.py, test_provider_limits.py, test_token_budget.py
 │   │   │       └── output/                  # test_schema_validator.py, test_citation_validator.py, test_json_validator.py, test_hallucination_validator.py
+│   │   ├── ai/guardrails/                    # Guardrails Platform tests (new, 113 cases)
+│   │   │   ├── factories.py                 # Shared make_request()/make_result()/make_chunk()/make_citation()/make_execution_state()/make_budget_policy()/make_guardrail_issue() builders (not a test module)
+│   │   │   ├── test_models.py               # GuardrailReport.issues flattening, extra="forbid"
+│   │   │   ├── test_registry.py             # GuardrailRegistry — per-stage isolation, registration order, defensive copies
+│   │   │   ├── test_service.py              # GuardrailService — per-stage aggregation, crash → WARNING (FailPolicy open/closed), REGENERATE/BLOCK policy derivation, full evaluate() report
+│   │   │   ├── test_create.py               # create_guardrail_registry()/get_guardrail_service() wiring smoke tests, end-to-end evaluate() on real dependencies
+│   │   │   ├── input/                       # test_prompt_injection.py, test_scope_validation.py, test_pii_detection.py, test_rate_limit.py, test_toxicity.py
+│   │   │   ├── retrieval/                   # test_context_sanitization.py, test_access_control.py, test_source_trust.py, test_citation_integrity.py
+│   │   │   ├── generation/                  # test_faithfulness.py, test_schema_enforcement.py, test_pii_leakage.py, test_moderation.py
+│   │   │   ├── runtime/                     # test_execution_limits.py, test_budget_guardrail.py, test_loop_detection.py, test_tool_policy.py, test_approval_gate.py
+│   │   │   ├── trust/                       # test_models.py, test_trust_registry.py, test_trust_policies.py, test_scoring.py
+│   │   │   ├── policies/                    # test_fail_policy.py, test_risk_policy.py, test_regeneration_policy.py, test_runtime_policy.py
+│   │   │   ├── scoring/                     # test_weights.py, test_overall_risk.py
+│   │   │   ├── artifacts/                   # test_models.py, test_builders.py, test_writers.py (_FakeDocumentStorage double)
+│   │   │   ├── reports/                     # test_guardrail_report.py, test_issue_report.py
+│   │   │   └── utils/                       # test_patterns.py
 │   │   ├── infrastructure/storage/
 │   │   │   └── test_s3_storage.py           # S3StorageService — boto3 ClientError → typed StorageError mapping
 │   │   ├── benchmarks/common/
@@ -963,6 +1028,7 @@ ResearchMind-AI/
 | Reranking Platform | `apps/api/app/ai/knowledge/reranking/` | Reorders a hybrid candidate pool using deeper (query, chunk) relevance scoring: `VoyageReranker` (Voyage AI `rerank-2`) and `CrossEncoderReranker` (local `BAAI/bge-reranker-base`), behind a shared provider abstraction/registry/service. Wired into `RetrievalService.search_hybrid(rerank=True)` by default — ADR-022 |
 | Context Platform | `apps/api/app/ai/knowledge/context/` | Turns a `RetrievalResult` into a `PromptContext`: dedup → Parent Expansion (`ChunkArtifactReader`) → Adjacent Merge → ordering → Compression (Token Budget + Embedding Redundancy implemented; LangChain + LLM stubs raise `NotImplementedError`) → Guardrails V1 (`RuleBasedGuardrailProvider`, regex-based prompt-injection detection) → Citation Platform → strategy-based Prompt Formatter (`DEFAULT`/`NOTEBOOKLM`/`PERPLEXITY`/`RESEARCH`/`AGENT`). ~90% complete; not yet wired into a dependency provider or API route |
 | Generation Platform | `apps/api/app/ai/runtime/generation/` | Owns all LLM interactions over 5 providers (Groq, OpenAI, Claude, Gemini, Ollama): native structured-output decoding, a parser/repair fallback, input/output/hallucination Validation Platform integration (registry, weighted scoring, `ValidationReport`), a regenerate-on-invalid-output loop, and a Prompt Platform bridge (`generate_from_template()`). ~65% complete — see `docs/architecture/structured-output-platform.md`; not yet wired into an API route |
+| Guardrails Platform | `apps/api/app/ai/guardrails/` | Standalone, platform-wide policy/safety layer answering "should the system do this?" (Milestone 11.16, `guardrails_platform_prd.md`) — Input (prompt injection/jailbreak, scope, PII), Retrieval (Context Sanitization composing the pre-existing `context/guardrails/`, a new Source Trust Platform, Citation Integrity), Generation (Faithfulness + Schema Enforcement, both reusing Validation Platform validators, PII Leakage), and Runtime (Budget, Loop Detection) guardrails, plus policies/scoring/artifacts. MVP foundation complete — not yet wired into `GenerationService` |
 | Upload pipeline | `apps/api/app/ai/knowledge/upload/` | File validation, duplicate detection, S3 upload, checksum hashing, enqueues async processing job |
 | Async worker | `apps/worker/` | Standalone process consuming the queue, running `DocumentProcessingService` per job, retry/dead-letter handling |
 | Engineering benchmarks | `benchmarks/` | Offline, manually-run comparison of competing AI implementations (chunking strategies, embedding providers, dense/sparse/hybrid retrieval) against version-controlled datasets — independent from tests and from production infrastructure |

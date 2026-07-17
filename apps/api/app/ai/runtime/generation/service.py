@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
 from typing import Any
 from uuid import uuid4
 
@@ -29,6 +30,7 @@ from app.ai.runtime.generation.interfaces import (
 from app.ai.runtime.generation.models import (
     GenerationRequest,
     GenerationResult,
+    StreamChunk,
     ToolDefinition,
 )
 from app.ai.runtime.generation.prompts.models import (
@@ -115,6 +117,19 @@ class GenerationService:
 
         self._caching_service = caching_service
 
+    @property
+    def registry(
+        self,
+    ) -> GenerationRegistry:
+        """
+        Exposes the provider registry this service was built with, so
+        `StreamingService` (generation/streaming/create.py) can reuse the
+        same registered provider instances instead of composing a second,
+        duplicate registry.
+        """
+
+        return self._registry
+
     # ==========================================================
     # Public
     # ==========================================================
@@ -146,6 +161,93 @@ class GenerationService:
         return await self._generate_with_routing(
             request=request,
         )
+
+    async def stream_generate(
+        self,
+        *,
+        request: GenerationRequest,
+        provider: GenerationProvider | None = None,
+    ) -> AsyncIterator[StreamChunk]:
+        """
+        Streaming counterpart to generate().
+
+        Resolves a provider the same way generate() does -- an explicit
+        `provider`, or otherwise the Routing Platform's top candidate for
+        `request.routing_strategy` -- then yields directly from that
+        provider's `stream()`. Unlike generate(), there is no regeneration
+        loop and no automatic fallback to the next routing candidate on
+        failure: once the first chunk has reached a caller, switching
+        providers mid-stream isn't attempted.
+
+        As an async generator, none of this runs until the caller starts
+        iterating (same as every provider's own `stream()`), so
+        validation/capability errors surface on the first `__anext__`,
+        not on the call to `stream_generate()` itself.
+        """
+
+        self._validate(
+            request,
+        )
+
+        resolved_provider = provider or self.resolve_streaming_provider(
+            request,
+        )
+
+        generation_provider = self._registry.get(
+            resolved_provider,
+        )
+
+        self._check_capability_support(
+            provider=resolved_provider,
+            generation_provider=generation_provider,
+            request=request,
+        )
+
+        async for chunk in generation_provider.stream(
+            request,
+        ):
+            yield chunk
+
+    def resolve_streaming_provider(
+        self,
+        request: GenerationRequest,
+    ) -> GenerationProvider:
+        """
+        Picks a provider via the Routing Platform for a streaming request
+        with no explicit `provider`. Only the top candidate is used --
+        streaming has no fallback loop, see `stream_generate`.
+
+        Public (unlike the routing internals `generate()` uses) because
+        `StreamingService` (generation/streaming/service.py) needs to know
+        the resolved provider/model up front for cache-key derivation and
+        statistics, before it starts consuming `stream_generate()`.
+        """
+
+        if self._routing_service is None:
+            raise GenerationValidationError(
+                "stream_generate() was called without a provider, which requires a "
+                "RoutingService wired into this GenerationService (see "
+                "generation/create.py) to resolve request.routing_strategy."
+            )
+
+        try:
+            decision = self._routing_service.route(
+                RoutingRequest(
+                    strategy=request.routing_strategy or RoutingStrategy.AUTO,
+                    required_capabilities=request.required_capabilities,
+                )
+            )
+        except NoEligibleModelsError as exc:
+            raise GenerationValidationError(
+                str(exc),
+            ) from exc
+
+        if not self._registry.has(decision.selected_model.provider):
+            raise GenerationProviderNotFoundError(
+                f"Routed provider '{decision.selected_model.provider}' is not registered."
+            )
+
+        return decision.selected_model.provider
 
     async def _generate_with_routing(
         self,

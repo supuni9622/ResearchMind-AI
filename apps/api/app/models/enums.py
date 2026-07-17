@@ -19,3 +19,12 @@ class DocumentProcessingStatus(StrEnum):
     PROCESSING = "processing"
     COMPLETED = "completed"
     FAILED = "failed"
+
+
+class MessageRole(StrEnum):
+    """
+    Who authored a chat Message.
+    """
+
+    USER = "user"
+    ASSISTANT = "assistant"

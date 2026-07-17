@@ -308,20 +308,19 @@ AUTO
 
 # Streaming
 
-Streaming bypasses cache.
+Streaming does not bypass this platform's `lookup()`/`store()` — a
+streaming request is looked up and stored exactly like a non-streaming one
+(content-addressed on the same key). What can never be cached is a
+*partial*, in-flight stream: `store()` is only ever called once a result
+is fully assembled.
 
-```python
-if request.streaming:
-    bypass_cache()
-```
-
-Reason:
-
-- partial responses
-- token events
-- progress events
-
-cannot safely reuse cached outputs.
+On a cache hit for a streaming request, the caller (the Generation
+Streaming Platform, see `docs/architecture/streaming-platform.md`) replays
+the cached content as a synthetic token stream rather than skipping the
+stream contract altogether — this is a correction from an earlier draft of
+this document, which had `CachingService` bypass caching entirely whenever
+`request.stream` was set, forcing a cache hit to return as one instant
+non-streamed payload while the caller asked for a stream.
 
 ---
 

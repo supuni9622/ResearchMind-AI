@@ -96,15 +96,16 @@ class CachingService:
         model: str,
         routing_strategy: RoutingStrategy | None,
     ) -> CacheResult:
-
-        if request.stream:
-            #
-            # Streaming bypasses cache entirely (PRD "Streaming
-            # Requirements") — partial responses, progress events, and
-            # token events can't be safely replayed from a single
-            # cached GenerationResult.
-            #
-            return CacheResult(hit=False)
+        """
+        Content-addressed lookup — identical for streaming and
+        non-streaming requests. Streaming requests do not bypass the
+        cache: `StreamingService` (generation/streaming/service.py)
+        checks this first and, on a hit, replays the cached content as
+        a synthetic token stream instead of calling a provider, so the
+        caller still gets the streaming contract it asked for either
+        way. What genuinely can't be cached is a *partial*, in-flight
+        stream — see `store()`.
+        """
 
         started = perf_counter()
 
@@ -169,9 +170,12 @@ class CachingService:
         routing_strategy: RoutingStrategy | None,
         result: GenerationResult,
     ) -> None:
-
-        if request.stream:
-            return
+        """
+        Stores a finished `GenerationResult` — the caller (streaming or
+        not) is responsible for only calling this once a result is
+        fully assembled. `StreamingService` calls this once after a
+        live stream reaches `COMPLETE`, never with partial content.
+        """
 
         policy = self._policy_resolver.resolve_policy(
             runtime=request.cache_runtime,

@@ -34,6 +34,7 @@ Every file and folder in the ResearchMind-AI monorepo.
 | `runtime_caching_platform_prd.md` | Runtime Caching Platform PRD — L1 exact/L2 semantic/L3 session caching implemented under `generation/caching/` (companion to ADR-027) |
 | `SECURITY.md` | (empty) |
 | `setup_commands.md` | Makefile-style shortcut commands (`docker compose up/down`) |
+| `streaming_platform_prd.md` | Streaming Platform PRD — canonical event protocol + SSE/WebSocket streaming implemented under `runtime/events/` + `generation/streaming/` (companion to ADR-028); its "Event Types" section was corrected during implementation to point at the layered model rather than list agent/research values in one flat enum |
 | `STRUCTURE.md` | High-level folder/file structure with layer descriptions |
 | `DEV_GUIDE.md` | Step-by-step local development guide — setup, Alembic issues, Docker rules, auth testing |
 | `test.txt` | Stray scratch file — can be deleted |
@@ -92,6 +93,7 @@ All subdirectories are empty — planned AI agent implementations.
 | `versions/43dc35ceb875_debug.py` | Migration 1: creates `users` table + `updated_at` trigger |
 | `versions/a97b3b8eee9f_create_documents_table.py` | Migration 2: creates `documents` table with FK to `users` |
 | `versions/1b6e40f3a754_split_document_status_into_upload_.py` | Migration 3: splits the single `status` column into `upload_status` + `processing_status` (+ `processed_at`, `processing_error`) |
+| `versions/bca5e4edca5c_create_conversations_and_messages_tables.py` | Migration 4: creates `conversations` (FK to `users`) and `messages` (FK to `conversations`, `message_role` enum) tables — Streaming Platform, Milestone 2.9.10. Downgrade explicitly drops the `message_role` Postgres enum type (not done automatically by `drop_table`) so downgrade→upgrade round-trips cleanly |
 
 ---
 
@@ -459,13 +461,30 @@ All files empty — planned model and provider registries.
 | File / Directory | Status |
 |-----------|--------|
 | `__init__.py` | (empty) |
-| `generation/` | **~80% Implemented** — Generation Platform; see below |
+| `generation/` | **~85% Implemented** — Generation Platform; see below |
 | `routing/__init__.py` | (empty) — vestigial top-level scaffold, superseded by `generation/routing/` |
-| `streaming/__init__.py` | (empty) — vestigial top-level scaffold, superseded by `generation/streaming/` (also empty; per-provider `stream()` methods are what's actually implemented) |
+| `streaming/__init__.py` | (empty) — vestigial top-level scaffold, unrelated to and untouched by the now-implemented `generation/streaming/` and `events/` (see below) — the name overlap is coincidental, not a naming migration |
+| `events/` | **Implemented** — Runtime Event Platform (Streaming Platform Milestone 2.9.10, `streaming_platform_prd.md`/ADR-028); see below |
 
-##### `ai/runtime/generation/` — **~80% Implemented**
+##### `ai/runtime/events/` — **Implemented** (Runtime Event Platform — `streaming_platform_prd.md`, ADR-028, `docs/architecture/streaming-platform.md`)
 
-Generation Platform. Owns all LLM interactions, consuming the Context Platform's `PromptContext` output. Provider-independent runtime over five LLM providers, with native structured-output decoding, a parser/repair fallback, input/output/hallucination validation, a regenerate-on-invalid-output loop, an optional bridge into the pre-existing Prompt Platform, a Routing Platform that resolves a model/provider (with automatic fallback) from a task-based strategy when no provider is given explicitly, and a Runtime Caching Platform that short-circuits the provider call on a cache hit. Not yet wired into an API route (no `POST /research` / chat endpoint calls `GenerationService` yet). Detail: `docs/architecture/structured-output-platform.md` (Structured Output/Validation, continuously updated), `docs/architecture/model-routing-platform.md` + ADR-026 (Routing), and `docs/architecture/runtime-caching-platform.md` + ADR-027 (Caching). Generation-level guardrails no longer live here — the empty `guardrails/` scaffold that previously sat in this directory was deleted; generation-stage guardrails are implemented at the new top-level `ai/guardrails/generation/` platform instead (see above).
+Provider-independent canonical event protocol, the "Layer 2" of the Streaming Platform's two-layer design. Layered so future runtimes (Research/Agent/Tool) each own their own event-type vocabulary rather than extending one shared enum — the flaw an earlier draft of ADR-028 had, since fixed (see `generation/streaming/` below and the ADR itself).
+
+| File | Description |
+|------|-------------|
+| `enums.py` | `EventCategory` (generation/research/agent/tool), `CoreEventType` (start/token/thinking/complete/error) — the only enum `StreamEvent` itself depends on |
+| `models.py` | `StreamEvent` — `event_id`, `session_id`, `request_id`, `parent_event_id`, `category: EventCategory`, `type: str` (plain string, not bound to `CoreEventType` — each domain populates it with its own values), `timestamp`, `content`, `metadata` |
+| `interfaces.py` | `ProviderEventAdapterInterface` — `to_stream_event(chunk: StreamChunk, *, session_id, request_id) -> StreamEvent` |
+| `create.py` | `get_event_adapter()` — `@lru_cache`d factory returning the one shared adapter |
+| `adapters/base.py` | `GenericStreamChunkAdapter` — the single adapter every provider goes through, since every provider's `stream()` already normalizes SDK-specific chunks into the identical `StreamChunk` shape before anything leaves the provider; a separate `openai.py`/`claude.py`/... adapter file per provider (as an earlier ADR-028 draft's file-tree listed) would itself be the provider-duplication the ADR rejects |
+| `provider/models.py` | `ProviderEventMetadataKeys` — constants for well-known `StreamEvent.metadata` keys (`finish_reason`, `token_count_delta`); no behavior |
+| `research/models.py` | `ResearchEventType` — reserved for the future Research Runtime; not emitted by anything today |
+| `agent/models.py` | `AgentEventType` — reserved for the future Agent Runtime; not emitted by anything today |
+| `tool/models.py` | `ToolEventType` — reserved for the future Tool Runtime; not emitted by anything today |
+
+##### `ai/runtime/generation/` — **~85% Implemented**
+
+Generation Platform. Owns all LLM interactions, consuming the Context Platform's `PromptContext` output. Provider-independent runtime over five LLM providers, with native structured-output decoding, a parser/repair fallback, input/output/hallucination validation, a regenerate-on-invalid-output loop, an optional bridge into the pre-existing Prompt Platform, a Routing Platform that resolves a model/provider (with automatic fallback) from a task-based strategy when no provider is given explicitly, a Runtime Caching Platform that short-circuits the provider call on a cache hit, and a Streaming Platform providing SSE/WebSocket delivery. **Now wired into an API route** — `POST /api/v1/chat/stream` and `/api/v1/chat/ws` (see `api/v1/chat.py` below) call `GenerationService` via `StreamingService`; `/research` still does not exist. Detail: `docs/architecture/structured-output-platform.md` (Structured Output/Validation, continuously updated), `docs/architecture/model-routing-platform.md` + ADR-026 (Routing), `docs/architecture/runtime-caching-platform.md` + ADR-027 (Caching), and `docs/architecture/streaming-platform.md` + ADR-028 (Streaming). Generation-level guardrails no longer live here — the empty `guardrails/` scaffold that previously sat in this directory was deleted; generation-stage guardrails are implemented at the new top-level `ai/guardrails/generation/` platform instead (see above).
 
 | Directory | Status |
 |-----------|--------|
@@ -477,8 +496,8 @@ Generation Platform. Owns all LLM interactions, consuming the Context Platform's
 | `prompts/` | **Implemented** (pre-existing) — template loading, rendering, few-shot, versioning; now bridged into Generation |
 | `catalog/` | **Implemented** — scored per-model capability/cost/policy catalog + `ModelCatalogRegistry` |
 | `routing/` | **Implemented** — Routing Platform: capability/policy filtering, task-based strategy scoring, fallback chains |
-| `caching/` | **Implemented** — Runtime Caching Platform: L1 exact (Valkey), L2 semantic (LangChain `RedisSemanticCache` against a dedicated `redis-stack-server`), L3 session (Valkey, not yet called by anything), policy resolution |
-| `streaming/` | ❌ Empty stubs — per-provider `stream()` methods are the real implementation |
+| `caching/` | **Implemented** — Runtime Caching Platform: L1 exact (Valkey), L2 semantic (LangChain `RedisSemanticCache` against a dedicated `redis-stack-server`), L3 session (Valkey, not yet called by anything), policy resolution; streaming requests now participate identically to non-streaming ones (the old blanket `request.stream` bypass was removed — see `streaming/` below) |
+| `streaming/` | **Implemented** — Generation Streaming Platform: `StreamingService`, SSE + WebSocket transports; see below |
 | `artifacts/` | ❌ Empty stubs |
 | `observability/` | **Partial** — `token_counter.py` implemented; `cost_tracker.py`/`latency_tracker.py`/`metrics_collector.py`/`token_tracker.py`/`models.py`/`service.py` empty |
 
@@ -604,7 +623,7 @@ The decision layer between callers (agents, planners, runtime services) and the 
 
 ###### `ai/runtime/generation/caching/` — **Implemented** (Runtime Caching Platform — `runtime_caching_platform_prd.md`, ADR-027, `docs/architecture/runtime-caching-platform.md`)
 
-Caches `GenerationResult`s to cut provider cost, latency, and duplicate execution. Wired directly into `GenerationService._generate_with_provider`: a lookup runs once a candidate model is resolved (before the provider call), a store runs after generation (incl. any regeneration attempts) completes. L3 Session Cache is a deliberately separate API surface — keyed by a caller-tracked session id rather than request content — implemented and exposed but not yet called by anything (no conversation/research-session runtime exists yet).
+Caches `GenerationResult`s to cut provider cost, latency, and duplicate execution. Wired directly into `GenerationService._generate_with_provider`: a lookup runs once a candidate model is resolved (before the provider call), a store runs after generation (incl. any regeneration attempts) completes. L3 Session Cache is a deliberately separate API surface — keyed by a caller-tracked session id rather than request content — implemented and exposed but still not called by anything; a minimal `Conversation`/`Message` persistence layer now exists (Streaming Platform, Milestone 2.9.10 — see `models/conversation.py` below) but nothing has wired it to L3 yet.
 
 | File | Description |
 |------|-------------|
@@ -612,7 +631,7 @@ Caches `GenerationResult`s to cut provider cost, latency, and duplicate executio
 | `enums.py` | `CacheLevel` (exact/semantic/session), `CachePolicy` (auto/never/exact_only/semantic/session), `CacheRuntime` (chat/research/benchmark/planner/tool_agent/summarizer/reviewer/critic) |
 | `interfaces.py` | `ExactCacheProviderInterface`/`SemanticCacheProviderInterface`/`SessionCacheProviderInterface` ABCs — all fail-open by contract (a backend error is a miss/no-op, never raised) |
 | `exceptions.py` | `CachingError`, `CacheBackendUnavailableError` |
-| `service.py` | `CachingService` — `lookup()`/`store()` (L1 Exact → L2 Semantic per resolved `CachePolicy`; streaming requests bypass entirely), `get_session()`/`set_session()`/`invalidate_session()`/`clear_session()` (L3), `statistics` property, structlog `caching.lookup` per call |
+| `service.py` | `CachingService` — `lookup()`/`store()` (L1 Exact → L2 Semantic per resolved `CachePolicy`; streaming and non-streaming requests are treated identically — see `generation/streaming/` below for why the old blanket streaming bypass was removed), `get_session()`/`set_session()`/`invalidate_session()`/`clear_session()` (L3), `statistics` property, structlog `caching.lookup` per call |
 | `create.py` | `create_caching_service()` — `@lru_cache`d composition root; `create_exact_cache_provider()`/`create_semantic_cache_provider()`/`create_session_cache_provider()` each return a `Null*` no-op when their `settings.*_cache_enabled` flag is off; wires a shared Valkey client (L1/L3) and a `RedisSemanticCache` against `settings.semantic_cache_redis_url` (L2) |
 | `exact/key_builder.py` | `hash_prompt()`/`hash_context()`/`hash_schema()` (sha256, unit-separator-joined to avoid system/user-split collisions), `build_exact_cache_key()` |
 | `exact/provider.py` | `ValkeyExactCacheProvider` — stores/retrieves full `GenerationResult` JSON under `CacheKey.redis_key()` |
@@ -627,13 +646,32 @@ Caches `GenerationResult`s to cut provider cost, latency, and duplicate executio
 
 Infra: L2 requires a RediSearch-capable server, which plain Valkey doesn't provide — see the dedicated `semantic-cache` (`redis-stack-server`) docker-compose service and the `redis` client downgrade (`<8.0`, to satisfy `langchain-redis`'s `redisvl` dependency) noted in `PROJECT_STATUS.md` Milestone 2.9.9.
 
-`tests/unit/ai/runtime/generation/caching/` — 22 tests: key builder determinism/sensitivity, policy resolution precedence/fallback, `CachingService` policy branching (AUTO/EXACT_ONLY/SEMANTIC/NEVER/streaming), statistics, session cache independence.
+`tests/unit/ai/runtime/generation/caching/` — 22 tests (+1 updated for the streaming-participates-in-cache fix below): key builder determinism/sensitivity, policy resolution precedence/fallback, `CachingService` policy branching (AUTO/EXACT_ONLY/SEMANTIC/NEVER), statistics, session cache independence.
+
+###### `ai/runtime/generation/streaming/` — **Implemented** (Generation Streaming Platform — `streaming_platform_prd.md`, ADR-028, `docs/architecture/streaming-platform.md`)
+
+Real-time execution support for generation workloads — the "Layer 2 orchestration" half of the Streaming Platform, sitting on top of `runtime/events/`'s canonical protocol (see above). Every provider's `stream()` method (`generation/providers/*.py`) already existed before this milestone; what was missing was `GenerationService.stream_generate()`, cache-aware orchestration, and a transport layer, all filled in here.
+
+| File | Description |
+|------|-------------|
+| `enums.py` | `StreamTransport` (sse/websocket), `ValidationEventType` (validation_started/validation_completed — generation-scoped, not a Layer-3 `runtime/events/` domain, since validation is a Generation Platform concern; not yet emitted) |
+| `models.py` | `StreamCacheOutcome` (`hit`, `level`, `replayed`) — carried in the START event's `metadata["cache"]` |
+| `interfaces.py` | `StreamSerializerInterface` — `serialize(event: StreamEvent) -> str \| dict` |
+| `service.py` | `StreamingService` — `stream_generate(request, provider=None)`: resolves the provider/model (via `GenerationService.resolve_streaming_provider()` when not explicit), checks the Runtime Cache; on a **hit**, replays the cached content as character-chunked synthetic `TOKEN` events (`_REPLAY_CHUNK_CHARS = 12`) rather than skipping the stream contract; on a **miss**, streams live via `GenerationService.stream_generate()`, converts each `StreamChunk` to a `StreamEvent` via the shared adapter, and stores the assembled result once `COMPLETE` is reached (best-effort `count_tokens()`-estimated statistics, since provider `stream()` implementations don't surface real usage mid-stream) |
+| `create.py` | `create_streaming_service()` — composition root; reuses `create_generation_service()`'s own registry (via the new `GenerationService.registry` property) rather than building a second, duplicate one |
+| `transports/sse.py` | `sse_stream_response()` — wraps a `StreamEvent` async generator as a `StreamingResponse` (`text/event-stream`, `X-Accel-Buffering: no`); emits a `: ping` heartbeat comment on a 15s idle interval (guards against load-balancer/proxy idle-connection timeouts) and enforces a 300s hard duration ceiling |
+| `transports/websocket.py` | `run_websocket_stream()` — sends each `StreamEvent` as a JSON frame over an accepted `WebSocket`; a client disconnect closes the underlying event generator, cancelling the in-flight generation |
+| `serializers/sse.py` | `serialize_sse()` — `event: <type>\ndata: <json>\n\n` wire format |
+| `serializers/json.py` | `serialize_json()` — `StreamEvent.model_dump(mode="json")`, used by the WebSocket transport |
+
+`GenerationService.stream_generate()` (R2) and the public `resolve_streaming_provider()`/`registry` property live in `generation/service.py` itself, alongside `generate()`.
+
+`tests/unit/ai/runtime/generation/streaming/test_service.py` — cache-hit replay, live-stream store-on-complete, error-mid-stream, no-caching-service paths. `tests/unit/ai/runtime/events/adapters/test_base.py` — `StreamChunk` → `StreamEvent` mapping. `tests/unit/ai/runtime/generation/test_service.py` gained `stream_generate()` coverage (provider resolution, capability check, routing). `tests/integration/ai/test_chat_stream.py` — end-to-end `POST /api/v1/chat/stream` (SSE frame order, persisted turn).
 
 ###### Not Yet Implemented (all files empty)
 
 | Directory | Purpose (planned) |
 |-----------|--------|
-| `streaming/` | A shared streaming abstraction — per-provider `stream()` methods already work independently |
 | `artifacts/` | Generation result persistence |
 | `observability/` (most files) | Cost/latency/token tracking, metrics collection — `token_counter.py` is the one implemented exception |
 
@@ -659,7 +697,7 @@ Mostly empty — planned shared AI types and interfaces. `local_embeddings.py` i
 | `v1/api.py` | Central router — includes all v1 sub-routers |
 | `v1/admin.py` | (empty) |
 | `v1/auth.py` | `POST /auth/callback` (Cognito code exchange) and `GET /auth/me` |
-| `v1/chat.py` | (empty) |
+| `v1/chat.py` | **Implemented** (Streaming Platform, Milestone 2.9.10) — `POST /chat/stream` (SSE; `get_current_user` auth, since this is a `POST` consumed via `fetch`/`ReadableStream` on the frontend rather than a bare `EventSource`, which can't attach a custom `Authorization` header) and `WebSocket /chat/ws` (`?token=` query-param auth, since a browser's WS handshake has the same header limitation). Both load/create a `Conversation` via `ConversationService`, fold prior turns into a transcript-prefixed `user_prompt`, call `StreamingService.stream_generate()`, and persist the completed turn once the stream reaches `COMPLETE` (`_persist_on_complete` — accumulation/persistence lives at the route level, not inside the generic Streaming Platform, keeping that platform conversation-agnostic) |
 | `v1/documents.py` | `GET /documents` — lists the current user's documents; `POST /documents/upload` — validates filename, measures file size, delegates to `UploadService` (upload now enqueues async processing instead of processing synchronously — the old inline `ProcessingService` call is commented out) |
 | `v1/evaluation.py` | (empty) |
 | `v1/feedback.py` | (empty) |
@@ -673,7 +711,7 @@ Mostly empty — planned shared AI types and interfaces. `local_embeddings.py` i
 
 | File | Description |
 |------|-------------|
-| `dependencies.py` | `get_current_user` FastAPI dependency — extracts Bearer token, verifies JWT, syncs user, binds `user_id` to structlog context |
+| `dependencies.py` | `authenticate_token(token, session)` — verifies a JWT and syncs the user (shared by both HTTP and WebSocket auth); `get_current_user` FastAPI dependency wraps it for the `Authorization` header. Also used directly by the chat WebSocket route (`?token=` query param), since a browser's WS handshake can't set a custom header either |
 | `jwt.py` | `JWTVerifier` — fetches JWKS from Cognito, validates signature/expiry/audience/issuer, asserts `token_use == "id"` |
 | `providers/base.py` | `AuthenticationProvider` abstract base — defines contract for all identity providers |
 | `providers/cognito.py` | AWS Cognito implementation — issuer URL, audience, JWKS URL, claims normalization |
@@ -721,6 +759,7 @@ Mostly empty — planned shared AI types and interfaces. `local_embeddings.py` i
 | `__init__.py` | Package exports |
 | `cache.py` | (empty) |
 | `database.py` | (empty) |
+| `generation.py` | **Implemented** (Streaming Platform, Milestone 2.9.10) — `get_generation_service()` / `get_streaming_service()` (`@lru_cache`d singletons, wrap `create_generation_service()`/`create_streaming_service()`), `get_conversation_service(session)` — request-scoped (not cached — carries the per-request DB session), builds a `ConversationService` |
 | `settings.py` | (empty) |
 | `upload.py` | FastAPI dependency providers for the upload/processing workflow: `get_document_storage`, `get_file_hasher`, `get_document_repository`, `get_processing_queue`, `get_processing_service` (now also wires the Chunking Platform — `_get_chunking_service`, `_get_chunk_artifact_builder`, `ChunkArtifactWriter` — the Embedding Platform — `_get_embedding_service`, `_get_embedding_artifact_builder`, `EmbeddingArtifactWriter` — and the Indexing Platform — `_get_indexing_service`, `_get_indexing_artifact_builder`, `IndexingArtifactWriter`), `get_document_processing_service`, `get_queued_document_processing_service`, `get_upload_service`, `get_processing_worker` |
 | `reranking.py` | `get_reranking_service()` — `@lru_cache`d singleton, wraps `create_reranking_service()` |
@@ -824,8 +863,9 @@ FastAPI application entry point — creates the app, registers middleware and ex
 | File | Description |
 |------|-------------|
 | `__init__.py` | Exports all models (required so Alembic autogenerate can detect them) |
+| `conversation.py` | **Implemented** (Streaming Platform, Milestone 2.9.10) — `Conversation` (id, owner_id FK→users, title) and `Message` (id, conversation_id FK→conversations, `role: MessageRole`, content, provider, model) SQLAlchemy models, modeled directly on `document.py`'s conventions |
 | `document.py` | `Document` SQLAlchemy model — id, owner_id (FK→users), filename, storage_key, content_type, size_bytes, checksum, `upload_status`, `processing_status`, `processed_at`, `processing_error` |
-| `enums.py` | `DocumentUploadStatus` StrEnum (pending, uploading, completed, failed) and `DocumentProcessingStatus` StrEnum (pending, processing, completed, failed) — split from the original single `DocumentStatus` |
+| `enums.py` | `DocumentUploadStatus` StrEnum (pending, uploading, completed, failed), `DocumentProcessingStatus` StrEnum (pending, processing, completed, failed) — split from the original single `DocumentStatus` — and `MessageRole` StrEnum (user, assistant) |
 | `user.py` | `User` SQLAlchemy model — id, auth_provider, provider_user_id, email, username, full_name, avatar_url, is_active, is_verified, is_superuser, last_login_at |
 
 ---
@@ -834,7 +874,8 @@ FastAPI application entry point — creates the app, registers middleware and ex
 
 | File | Description |
 |------|-------------|
-| `__init__.py` | Exports `UserRepository` |
+| `__init__.py` | Exports `UserRepository`, `DocumentRepository`, `ConversationRepository` |
+| `conversation.py` | **Implemented** (Streaming Platform, Milestone 2.9.10) — `ConversationRepository`: `create`, `get_by_id_for_owner` (owner-scoped, so a caller can never load another user's conversation by id), `add_message`, `list_messages` (oldest-first, for transcript building) |
 | `document.py` | `DocumentRepository` — CRUD operations for documents |
 | `user.py` | `UserRepository` — get by id/email/provider_user_id, create, update, delete, exists |
 
@@ -852,7 +893,7 @@ Empty directory — placeholder.
 |------|-------------|
 | `__init__.py` | (empty) |
 | `auth.py` | `CallbackRequest` (code, redirect_uri, code_verifier), `TokenResponse` (id_token, access_token, refresh_token, expires_in) |
-| `chat.py` | Chat request/response schemas |
+| `chat.py` | **Implemented** — `ChatStreamRequest` (`user_prompt`, `conversation_id`, `provider`, `routing_strategy`), used by both `/chat/stream` and `/chat/ws` |
 | `common.py` | Shared schemas: `SuccessResponse`, `ErrorDetail`, `ErrorResponse` |
 | `document.py` | Document request/response schemas |
 | `error.py` | Error response schemas |
@@ -868,6 +909,7 @@ Empty directory — placeholder.
 |------|-------------|
 | `__init__.py` | Package marker |
 | `auth.py` | `AuthService.exchange_code()` — POSTs to Cognito `/oauth2/token`, supports PKCE and confidential clients; logs exchange start/success/failure |
+| `conversation.py` | **Implemented** (Streaming Platform, Milestone 2.9.10) — `ConversationService`: `get_or_create()` (owner-scoped), `load_history()` (returns langchain `HumanMessage`/`AIMessage`), `append_turn()` (persists both halves of a completed exchange, commits explicitly like `UserService`) |
 | `document_processing_service.py` | `DocumentProcessingService` — orchestrates the processing lifecycle and persists status transitions (PROCESSING → COMPLETED/FAILED) |
 | `queued_document_processing_service.py` | `QueuedDocumentProcessingService` — bridges the queue to the processing pipeline: resolves the `Document` for a `ProcessingJob`, builds the `ParseRequest`, and invokes `DocumentProcessingService` |
 | `user.py` | `UserService` — `sync_user`, `create_user`, `get_user_by_id/email`, `update_last_login`, `deactivate_user`; logs all lifecycle events including `user.not_found` and `user.deactivated` |
@@ -1013,6 +1055,8 @@ All empty.
 | `ADR-024-generation-model-strategy.md` | Decision: Generation Platform adopts a multi-provider model strategy optimizing for quality/cost/latency/privacy/capability diversity rather than benchmark rankings alone |
 | `ADR-025-platform-roadmap.md` | Decision: freezes the long-term platform roadmap — ResearchMind is an AI Research Platform (Knowledge → Context → Generation → Evaluation → Research Runtime → Agent Runtime → MCP Integrations), not a single RAG application; Generation Platform maturity tracked inline (~75%) |
 | `ADR-026-model-routing-platform.md` | Decision: introduces a dedicated Model Routing Platform inside the Generation Platform — a centralized decision layer (model/provider/fallback selection, cost optimization, task-based routing) rather than embedding model choice inside agents or duplicating provider-selection logic across callers |
+| `ADR-027-runtime-caching-platform.md` | Decision: introduces a Runtime Caching Platform (L1 exact/L2 semantic/L3 session) wired into `GenerationService`; streaming requests participate in caching identically to non-streaming ones (corrected as part of the Streaming Platform work — see ADR-028) rather than bypassing the cache entirely |
+| `ADR-028-streaming-platform.md` | Decision: introduces the Streaming Platform as two independent layers — a Runtime Event Platform (`runtime/events/`, canonical `StreamEvent` protocol reusable by any future runtime) and a Generation Streaming Platform (`generation/streaming/`, SSE/WebSocket transport + cache-aware orchestration) — rather than a chat-only streaming feature or a duplicated `streaming/providers/` hierarchy. Reconciled during implementation: the event-type model is layered (each future runtime owns its own enum) rather than one flat shared enum, and `StreamEvent` is the richer 8-field shape consistently across the doc |
 
 ---
 
@@ -1075,6 +1119,8 @@ All empty.
 | `repository-structure.md` | Repository layer patterns |
 | `reranking-platform.md` | Reranking Platform architecture (Milestone 2.7.2, companion to ADR-022) — CrossEncoder/Voyage AI providers, canonical models, integration strategy, evaluation metrics |
 | `retrieval-benchmarking-strategy.md` | Retrieval Benchmarking Strategy (**Accepted**) — freezes the initial evaluation methodology: dense/sparse/hybrid scope, dataset size/format, 6 query categories with expected winners, ADR-020 metric requirements, the Hybrid decision gate (`Dense Results != Sparse Results`) |
+| `runtime-caching-platform.md` | Runtime Caching Platform architecture (companion to ADR-027, **Implemented**) — L1 exact/L2 semantic/L3 session caching, policy resolution; its "Streaming" section was corrected during the Streaming Platform work to remove the blanket `request.stream` cache bypass |
+| `streaming-platform.md` | Streaming Platform architecture (companion to ADR-028, **Implemented**) — Runtime Event Platform + Generation Streaming Platform two-layer design, layered event-type model, SSE/WebSocket transports, cache-hit replay, "Production Considerations" (SSE heartbeats, proxy buffering, stream timeout ceiling, browser `EventSource`/WebSocket auth limitations) |
 | `structured-output-platform.md` | Structured Output Platform (**~99% complete in its own scope**) — the continuously-updated, detailed architecture doc for `generation/structured_output/`, `generation/validation/`, `generation/langchain/`, and the Prompt Platform bridge: native provider structured output, parser/repair fallback, input/output/hallucination validation (registry, scoring, `ValidationReport`), regeneration strategy, provider capability flags, prompt-template integration |
 | `system-overview.md` | High-level system overview |
 

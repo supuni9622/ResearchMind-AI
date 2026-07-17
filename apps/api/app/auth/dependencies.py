@@ -19,26 +19,25 @@ security = HTTPBearer(auto_error=False)
 
 
 @lru_cache
-def _get_jwt_verifier() -> JWTVerifier:
+def get_jwt_verifier() -> JWTVerifier:
     return JWTVerifier(CognitoAuthenticationProvider())
 
 
-async def get_current_user(
-    credentials: HTTPAuthorizationCredentials | None = Depends(security),
-    session: AsyncSession = Depends(get_db),
+async def authenticate_token(
+    token: str,
+    session: AsyncSession,
 ) -> User:
     """
-    Authenticate the current request and return
-    the authenticated ResearchMind user.
+    Verifies a bearer token and returns the synced ResearchMind user.
+
+    Shared by `get_current_user` (HTTP, token from the `Authorization`
+    header) and the chat WebSocket route (`?token=` query param, since a
+    browser's WebSocket handshake can't set a custom header) so both
+    authenticate identically instead of duplicating this flow.
     """
 
-    if credentials is None:
-        raise UnauthorizedException(
-            message="Authentication credentials were not provided.",
-        )
-
-    claims = await _get_jwt_verifier().verify(
-        credentials.credentials,
+    claims = await get_jwt_verifier().verify(
+        token,
     )
 
     service = UserService(session)
@@ -59,3 +58,23 @@ async def get_current_user(
     structlog.contextvars.bind_contextvars(user_id=str(user.id))
 
     return user
+
+
+async def get_current_user(
+    credentials: HTTPAuthorizationCredentials | None = Depends(security),
+    session: AsyncSession = Depends(get_db),
+) -> User:
+    """
+    Authenticate the current request and return
+    the authenticated ResearchMind user.
+    """
+
+    if credentials is None:
+        raise UnauthorizedException(
+            message="Authentication credentials were not provided.",
+        )
+
+    return await authenticate_token(
+        credentials.credentials,
+        session,
+    )

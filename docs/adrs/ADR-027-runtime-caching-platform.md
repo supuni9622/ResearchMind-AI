@@ -158,10 +158,12 @@ Enabled for:
 - chat
 - research
 - benchmarks
+- streaming (content-addressed lookup/store — a hit is replayed as a
+  synthetic token stream by the Generation Streaming Platform rather than
+  skipped; see `docs/architecture/streaming-platform.md`)
 
 Disabled for:
 
-- streaming
 - planners
 - tool execution
 

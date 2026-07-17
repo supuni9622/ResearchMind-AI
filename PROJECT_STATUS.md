@@ -2,7 +2,7 @@
 
 **Last Updated:** 2026-07-17
 
-**Current Maturity:** NotebookLM++ + Perplexity Foundation — Hybrid Retrieval, Reranking, Parent Expansion, Compression, Context Guardrails, and Prompt Formatter strategies are all in place, putting the platform ahead of NotebookLM and closing in on a Perplexity v1 experience. A standalone, platform-wide Guardrails Platform (input/retrieval/generation/runtime stages, Source Trust, policies, scoring, artifacts) now sits alongside the Validation Platform as a completed foundation layer. The Generation Platform's Routing Platform (model/provider selection, scored catalog, strategy-weighted fallback chains) and Runtime Caching Platform (L1 exact/L2 semantic/L3 session caching, policy resolution, wired into `GenerationService`) are now complete, bringing Generation to ~80%. Maturity ladder: `NotebookLM++ → Perplexity v1 (almost here) → Open Deep Research → Manus / Glean`.
+**Current Maturity:** NotebookLM++ + Perplexity Foundation — Hybrid Retrieval, Reranking, Parent Expansion, Compression, Context Guardrails, and Prompt Formatter strategies are all in place, putting the platform ahead of NotebookLM and closing in on a Perplexity v1 experience. A standalone, platform-wide Guardrails Platform (input/retrieval/generation/runtime stages, Source Trust, policies, scoring, artifacts) now sits alongside the Validation Platform as a completed foundation layer. The Generation Platform's Routing Platform (model/provider selection, scored catalog, strategy-weighted fallback chains), Runtime Caching Platform (L1 exact/L2 semantic/L3 session caching, policy resolution, wired into `GenerationService`), and Streaming Platform (canonical event protocol, SSE + WebSocket transports, `stream_generate()`, cache-hit replay) are now complete, bringing Generation to ~85%. Critically, the Generation Platform is now reachable over HTTP for the first time — `POST /api/v1/chat/stream` (SSE) and `/api/v1/chat/ws` (WebSocket) are live, backed by a new minimal Conversation/Message persistence layer. Maturity ladder: `NotebookLM++ → Perplexity v1 (almost here) → Open Deep Research → Manus / Glean`.
 
 ---
 
@@ -730,9 +730,9 @@ Remaining before Milestone 2.8 closes:
 
 # Milestone 2.9 — Generation Platform
 
-**Status:** 🟡 ~80% Complete
+**Status:** 🟡 ~85% Complete
 
-The Generation Platform owns all LLM interactions, consuming the Context Platform's `Prompt Context` output. Provider abstraction (all five providers), Structured Output Integration, a multi-stage Validation Platform integration (input/output/hallucination validators, a `ValidationRegistry`, weighted scoring, and a `ValidationReport`), a regenerate-on-invalid-output loop, a Prompt Platform bridge, a Routing Platform (model/provider selection with fallback chains), and a Runtime Caching Platform (L1/L2/L3 caching with policy resolution) are all implemented this milestone. Detail: `docs/architecture/structured-output-platform.md` (Structured Output/Validation), `docs/architecture/model-routing-platform.md` + ADR-026 (Routing), and `docs/architecture/runtime-caching-platform.md` + ADR-027 (Caching).
+The Generation Platform owns all LLM interactions, consuming the Context Platform's `Prompt Context` output. Provider abstraction (all five providers), Structured Output Integration, a multi-stage Validation Platform integration (input/output/hallucination validators, a `ValidationRegistry`, weighted scoring, and a `ValidationReport`), a regenerate-on-invalid-output loop, a Prompt Platform bridge, a Routing Platform (model/provider selection with fallback chains), a Runtime Caching Platform (L1/L2/L3 caching with policy resolution), and a Streaming Platform (canonical event protocol + SSE/WebSocket transports, wired into a new `POST /api/v1/chat/stream` / `/api/v1/chat/ws`) are all implemented this milestone. Detail: `docs/architecture/structured-output-platform.md` (Structured Output/Validation), `docs/architecture/model-routing-platform.md` + ADR-026 (Routing), `docs/architecture/runtime-caching-platform.md` + ADR-027 (Caching), and `docs/architecture/streaming-platform.md` + ADR-028 (Streaming).
 
 Pipeline
 
@@ -869,7 +869,7 @@ Implemented (`generation/caching/`)
 - **L3 Session Cache** — Valkey-backed, general-purpose session-scoped store (`get_session`/`set_session`/`invalidate_session`/`clear_session`); implemented and exposed on `CachingService` but not yet called from anywhere — no conversation/research-session runtime exists yet to call it (PRD Phase 3 territory)
 - **Policy Resolution (FR-4)** — `CachePolicy` (`AUTO`/`NEVER`/`EXACT_ONLY`/`SEMANTIC`/`SESSION`) resolved per `CacheRuntime` (Chat/Research/Benchmark/Planner/Tool Agent/Summarizer/Reviewer/Critic) via `CachePolicyResolver`, with an explicit `GenerationRequest.cache_policy` override always winning; `GenerationRequest` gained `cache_runtime`/`cache_policy` fields, mirroring how `routing_strategy` already lives directly on the request
 - **Statistics (FR-5)** — in-memory `CacheStatistics` (exact/semantic/session hits, misses, hit ratio, tokens saved, cost saved) plus a structured `caching.lookup` log line per call (`cache_hit`, `cache_level`, `cache_latency_ms`, `tokens_saved`, `cost_saved`)
-- **Streaming bypass** — `request.stream` skips lookup and store entirely, per the PRD
+- **Streaming integration** — originally `request.stream` skipped lookup/store entirely per the PRD; corrected in Milestone 2.9.10 so streaming requests participate in caching identically to non-streaming ones, with `StreamingService` (not `CachingService`) deciding to replay a hit as a synthetic token stream
 - **Artifact shape** — `GenerationResult.metadata["cache"]` populated with `{hit, level, tokens_saved, cost_saved}` on every call (hit or miss), mirroring the existing `metadata["routing"]` pattern; the Artifacts platform itself (`generation/artifacts/`) is still an empty scaffold, so there's no persistence layer yet to consume this
 - Null-object providers (`exact/null.py`, `semantic/null.py`, `session/null.py`) back each layer's `settings.*_cache_enabled` flag, so a disabled layer no-ops instead of every call site needing an `is not None` check
 - 22 new unit tests (`tests/unit/ai/runtime/generation/caching/`) — key builder determinism/sensitivity, policy resolution precedence, `CachingService` policy branching (AUTO/EXACT_ONLY/SEMANTIC/NEVER/streaming), statistics, session cache independence
@@ -885,14 +885,48 @@ Documentation
 - ADR-027 — Runtime Caching Platform
 - `docs/architecture/runtime-caching-platform.md`
 
+## 2.9.10 Streaming Platform
+
+**Status:** ✅ Complete (per `streaming_platform_prd.md`, ADR-028)
+
+The Streaming Platform is the canonical event infrastructure for real-time execution, built as two independent layers per the ADR: a Runtime Event Platform (`runtime/events/`) providing a provider-independent `StreamEvent` protocol reusable by any future runtime, and a Generation Streaming Platform (`generation/streaming/`) providing SSE/WebSocket transport, cache-aware orchestration, and lifecycle management on top of it. This is also the milestone that first put a live HTTP surface in front of `GenerationService` — `chat.py` was a 0-byte, unregistered file before this work.
+
+Implemented (`runtime/events/` + `generation/streaming/`)
+
+- **Runtime Event Platform** — `StreamEvent` (`event_id`, `session_id`, `request_id`, `parent_event_id`, `category: EventCategory`, `type: str`, `timestamp`, `content`, `metadata`); `type` is a plain string rather than one shared enum, so each future runtime (Research/Agent/Tool — reserved under `runtime/events/{research,agent,tool}/models.py`) owns its own event vocabulary without ever touching this shared model. One `GenericStreamChunkAdapter` (not five duplicated per-provider adapters) converts every provider's already-normalized `StreamChunk` into a `StreamEvent`, since Layer-1 SDK-specific normalization already happens inside each provider's `stream()`
+- **`GenerationService.stream_generate()`** (R2) — streaming counterpart to `generate()`; resolves a provider explicitly or via the Routing Platform's top candidate (no mid-stream fallback, unlike `generate()`'s retry loop), then yields directly from `generation_provider.stream()`. `GenerationService.registry`/`resolve_streaming_provider()` are now public so `StreamingService` can reuse the same registered provider instances
+- **`StreamingService`** (`generation/streaming/service.py`) — orchestrates cache lookup, live streaming, and cache store. On a cache hit, replays the cached content as synthetic `TOKEN` events (character-chunked) rather than skipping streaming's contract entirely; on a miss, streams live and stores the assembled full result once the stream reaches `COMPLETE` (best-effort token statistics via `count_tokens()`, since today's provider `stream()` implementations don't surface real usage mid-stream)
+- **Transports** — `transports/sse.py` (`StreamingResponse`, heartbeat comment lines on an idle interval to survive load-balancer/proxy timeouts, a hard max-duration ceiling, `X-Accel-Buffering: no`); `transports/websocket.py` (JSON frames over an accepted `WebSocket`, disconnect cancels the underlying generation)
+- **API wiring** — `POST /api/v1/chat/stream` (SSE, `Authorization` header via `get_current_user` — deliberately a `POST` consumed via `fetch`/`ReadableStream`, not a bare `EventSource`, since browsers can't attach custom headers to an `EventSource`/WebSocket handshake) and `/api/v1/chat/ws` (WebSocket, `?token=` query-param auth through a new shared `authenticate_token()` helper in `auth/dependencies.py`)
+- **New Conversation persistence** (not part of the original PRD's scope, added because chat needed history) — `Conversation`/`Message` SQLAlchemy models, `ConversationRepository`, `ConversationService` (multi-turn history folded into `user_prompt` as a text transcript, since `BaseGenerationProvider.build_messages` only builds a single system+user pair today, not a message array), and a new Alembic migration
+
+Runtime Caching Platform correction made as part of this work: `CachingService.lookup()`/`store()` previously bypassed caching entirely whenever `request.stream` was set (see Milestone 2.9.9). That blanket bypass has been removed — streaming requests are looked up/stored identically to non-streaming ones; only `StreamingService`, not `CachingService`, decides to replay a hit as a synthetic stream. `docs/adrs/ADR-027-runtime-caching-platform.md` and its architecture doc were updated to match.
+
+Also corrected: the PRD/ADR-028/architecture docs contained a self-contradiction (a flat `StreamEventType` enum mixing generation/research/agent/validation values, despite the platform's own Non-Goals excluding agents/research) and two inconsistent `StreamEvent` shapes (5 vs. 8 fields) across the three documents. All three were reconciled in place before implementation.
+
+Testing: unit tests for `runtime/events/adapters`, `StreamingService` (cache-hit replay, live-stream store-on-complete, error path), `GenerationService.stream_generate()` (provider resolution, capability check), plus an integration test exercising `POST /api/v1/chat/stream` end-to-end (SSE frame order, persisted turn). Full repo suite (828 tests), ruff, and mypy all pass clean.
+
+Known gaps (deliberate, documented)
+
+- Cache-hit replay chunks by fixed character count, not real token boundaries — a documented approximation, not a faithful stream replay
+- No rate limiting / per-user concurrent-stream cap yet, despite being called out in the docs' "Production Considerations"
+- Multi-turn history is a text transcript prefix, not a real langchain message array — blocked on providers gaining a multi-message API
+
+Documentation
+
+- ADR-028 — Streaming Platform Architecture
+- `docs/architecture/streaming-platform.md`
+- `streaming_platform_prd.md`
+
 ## Not Yet Built
 
-- ❌ `POST /research` API, streaming chat API
+- ❌ `POST /research` API (chat streaming is now implemented — see Milestone 2.9.10)
 - ❌ Artifact persistence
 - ❌ Runtime Validators / Contracts layer, Completeness/Consistency/Formatting/Response-Size output checks (see Milestone 2.9.4)
 - ❌ Adaptive/evaluation-driven routing, budget-aware routing, A/B experimentation (Routing Platform Phase 2+ — see Milestone 2.9.7)
 - ❌ Session Cache wiring — implemented and available (Milestone 2.9.9) but nothing calls it yet
-- 🟡 Test suite — `validation/`, `providers/`, `prompts/`, `routing/`, `catalog/`, `caching/`, and core `service.py` all have unit test coverage now; still nothing under `artifacts/`
+- ❌ Streaming rate limiting / per-user concurrent-stream cap, real multi-message chat history (Milestone 2.9.10)
+- 🟡 Test suite — `validation/`, `providers/`, `prompts/`, `routing/`, `catalog/`, `caching/`, `streaming/`, `runtime/events/`, and core `service.py` all have unit test coverage now; still nothing under `artifacts/`
 
 Generation-level guardrails, previously listed here as a gap, are now implemented — see Milestone 11.16 below.
 
@@ -1084,13 +1118,15 @@ Standalone (not yet wired into the pipeline above): the Guardrails Platform (`ap
 | Phase 2.6 — Indexing Platform (Hybrid Retrieval) | ✅ Complete |
 | Phase 2.7 — Retrieval Platform | ✅ Complete (incl. Metadata Filtering + Reranking + Parallel Retrieval) |
 | Phase 2.8 — Context Platform | 🟡 ~90% Complete (Parent Expansion, Adjacent Merge, Compression V1/V2, Guardrails V1, Citations, Prompt Formatter done; LangChain + LLM compression remain) |
-| Phase 2.9 — Generation Platform | 🟡 ~80% Complete (Structured Output Integration, Validation Platform integration incl. input/output/hallucination validators + scoring, Regeneration, Prompt Platform bridge, Routing Platform, Runtime Caching Platform done; runtime validators/contracts, artifacts, /research API remain) |
+| Phase 2.9 — Generation Platform | 🟡 ~85% Complete (Structured Output Integration, Validation Platform integration incl. input/output/hallucination validators + scoring, Regeneration, Prompt Platform bridge, Routing Platform, Runtime Caching Platform, Streaming Platform (SSE+WS chat, wired) done; runtime validators/contracts, artifacts, /research API remain) |
 | Milestone 11.16 — Guardrails Platform | ✅ Complete (MVP Foundation — input/retrieval/generation/runtime guardrails, Source Trust, policies, scoring, artifacts; standalone, not yet wired into the generation pipeline) |
 | Benchmark Platform | ✅ Foundation Complete (incl. Retrieval, Metadata Filtering, Reranking Benchmarks) |
 
 ---
 
 # Recently Completed
+
+✅ Streaming Platform (Generation Platform Milestone 2.9.10, per `streaming_platform_prd.md`/ADR-028) — Runtime Event Platform (`runtime/events/`: canonical `StreamEvent`, layered event-type model so future runtimes never touch shared code, one shared `GenericStreamChunkAdapter`) + Generation Streaming Platform (`generation/streaming/`: `GenerationService.stream_generate()`, `StreamingService` with cache-hit replay and cache-store-on-complete, SSE transport with heartbeat/timeout-ceiling, WebSocket transport), wired into a new `POST /api/v1/chat/stream` + `/api/v1/chat/ws` (previously an empty, unregistered `chat.py`). Required a new Conversation/Message persistence layer (models, repository, service, migration) since chat needed multi-turn history. Fixed a real bug found during the work: `CachingService` unconditionally bypassed the cache for every streaming request; now streaming participates in caching like any other request, with the hit-replay decision moved to `StreamingService`. Also fixed self-contradictions in the PRD/ADR-028/architecture docs (a flat event-type enum vs. the docs' own layered model, inconsistent `StreamEvent` field counts) before implementing. 24 new unit/integration tests; full repo suite (828 tests), ruff, and mypy pass clean
 
 ✅ Runtime Caching Platform (Generation Platform Milestone 2.9.9, per `runtime_caching_platform_prd.md`/ADR-027) — L1 Exact Cache (Valkey-backed), L2 Semantic Cache (LangChain `RedisSemanticCache` against a dedicated `redis-stack-server` instance, context-isolated via a folded discriminator), L3 Session Cache (implemented, not yet wired to a caller), a `CachePolicyResolver` (AUTO/NEVER/EXACT_ONLY/SEMANTIC/SESSION per `CacheRuntime`), in-memory `CacheStatistics`, streaming bypass, and `GenerationResult.metadata["cache"]` artifact stamping. Wired directly into `GenerationService`. Required downgrading `redis` to `<8.0` to satisfy `langchain-redis`'s `redisvl` dependency (verified safe against actual usage) and fixing resulting stub regressions in the pre-existing `ValkeyQueue`. 22 new unit tests
 
@@ -1168,7 +1204,7 @@ Standalone (not yet wired into the pipeline above): the Guardrails Platform (`ap
 
 # Current Focus
 
-## Phase 2.8 — Context Platform (wrapping up) + Phase 2.9 — Generation Platform (~80% complete, in progress)
+## Phase 2.8 — Context Platform (wrapping up) + Phase 2.9 — Generation Platform (~85% complete, in progress)
 
 Parent Expansion, Adjacent Merge, Token Budget + Embedding Compression, Guardrails V1, Citations, and Prompt Formatter are all implemented (see Milestone 2.8 above), bringing the Context Platform to ~90% complete. Remaining scope to close it out:
 
@@ -1178,7 +1214,7 @@ Parent Expansion, Adjacent Merge, Token Budget + Embedding Compression, Guardrai
 - Retrieval result cache
 - Scaling the retrieval benchmark dataset (5 → 20-50 documents, 20 → 100 queries, chunk-level relevance) — see `README.md` TODO
 
-The **Generation Platform** (Milestone 2.9) is now ~80% complete (see Milestone 2.9 above): provider abstraction, Structured Output Integration (native decoding + parser fallback + Markdown/XML registry + LangChain `with_structured_output()`), Validation Platform integration (input/output/hallucination validators, registry, weighted scoring, `ValidationReport`), Regeneration Strategy, a provider-capability guard, Prompt Platform integration, a Routing Platform (scored model catalog, task-based strategies, capability/policy filtering, fallback chains — Milestone 2.9.7), and now a Runtime Caching Platform (L1 exact/L2 semantic/L3 session caching, policy resolution — Milestone 2.9.9) are all done. Remaining before it's complete: `/research` API, streaming chat API, artifact persistence, per-runtime Validation Contracts/Runtime Validators, and the remaining PRD output checks (completeness/consistency/formatting/response-size). Then Evaluation Platform expansion (Milestone 6) and a LangGraph-based Research Runtime (Milestone 7) follow.
+The **Generation Platform** (Milestone 2.9) is now ~85% complete (see Milestone 2.9 above): provider abstraction, Structured Output Integration (native decoding + parser fallback + Markdown/XML registry + LangChain `with_structured_output()`), Validation Platform integration (input/output/hallucination validators, registry, weighted scoring, `ValidationReport`), Regeneration Strategy, a provider-capability guard, Prompt Platform integration, a Routing Platform (scored model catalog, task-based strategies, capability/policy filtering, fallback chains — Milestone 2.9.7), a Runtime Caching Platform (L1 exact/L2 semantic/L3 session caching, policy resolution — Milestone 2.9.9), and now a Streaming Platform (canonical event protocol, SSE + WebSocket transports, wired into a live `POST /api/v1/chat/stream` / `/api/v1/chat/ws` — Milestone 2.9.10) are all done. Remaining before it's complete: `/research` API, artifact persistence, per-runtime Validation Contracts/Runtime Validators, the remaining PRD output checks (completeness/consistency/formatting/response-size), streaming rate limiting, and a real multi-message chat history API. Then Evaluation Platform expansion (Milestone 6) and a LangGraph-based Research Runtime (Milestone 7) follow.
 
 The **Guardrails Platform** (Milestone 11.16, see above) is now complete as a standalone MVP foundation — input/retrieval/generation/runtime guardrails, a new Source Trust Platform, policies, weighted risk scoring, and artifact persistence. It is not yet wired into `GenerationService`, the context builder, or a router (the PRD's own "Generation Integration" is explicitly a later phase); `get_guardrail_service()` is the integration seam once that wiring is prioritized.
 
@@ -1209,7 +1245,7 @@ Context Platform (~90%) 🟡
 
 ↓
 
-Generation Platform (~80%) 🟡
+Generation Platform (~85%) 🟡
   Provider Abstraction (5 providers) ✅
   Structured Output Integration (native + fallback + registry + LangChain) ✅
   Validation Platform Integration (input/output/hallucination validators, registry, scoring, ValidationReport) 🟡 — runtime validators/contracts, completeness/consistency/formatting/response-size ⏳
@@ -1218,7 +1254,8 @@ Generation Platform (~80%) 🟡
   Routing Platform (scored catalog, task-based strategies, fallback chains) ✅
   Prompt Platform Integration ✅
   Runtime Caching Platform (L1 exact, L2 semantic, L3 session, policy resolution) ✅ — Session Cache not yet wired to a caller ⏳
-  /research API, streaming chat, artifacts ❌
+  Streaming Platform (runtime/events + generation/streaming, SSE + WebSocket, chat.py wired) ✅ — rate limiting, real multi-message history ⏳
+  /research API, artifacts ❌
 
 ↓
 
@@ -1231,7 +1268,7 @@ Guardrails Platform (Milestone 11.16) ✅ Foundation — standalone, not yet wir
 
 ↓
 
-Chat
+Chat 🟡 — basic streaming chat (SSE + WebSocket, Conversation/Message history) is live via the Streaming Platform (Milestone 2.9.10); not yet wired to Retrieval/Context (no `PromptContext.chunks`) or the Guardrails Platform
 
 ↓
 

@@ -5,7 +5,7 @@ Covers:
 - AUTO tries L1 first; a miss falls through to L2
 - EXACT_ONLY never consults L2; SEMANTIC never consults L1
 - NEVER performs no lookup/store at all
-- Streaming requests bypass caching entirely regardless of policy
+- Streaming requests are looked up/stored the same as non-streaming ones
 - store() populates the layer(s) the policy allows
 - CacheStatistics tallies hits/misses and tokens/cost saved
 - Session cache get/set/invalidate/clear operate independently of policy
@@ -190,8 +190,16 @@ async def test_never_policy_skips_all_lookups() -> None:
     assert semantic_provider.get_calls == 0
 
 
-async def test_streaming_bypasses_cache_regardless_of_policy() -> None:
-    service, exact_provider, semantic_provider = _make_caching_service()
+async def test_streaming_requests_participate_in_cache_like_any_other() -> None:
+    """
+    Streaming requests are looked up/stored on the same content-addressed
+    key as non-streaming ones -- CachingService itself has no opinion on
+    whether a request streams. Replaying a hit as a synthetic token stream
+    (instead of skipping the cache) is StreamingService's job, not this
+    layer's -- see generation/streaming/service.py.
+    """
+
+    service, exact_provider, _ = _make_caching_service()
 
     request = make_request(stream=True)
 
@@ -204,9 +212,9 @@ async def test_streaming_bypasses_cache_regardless_of_policy() -> None:
         routing_strategy=RoutingStrategy.AUTO,
     )
 
-    assert cache_result.hit is False
-    assert exact_provider.set_calls == 0
-    assert exact_provider.get_calls == 0
+    assert cache_result.hit is True
+    assert exact_provider.set_calls == 1
+    assert exact_provider.get_calls == 1
 
 
 async def test_statistics_track_hits_misses_and_savings() -> None:

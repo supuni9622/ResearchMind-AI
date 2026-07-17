@@ -35,6 +35,8 @@ from app.ai.runtime.generation.models import (
     GenerationResult,
     GenerationStatistics,
     ProviderCapabilities,
+    StreamChunk,
+    StreamEventType,
 )
 from app.ai.runtime.generation.registry import GenerationRegistry
 from app.ai.runtime.generation.routing.enums import RoutingStrategy
@@ -503,3 +505,115 @@ async def test_generate_wraps_no_eligible_models_error_as_validation_error() -> 
 
     with pytest.raises(GenerationValidationError, match="nothing eligible"):
         await service.generate(request=request)
+
+
+# ==========================================================
+# stream_generate() (R2 -- Streaming Platform)
+# ==========================================================
+
+
+async def _collect(async_gen):
+    return [item async for item in async_gen]
+
+
+async def _fake_stream(chunks):
+    for chunk in chunks:
+        yield chunk
+
+
+def test_registry_exposes_the_registry_it_was_built_with() -> None:
+    registry = GenerationRegistry(providers=[])
+    service = GenerationService(registry=registry)
+
+    assert service.registry is registry
+
+
+async def test_stream_generate_yields_from_the_explicit_providers_stream() -> None:
+    request = _make_request()
+
+    chunks = [
+        StreamChunk(event=StreamEventType.START),
+        StreamChunk(event=StreamEventType.TOKEN, content="hi"),
+        StreamChunk(event=StreamEventType.COMPLETED),
+    ]
+
+    provider = _make_capable_provider(GenerationProvider.GROQ)
+    provider.stream = MagicMock(return_value=_fake_stream(chunks))
+
+    registry = GenerationRegistry(providers=[provider])
+    service = GenerationService(registry=registry)
+
+    result = await _collect(
+        service.stream_generate(request=request, provider=GenerationProvider.GROQ)
+    )
+
+    assert result == chunks
+    provider.stream.assert_called_once_with(request)
+
+
+async def test_stream_generate_raises_for_an_unregistered_explicit_provider() -> None:
+    request = _make_request()
+
+    registry = GenerationRegistry(providers=[])
+    service = GenerationService(registry=registry)
+
+    with pytest.raises(GenerationProviderNotFoundError):
+        await _collect(service.stream_generate(request=request, provider=GenerationProvider.GROQ))
+
+
+async def test_stream_generate_raises_validation_error_for_empty_prompt() -> None:
+    request = _make_request(user_prompt="   ")
+
+    registry = GenerationRegistry(providers=[])
+    service = GenerationService(registry=registry)
+
+    with pytest.raises(GenerationValidationError):
+        await _collect(service.stream_generate(request=request, provider=GenerationProvider.GROQ))
+
+
+async def test_stream_generate_without_provider_routes_to_the_selected_model() -> None:
+    request = _make_request()
+
+    chunks = [StreamChunk(event=StreamEventType.TOKEN, content="hi")]
+
+    provider = _make_capable_provider(GenerationProvider.GROQ)
+    provider.stream = MagicMock(return_value=_fake_stream(chunks))
+
+    selected = _make_model("llama-3.3-70b-versatile", GenerationProvider.GROQ)
+    decision = _make_decision(selected=selected)
+
+    registry = GenerationRegistry(providers=[provider])
+    service = GenerationService(
+        registry=registry,
+        routing_service=_make_routing_service(decision),
+    )
+
+    result = await _collect(service.stream_generate(request=request))
+
+    assert result == chunks
+
+
+async def test_stream_generate_without_provider_raises_when_no_routing_service_wired() -> None:
+    request = _make_request()
+
+    registry = GenerationRegistry(providers=[])
+    service = GenerationService(registry=registry)
+
+    with pytest.raises(GenerationValidationError, match="RoutingService"):
+        await _collect(service.stream_generate(request=request))
+
+
+async def test_stream_generate_raises_when_routed_provider_is_not_registered() -> None:
+    request = _make_request()
+
+    selected = _make_model("llama-3.3-70b-versatile", GenerationProvider.GROQ)
+    decision = _make_decision(selected=selected)
+
+    registry = GenerationRegistry(providers=[])
+    service = GenerationService(
+        registry=registry,
+        routing_service=_make_routing_service(decision),
+    )
+
+    with pytest.raises(GenerationProviderNotFoundError):
+        await _collect(service.stream_generate(request=request))

@@ -13,6 +13,9 @@ without modifying the rest of the application.
 from __future__ import annotations
 
 import structlog
+from app.ai.guardrails.create import (
+    get_guardrail_service,
+)
 from app.ai.runtime.generation.caching.create import (
     create_caching_service,
 )
@@ -234,4 +237,5 @@ def create_generation_service() -> GenerationService:
         prompt_service=get_prompt_service(),
         routing_service=create_routing_service(),
         caching_service=create_caching_service(),
+        guardrail_service=get_guardrail_service(),
     )

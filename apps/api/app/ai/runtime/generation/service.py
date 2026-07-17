@@ -5,6 +5,9 @@ from typing import Any
 from uuid import uuid4
 
 import structlog
+from app.ai.guardrails.service import (
+    GuardrailService,
+)
 from app.ai.knowledge.context.models import (
     PromptContext,
 )
@@ -23,6 +26,7 @@ from app.ai.runtime.generation.exceptions import (
     GenerationExecutionError,
     GenerationProviderNotFoundError,
     GenerationValidationError,
+    GuardrailViolationError,
 )
 from app.ai.runtime.generation.interfaces import (
     GenerationProviderInterface,
@@ -104,6 +108,7 @@ class GenerationService:
         prompt_service: PromptService | None = None,
         routing_service: RoutingService | None = None,
         caching_service: CachingService | None = None,
+        guardrail_service: GuardrailService | None = None,
     ):
         self._registry = registry
 
@@ -116,6 +121,8 @@ class GenerationService:
         self._routing_service = routing_service
 
         self._caching_service = caching_service
+
+        self._guardrail_service = guardrail_service
 
     @property
     def registry(
@@ -149,6 +156,10 @@ class GenerationService:
         """
 
         self._validate(
+            request,
+        )
+
+        await self._enforce_input_guardrails(
             request,
         )
 
@@ -186,6 +197,10 @@ class GenerationService:
         """
 
         self._validate(
+            request,
+        )
+
+        await self._enforce_input_guardrails(
             request,
         )
 
@@ -682,6 +697,12 @@ class GenerationService:
                 result=result,
             )
 
+        if self._guardrail_service is not None:
+            await self._enforce_generation_guardrails(
+                request=request,
+                result=result,
+            )
+
         if self._validation_service is not None:
             result.validation = await self._validation_service.validate(
                 request=request,
@@ -962,6 +983,73 @@ class GenerationService:
                 output_model=request.output_model.__name__,
                 error_type=type(exc).__name__,
                 error=str(exc),
+            )
+
+    # ==========================================================
+    # Guardrails
+    # ==========================================================
+
+    async def _enforce_input_guardrails(
+        self,
+        request: GenerationRequest,
+    ) -> None:
+        """
+        PRD (guardrail_integration_prd.md) §7 "Input Guardrails": runs
+        before the provider is invoked at all, once per top-level
+        `generate()`/`stream_generate()` call (not per regeneration
+        attempt -- those re-check the corrected prompt themselves via
+        `_enforce_generation_guardrails`'s full `evaluate()` call below).
+        A blocked result terminates generation immediately.
+        """
+
+        if self._guardrail_service is None:
+            return
+
+        input_result = await self._guardrail_service.evaluate_input(
+            request,
+        )
+
+        if input_result.blocked:
+            raise GuardrailViolationError(
+                f"Input blocked by guardrails: "
+                f"{'; '.join(issue.message for issue in input_result.issues)}"
+            )
+
+    async def _enforce_generation_guardrails(
+        self,
+        *,
+        request: GenerationRequest,
+        result: GenerationResult,
+    ) -> None:
+        """
+        PRD §7 "Generation Guardrails": runs immediately after a
+        provider result (and its structured-output post-processing) is
+        available, before `ValidationService`. Reuses the platform's own
+        full `evaluate()` (input + retrieval + generation) rather than
+        calling `evaluate_generation()` alone, since `request.prompt_context`
+        already carries whatever chunks/citations were retrieved --
+        `GenerationResult.guardrails` (PRD §10) is meant to be the
+        complete multi-stage report, not just this stage. Re-running
+        `evaluate_input()` here is intentional, not duplicate logic: every
+        input guardrail is a pure/stateless check (see e.g.
+        `input/rate_limit.py`), and a regeneration attempt's corrected
+        `system_prompt` deserves its own check.
+        """
+
+        assert self._guardrail_service is not None
+
+        result.guardrails = await self._guardrail_service.evaluate(
+            request=request,
+            chunks=request.prompt_context.chunks,
+            result=result,
+            citations=request.prompt_context.citations,
+            run_id=result.generation_id,
+        )
+
+        if result.guardrails.blocked:
+            raise GuardrailViolationError(
+                f"Generation blocked by guardrails: "
+                f"{'; '.join(issue.message for issue in result.guardrails.issues)}"
             )
 
     @staticmethod

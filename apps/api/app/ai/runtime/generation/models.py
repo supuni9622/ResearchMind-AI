@@ -8,6 +8,9 @@ from enum import StrEnum
 from typing import Any
 from uuid import UUID, uuid4
 
+from app.ai.guardrails.models import (
+    GuardrailReport,
+)
 from app.ai.knowledge.context.models import (
     PromptContext,
 )
@@ -319,4 +322,12 @@ class GenerationResult(
     prior attempt's output failed to parse or failed validation. 0 means
     the first attempt was accepted (or `request.max_regeneration_attempts`
     was 0). This result reflects the *last* attempt made.
+    """
+
+    guardrails: GuardrailReport | None = None
+    """
+    Populated by `GenerationService.generate()` via `GuardrailService`
+    (see `guardrails/`) -- input, retrieval, and generation stage
+    checks. `None` when no `GuardrailService` was wired into
+    `GenerationService` (see `generation/create.py`).
     """

@@ -4,6 +4,7 @@ from functools import lru_cache
 
 import structlog
 
+from app.ai.guardrails.artifacts.writers import GuardrailArtifactWriter
 from app.ai.guardrails.generation.faithfulness import FaithfulnessGuardrail
 from app.ai.guardrails.generation.moderation import (
     AlwaysAllowModerationProvider,
@@ -35,6 +36,9 @@ from app.ai.runtime.generation.validation.output.hallucination_validator import 
 )
 from app.ai.runtime.generation.validation.output.json_validator import JsonValidator
 from app.ai.runtime.generation.validation.output.schema_validator import SchemaValidator
+from app.core.settings import settings
+from app.infrastructure.metrics.noop import NoOpMetricsRecorder
+from app.infrastructure.storage import create_storage
 
 logger = structlog.get_logger()
 
@@ -145,11 +149,20 @@ def create_guardrail_registry() -> GuardrailRegistry:
     return registry
 
 
+def create_guardrail_artifact_writer() -> GuardrailArtifactWriter:
+
+    return GuardrailArtifactWriter(
+        storage_provider=create_storage(settings),
+    )
+
+
 @lru_cache
 def get_guardrail_service() -> GuardrailService:
 
     service = GuardrailService(
         registry=create_guardrail_registry(),
+        artifact_writer=create_guardrail_artifact_writer(),
+        metrics=NoOpMetricsRecorder(),
     )
 
     logger.info(

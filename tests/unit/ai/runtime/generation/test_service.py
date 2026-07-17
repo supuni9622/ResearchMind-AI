@@ -12,6 +12,11 @@ Covers:
 - ValidationService integration: the report lands on result.validation,
   and only output-stage failures (not input-stage ones) trigger the
   regeneration loop
+- GuardrailService integration (guardrail_integration_prd.md): a blocked
+  input guardrail raises before the provider is ever called; a blocked
+  generation guardrail raises after the provider ran but before
+  ValidationService; an allowed run attaches the full GuardrailReport to
+  result.guardrails; no GuardrailService wired leaves it None
 """
 
 from __future__ import annotations
@@ -20,6 +25,14 @@ from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
 import pytest
+from app.ai.guardrails.enums import GuardrailCategory, GuardrailSeverity
+from app.ai.guardrails.interfaces import (
+    GenerationGuardrailInterface,
+    InputGuardrailInterface,
+)
+from app.ai.guardrails.models import GuardrailIssue
+from app.ai.guardrails.registry import GuardrailRegistry
+from app.ai.guardrails.service import GuardrailService
 from app.ai.knowledge.context.models import PromptContext
 from app.ai.runtime.generation.catalog.models import ModelMetadata
 from app.ai.runtime.generation.enums import GenerationProvider
@@ -617,3 +630,117 @@ async def test_stream_generate_raises_when_routed_provider_is_not_registered() -
 
     with pytest.raises(GenerationProviderNotFoundError):
         await _collect(service.stream_generate(request=request))
+
+
+# ==============================================================
+# GuardrailService integration
+# ==============================================================
+
+
+class _AlwaysBlockInputGuardrail(InputGuardrailInterface):
+    @property
+    def name(self) -> str:
+        return "always_block_input"
+
+    async def check(self, request: GenerationRequest) -> list[GuardrailIssue]:
+        return [
+            GuardrailIssue(
+                code="blocked",
+                severity=GuardrailSeverity.CRITICAL,
+                category=GuardrailCategory.PROMPT_INJECTION,
+                message="input blocked by test guardrail",
+            )
+        ]
+
+
+class _AlwaysBlockGenerationGuardrail(GenerationGuardrailInterface):
+    @property
+    def name(self) -> str:
+        return "always_block_generation"
+
+    async def check(self, result: GenerationResult) -> list[GuardrailIssue]:
+        return [
+            GuardrailIssue(
+                code="blocked",
+                severity=GuardrailSeverity.CRITICAL,
+                category=GuardrailCategory.MODERATION,
+                message="generation blocked by test guardrail",
+            )
+        ]
+
+
+def _make_guardrail_service(registry: GuardrailRegistry | None = None) -> GuardrailService:
+    return GuardrailService(registry=registry or GuardrailRegistry())
+
+
+async def test_generate_raises_guardrail_violation_when_input_blocked() -> None:
+    registry = GuardrailRegistry()
+    registry.register_input_guardrail(_AlwaysBlockInputGuardrail())
+
+    provider = _make_provider()
+    generation_registry = GenerationRegistry(providers=[provider])
+    service = GenerationService(
+        registry=generation_registry,
+        guardrail_service=_make_guardrail_service(registry),
+    )
+
+    with pytest.raises(GuardrailViolationError, match="Input blocked"):
+        await service.generate(provider=GenerationProvider.GROQ, request=_make_request())
+
+    provider.generate.assert_not_awaited()
+
+
+async def test_generate_raises_guardrail_violation_when_generation_blocked() -> None:
+    registry = GuardrailRegistry()
+    registry.register_generation_guardrail(_AlwaysBlockGenerationGuardrail())
+
+    request = _make_request()
+    result = _make_result(request)
+
+    provider = _make_provider()
+    provider.generate = AsyncMock(return_value=result)
+
+    generation_registry = GenerationRegistry(providers=[provider])
+    service = GenerationService(
+        registry=generation_registry,
+        guardrail_service=_make_guardrail_service(registry),
+    )
+
+    with pytest.raises(GuardrailViolationError, match="Generation blocked"):
+        await service.generate(provider=GenerationProvider.GROQ, request=request)
+
+    provider.generate.assert_awaited_once()
+
+
+async def test_generate_attaches_guardrail_report_when_allowed() -> None:
+    request = _make_request()
+    result = _make_result(request)
+
+    provider = _make_provider()
+    provider.generate = AsyncMock(return_value=result)
+
+    generation_registry = GenerationRegistry(providers=[provider])
+    service = GenerationService(
+        registry=generation_registry,
+        guardrail_service=_make_guardrail_service(),
+    )
+
+    returned = await service.generate(provider=GenerationProvider.GROQ, request=request)
+
+    assert returned.guardrails is not None
+    assert returned.guardrails.blocked is False
+
+
+async def test_generate_leaves_guardrails_none_without_a_guardrail_service() -> None:
+    request = _make_request()
+    result = _make_result(request)
+
+    provider = _make_provider()
+    provider.generate = AsyncMock(return_value=result)
+
+    registry = GenerationRegistry(providers=[provider])
+    service = GenerationService(registry=registry)
+
+    returned = await service.generate(provider=GenerationProvider.GROQ, request=request)
+
+    assert returned.guardrails is None

@@ -3,6 +3,8 @@ from __future__ import annotations
 from time import perf_counter
 from uuid import UUID
 
+from app.ai.guardrails.exceptions import GuardrailBlockedError
+from app.ai.guardrails.service import GuardrailService
 from app.ai.knowledge.context.builders.adjacent_merge import (
     AdjacentMergeService,
 )
@@ -57,6 +59,7 @@ class ContextBuilderService(
         citation_service: CitationService,
         guardrail_service: ContextGuardrailService,
         prompt_formatter: PromptFormatterService,
+        guardrail_platform_service: GuardrailService | None = None,
     ) -> None:
         self._parent_expansion = parent_expansion_service
         self._dedup = DeduplicationService()
@@ -69,6 +72,21 @@ class ContextBuilderService(
         self._merge = AdjacentMergeService()
         self._guardrails = guardrail_service
         self._formatter = prompt_formatter
+
+        self._guardrail_platform = guardrail_platform_service
+        """
+        Optional (guardrail_integration_prd.md §8 "Retrieval
+        Integration"). Distinct from `self._guardrails`
+        (`ContextGuardrailService`), the pre-existing chunk-level
+        sanitizer this pipeline already ran -- see `build()`'s "#
+        Guardrails" step below, which still runs unconditionally and is
+        untouched. This is the platform-level `GuardrailService`'s
+        retrieval stage (source trust, citation integrity, access
+        control, and that same sanitizer composed as one of four
+        checks -- see `guardrails/create.py`), run once up front on the
+        raw retrieved set and able to hard-block the whole run, not just
+        filter individual risky chunks. `None` skips it entirely.
+        """
 
     async def build(
         self,
@@ -98,6 +116,11 @@ class ContextBuilderService(
             )
             for chunk in retrieval.chunks
         ]
+
+        if self._guardrail_platform is not None:
+            await self._enforce_retrieval_guardrails(
+                chunks,
+            )
 
         chunks = self._dedup.deduplicate(
             chunks,
@@ -179,3 +202,29 @@ class ContextBuilderService(
                 security_warnings=(guardrail_result.warnings),
             ),
         )
+
+    async def _enforce_retrieval_guardrails(
+        self,
+        chunks: list[ContextChunk],
+    ) -> None:
+        """
+        guardrail_integration_prd.md §8: "Retrieved Chunks -> evaluate_retrieval()
+        -> Context Builder", run on the raw retrieved set before any of
+        dedup/expansion/merge/compression touches it. Citations don't
+        exist yet at this point (`self._citations.build()` runs later),
+        so `citation_integrity`'s check is a no-op here -- consistent
+        with `GuardrailService.evaluate_retrieval()`'s own citations=None
+        default.
+        """
+
+        assert self._guardrail_platform is not None
+
+        retrieval_result = await self._guardrail_platform.evaluate_retrieval(
+            chunks,
+        )
+
+        if retrieval_result.blocked:
+            raise GuardrailBlockedError(
+                f"Retrieval blocked by guardrails: "
+                f"{'; '.join(issue.message for issue in retrieval_result.issues)}"
+            )

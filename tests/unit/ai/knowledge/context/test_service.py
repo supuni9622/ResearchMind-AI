@@ -31,6 +31,10 @@ Covers:
 - Compression's removed-chunk count (summed across both the
   embedding-redundancy and token-budget passes) surfaces on
   ContextStatistics.compressed_chunks
+- Retrieval Guardrails integration (guardrail_integration_prd.md §8): a
+  blocked GuardrailService retrieval result raises before dedup/expansion
+  touches the chunks; an allowed result (or no GuardrailService wired at
+  all) doesn't change build()'s behavior
 """
 
 from __future__ import annotations
@@ -40,6 +44,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import numpy as np
 import pytest
+from app.ai.guardrails.enums import GuardrailCategory, GuardrailSeverity
+from app.ai.guardrails.exceptions import GuardrailBlockedError
+from app.ai.guardrails.interfaces import RetrievalGuardrailInterface
+from app.ai.guardrails.models import GuardrailIssue
+from app.ai.guardrails.registry import GuardrailRegistry
+from app.ai.guardrails.service import GuardrailService
 from app.ai.knowledge.context.citations.service import CitationService
 from app.ai.knowledge.context.compression.create import create_compression_service
 from app.ai.knowledge.context.formatter.create import create_prompt_formatter_service
@@ -98,13 +108,18 @@ def _identity_parent_expansion() -> AsyncMock:
     return service
 
 
-def _make_service(*, parent_expansion=None) -> ContextBuilderService:
+def _make_service(
+    *,
+    parent_expansion=None,
+    guardrail_platform: GuardrailService | None = None,
+) -> ContextBuilderService:
     return ContextBuilderService(
         parent_expansion_service=(parent_expansion or _identity_parent_expansion()),
         compression_service=create_compression_service(),
         citation_service=CitationService(),
         guardrail_service=create_context_guardrail_service(),
         prompt_formatter=create_prompt_formatter_service(),
+        guardrail_platform_service=guardrail_platform,
     )
 
 
@@ -240,3 +255,67 @@ async def test_build_computes_total_tokens_from_final_chunks() -> None:
     result = await service.build(_make_retrieval_result([chunk]))
 
     assert result.statistics.total_tokens == 40 // 4
+
+
+# ==============================================================
+# Retrieval Guardrails integration (guardrail_integration_prd.md §8)
+# ==============================================================
+
+
+class _AlwaysBlockRetrievalGuardrail(RetrievalGuardrailInterface):
+    @property
+    def name(self) -> str:
+        return "always_block_retrieval"
+
+    async def check(self, chunks: list[ContextChunk]) -> list[GuardrailIssue]:
+        return [
+            GuardrailIssue(
+                code="blocked",
+                severity=GuardrailSeverity.CRITICAL,
+                category=GuardrailCategory.ACCESS_CONTROL,
+                message="retrieval blocked by test guardrail",
+            )
+        ]
+
+
+def _make_guardrail_platform(registry: GuardrailRegistry | None = None) -> GuardrailService:
+    return GuardrailService(registry=registry or GuardrailRegistry())
+
+
+async def test_build_raises_when_retrieval_guardrails_block() -> None:
+    registry = GuardrailRegistry()
+    registry.register_retrieval_guardrail(_AlwaysBlockRetrievalGuardrail())
+
+    parent_expansion = _identity_parent_expansion()
+    service = _make_service(
+        parent_expansion=parent_expansion,
+        guardrail_platform=_make_guardrail_platform(registry),
+    )
+
+    chunk = _make_chunk(content="unique payload text")
+
+    with pytest.raises(GuardrailBlockedError, match="Retrieval blocked"):
+        await service.build(_make_retrieval_result([chunk]))
+
+    # Blocked before any of dedup/expansion touches the chunks.
+    parent_expansion.expand.assert_not_awaited()
+
+
+async def test_build_succeeds_when_retrieval_guardrails_allow() -> None:
+    service = _make_service(guardrail_platform=_make_guardrail_platform())
+
+    chunk = _make_chunk(content="unique payload text")
+
+    result = await service.build(_make_retrieval_result([chunk]))
+
+    assert len(result.prompt_context.chunks) == 1
+
+
+async def test_build_skips_retrieval_guardrails_when_none_wired() -> None:
+    service = _make_service()
+
+    chunk = _make_chunk(content="unique payload text")
+
+    result = await service.build(_make_retrieval_result([chunk]))
+
+    assert len(result.prompt_context.chunks) == 1

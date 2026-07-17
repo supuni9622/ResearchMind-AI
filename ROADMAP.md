@@ -1070,17 +1070,25 @@ Context Assembly and the Citation Engine are already delivered by the Context Pl
 
 ## Milestone 3.1 — Generation Platform
 
-**Status:** 🟡 ~85% Complete — structured output, a multi-stage Validation
-Platform integration (input/output/hallucination/runtime, registry,
-scoring, `ValidationReport`, and now a `ResearchRuntimeContract` —
-see `runtime_validation_prd.md`), regeneration, prompt-template
-integration, a Routing Platform (scored model catalog, task-based
-strategies, fallback chains), a Runtime Caching Platform (L1 exact/L2
-semantic/L3 session caching, policy resolution), and a Streaming
-Platform (SSE + WebSocket chat, wired into `/api/v1/chat`) are done;
-the `/research` API and artifacts remain — see `PROJECT_STATUS.md`
-Milestone 2.9 for the current, continuously-updated state (this
-roadmap entry lags it).
+Status: 🟢 ~90% Complete
+
+Completed
+
+- Provider Platform
+- Structured Output Platform
+- Validation Platform
+- Runtime Validation Platform
+- Prompt Template Integration
+- Routing Platform
+- Runtime Caching Platform
+- Streaming Platform
+- Regeneration Platform
+
+Remaining
+
+- Research API
+- Generation Artifacts
+- Research Runtime Integration
 
 ### Goal
 
@@ -1122,13 +1130,53 @@ generation/
   `with_structured_output()` path (OpenAI/Claude/Gemini/Ollama — Groq
   excluded, `langchain-groq` incompatible with the pinned `groq` SDK),
   regenerate-on-invalid-output loop with corrective feedback
-- 🟡 Validation Platform Integration — input validators (empty prompt,
-  token budget, provider limits, context quality), output validators
-  (schema via `jsonschema`, JSON parseability, fabricated-citation
-  detection), a lightweight no-LLM hallucination/groundedness validator,
-  a `ValidationRegistry`, weighted scoring, and a multi-stage
-  `ValidationReport` are all implemented; per-runtime Contracts/Runtime
-  Validators and a few PRD output checks (completeness/consistency/
+- ✅ Validation Platform Integration — Complete
+
+Implemented
+
+### Input Validation
+- Empty Prompt Validator
+- Token Budget Validator
+- Provider Limits Validator
+- Context Validation Validator
+
+### Output Validation
+- JSON Validator
+- Schema Validator
+- Citation Validator
+
+### Hallucination Validation
+- Groundedness Validator
+- Citation Faithfulness Checks
+
+### Runtime Validation
+- Runtime Validation Stage
+- RuntimeRegistry
+- RuntimeValidationService
+- Runtime Contracts
+- Generic Runtime Validators
+- ResearchRuntimeContract
+
+### Scoring
+- Weighted Validation Scoring
+- Overall Validation Score
+- ValidationReport Aggregation
+
+### Architecture
+- ValidationRegistry
+- Multi-stage Validation Pipeline
+- Crash-safe Validators
+- Runtime-specific Validation Contracts
+
+### Metrics
+- runtime.validation.started
+- runtime.validation.completed
+- runtime.validation.failed
+
+### Testing
+- Unit tests
+- Integration tests
+- Runtime validation tests
   formatting/response-size) remain — see `validation_platform_prd.md`
 - ✅ Prompt Templates — bridged via `generate_from_template()`, reusing
   the pre-existing `generation/prompts/` platform (LangChain

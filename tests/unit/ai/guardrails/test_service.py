@@ -14,10 +14,18 @@ Covers:
 - evaluate() builds a full report with the highest-precedence final_action
   across every stage that ran
 - guardrail_names lists every registered check across all four stages
+- evaluate() persists an artifact via a configured GuardrailArtifactWriter,
+  and a storage failure while persisting doesn't fail the run
+- MetricsRecorder integration: checks/failures/blocks/prompt_injection/pii/
+  policy_violations counters increment at the right points
 """
 
 from __future__ import annotations
 
+from typing import BinaryIO
+from uuid import uuid4
+
+from app.ai.guardrails.artifacts.writers import GuardrailArtifactWriter
 from app.ai.guardrails.enums import (
     GuardrailAction,
     GuardrailCategory,
@@ -38,6 +46,16 @@ from app.ai.guardrails.service import GuardrailService
 from app.ai.knowledge.context.citations.models import Citation
 from app.ai.knowledge.context.models import ContextChunk
 from app.ai.runtime.generation.models import GenerationRequest, GenerationResult
+from app.infrastructure.metrics.guardrails import (
+    GUARDRAIL_BLOCKS_TOTAL,
+    GUARDRAIL_CHECKS_TOTAL,
+    GUARDRAIL_FAILURES_TOTAL,
+    PII_DETECTIONS,
+    POLICY_VIOLATIONS,
+    PROMPT_INJECTION_ATTEMPTS,
+)
+from app.infrastructure.metrics.interfaces import MetricsRecorder
+from app.infrastructure.storage.interfaces import DocumentStorage
 
 from tests.unit.ai.guardrails.factories import (
     make_budget_policy,
@@ -282,3 +300,167 @@ async def test_guardrail_names_lists_every_stage() -> None:
     service = GuardrailService(registry=registry)
 
     assert service.guardrail_names == ["in", "ret", "gen", "run"]
+
+
+# ==============================================================
+# Metrics + artifact persistence (guardrail_integration_prd.md §12/§11)
+# ==============================================================
+
+
+class _FakeMetricsRecorder(MetricsRecorder):
+    def __init__(self) -> None:
+        self.counts: dict[str, int] = {}
+
+    def record_duration(self, *, operation: str, duration_ms: float) -> None:
+        return
+
+    def increment(self, *, metric: str) -> None:
+        self.counts[metric] = self.counts.get(metric, 0) + 1
+
+
+class _FakeDocumentStorage(DocumentStorage):
+    def __init__(self, *, raise_on_upload: bool = False) -> None:
+        self.uploads: dict[str, bytes] = {}
+        self._raise_on_upload = raise_on_upload
+
+    async def upload(self, *, key: str, file: BinaryIO, content_type: str) -> None:
+        if self._raise_on_upload:
+            raise RuntimeError("storage unavailable")
+        self.uploads[key] = file.read()
+
+    async def download(self, *, key: str) -> bytes:
+        return self.uploads[key]
+
+    async def delete(self, *, key: str) -> None:
+        del self.uploads[key]
+
+    async def exists(self, *, key: str) -> bool:
+        return key in self.uploads
+
+    async def generate_presigned_url(self, *, key: str, expires_in: int = 3600) -> str:
+        return f"https://example.test/{key}"
+
+
+async def test_evaluate_input_increments_checks_and_failures_metrics() -> None:
+    registry = GuardrailRegistry()
+    registry.register_input_guardrail(_FakeInputGuardrail("crasher", raises=True))
+    registry.register_input_guardrail(_FakeInputGuardrail("b", [_issue()]))
+
+    metrics = _FakeMetricsRecorder()
+    service = GuardrailService(registry=registry, metrics=metrics)
+
+    await service.evaluate_input(make_request())
+
+    assert metrics.counts[GUARDRAIL_CHECKS_TOTAL] == 2
+    assert metrics.counts[GUARDRAIL_FAILURES_TOTAL] == 1
+
+
+async def test_evaluate_input_increments_prompt_injection_and_policy_violation_metrics() -> None:
+    registry = GuardrailRegistry()
+    registry.register_input_guardrail(
+        _FakeInputGuardrail(
+            "injector",
+            [_issue(severity=GuardrailSeverity.ERROR, category=GuardrailCategory.PROMPT_INJECTION)],
+        )
+    )
+
+    metrics = _FakeMetricsRecorder()
+    service = GuardrailService(registry=registry, metrics=metrics)
+
+    await service.evaluate_input(make_request())
+
+    assert metrics.counts[PROMPT_INJECTION_ATTEMPTS] == 1
+    assert metrics.counts[POLICY_VIOLATIONS] == 1
+    assert PII_DETECTIONS not in metrics.counts
+
+
+async def test_evaluate_input_increments_pii_metric() -> None:
+    registry = GuardrailRegistry()
+    registry.register_input_guardrail(
+        _FakeInputGuardrail(
+            "pii",
+            [_issue(severity=GuardrailSeverity.WARNING, category=GuardrailCategory.PII)],
+        )
+    )
+
+    metrics = _FakeMetricsRecorder()
+    service = GuardrailService(registry=registry, metrics=metrics)
+
+    await service.evaluate_input(make_request())
+
+    assert metrics.counts[PII_DETECTIONS] == 1
+    # WARNING severity -- not a policy violation.
+    assert POLICY_VIOLATIONS not in metrics.counts
+
+
+async def test_evaluate_increments_blocks_metric_when_report_blocked() -> None:
+    registry = GuardrailRegistry()
+    registry.register_runtime_guardrail(
+        _FakeRuntimeGuardrail(
+            "budget", [_issue(severity=GuardrailSeverity.ERROR, category=GuardrailCategory.BUDGET)]
+        )
+    )
+
+    metrics = _FakeMetricsRecorder()
+    service = GuardrailService(registry=registry, metrics=metrics)
+
+    request = make_request()
+    await service.evaluate(
+        request=request,
+        chunks=[],
+        result=make_result(request=request),
+        execution_state=make_execution_state(),
+        budget_policy=make_budget_policy(),
+    )
+
+    assert metrics.counts[GUARDRAIL_BLOCKS_TOTAL] == 1
+
+
+async def test_evaluate_persists_artifact_when_writer_configured() -> None:
+    storage = _FakeDocumentStorage()
+    writer = GuardrailArtifactWriter(storage_provider=storage)
+    service = GuardrailService(registry=GuardrailRegistry(), artifact_writer=writer)
+
+    request = make_request()
+    run_id = uuid4()
+
+    await service.evaluate(
+        request=request,
+        chunks=[],
+        result=make_result(request=request),
+        run_id=run_id,
+    )
+
+    assert f"guardrails/{run_id}/report.json" in storage.uploads
+
+
+async def test_evaluate_artifact_write_failure_does_not_propagate() -> None:
+    storage = _FakeDocumentStorage(raise_on_upload=True)
+    writer = GuardrailArtifactWriter(storage_provider=storage)
+    service = GuardrailService(registry=GuardrailRegistry(), artifact_writer=writer)
+
+    request = make_request()
+
+    # Should not raise despite the storage layer failing.
+    report = await service.evaluate(
+        request=request,
+        chunks=[],
+        result=make_result(request=request),
+    )
+
+    assert report.blocked is False
+
+
+async def test_evaluate_skips_persistence_without_an_artifact_writer() -> None:
+    service = GuardrailService(registry=GuardrailRegistry())
+
+    request = make_request()
+
+    # No artifact_writer configured -- should complete without error.
+    report = await service.evaluate(
+        request=request,
+        chunks=[],
+        result=make_result(request=request),
+    )
+
+    assert report.blocked is False

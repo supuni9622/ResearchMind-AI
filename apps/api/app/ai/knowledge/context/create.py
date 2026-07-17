@@ -1,3 +1,6 @@
+from app.ai.guardrails.create import (
+    get_guardrail_service,
+)
 from app.ai.knowledge.context.artifacts.create import (
     create_chunk_artifact_reader,
 )
@@ -34,4 +37,5 @@ def create_context_builder() -> ContextBuilderService:
         citation_service=(create_citation_service()),
         guardrail_service=(create_context_guardrail_service()),
         prompt_formatter=(create_prompt_formatter_service()),
+        guardrail_platform_service=(get_guardrail_service()),
     )

@@ -2,10 +2,12 @@ from __future__ import annotations
 
 from collections.abc import Coroutine
 from typing import Any
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import structlog
 
+from app.ai.guardrails.artifacts.builders import GuardrailArtifactBuilder
+from app.ai.guardrails.artifacts.writers import GuardrailArtifactWriter
 from app.ai.guardrails.constants import SEVERITY_RISK_SCORES
 from app.ai.guardrails.enums import (
     GuardrailAction,
@@ -28,6 +30,16 @@ from app.ai.guardrails.scoring.overall_risk import compute_overall_risk
 from app.ai.knowledge.context.citations.models import Citation
 from app.ai.knowledge.context.models import ContextChunk
 from app.ai.runtime.generation.models import GenerationRequest, GenerationResult
+from app.infrastructure.metrics.guardrails import (
+    GUARDRAIL_BLOCKS_TOTAL,
+    GUARDRAIL_CHECKS_TOTAL,
+    GUARDRAIL_FAILURES_TOTAL,
+    PII_DETECTIONS,
+    POLICY_VIOLATIONS,
+    PROMPT_INJECTION_ATTEMPTS,
+)
+from app.infrastructure.metrics.interfaces import MetricsRecorder
+from app.infrastructure.metrics.noop import NoOpMetricsRecorder
 
 logger = structlog.get_logger()
 
@@ -57,6 +69,8 @@ class GuardrailService:
         risk_policy: RiskPolicy = RiskPolicy.MEDIUM,
         regeneration_policy: RegenerationPolicy | None = None,
         runtime_policy: RuntimePolicy | None = None,
+        artifact_writer: GuardrailArtifactWriter | None = None,
+        metrics: MetricsRecorder | None = None,
     ) -> None:
         self._registry = registry
 
@@ -67,6 +81,16 @@ class GuardrailService:
         self._regeneration_policy = regeneration_policy or RegenerationPolicy()
 
         self._runtime_policy = runtime_policy or RuntimePolicy()
+
+        self._artifact_writer = artifact_writer
+        """
+        Optional (PRD §11/§14 Phase 3). When set, `evaluate()` persists
+        every full report it produces via `GuardrailArtifactBuilder` +
+        this writer. `None` skips persistence entirely -- matches how
+        every other optional collaborator on this service degrades.
+        """
+
+        self._metrics = metrics or NoOpMetricsRecorder()
 
     @property
     def guardrail_names(
@@ -207,6 +231,13 @@ class GuardrailService:
         run_id: UUID | None = None,
     ) -> GuardrailReport:
 
+        run_id = run_id or uuid4()
+
+        logger.info(
+            "guardrails.started",
+            run_id=str(run_id),
+        )
+
         input_result = await self.evaluate_input(
             request,
         )
@@ -260,15 +291,67 @@ class GuardrailService:
         )
 
         logger.info(
-            "guardrails.evaluate.completed",
-            run_id=str(run_id) if run_id else None,
+            "guardrails.completed",
+            run_id=str(run_id),
             final_action=report.final_action.value,
             blocked=report.blocked,
             overall_risk=report.overall_risk,
             issue_count=len(report.issues),
         )
 
+        if report.blocked:
+            self._metrics.increment(
+                metric=GUARDRAIL_BLOCKS_TOTAL,
+            )
+
+            logger.warning(
+                "guardrails.blocked",
+                run_id=str(run_id),
+                final_action=report.final_action.value,
+                issue_count=len(report.issues),
+            )
+
+        if self._artifact_writer is not None:
+            await self._persist_artifact(
+                run_id=run_id,
+                report=report,
+            )
+
         return report
+
+    async def _persist_artifact(
+        self,
+        *,
+        run_id: UUID,
+        report: GuardrailReport,
+    ) -> None:
+        """
+        Best-effort (PRD §11 Phase 3): a storage hiccup while persisting
+        the artifact must not fail the run that guardrails just cleared
+        -- `GuardrailArtifactWriter.write()` itself re-raises on failure
+        (see its own logging), so that's caught and downgraded to a
+        `guardrails.failed` event here instead of propagating.
+        """
+
+        assert self._artifact_writer is not None
+
+        try:
+            artifact = GuardrailArtifactBuilder().build(
+                run_id=run_id,
+                report=report,
+            )
+
+            await self._artifact_writer.write(
+                artifact,
+            )
+        except Exception as exc:
+            logger.warning(
+                "guardrails.failed",
+                run_id=str(run_id),
+                reason="artifact_persistence_failed",
+                error_type=type(exc).__name__,
+                error=str(exc),
+            )
 
     # ==========================================================
     # Internal
@@ -286,11 +369,19 @@ class GuardrailService:
         down the rest of a stage. Mirrors `ValidationService._crash_outcome`.
         """
 
+        self._metrics.increment(
+            metric=GUARDRAIL_CHECKS_TOTAL,
+        )
+
         try:
             return list(
                 await coro,
             )
         except Exception as exc:
+            self._metrics.increment(
+                metric=GUARDRAIL_FAILURES_TOTAL,
+            )
+
             logger.warning(
                 "guardrails.check_failed",
                 guardrail=guardrail_name,
@@ -327,6 +418,10 @@ class GuardrailService:
             for issue in issues
         ]
 
+        self._record_issue_metrics(
+            stamped,
+        )
+
         has_error_or_critical = any(
             issue.severity in (GuardrailSeverity.ERROR, GuardrailSeverity.CRITICAL)
             for issue in stamped
@@ -360,6 +455,31 @@ class GuardrailService:
             action=action,
             issues=stamped,
         )
+
+    def _record_issue_metrics(
+        self,
+        issues: list[GuardrailIssue],
+    ) -> None:
+        """PRD §12's per-category counters, derived from whatever issues a stage produced."""
+
+        for issue in issues:
+            if issue.category in (
+                GuardrailCategory.PROMPT_INJECTION,
+                GuardrailCategory.JAILBREAK,
+            ):
+                self._metrics.increment(
+                    metric=PROMPT_INJECTION_ATTEMPTS,
+                )
+
+            if issue.category == GuardrailCategory.PII:
+                self._metrics.increment(
+                    metric=PII_DETECTIONS,
+                )
+
+            if issue.severity in (GuardrailSeverity.ERROR, GuardrailSeverity.CRITICAL):
+                self._metrics.increment(
+                    metric=POLICY_VIOLATIONS,
+                )
 
     def _derive_action(
         self,

@@ -82,6 +82,14 @@ class EmbeddingService:
 
         embedding_provider = self._registry.get(provider)
 
+        #
+        # Parent/Child retrieval: parent chunks (Hierarchical chunking
+        # strategy) exist only so a retrieved child can be expanded back
+        # to its full section (see ParentExpansionService). They are
+        # never embedded or indexed directly -- only child chunks are.
+        #
+        embeddable_chunks = [chunk for chunk in artifact.chunks if not self._is_parent(chunk)]
+
         cache_keys = {
             chunk.id: build_embedding_cache_key(
                 provider=embedding_provider.provider,
@@ -89,7 +97,7 @@ class EmbeddingService:
                 configuration_fingerprint=embedding_provider.configuration_fingerprint,
                 text=chunk.content.text,
             )
-            for chunk in artifact.chunks
+            for chunk in embeddable_chunks
         }
 
         cached_vectors = await self._cache.get_many(list(cache_keys.values()))
@@ -97,7 +105,7 @@ class EmbeddingService:
         embeddings_by_chunk_id: dict[UUID, Embedding] = {}
         chunks_to_embed: list[Chunk] = []
 
-        for chunk in artifact.chunks:
+        for chunk in embeddable_chunks:
             vector = cached_vectors.get(cache_keys[chunk.id])
 
             if vector is None:
@@ -116,7 +124,7 @@ class EmbeddingService:
         logger.info(
             "embedding.cache.lookup",
             provider=provider.value,
-            total=len(artifact.chunks),
+            total=len(embeddable_chunks),
             hits=len(embeddings_by_chunk_id),
             misses=len(chunks_to_embed),
         )
@@ -136,7 +144,16 @@ class EmbeddingService:
             for embedding in generated:
                 embeddings_by_chunk_id[embedding.provenance.chunk_id] = embedding
 
-        return [embeddings_by_chunk_id[chunk.id] for chunk in artifact.chunks]
+        return [embeddings_by_chunk_id[chunk.id] for chunk in embeddable_chunks]
+
+    @staticmethod
+    def _is_parent(chunk: Chunk) -> bool:
+        """
+        Whether a chunk is a Hierarchical-strategy parent section that
+        should be excluded from embedding/indexing.
+        """
+
+        return bool(chunk.experiment.additional_metadata.get("is_parent"))
 
     @staticmethod
     def _validate(

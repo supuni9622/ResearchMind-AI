@@ -10,6 +10,11 @@ Covers:
 - No matching points returns an empty chunk list rather than raising
 - A point payload missing a required field (chunk_id/document_id) fails
   fast with a KeyError instead of silently producing a bad chunk
+- search_metadata performs a filter-only `scroll()` (no vector) when
+  filters are present, assigns matches a flat score since there is no
+  similarity to rank by, and short-circuits to an empty result without
+  calling Qdrant at all when there are no filters (an unfiltered scroll
+  would ignore tenant scoping and return arbitrary points)
 """
 
 from __future__ import annotations
@@ -138,3 +143,47 @@ async def test_search_raises_key_error_when_payload_missing_document_id() -> Non
             query=RetrievalQuery(query="rag"),
             query_vector=[0.1],
         )
+
+
+async def test_search_metadata_scrolls_with_filter_and_assigns_flat_score() -> None:
+    provider, client = _make_provider(
+        config=QdrantRetrievalConfig(collection_name="researchmind_knowledge"),
+    )
+    # scroll() records carry no `.score` attribute -- unlike query_points
+    # points, there is no vector similarity involved.
+    record = SimpleNamespace(
+        payload={
+            "chunk_id": str(_CHUNK_ID),
+            "document_id": str(_DOCUMENT_ID),
+            "filename": "test.pdf",
+            "owner_id": "owner-1",
+            "chunk_index": 1,
+            "content": "some chunk text",
+            "additional_metadata": {},
+        }
+    )
+    client.scroll = AsyncMock(return_value=([record], None))
+    query = RetrievalQuery(query="rag", top_k=5, filters={"owner_id": "owner-1"})
+
+    result = await provider.search_metadata(query=query)
+
+    call_kwargs = client.scroll.await_args.kwargs
+    assert call_kwargs["collection_name"] == "researchmind_knowledge"
+    assert call_kwargs["limit"] == 5
+    assert call_kwargs["scroll_filter"] is not None
+
+    assert len(result.chunks) == 1
+    assert result.chunks[0].chunk_id == _CHUNK_ID
+    assert result.chunks[0].score == 1.0
+
+
+async def test_search_metadata_short_circuits_without_filters() -> None:
+    provider, client = _make_provider()
+    client.scroll = AsyncMock()
+
+    result = await provider.search_metadata(
+        query=RetrievalQuery(query="rag"),
+    )
+
+    client.scroll.assert_not_awaited()
+    assert result.chunks == []

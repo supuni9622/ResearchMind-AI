@@ -104,12 +104,74 @@ class QdrantRetrievalProvider(
             ),
         )
 
+    async def search_metadata(
+        self,
+        query: RetrievalQuery,
+    ) -> RetrievalResult:
+        """
+        Execute metadata-filtered retrieval.
+
+        Uses Qdrant's `scroll()` to return chunks matching structured
+        filters only -- no vector similarity is involved. Requires at
+        least one filter: an unfiltered scroll would ignore tenant
+        scoping (owner_id) and return arbitrary points from the whole
+        collection, so with no filters this returns an empty result
+        without querying Qdrant at all.
+        """
+
+        search_filter = self._build_filter(
+            query.filters,
+        )
+
+        if search_filter is None:
+            return RetrievalResult(
+                query=query,
+                execution=RetrievalExecution(
+                    completed_at=datetime.now(
+                        UTC,
+                    ),
+                ),
+                chunks=[],
+            )
+
+        points, _next_offset = await self._client.scroll(
+            collection_name=self._config.collection_name,
+            scroll_filter=search_filter,
+            limit=query.top_k,
+            with_payload=self._config.with_payload,
+            with_vectors=False,
+        )
+
+        return RetrievalResult(
+            query=query,
+            execution=RetrievalExecution(
+                completed_at=datetime.now(
+                    UTC,
+                ),
+            ),
+            #
+            # Metadata matches have no similarity score -- they are
+            # exact structural matches, so a flat score is assigned.
+            # RRF fusion ranks by list position, not this value.
+            #
+            chunks=self._map_points(
+                points,
+                default_score=1.0,
+            ),
+        )
+
     @staticmethod
     def _map_points(
         points: list,
+        *,
+        default_score: float | None = None,
     ) -> list[RetrievedChunk]:
         """
         Map Qdrant points into canonical RetrievedChunk models.
+
+        `default_score` is used for point types that carry no
+        similarity score (e.g. `scroll()` records from metadata-only
+        retrieval, which has no vector to rank against).
         """
 
         chunks: list[RetrievedChunk] = []
@@ -136,7 +198,7 @@ class QdrantRetrievalProvider(
                     "content",
                     "",
                 ),
-                score=float(point.score),
+                score=(default_score if default_score is not None else float(point.score)),
                 metadata=payload.get(
                     "additional_metadata",
                     {},

@@ -141,13 +141,13 @@ The next stages focus on consuming, enriching, reasoning over, and generating kn
 
 # Phase 3.4 — Retrieval Strategies
 
-**Status:** 🟡 In Progress
+**Status:** ✅ Complete (Parallel Retrieval 3-way; Parent/Child genuinely end-to-end; Query Decomposition explicitly moved to the future Research Runtime, out of this phase's scope)
 
 ---
 
 ## Parallel Retrieval
 
-### Status: ✅ Complete
+### Status: ✅ Complete (3-way)
 
 Implemented:
 
@@ -155,6 +155,7 @@ Implemented:
 asyncio.gather(
     dense_search(),
     sparse_search(),
+    metadata_search(),
 )
 ```
 
@@ -165,6 +166,8 @@ Dense Retrieval
         │
 Sparse Retrieval
         │
+Metadata Retrieval
+        │
         ▼
 Parallel Execution
         │
@@ -172,21 +175,13 @@ Parallel Execution
 Fusion
 ```
 
-Future:
-
-```python
-asyncio.gather(
-    dense,
-    sparse,
-    metadata,
-)
-```
+The metadata branch (`QdrantRetrievalProvider.search_metadata()`) is a pure filter-only Qdrant `scroll()` lookup — no vector similarity, no query embedding needed. It short-circuits to an empty result when no filters are present, since an unfiltered scroll would ignore `owner_id` tenant scoping and could leak chunks across owners. `RetrievalStatistics.metadata_latency_ms` tracks its latency alongside the pre-existing `dense_latency_ms`/`sparse_latency_ms`, and its results are fused in by RRF (`ReciprocalRankFusion.fuse()`'s new optional `metadata` parameter) alongside dense and sparse.
 
 ---
 
 ## Parent / Child Retrieval
 
-### Status: 🔄 Reclassified
+### Status: ✅ Complete (Reclassified into Context Platform, now genuinely end-to-end)
 
 Originally planned under Retrieval.
 
@@ -203,6 +198,10 @@ Context Building should enrich knowledge.
 Workflow:
 
 ```text
+Parent Documents
+      ↓
+Child Chunks
+      ↓
 Retriever
       ↓
 Retrieved Child Chunks
@@ -217,6 +216,8 @@ Implemented Foundations:
 - ChunkArtifactReader
 - ParentExpansionService
 - AdjacentMergeService
+
+**Producer (new):** the workflow above previously started at "Retriever" — nothing upstream of it ever produced a `parent_chunk_id`, so `ParentExpansionService` was live-wired but never actually triggered. `HierarchicalChunkingProvider` (Chunking Platform, Milestone 2.2) now closes that gap: a two-pass LangChain `RecursiveCharacterTextSplitter` first splits documents into parent sections, then splits each parent into child chunks. Children carry `structure.parent_chunk_id`; parent sections are tagged `is_parent` and excluded from embedding/indexing by `EmbeddingService`, but persist in the `ChunkArtifact` for `ParentExpansionService` to resolve against.
 
 ---
 
@@ -252,11 +253,11 @@ Likely Framework:
 
 ### Complete
 
-- ✅ Parallel Retrieval
+- ✅ Parallel Retrieval (3-way: dense + sparse + metadata)
 
 ### Context Platform
 
-- 🔄 Parent Expansion
+- ✅ Parent Expansion (genuinely end-to-end — producer now exists via Hierarchical Chunking)
 
 ### Runtime Platform
 
@@ -728,7 +729,7 @@ Milestone	Platform	Deliverables	Status
 3.1	Retrieval Foundation	Query processing, dense retrieval	✅ Complete
 3.2	Sparse Retrieval	SPLADE, sparse search	✅ Complete
 3.3	Hybrid Retrieval	Dense + Sparse + RRF	✅ Complete
-3.4	Retrieval Strategies	Parallel Retrieval, Runtime Query Decomposition	✅ Parallel Retrieval complete (Query Decomposition moved to 3.11)
+3.4	Retrieval Strategies	Parallel Retrieval, Parent/Child Retrieval, Runtime Query Decomposition	✅ Parallel Retrieval complete (3-way: dense+sparse+metadata) + ✅ Parent/Child Retrieval complete (genuinely end-to-end now — producer added via Hierarchical Chunking) (Query Decomposition moved to 3.11)
 3.5	Result Processing	Metadata filtering, Top-K	✅ Complete
 3.6	Reranking Platform	Voyage, CrossEncoder	✅ Complete
 3.7	Context Building Platform	Parent Expansion, Merge, Compression, Guardrails, Citations, Prompt Formatter	✅ Complete (Compression V1-V4, LangChain wired into default pipeline)

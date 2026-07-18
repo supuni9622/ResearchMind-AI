@@ -9,13 +9,14 @@ Covers:
 - Validation edge cases: empty query, whitespace-only query, over-length
   query, and non-positive top_k all raise before any provider is touched
 - Provider resolution failure propagates from the registry
-- search_hybrid: dense and sparse search both run (in parallel, via
-  asyncio.gather) and are handed to the fusion service; reranking is
-  applied by default and skipped when rerank=False, when no reranking
-  service is configured, or when fusion produced no chunks -- these are
-  regression tests for a bug where result.chunks was only ever
-  reassigned from the reranked result unconditionally, so any of those
-  three "don't rerank" paths crashed with an UnboundLocalError
+- search_hybrid: dense, sparse, and metadata search all run (in
+  parallel, via asyncio.gather) and are handed to the fusion service;
+  reranking is applied by default and skipped when rerank=False, when
+  no reranking service is configured, or when fusion produced no
+  chunks -- these are regression tests for a bug where result.chunks
+  was only ever reassigned from the reranked result unconditionally,
+  so any of those three "don't rerank" paths crashed with an
+  UnboundLocalError
 """
 
 from __future__ import annotations
@@ -58,6 +59,7 @@ def _make_provider(
     *,
     result: RetrievalResult | None = None,
     sparse_result: RetrievalResult | None = None,
+    metadata_result: RetrievalResult | None = None,
     strategy: RetrievalStrategy = RetrievalStrategy.DENSE,
 ) -> AsyncMock:
     provider = AsyncMock()
@@ -86,6 +88,19 @@ def _make_provider(
             )
         )
 
+    if metadata_result is not None:
+        provider.search_metadata = AsyncMock(return_value=metadata_result)
+    else:
+        # No metadata filters by default: an empty result, mirroring
+        # QdrantRetrievalProvider.search_metadata's own short-circuit.
+        provider.search_metadata = AsyncMock(
+            side_effect=lambda **kwargs: RetrievalResult(
+                query=kwargs["query"],
+                execution=RetrievalExecution(),
+                chunks=[],
+            )
+        )
+
     return provider
 
 
@@ -107,10 +122,12 @@ def _make_fusion_service(fused: RetrievalResult | None = None) -> AsyncMock:
         service.fuse = AsyncMock(return_value=fused)
     else:
         service.fuse = AsyncMock(
-            side_effect=lambda *, dense, sparse, top_k: RetrievalResult(
+            side_effect=lambda *, dense, sparse, top_k, metadata=None: RetrievalResult(
                 query=dense.query,
                 execution=RetrievalExecution(),
-                chunks=(dense.chunks + sparse.chunks)[:top_k],
+                chunks=(dense.chunks + sparse.chunks + (metadata.chunks if metadata else []))[
+                    :top_k
+                ],
             )
         )
     return service
@@ -260,9 +277,35 @@ def _make_reranking_service(reranked_order: list[RetrievedChunk]) -> AsyncMock:
     return service
 
 
-async def test_search_hybrid_runs_dense_and_sparse_then_fuses() -> None:
+async def test_search_metadata_returns_result_with_statistics() -> None:
+    chunk = _make_chunk()
+    provider = _make_provider(
+        metadata_result=RetrievalResult(
+            query=RetrievalQuery(query="rag"),
+            execution=RetrievalExecution(),
+            chunks=[chunk],
+        ),
+    )
+    registry = RetrievalRegistry([provider])
+    service = _make_service(registry=registry)
+
+    result = await service.search_metadata(
+        provider=RetrievalProvider.QDRANT,
+        query=RetrievalQuery(query="rag", top_k=5, filters={"owner_id": "owner-1"}),
+    )
+
+    provider.search_metadata.assert_awaited_once()
+    assert result.chunks == [chunk]
+    assert result.statistics is not None
+    assert result.statistics.strategy == RetrievalStrategy.METADATA
+    assert result.statistics.duration_ms >= 0
+    assert result.statistics.returned_chunks == 1
+
+
+async def test_search_hybrid_runs_dense_sparse_and_metadata_then_fuses() -> None:
     dense_chunk = _make_chunk()
     sparse_chunk = _make_chunk()
+    metadata_chunk = _make_chunk()
     provider = _make_provider(
         result=RetrievalResult(
             query=RetrievalQuery(query="rag"),
@@ -273,6 +316,11 @@ async def test_search_hybrid_runs_dense_and_sparse_then_fuses() -> None:
             query=RetrievalQuery(query="rag"),
             execution=RetrievalExecution(),
             chunks=[sparse_chunk],
+        ),
+        metadata_result=RetrievalResult(
+            query=RetrievalQuery(query="rag"),
+            execution=RetrievalExecution(),
+            chunks=[metadata_chunk],
         ),
     )
     fusion_service = _make_fusion_service()
@@ -286,8 +334,10 @@ async def test_search_hybrid_runs_dense_and_sparse_then_fuses() -> None:
 
     provider.search.assert_awaited_once()
     provider.search_sparse.assert_awaited_once()
+    provider.search_metadata.assert_awaited_once()
     fusion_service.fuse.assert_awaited_once()
-    assert result.chunks == [dense_chunk, sparse_chunk]
+    assert fusion_service.fuse.await_args.kwargs["metadata"].chunks == [metadata_chunk]
+    assert result.chunks == [dense_chunk, sparse_chunk, metadata_chunk]
     assert result.statistics is not None
     assert result.statistics.strategy == RetrievalStrategy.HYBRID
 
@@ -375,7 +425,7 @@ async def test_search_hybrid_skips_reranking_when_no_reranking_service_configure
     assert result.chunks == [fused_chunk]
 
 
-async def test_search_hybrid_populates_dense_and_sparse_latency_from_component_results() -> None:
+async def test_search_hybrid_populates_component_latencies_from_component_results() -> None:
     provider = _make_provider()
     fusion_service = _make_fusion_service()
     registry = RetrievalRegistry([provider])
@@ -392,6 +442,8 @@ async def test_search_hybrid_populates_dense_and_sparse_latency_from_component_r
     assert result.statistics.dense_latency_ms >= 0
     assert result.statistics.sparse_latency_ms is not None
     assert result.statistics.sparse_latency_ms >= 0
+    assert result.statistics.metadata_latency_ms is not None
+    assert result.statistics.metadata_latency_ms >= 0
     assert result.statistics.rerank_latency_ms is None
     assert result.statistics.reranker_provider is None
 

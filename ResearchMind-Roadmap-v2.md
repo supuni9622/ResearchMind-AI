@@ -4,7 +4,7 @@ Version: 2.0
 
 Status: Active
 
-**Current Maturity (2026-07-18):** NotebookLM++ + Perplexity v1. Hybrid Retrieval, Reranking, Parent Expansion, Compression, Context Guardrails, and strategy-based Prompt Formatting are all implemented — beyond a plain NotebookLM clone and now delivering a first Perplexity v1-shaped product surface. The AI Runtime Platform (Phase 3) is now complete for its Generation slice, per `generation_platform_complexion_prd.md`: Provider Structured Output Integration, a multi-stage Validation Platform integration (input/output/hallucination/runtime validators, registry, scoring, `ValidationReport`, five runtime contracts), an Acceptance/Fail-Fast/Runtime Validation policy layer, regeneration, Prompt Platform bridging, a Routing Platform (scored model catalog, task-based strategies, fallback chains), a Runtime Caching Platform (L1 exact/L2 semantic/L3 session caching, policy resolution), Runtime Metrics Integration, and Artifact persistence are all done (see Phase 3.1/3.5 below and `docs/architecture/structured-output-platform.md` / `docs/architecture/model-routing-platform.md` / `docs/architecture/runtime-caching-platform.md`). A Generation Runtime Platform (Phase 3.6, `generation_runtime_platform_prd.md`) now gives every future runtime caller one canonical `execute_generation()`/`GenerationRuntime.execute()` entrypoint. **`/research` is now live** — a first, deliberately linear slice of Phase 4 (`research_api_prd.md`): `POST /research`, `/research/stream`, `/research/citations`, `GET /research/{id}`, composing Retrieval → Context → Generation Runtime → Streaming → Artifacts into ResearchMind's first end-to-end, cited product answer, backed by a new `research_sessions` table. The full Planner/multi-agent Phase 4 workflow (4.1–4.6 below) remains future work. A standalone, platform-wide Guardrails Platform (`app/ai/guardrails/`, see "AI Guardrails" below) is now complete as an MVP foundation and wired directly into the Generation Platform. Most recently, an AI Runtime Observability Platform (`oberservability_platform_prd.md`) shipped — real LangSmith tracing + metrics/statistics/report/artifact persistence, wired into both Generation entry points (streaming and non-streaming, so Research and Chat both get it) and the Knowledge Processing pipeline, hardened through live verification against an actual LangSmith account/S3 bucket that found and fixed three real bugs. Ladder: `NotebookLM++ → Perplexity v1 (here) → Open Deep Research → Manus / Glean`. See `PROJECT_STATUS.md` and `ROADMAP.md` for the authoritative, continuously-updated status; this document tracks the frozen technology decisions and long-range vision.
+**Current Maturity (2026-07-18):** NotebookLM++ + Perplexity v1. Hybrid Retrieval, Reranking, Parent Expansion, Compression, Context Guardrails, and strategy-based Prompt Formatting are all implemented — beyond a plain NotebookLM clone and now delivering a first Perplexity v1-shaped product surface. The AI Runtime Platform (Phase 3) is now complete for its Generation slice, per `generation_platform_complexion_prd.md`: Provider Structured Output Integration, a multi-stage Validation Platform integration (input/output/hallucination/runtime validators, registry, scoring, `ValidationReport`, five runtime contracts), an Acceptance/Fail-Fast/Runtime Validation policy layer, regeneration, Prompt Platform bridging, a Routing Platform (scored model catalog, task-based strategies, fallback chains), a Runtime Caching Platform (L1 exact/L2 semantic/L3 session caching, policy resolution), Runtime Metrics Integration, and Artifact persistence are all done (see Phase 3.1/3.5 below and `docs/architecture/structured-output-platform.md` / `docs/architecture/model-routing-platform.md` / `docs/architecture/runtime-caching-platform.md`). A Generation Runtime Platform (Phase 3.6, `generation_runtime_platform_prd.md`) now gives every future runtime caller one canonical `execute_generation()`/`GenerationRuntime.execute()` entrypoint. **`/research` is now live** — a first, deliberately linear slice of Phase 4 (`research_api_prd.md`): `POST /research`, `/research/stream`, `/research/citations`, `GET /research/{id}`, composing Retrieval → Context → Generation Runtime → Streaming → Artifacts into ResearchMind's first end-to-end, cited product answer, backed by a new `research_sessions` table. The full Planner/multi-agent Phase 4 workflow (4.1–4.6 below) remains future work. A standalone, platform-wide Guardrails Platform (`app/ai/guardrails/`, see "AI Guardrails" below) is now complete as an MVP foundation and wired directly into the Generation Platform. Most recently, an AI Runtime Observability Platform (`oberservability_platform_prd.md`) shipped — real LangSmith tracing + metrics/statistics/report/artifact persistence, wired into both Generation entry points (streaming and non-streaming, so Research and Chat both get it) and the Knowledge Processing pipeline, hardened through live verification against an actual LangSmith account/S3 bucket that found and fixed three real bugs. Since then, the Retrieval Platform closed its last two tracked gaps: **Parent/Child Retrieval** now has a real producer (`HierarchicalChunkingProvider`, Phase 2.3) feeding the previously-orphaned Parent Expansion consumer (Phase 2.9), and **Parallel Retrieval** grew from a dense+sparse 2-way `asyncio.gather()` to a 3-way one with a filter-only Metadata branch (`QdrantRetrievalProvider.search_metadata()` via Qdrant `scroll()`), fused by RRF alongside dense and sparse. Ladder: `NotebookLM++ → Perplexity v1 (here) → Open Deep Research → Manus / Glean`. See `PROJECT_STATUS.md` and `ROADMAP.md` for the authoritative, continuously-updated status; this document tracks the frozen technology decisions and long-range vision.
 
 ---
 
@@ -628,11 +628,11 @@ Current
 - Chunk metadata
 - Chunk artifacts
 - Chunk evaluation foundation
+- Parent-child (Hierarchical) chunking — `HierarchicalChunkingProvider`, two-pass LangChain `RecursiveCharacterTextSplitter` (parent sections + child chunks); children carry `structure.parent_chunk_id`, feeding the Context Platform's Parent Expansion (2.9)
 
 Future
 
 - Semantic chunking
-- Parent-child chunking
 - Late chunking
 - Agentic chunking
 
@@ -1036,8 +1036,9 @@ Retrieval benchmark suite.
     • ✅ Semantic Search (dense)
     • ✅ Sparse Search (Qdrant native sparse vectors, FastEmbed SPLADE — see ADR-019; no separate BM25 engine)
     • ✅ Hybrid Search (Qdrant fusion of dense + sparse)
-    • ✅ Parallel Retrieval (dense + sparse via `asyncio.gather`)
-    • 🔄 Retrieval Strategies — Parent/Child reclassified into the Context Platform (2.9); multi-query moved to the future Research Runtime
+    • ✅ Metadata Retrieval (`QdrantRetrievalProvider.search_metadata()` — filter-only Qdrant `scroll()`, no vector similarity; short-circuits to empty when no filters given)
+    • ✅ Parallel Retrieval — 3-way: dense + sparse + metadata via a single `asyncio.gather()` in `search_hybrid()`, fused by RRF (`RetrievalStatistics.metadata_latency_ms` alongside `dense_latency_ms`/`sparse_latency_ms`)
+    • ✅ Retrieval Strategies — Parent/Child now genuinely end-to-end: chunking-side producer (Hierarchical chunking, 2.2) reclassified alongside expansion into the Context Platform (2.9); multi-query moved to the future Research Runtime
     • ✅ Fusion (Reciprocal Rank Fusion)
     • ✅ Metadata Filtering
     • ✅ Evaluation (Recall@K, Precision@K, MRR, NDCG@K, latency)
@@ -1048,7 +1049,7 @@ Retrieval benchmark suite.
 
 2.9 Context Platform ✅ Complete (Phase 3.7, `context_platform_complexion_prd.md`)
 
-    • ✅ Parent Expansion (`ChunkArtifactReader`, `ParentExpansionService`)
+    • ✅ Parent Expansion (`ChunkArtifactReader`, `ParentExpansionService`) — now genuinely end-to-end: `HierarchicalChunkingProvider` (2.2) produces the parent sections + child chunks (`structure.parent_chunk_id`) this service resolves; previously this was consumer-only with no producer
     • ✅ Adjacent Merge (`AdjacentMergeService`)
     • ✅ Compression — Token Budget (V1), Embedding Redundancy (V2), LangChain (V3, `ContextualCompressionRetriever` + `LLMChainExtractor`, wired into `ContextBuilderService.build()`'s default pipeline behind `settings.enable_langchain_compression`), LLM Compression (V4, per-chunk `GenerationService.generate()` summarization, registered but not part of the default pipeline)
     • ✅ Context Guardrails V1 (`RuleBasedGuardrailProvider`, risk scoring, statistics)

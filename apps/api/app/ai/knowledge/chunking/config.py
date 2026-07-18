@@ -136,3 +136,62 @@ class MarkdownChunkingConfig(BaseModel):
             )
 
         return self
+
+
+class HierarchicalChunkingConfig(BaseModel):
+    """
+    Configuration for the Hierarchical (Parent/Child) Chunking provider.
+
+    Documents are first split into large "parent" sections and each
+    parent is then split into small "child" chunks. Children are what
+    gets embedded and retrieved; parents are persisted so a retrieved
+    child can be expanded back into its full parent section.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+        frozen=True,
+    )
+
+    parent_chunk_size: int = Field(
+        default=2000,
+        ge=1,
+        description="Maximum number of characters per parent chunk.",
+    )
+
+    parent_chunk_overlap: int = Field(
+        default=200,
+        ge=0,
+        description="Number of overlapping characters between adjacent parent chunks.",
+    )
+
+    child_chunk_size: int = Field(
+        default=400,
+        ge=1,
+        description="Maximum number of characters per child chunk.",
+    )
+
+    child_chunk_overlap: int = Field(
+        default=50,
+        ge=0,
+        description="Number of overlapping characters between adjacent child chunks.",
+    )
+
+    @model_validator(mode="after")
+    def validate_sizes(self) -> HierarchicalChunkingConfig:
+        if self.parent_chunk_overlap >= self.parent_chunk_size:
+            raise ValueError(
+                "parent_chunk_overlap must be smaller than parent_chunk_size.",
+            )
+
+        if self.child_chunk_overlap >= self.child_chunk_size:
+            raise ValueError(
+                "child_chunk_overlap must be smaller than child_chunk_size.",
+            )
+
+        if self.child_chunk_size >= self.parent_chunk_size:
+            raise ValueError(
+                "child_chunk_size must be smaller than parent_chunk_size.",
+            )
+
+        return self

@@ -1,8 +1,8 @@
 # ResearchMind AI Roadmap
 
-**Last Updated:** 2026-07-18
+**Last Updated:** 2026-07-18 (Retrieval Platform: Parent/Child Retrieval + 3-way Parallel Retrieval closed, see below)
 
-**Current Maturity:** NotebookLM++ + Perplexity v1. Hybrid Retrieval, Reranking, Parent Expansion, Compression, Context Guardrails, and strategy-based Prompt Formatting are all in place — beyond a plain NotebookLM clone. A standalone, platform-wide Guardrails Platform (Milestone 11.16 — input/retrieval/generation/runtime stages, Source Trust, policies, scoring, artifacts) is now complete as an MVP foundation, alongside the Validation Platform. The Generation Platform is now fully complete per `generation_platform_complexion_prd.md` — Routing Platform, Runtime Caching Platform (L1 exact/L2 semantic/L3 session caching, policy resolution), five runtime validation contracts (Research/Planner/Reviewer/Agent/MCP), a Validation Policy Layer (Acceptance/Fail-Fast/Runtime Validation), every PRD output validator, and Runtime Metrics Integration are all done. A Generation Runtime Platform (`generation/orchestration/`, `execute_generation()`/`GenerationRuntime.execute()`) now gives every future caller one canonical entrypoint into that stack instead of reaching into `GenerationService` directly, per `generation_runtime_platform_prd.md`. **`POST /research` is now live** — the Research API Platform (`app/ai/research/`) composes Retrieval → Context → Generation Runtime → Streaming → Artifacts into the first complete, end-to-end, cited product answer ResearchMind has ever produced, with `POST /research`, `/research/stream`, `/research/citations`, and `GET /research/{id}` (replay, backed by a new `research_sessions` table). This is deliberately linear — no query decomposition, planning, or agents yet, per `research_api_prd.md`'s own Non-Goals; that broader Research Runtime / Deep Research / Agent Platform work is next. Most recently, an **AI Runtime Observability Platform** (`oberservability_platform_prd.md`) shipped: real LangSmith tracing + a new metrics/statistics/report/artifact layer, wired into both Generation entry points (`generate()` and `stream_generate()`, so Research and Chat both get it, plus the Knowledge Processing pipeline). Live verification against an actual LangSmith account and S3 bucket found and fixed three real bugs (streaming was completely dark for both tracing and artifact persistence; a missing artifact-policy rule silently dropped every research artifact; the tracer never sent a real prompt or output) and surfaced a real product gap that got closed as a follow-up (streamed generations never ran post-generation validation/guardrail scoring, unlike non-streamed ones). The same verification pass also surfaced a separate, unrelated, and still-open gap: **Research has zero multi-turn conversation memory** — every query is a fully standalone retrieval+generation call with no history or query rewriting, unlike Chat (which persists history, just flattened at the provider boundary). Maturity ladder: `NotebookLM++ → Perplexity v1 (here) → Open Deep Research → Manus / Glean`.
+**Current Maturity:** NotebookLM++ + Perplexity v1. Hybrid Retrieval, Reranking, Parent Expansion, Compression, Context Guardrails, and strategy-based Prompt Formatting are all in place — beyond a plain NotebookLM clone. A standalone, platform-wide Guardrails Platform (Milestone 11.16 — input/retrieval/generation/runtime stages, Source Trust, policies, scoring, artifacts) is now complete as an MVP foundation, alongside the Validation Platform. The Generation Platform is now fully complete per `generation_platform_complexion_prd.md` — Routing Platform, Runtime Caching Platform (L1 exact/L2 semantic/L3 session caching, policy resolution), five runtime validation contracts (Research/Planner/Reviewer/Agent/MCP), a Validation Policy Layer (Acceptance/Fail-Fast/Runtime Validation), every PRD output validator, and Runtime Metrics Integration are all done. A Generation Runtime Platform (`generation/orchestration/`, `execute_generation()`/`GenerationRuntime.execute()`) now gives every future caller one canonical entrypoint into that stack instead of reaching into `GenerationService` directly, per `generation_runtime_platform_prd.md`. **`POST /research` is now live** — the Research API Platform (`app/ai/research/`) composes Retrieval → Context → Generation Runtime → Streaming → Artifacts into the first complete, end-to-end, cited product answer ResearchMind has ever produced, with `POST /research`, `/research/stream`, `/research/citations`, and `GET /research/{id}` (replay, backed by a new `research_sessions` table). This is deliberately linear — no query decomposition, planning, or agents yet, per `research_api_prd.md`'s own Non-Goals; that broader Research Runtime / Deep Research / Agent Platform work is next. Most recently, an **AI Runtime Observability Platform** (`oberservability_platform_prd.md`) shipped: real LangSmith tracing + a new metrics/statistics/report/artifact layer, wired into both Generation entry points (`generate()` and `stream_generate()`, so Research and Chat both get it, plus the Knowledge Processing pipeline). Live verification against an actual LangSmith account and S3 bucket found and fixed three real bugs (streaming was completely dark for both tracing and artifact persistence; a missing artifact-policy rule silently dropped every research artifact; the tracer never sent a real prompt or output) and surfaced a real product gap that got closed as a follow-up (streamed generations never ran post-generation validation/guardrail scoring, unlike non-streamed ones). The same verification pass also surfaced a separate, unrelated, and still-open gap: **Research has zero multi-turn conversation memory** — every query is a fully standalone retrieval+generation call with no history or query rewriting, unlike Chat (which persists history, just flattened at the provider boundary). Since then, two previously-tracked Retrieval Platform gaps have closed: **Parent/Child Retrieval** now has a real producer — a new `HierarchicalChunkingProvider` (Milestone 2.2) generates parent sections + child chunks via LangChain's `RecursiveCharacterTextSplitter`, feeding the Context Platform's previously-orphaned Parent Expansion consumer (Milestone 2.8.1) for the first time — and **Parallel Retrieval** grew from a dense+sparse 2-way `asyncio.gather()` to a genuine 3-way one, adding a filter-only Metadata branch (`QdrantRetrievalProvider.search_metadata()` via Qdrant `scroll()`) fused in by RRF alongside dense and sparse. Maturity ladder: `NotebookLM++ → Perplexity v1 (here) → Open Deep Research → Manus / Glean`.
 
 ---
 
@@ -331,10 +331,10 @@ Implemented
 - Fixed Chunking
 - Recursive Chunking (LangChain)
 - Markdown Chunking
+- Hierarchical Chunking (LangChain `RecursiveCharacterTextSplitter`, two-pass — parent sections + child chunks; child chunks carry `structure.parent_chunk_id`; parent sections are persisted in the `ChunkArtifact` for `ParentExpansionService` (Milestone 2.8.1) but tagged `is_parent` and excluded from embedding/indexing by `EmbeddingService`) — closes the producer half of Parent/Child Retrieval, whose consumer half (expansion) already existed in the Context Platform
 
 Future Providers
 
-- Hierarchical
 - Semantic
 - LLM
 - Adaptive
@@ -747,7 +747,7 @@ VectorStoreArtifact
 
 ## Milestone 2.6 — Retrieval Platform
 
-**Status:** ✅ Completed (Foundation + Metadata Filtering + Reranking); advanced strategies still planned
+**Status:** ✅ Completed (Foundation + Metadata Filtering + Reranking + 3-way Parallel Retrieval); only Multi-query/query decomposition remains planned
 
 The Retrieval Platform retrieves relevant knowledge from vector stores using multiple retrieval strategies.
 
@@ -756,10 +756,11 @@ The Retrieval Platform retrieves relevant knowledge from vector stores using mul
 ### Responsibilities
 
 - ✅ Dense Retrieval
-- ✅ Hybrid Retrieval (Reciprocal Rank Fusion of dense + sparse)
+- ✅ Hybrid Retrieval (Reciprocal Rank Fusion of dense + sparse + metadata)
 - ✅ Metadata Filtering (`owner_id`, `document_id`, `filename`, `language`; server-enforced `owner_id` scoping from the authenticated user)
-- ✅ Parallel Retrieval (dense + sparse executed concurrently via `asyncio.gather`)
-- 🔄 Parent Retrieval — reclassified into the Context Platform (Milestone 2.8) as Parent Expansion + Adjacent Merge; chunk artifacts, not the vector index, are the source of truth for parent resolution
+- ✅ Metadata Retrieval — `QdrantRetrievalProvider.search_metadata()`, a pure filter-only `scroll()` lookup (no vector similarity); short-circuits to empty when no filters are present, since an unfiltered scroll would ignore tenant scoping
+- ✅ Parallel Retrieval — dense + sparse + metadata all executed concurrently via a single `asyncio.gather()` in `RetrievalService.search_hybrid()`, then fused together by RRF (`RetrievalStatistics.metadata_latency_ms` added alongside `dense_latency_ms`/`sparse_latency_ms`)
+- ✅ Parent/Child Retrieval — genuinely end-to-end as of this session: the Chunking Platform's Hierarchical provider (Milestone 2.2) produces parent sections + child chunks; the Context Platform's Parent Expansion (Milestone 2.8.1) resolves a retrieved child's `parent_chunk_id` back into full parent context. Reclassified into the Context Platform since chunk artifacts, not the vector index, are the source of truth for parent resolution — but the previously-missing producer half is now implemented
 - ✅ Citation Retrieval — implemented as the Context Platform's Citation Platform (Milestone 2.8): citation IDs, pages, headings, chunk IDs
 
 ---
@@ -769,8 +770,9 @@ The Retrieval Platform retrieves relevant knowledge from vector stores using mul
 - ✅ Dense Vector Search
 - ✅ Hybrid Search
 - ✅ Metadata Filtering
-- ✅ Parallel Retrieval
-- 🔄 Parent Document Retrieval — moved to Context Platform
+- ✅ Metadata Retrieval (filter-only `scroll()`, no vector)
+- ✅ Parallel Retrieval (dense + sparse + metadata via `asyncio.gather`)
+- ✅ Parent/Child (Parent Document) Retrieval — chunking side in Milestone 2.2, expansion side in Context Platform (Milestone 2.8.1)
 - ❌ Multi-query Retrieval — moved to future Research Runtime (query decomposition)
 
 ---
@@ -886,6 +888,8 @@ RerankingArtifact
 
 The Context Platform sits between Reranking and Generation. It enriches, deduplicates, compresses, guards, cites, and formats retrieved knowledge before it reaches an LLM. Parent/child expansion was reclassified here from the Retrieval Platform once it became clear that ResearchMind's persisted chunk artifacts — not the vector index — are the source of truth for parent resolution.
 
+Until this session, Parent Expansion had no producer: nothing set `structure.parent_chunk_id` on any chunk, so the resolution logic below was live-wired but never actually triggered. The Chunking Platform's new Hierarchical provider (Milestone 2.2) now produces that structure, making Parent/Child Retrieval genuinely end-to-end for the first time.
+
 ---
 
 ### Responsibilities
@@ -901,11 +905,12 @@ The Context Platform sits between Reranking and Generation. It enriches, dedupli
 
 ### 2.8.1 Parent Expansion
 
-**Status:** ✅ Complete
+**Status:** ✅ Complete — now genuinely end-to-end (producer + consumer)
 
 - `ChunkArtifactReader` — loads persisted chunk artifacts from storage
 - `ParentExpansionService` — resolves `parent_chunk_id` into full parent context
 - Vector payload extended with `chunk_artifact_id`, `chunking_strategy`, `parent_chunk_id`
+- **Producer (new):** `HierarchicalChunkingProvider` (Milestone 2.2) — parent sections + child chunks via two-pass LangChain `RecursiveCharacterTextSplitter`; only children are embedded/indexed (`EmbeddingService` excludes chunks tagged `is_parent`), so parents exist purely in the persisted `ChunkArtifact` for this service to resolve against
 
 ---
 
@@ -1947,7 +1952,7 @@ The major AI Engineering platforms interact as follows.
 | Phase 2.3 — Embedding Platform | ✅ Complete |
 | Phase 2.4 — Observability Platform (Runtime Metrics Foundation) | ✅ Runtime Metrics now also persisted as an artifact (`ObservabilityService.record_processing()`, Milestone 3.6 below), not just logged — see `oberservability_platform_prd.md` |
 | Phase 2.5 — Vector Store Platform | ✅ Complete |
-| Phase 2.6 — Retrieval Platform | ✅ Complete (Foundation + Metadata Filtering + Reranking + Parallel Retrieval) |
+| Phase 2.6 — Retrieval Platform | ✅ Complete (Foundation + Metadata Filtering + Reranking + 3-way Parallel Retrieval [dense+sparse+metadata via `asyncio.gather`]) |
 | Phase 2.7 — Reranking Platform | ✅ Complete (Foundation) |
 | Phase 2.8 — Context Platform | ✅ Complete (Parent Expansion, Adjacent Merge, Compression V1-V4, Guardrails V1, Citations, Prompt Formatter — Phase 3.7, `context_platform_complexion_prd.md`) |
 | Phase 2.9 — Conversation Memory Platform | ⏳ Planned |

@@ -91,3 +91,10 @@ class BaseRetrievalProvider(
         sparse_query: SparseQueryEmbedding,
     ) -> RetrievalResult:
         raise NotImplementedError
+
+    @abstractmethod
+    async def search_metadata(
+        self,
+        query: RetrievalQuery,
+    ) -> RetrievalResult:
+        raise NotImplementedError

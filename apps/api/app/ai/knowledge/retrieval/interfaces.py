@@ -78,3 +78,17 @@ class RetrievalProviderInterface(ABC):
             of Hybrid Retrieval.
         """
         raise NotImplementedError
+
+    @abstractmethod
+    async def search_metadata(
+        self,
+        query: RetrievalQuery,
+    ) -> RetrievalResult:
+        """
+        Execute metadata-filtered retrieval.
+
+        Pure attribute/filter lookup (owner_id, document_id, filename,
+        language, ...) with no vector similarity involved -- one branch
+        of Parallel Retrieval alongside dense and sparse search.
+        """
+        raise NotImplementedError

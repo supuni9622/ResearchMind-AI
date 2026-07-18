@@ -119,6 +119,11 @@ class RetrievalStatistics(BaseModel):
         ge=0,
     )
 
+    metadata_latency_ms: float | None = Field(
+        default=None,
+        ge=0,
+    )
+
     rerank_latency_ms: float | None = Field(
         default=None,
         ge=0,

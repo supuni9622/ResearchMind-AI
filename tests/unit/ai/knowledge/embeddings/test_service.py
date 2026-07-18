@@ -97,7 +97,7 @@ def _make_provider() -> AsyncMock:
     return provider
 
 
-def _make_chunk(text: str) -> Chunk:
+def _make_chunk(text: str, *, is_parent: bool = False) -> Chunk:
     return Chunk(
         id=uuid.uuid4(),
         index=0,
@@ -113,6 +113,7 @@ def _make_chunk(text: str) -> Chunk:
         experiment=ChunkExperiment(
             strategy=ChunkingStrategy.FIXED,
             configuration_fingerprint="fingerprint",
+            additional_metadata=({"is_parent": True} if is_parent else {}),
         ),
     )
 
@@ -293,3 +294,36 @@ async def test_embed_only_sends_cache_misses_to_the_provider_and_preserves_order
 
     assert cache.store[_key_for(missing_chunk)] == [0.9]
     assert _key_for(cached_chunk) not in cache.set_many_calls[0]
+
+
+async def test_embed_excludes_hierarchical_parent_chunks() -> None:
+    """
+    Parent/Child retrieval: parent chunks (Hierarchical chunking
+    strategy) must never be embedded or indexed -- only child chunks
+    are searchable. Parents remain in the persisted ChunkArtifact
+    purely for ParentExpansionService to expand a retrieved child back
+    into its full parent section.
+    """
+
+    parent_chunk = _make_chunk("full parent section", is_parent=True)
+    child_chunk = _make_chunk("small child chunk")
+    artifact = _make_chunk_artifact([parent_chunk, child_chunk])
+
+    cache = _FakeCache()
+    provider = _make_provider()
+
+    registry = EmbeddingRegistry()
+    registry.register(provider)
+
+    service = EmbeddingService(registry=registry, cache=cache)
+
+    result = await service.embed(
+        artifact=artifact,
+        provider=EmbeddingProvider.SENTENCE_TRANSFORMERS,
+    )
+
+    sent_artifact = provider.embed.await_args.args[0]
+    assert [chunk.id for chunk in sent_artifact.chunks] == [child_chunk.id]
+
+    assert [embedding.provenance.chunk_id for embedding in result] == [child_chunk.id]
+    assert _key_for(parent_chunk) not in cache.store

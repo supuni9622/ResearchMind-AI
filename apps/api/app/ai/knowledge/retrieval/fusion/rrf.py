@@ -53,9 +53,11 @@ class ReciprocalRankFusion(
         dense: RetrievalResult,
         sparse: RetrievalResult,
         top_k: int,
+        metadata: RetrievalResult | None = None,
     ) -> RetrievalResult:
         """
-        Fuse dense and sparse retrieval results.
+        Fuse dense, sparse, and optional metadata-filtered retrieval
+        results.
         """
 
         scores: dict[
@@ -104,6 +106,24 @@ class ReciprocalRankFusion(
 
             if key not in chunks:
                 chunks[key] = chunk
+
+        #
+        # Metadata rankings
+        #
+
+        if metadata is not None:
+            for rank, chunk in enumerate(
+                metadata.chunks,
+                start=1,
+            ):
+                key = str(
+                    chunk.chunk_id,
+                )
+
+                scores[key] += 1.0 / (self._k + rank)
+
+                if key not in chunks:
+                    chunks[key] = chunk
 
         #
         # Sort by RRF score.

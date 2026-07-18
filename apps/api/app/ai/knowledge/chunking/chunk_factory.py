@@ -12,7 +12,8 @@ implemented in one place.
 
 from __future__ import annotations
 
-from uuid import uuid4
+from typing import Any
+from uuid import UUID, uuid4
 
 from app.ai.knowledge.chunking.enums import ChunkContentType, ChunkingStrategy
 from app.ai.knowledge.chunking.models import (
@@ -47,7 +48,8 @@ class ChunkFactory:
         heading_path: list[str] | None = None,
         page_numbers: list[int] | None = None,
         hierarchy_level: int | None = None,
-        parent_chunk_id=None,
+        parent_chunk_id: UUID | None = None,
+        additional_metadata: dict[str, Any] | None = None,
     ) -> Chunk:
         """
         Build a canonical Chunk.
@@ -96,5 +98,6 @@ class ChunkFactory:
                 strategy=strategy,
                 strategy_version=strategy_version,
                 configuration_fingerprint=configuration_fingerprint,
+                additional_metadata=additional_metadata or {},
             ),
         )

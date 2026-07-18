@@ -768,11 +768,11 @@ Implemented
 - Fixed Chunking
 - Recursive Chunking
 - Markdown Chunking
+- Hierarchical Chunking (Parent/Child) — `HierarchicalChunkingProvider`, two-pass LangChain `RecursiveCharacterTextSplitter`; children carry `structure.parent_chunk_id`, parents excluded from embedding/indexing but persisted for `ParentExpansionService` (Context Platform) to resolve against
 
 Future providers
 
 - Semantic
-- Hierarchical
 - Adaptive
 - LLM Chunking
 

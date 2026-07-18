@@ -238,6 +238,58 @@ class RetrievalService:
 
         return result
 
+    async def search_metadata(
+        self,
+        *,
+        provider: RetrievalProvider,
+        query: RetrievalQuery,
+    ) -> RetrievalResult:
+        """
+        Execute metadata-filtered retrieval.
+
+        Pure attribute/filter lookup -- no query embedding is
+        generated since no vector similarity is involved.
+        """
+
+        self._validate_query(
+            query,
+        )
+
+        normalized_query = self._normalize_query(
+            query,
+        )
+
+        retrieval_provider = self._registry.get(
+            provider,
+        )
+
+        execution = RetrievalExecution()
+
+        started = perf_counter()
+
+        result = await retrieval_provider.search_metadata(
+            query=normalized_query,
+        )
+
+        duration_ms = (perf_counter() - started) * 1000
+
+        execution.completed_at = datetime.now(
+            UTC,
+        )
+
+        result.execution = execution
+
+        result.statistics = RetrievalStatistics(
+            provider=provider,
+            strategy=(RetrievalStrategy.METADATA),
+            duration_ms=duration_ms,
+            returned_chunks=len(
+                result.chunks,
+            ),
+        )
+
+        return result
+
     async def search_hybrid(
         self,
         *,
@@ -252,9 +304,9 @@ class RetrievalService:
 
         Query
         ↓
-        Dense Retrieval
-        ↓
-        Sparse Retrieval
+        Dense Retrieval  ⎫
+        Sparse Retrieval ⎬ asyncio.gather() -- Parallel Retrieval
+        Metadata Retrieval ⎭
         ↓
         Reciprocal Rank Fusion
         ↓
@@ -297,31 +349,22 @@ class RetrievalService:
         started = perf_counter()
 
         #
-        # Dense retrieval
+        # Parallel Retrieval: dense, sparse, and metadata-filtered
+        # search all run concurrently via asyncio.gather() instead of
+        # sequentially. This immediately gives: ~40-50% latency
+        # reduction over running each retriever one after another.
         #
 
-        # dense_result = await self.search(
-        #     provider=provider,
-        #     query=retrieval_query,
-        # )
-
-        #
-        # Sparse retrieval
-        #
-
-        # sparse_result = await self.search_sparse(
-        #     provider=provider,
-        #     query=retrieval_query,
-        # )
-
-        # Parallel Retrieval.
-        # This immediately gives: ~40-50% latency reduction
-        dense_result, sparse_result = await asyncio.gather(
+        dense_result, sparse_result, metadata_result = await asyncio.gather(
             self.search(
                 provider=provider,
                 query=retrieval_query,
             ),
             self.search_sparse(
+                provider=provider,
+                query=retrieval_query,
+            ),
+            self.search_metadata(
                 provider=provider,
                 query=retrieval_query,
             ),
@@ -334,6 +377,7 @@ class RetrievalService:
         result = await self._fusion_service.fuse(
             dense=dense_result,
             sparse=sparse_result,
+            metadata=metadata_result,
             top_k=query.top_k,
         )
 
@@ -386,6 +430,9 @@ class RetrievalService:
             ),
             sparse_latency_ms=(
                 sparse_result.statistics.duration_ms if sparse_result.statistics else None
+            ),
+            metadata_latency_ms=(
+                metadata_result.statistics.duration_ms if metadata_result.statistics else None
             ),
             rerank_latency_ms=rerank_latency_ms,
             reranker_provider=reranker_provider,

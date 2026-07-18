@@ -19,10 +19,12 @@ class RetrievalFusionService:
         dense: RetrievalResult,
         sparse: RetrievalResult,
         top_k: int,
+        metadata: RetrievalResult | None = None,
     ) -> RetrievalResult:
 
         return await self._strategy.fuse(
             dense=dense,
             sparse=sparse,
             top_k=top_k,
+            metadata=metadata,
         )

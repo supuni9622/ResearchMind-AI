@@ -33,6 +33,7 @@ class FusionStrategy(ABC):
         dense: RetrievalResult,
         sparse: RetrievalResult,
         top_k: int,
+        metadata: RetrievalResult | None = None,
     ) -> RetrievalResult:
         """
         Fuse multiple retrieval result sets into a
@@ -48,6 +49,12 @@ class FusionStrategy(ABC):
 
         top_k:
             Number of final chunks to return.
+
+        metadata:
+            Optional metadata-filtered retrieval results (Parallel
+            Retrieval's third branch). Omitted entirely when the
+            metadata branch produced no results, e.g. no filters were
+            given.
 
         Returns
         -------

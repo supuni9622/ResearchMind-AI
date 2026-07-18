@@ -24,6 +24,8 @@ class RetrievalStrategy(StrEnum):
 
     SPARSE = "sparse"
 
+    METADATA = "metadata"
+
     HYBRID = "hybrid"
 
     PARENT_CHILD = "parent_child"

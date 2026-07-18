@@ -13,11 +13,15 @@ from __future__ import annotations
 
 from app.ai.knowledge.chunking.config import (
     FixedChunkingConfig,
+    HierarchicalChunkingConfig,
     MarkdownChunkingConfig,
     RecursiveChunkingConfig,
 )
 from app.ai.knowledge.chunking.interfaces import ChunkingProvider
 from app.ai.knowledge.chunking.providers.fixed import FixedChunkingProvider
+from app.ai.knowledge.chunking.providers.hierarchical import (
+    HierarchicalChunkingProvider,
+)
 from app.ai.knowledge.chunking.providers.markdown import MarkdownChunkingProvider
 from app.ai.knowledge.chunking.providers.recursive import (
     RecursiveChunkingProvider,
@@ -46,6 +50,9 @@ def create_chunking_registry() -> ChunkingRegistry:
         ),
         MarkdownChunkingProvider(
             MarkdownChunkingConfig(),
+        ),
+        HierarchicalChunkingProvider(
+            HierarchicalChunkingConfig(),
         ),
     ]
 

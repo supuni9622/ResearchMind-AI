@@ -53,6 +53,9 @@ class BenchmarkReportGenerator:
         lines.append(f"- **Documents:** {report.dataset.document_count}")
         lines.append(f"- **Generated:** `{report.generated_at.isoformat()}`")
         lines.append("")
+
+        lines.extend(self._generate_metadata_section(report))
+
         lines.append("---")
         lines.append("")
 
@@ -98,6 +101,37 @@ class BenchmarkReportGenerator:
             ),
             indent=indent,
         )
+
+    def _generate_metadata_section(
+        self,
+        report: BenchmarkReport,
+    ) -> list[str]:
+        """
+        Generate the run-provenance section (commit, branch, dataset
+        and model versions) so a regression can be traced back to what
+        actually changed between two runs.
+        """
+
+        metadata = report.metadata
+
+        lines: list[str] = []
+
+        lines.append("## Provenance")
+        lines.append("")
+        lines.append(f"- **Git commit:** `{metadata.git_commit or 'unknown'}`")
+        lines.append(f"- **Branch:** `{metadata.branch or 'unknown'}`")
+        lines.append(f"- **Dataset version:** `{metadata.dataset_version}`")
+        lines.append(f"- **Benchmark version:** `{metadata.benchmark_version}`")
+
+        if metadata.model_versions:
+            lines.append("- **Model versions:**")
+
+            for candidate_name, model in sorted(metadata.model_versions.items()):
+                lines.append(f"  - `{candidate_name}`: `{model}`")
+
+        lines.append("")
+
+        return lines
 
     def _generate_summary_table(
         self,

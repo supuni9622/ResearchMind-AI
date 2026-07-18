@@ -45,6 +45,7 @@ from benchmarks.interfaces.benchmark import Benchmark
 from benchmarks.models.report import (
     BenchmarkCandidate,
     BenchmarkDataset,
+    BenchmarkMetadata,
     BenchmarkReport,
 )
 
@@ -113,11 +114,19 @@ class GenerationBenchmark(Benchmark):
             for provider in self._registry.providers
         ]
 
+        model_versions = {
+            candidate.name: candidate.version for candidate in candidates if candidate.version
+        }
+
         return BenchmarkReport(
             benchmark_name=self.name,
             dataset=BenchmarkDataset(
                 name=dataset_path.name,
                 document_count=len(query_dataset.queries),
+            ),
+            metadata=BenchmarkMetadata(
+                dataset_version=query_dataset.version,
+                model_versions=model_versions,
             ),
             candidates=candidates,
         )
@@ -140,6 +149,7 @@ class GenerationBenchmark(Benchmark):
         citation_scores: list[float] = []
         latencies_ms: list[float] = []
         costs_usd: list[float] = []
+        model: str | None = None
         error: str | None = None
 
         try:
@@ -170,6 +180,8 @@ class GenerationBenchmark(Benchmark):
                     request=request,
                     provider=provider,
                 )
+
+                model = result.model
 
                 cited_filenames = [
                     citation.filename
@@ -239,6 +251,7 @@ class GenerationBenchmark(Benchmark):
 
         return BenchmarkCandidate(
             name=provider.value,
+            version=model,
             metrics=metrics,
             notes=notes,
         )

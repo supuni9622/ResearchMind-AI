@@ -1,9 +1,17 @@
 {
   "benchmark_name": "Retrieval",
-  "generated_at": "2026-07-18T10:04:24.556794Z",
+  "generated_at": "2026-07-18T12:13:25.722478Z",
   "dataset": {
     "name": "research-papers",
     "document_count": 5
+  },
+  "metadata": {
+    "git_commit": "9965bd7485da7f5be2aa9e75eb8ef9076448513f",
+    "branch": "main",
+    "dataset_version": "1.0",
+    "model_versions": {},
+    "benchmark_version": "1.0.0",
+    "timestamp": "2026-07-18T12:13:25.722441Z"
   },
   "candidates": [
     {
@@ -19,9 +27,9 @@
         "ndcg_at_5": 0.9631,
         "ndcg_at_10": 0.9631,
         "mrr": 0.95,
-        "avg_latency_ms": 318.38,
-        "p95_latency_ms": 446.87,
-        "p99_latency_ms": 446.87
+        "avg_latency_ms": 322.82,
+        "p95_latency_ms": 424.35,
+        "p99_latency_ms": 424.35
       },
       "notes": {
         "top_k_evaluated": 20,
@@ -47,9 +55,9 @@
         "ndcg_at_5": 0.9815,
         "ndcg_at_10": 0.9815,
         "mrr": 0.975,
-        "avg_latency_ms": 11.53,
-        "p95_latency_ms": 21.15,
-        "p99_latency_ms": 21.15
+        "avg_latency_ms": 12.07,
+        "p95_latency_ms": 22.74,
+        "p99_latency_ms": 22.74
       },
       "notes": {
         "top_k_evaluated": 20,
@@ -75,9 +83,9 @@
         "ndcg_at_5": 0.9446,
         "ndcg_at_10": 0.9446,
         "mrr": 0.925,
-        "avg_latency_ms": 342.94,
-        "p95_latency_ms": 494.23,
-        "p99_latency_ms": 494.23
+        "avg_latency_ms": 322.54,
+        "p95_latency_ms": 421.58,
+        "p99_latency_ms": 421.58
       },
       "notes": {
         "top_k_evaluated": 20,

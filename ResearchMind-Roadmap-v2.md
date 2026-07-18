@@ -1926,8 +1926,9 @@ Metrics
 - ✅ Completeness (expected-answer term coverage)
 - ✅ Citation Quality (`citation_accuracy` — fraction of expected citation filenames actually referenced)
 - ✅ Hallucination Detection (`hallucination_rate`, derived as `1 - faithfulness`)
+- ✅ Cost (`avg_cost_usd`, `cost_per_query`, `cost_per_1k_queries` — read off `GenerationResult.statistics.estimated_cost_usd`, already computed from real per-model pricing, previously unsurfaced by any benchmark)
 
-Implemented in `benchmarks/generation/` (dataset/metrics/benchmark.py), scored deterministically via lexical overlap rather than an LLM judge — mirrors the existing `hallucination_validator.py` convention. Verified live against Groq/OpenAI/Claude; found and fixed a real bug where `citation_accuracy` was structurally always 0.0 because the model was never given the filename it was asked to cite.
+Implemented in `benchmarks/generation/` (dataset/metrics/benchmark.py), scored deterministically via lexical overlap rather than an LLM judge — mirrors the existing `hallucination_validator.py` convention. Verified live against Groq/OpenAI/Claude; found and fixed a real bug where `citation_accuracy` was structurally always 0.0 because the model was never given the filename it was asked to cite. Cost metrics verified live too — Claude came out ~24x pricier than Groq per 1k queries on this dataset ($3.76 vs. $0.16).
 
 ---
 

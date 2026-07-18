@@ -32,7 +32,28 @@ class RegressionReportGenerator:
         lines.append("")
         lines.append(f"- **Checked:** `{result.checked_at.isoformat()}`")
         lines.append(f"- **Status:** {'✅ PASSED' if result.passed else '❌ FAILED'}")
+        lines.append(
+            f"- **Commit:** `{result.previous_commit or 'unknown'}` -> "
+            f"`{result.current_commit or 'unknown'}`"
+        )
+        lines.append(
+            f"- **Dataset version:** `{result.previous_dataset_version}` -> "
+            f"`{result.current_dataset_version}`"
+        )
         lines.append("")
+
+        if (
+            result.regressions
+            and result.previous_commit is not None
+            and result.previous_commit == result.current_commit
+        ):
+            lines.append(
+                "> ⚠️ No code changed between these two runs (same commit) -- "
+                "these violations are likely run-to-run noise (e.g. live LLM "
+                "sampling variance or provider latency jitter), not a real "
+                "regression. Investigate before treating this as a defect."
+            )
+            lines.append("")
 
         if not result.regressions:
             lines.append("No regressions detected.")

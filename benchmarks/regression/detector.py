@@ -74,6 +74,10 @@ class RegressionDetector:
 
         return RegressionResult(
             benchmark_name=current.benchmark_name,
+            previous_commit=previous.metadata.git_commit,
+            current_commit=current.metadata.git_commit,
+            previous_dataset_version=previous.metadata.dataset_version,
+            current_dataset_version=current.metadata.dataset_version,
             passed=not issues,
             regressions=issues,
         )

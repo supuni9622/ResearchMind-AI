@@ -4,7 +4,14 @@
 
 - **Name:** research-papers
 - **Documents:** 5
-- **Generated:** `2026-07-18T10:04:24.556794+00:00`
+- **Generated:** `2026-07-18T12:13:25.722478+00:00`
+
+## Provenance
+
+- **Git commit:** `9965bd7485da7f5be2aa9e75eb8ef9076448513f`
+- **Branch:** `main`
+- **Dataset version:** `1.0`
+- **Benchmark version:** `1.0.0`
 
 ---
 
@@ -12,12 +19,12 @@
 
 | Metric | dense | sparse | hybrid |
 |---|---:|---:|---:|
-| Avg Latency Ms | 318.38 | 11.53 | 342.94 |
+| Avg Latency Ms | 322.82 | 12.07 | 322.54 |
 | Mrr | 0.95 | 0.975 | 0.925 |
 | Ndcg At 10 | 0.9631 | 0.9815 | 0.9446 |
 | Ndcg At 5 | 0.9631 | 0.9815 | 0.9446 |
-| P95 Latency Ms | 446.87 | 21.15 | 494.23 |
-| P99 Latency Ms | 446.87 | 21.15 | 494.23 |
+| P95 Latency Ms | 424.35 | 22.74 | 421.58 |
+| P99 Latency Ms | 424.35 | 22.74 | 421.58 |
 | Precision At 10 | 0.1 | 0.1 | 0.1 |
 | Precision At 5 | 0.2 | 0.2 | 0.2 |
 | Queries Evaluated | 20 | 20 | 20 |
@@ -40,9 +47,9 @@
 | Ndcg At 5 | 0.9631 |
 | Ndcg At 10 | 0.9631 |
 | Mrr | 0.95 |
-| Avg Latency Ms | 318.38 |
-| P95 Latency Ms | 446.87 |
-| P99 Latency Ms | 446.87 |
+| Avg Latency Ms | 322.82 |
+| P95 Latency Ms | 424.35 |
+| P99 Latency Ms | 424.35 |
 
 ### Notes
 
@@ -63,9 +70,9 @@
 | Ndcg At 5 | 0.9815 |
 | Ndcg At 10 | 0.9815 |
 | Mrr | 0.975 |
-| Avg Latency Ms | 11.53 |
-| P95 Latency Ms | 21.15 |
-| P99 Latency Ms | 21.15 |
+| Avg Latency Ms | 12.07 |
+| P95 Latency Ms | 22.74 |
+| P99 Latency Ms | 22.74 |
 
 ### Notes
 
@@ -86,9 +93,9 @@
 | Ndcg At 5 | 0.9446 |
 | Ndcg At 10 | 0.9446 |
 | Mrr | 0.925 |
-| Avg Latency Ms | 342.94 |
-| P95 Latency Ms | 494.23 |
-| P99 Latency Ms | 494.23 |
+| Avg Latency Ms | 322.54 |
+| P95 Latency Ms | 421.58 |
+| P99 Latency Ms | 421.58 |
 
 ### Notes
 

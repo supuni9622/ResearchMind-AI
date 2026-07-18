@@ -37,6 +37,7 @@ from benchmarks.interfaces.benchmark import Benchmark
 from benchmarks.models.report import (
     BenchmarkCandidate,
     BenchmarkDataset,
+    BenchmarkMetadata,
     BenchmarkReport,
 )
 from benchmarks.retrieval.dataset import (
@@ -152,6 +153,9 @@ class RetrievalBenchmark(Benchmark):
             dataset=BenchmarkDataset(
                 name=dataset_path.name,
                 document_count=len(documents),
+            ),
+            metadata=BenchmarkMetadata(
+                dataset_version=query_dataset.version,
             ),
             candidates=candidates,
         )

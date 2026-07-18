@@ -54,6 +54,24 @@ class RegressionResult(BaseModel):
         default_factory=lambda: datetime.now(UTC),
     )
 
+    previous_commit: str | None = Field(
+        default=None,
+        description="Git commit the previous (baseline) report was generated from.",
+    )
+
+    current_commit: str | None = Field(
+        default=None,
+        description="Git commit the current report was generated from.",
+    )
+
+    previous_dataset_version: str = Field(
+        default="unknown",
+    )
+
+    current_dataset_version: str = Field(
+        default="unknown",
+    )
+
     passed: bool
 
     regressions: list[RegressionIssue] = Field(

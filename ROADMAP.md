@@ -1840,7 +1840,7 @@ Framework
 - Dataset Loader
 - Markdown Report Generator
 - JSON Report Generator
-- Regression Detection (`benchmarks/regression/`) — threshold-based pass/fail comparing a fresh run against the previously stored `report.json`, non-zero exit on failure
+- Regression Detection (`benchmarks/regression/`) — threshold-based pass/fail comparing a fresh run against the previously stored `report.json`, non-zero exit on failure (now incl. cost metric thresholds alongside latency)
 
 Benchmarks
 
@@ -1850,7 +1850,7 @@ Benchmarks
 - Metadata Filtering Benchmark (`leakage_rate` correctness signal, unfiltered vs. owner-filtered)
 - Reranking Benchmark (hybrid-only vs. +CrossEncoder vs. +Voyage AI; Recall@5, MRR, NDCG@5, latency, cost)
 - Pipeline Benchmark (end-to-end ingestion)
-- Generation Benchmark (`benchmarks/generation/`) — deterministic no-LLM scoring (faithfulness, groundedness, relevance, completeness, citation accuracy, hallucination rate) across every configured `GenerationProvider`; verified live against Groq/OpenAI/Claude, with a real citation-accuracy bug found and fixed along the way (the model was never actually given the filename it was asked to cite)
+- Generation Benchmark (`benchmarks/generation/`) — deterministic no-LLM scoring (faithfulness, groundedness, relevance, completeness, citation accuracy, hallucination rate) plus cost metrics (`avg_cost_usd`, `cost_per_query`, `cost_per_1k_queries`, off the already-computed `GenerationResult.statistics.estimated_cost_usd`) across every configured `GenerationProvider`; verified live against Groq/OpenAI/Claude, with a real citation-accuracy bug found and fixed along the way (the model was never actually given the filename it was asked to cite) and a real cost spread found (~24x between Claude and Groq per 1k queries on this dataset)
 
 Dataset
 
@@ -2030,7 +2030,7 @@ This project intentionally prioritizes completing the production AI platform (Ti
 12. **Decide Chat vs. Research frontend UX** (deferred design discussion) — separate nav entry/page vs. a unified mode-toggle input; Chat currently has no frontend surface at all
 13. Conversation Memory Platform (Phase 2.9) — note (2026-07-18): Research needs this even more urgently than Chat does, since Research currently has **zero** multi-turn memory (Chat at least persists history, just flattened at the provider boundary)
 14. Knowledge Service (Phase 2.10)
-15. ~~Evaluation Platform expansion — NDCG, Groundedness, Faithfulness, Citation Accuracy, Hallucination Rate, Regression Detection~~ ✅ Complete, built into `benchmarks/` per the `evaluation_platform_prd.md` reconciliation (see Engineering Benchmark Platform above and PROJECT_STATUS.md) — End-to-End and Security Evaluation remain future work
+15. ~~Evaluation Platform expansion — NDCG, Groundedness, Faithfulness, Citation Accuracy, Hallucination Rate, Regression Detection, Cost Metrics~~ ✅ Complete, built into `benchmarks/` per the `evaluation_platform_prd.md` reconciliation (see Engineering Benchmark Platform above and PROJECT_STATUS.md) — End-to-End and Security Evaluation remain future work
 16. Research Runtime — Query Decomposition, Planner, Research Agents, Reviewer, Summarizer, LangGraph (builds on the now-complete Research API Platform)
 17. Agentic AI Platform
 18. Long-Term Platform — Research Sessions, Memory, MCP, Feedback Learning

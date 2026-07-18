@@ -50,7 +50,7 @@ ResearchMind-AI/
 │   │       │   │   ├── session/             # Scaffold-only — SessionArtifact, unwired (no session concept distinct from Conversation yet)
 │   │       │   │   ├── research/            # Implemented, live — ResearchArtifact, wired into ResearchService (Phase 4, research_api_prd.md)
 │   │       │   │   ├── agent/               # Scaffold-only — AgentArtifact, unwired (no Agent Runtime yet)
-│   │       │   │   ├── evaluation/          # Scaffold-only — EvaluationArtifact, unwired (quality/evaluation/ still empty)
+│   │       │   │   ├── evaluation/          # Scaffold-only, deliberately unwired — EvaluationArtifact is S3-backed, but benchmarks/ (the real evaluation harness, see below) is explicitly independent of production infra; reserved for a future online/API-triggered evaluation surface (api/v1/evaluation.py is still empty)
 │   │       │   │   ├── observability/       # Implemented, live (new, Phase 3.9, oberservability_platform_prd.md) — ObservabilityArtifact (metrics/statistics as dict[str, Any], report as markdown string), ObservabilityArtifactBuilder/Writer/Reader; storage layout observability/{execution_id}/{metadata.json,metrics.json,statistics.json?,report.md}; wired from GenerationService.generate()/stream_generate() and ProcessingService.process()
 │   │       │   │   └── replay/              # GenerationReplayService/StreamReplayService (real), ResearchReplayService (stub)
 │   │       │   ├── config/
@@ -340,7 +340,7 @@ ResearchMind-AI/
 │   │       │   │   ├── statistics/          # NEW — enums.py (TimeWindow), models.py (PercentileStats/RankingEntry/StatisticsSnapshot), aggregator.py (percentile/compute_percentiles/average/rate/rank_by_count/rank_by_average — pure functions), service.py (Generation/RetrievalStatisticsBuilder); no persistent metrics store, pure aggregation over a caller-assembled list
 │   │       │   │   ├── reports/             # NEW — markdown report builders: generation.py, retrieval.py, system.py (no research.py — PRD labels Research Report "Future")
 │   │       │   │   └── providers/langsmith/ # NEW, real (not stubbed) — client.py (get_langsmith_client(), lazy/cached, gated on settings.langsmith_api_key, passes api_url=settings.langsmith_endpoint), tracing.py (RuntimeTracer ABC + TraceHandle ABC, NoOpTracer/_NoOpTraceHandle, LangSmithTracer/_LangSmithTraceHandle — trace(inputs=real prompt, tags=metadata incl. streamed) yields a handle whose set_output(content, prompt_tokens, completion_tokens, total_tokens) populates update_run(outputs=...) before the trace closes), recorder.py (LangSmithMetricsRecorder, reads tracing.py's current_run_id ContextVar to attach create_feedback() to the active trace), create.py (create_runtime_tracer()/create_langsmith_metrics_recorder() — require BOTH settings.langsmith_api_key AND settings.langsmith_tracing=true, an API key alone does not enable tracing)
-│   │       │   ├── quality/                 # Evaluation and quality (planned)
+│   │       │   ├── quality/                 # Dead scaffold — 0-byte __init__.py files present since the very first commit, predates every evaluation doc; docs/evaluation/strategy.md's own "Current Status: Not Implemented" confirms it. Real Generation/Regression evaluation was built into repo-root benchmarks/ instead — see PROJECT_STATUS.md's "Evaluation Platform PRD Reconciliation"
 │   │       │   │   ├── benchmarks/
 │   │       │   │   ├── evaluation/
 │   │       │   │   ├── experiments/
@@ -673,11 +673,16 @@ ResearchMind-AI/
 │   │       ├── paper-003/processed_document.json
 │   │       ├── paper-004/processed_document.json
 │   │       ├── paper-005/processed_document.json
-│   │       └── retrieval_queries.json       # 20-query hand-curated ground truth (document-level relevance, 4 categories) for the Retrieval Benchmark
+│   │       ├── retrieval_queries.json       # 20-query hand-curated ground truth (document-level relevance, 4 categories) for the Retrieval Benchmark
+│   │       └── generation_queries.json      # 13-query query/context/expected_answer/citations dataset for the Generation Benchmark; context is a verbatim excerpt so scoring doesn't depend on live retrieval
 │   ├── embeddings/
 │   │   ├── benchmark.py                     # EmbeddingBenchmark — chunks each document once (fixed RECURSIVE strategy), then runs every registered embedding provider against identical chunks, timing latency/throughput/dimensions; isolates per-provider failures so one candidate erroring doesn't abort the report
 │   │   ├── report_generator.py              # EmbeddingBenchmarkReportGenerator (subclass; embedding-specific viz placeholder)
 │   │   └── reports/embeddings/report.{md,json}  # Checked-in example output (Sentence Transformers full run; Voyage AI partial — hit free-tier rate limit)
+│   ├── generation/                          # Generation Benchmark — scores every configured GenerationProvider (Groq/OpenAI/Claude/Gemini/Ollama) against a shared dataset; see PROJECT_STATUS.md's "Evaluation Platform PRD Reconciliation"
+│   │   ├── dataset.py                       # GenerationBenchmarkQuery, GenerationQueryDataset, load_generation_queries() — mirrors retrieval/dataset.py
+│   │   ├── metrics.py                       # Deterministic no-LLM lexical-overlap scorers — faithfulness (sentence-level), groundedness (token-level), relevance, completeness, citation_accuracy; mirrors hallucination_validator.py's _significant_words() convention
+│   │   └── benchmark.py                     # GenerationBenchmark — one candidate per configured provider (self._registry.providers); context tagged `[Source: <filename>]` + a citation system_prompt, both required for citation_accuracy to be non-zero
 │   ├── interfaces/
 │   │   └── benchmark.py                     # Benchmark ABC — name, run(dataset_path) -> BenchmarkReport
 │   ├── models/
@@ -690,13 +695,21 @@ ResearchMind-AI/
 │   │   ├── report_generator.py              # PipelineReportGenerator — renders PipelineBenchmarkReport as Markdown
 │   │   ├── services.py                      # create_pipeline_services() — reuses the real composition roots (mirrors app.bootstrap.worker)
 │   │   └── stats.py                         # summarize() — average/min/max/median/p95 over a metric list
+│   ├── regression/                          # Regression Detection — threshold-based pass/fail comparing a fresh BenchmarkReport against the previously stored one
+│   │   ├── models.py                        # RegressionIssue, RegressionResult (PRD §11.5) — compares two BenchmarkReports, no parallel canonical model invented
+│   │   ├── thresholds.py                    # ThresholdDirection (MIN_DROP/MAX_INCREASE/MAX_RELATIVE_INCREASE), DEFAULT_METRIC_THRESHOLDS — metric-name-keyed, absent metrics simply aren't checked
+│   │   ├── detector.py                      # RegressionDetector.compare(previous, current) -> RegressionResult — per-candidate, per-metric; a candidate present in only one report is skipped, not flagged
+│   │   └── report_generator.py              # RegressionReportGenerator — renders a RegressionResult as Markdown/JSON, mirrors common/report_generator.py
 │   ├── reports/
 │   │   ├── .gitkeep                         # Keeps the default --output directory tracked
 │   │   ├── ingestion-benchmark-report.md    # Checked-in example output from a real pipeline benchmark run (incl. dense + sparse vector counts)
 │   │   ├── ingestion-benchmark.json         # Same run, machine-readable
-│   │   ├── retrieval/report.{md,json}       # Checked-in example output from a real retrieval benchmark run (dense vs. sparse vs. hybrid)
+│   │   ├── retrieval/report.{md,json}       # Checked-in example output from a real retrieval benchmark run (dense vs. sparse vs. hybrid), now including ndcg_at_5/ndcg_at_10
+│   │   ├── retrieval/regression.json, regression_report.md  # Checked-in example --check-regression output — passed cleanly on an unchanged rerun
 │   │   ├── metadatafiltering/report.{md,json}  # Checked-in example output — leakage_rate: 0.0 for every filtered candidate, MRR raised to 1.0
-│   │   └── reranking/report.{md,json}       # Checked-in example output — Recall@5 unchanged, MRR/NDCG@5 improved substantially with reranking
+│   │   ├── reranking/report.{md,json}       # Checked-in example output — Recall@5 unchanged, MRR/NDCG@5 improved substantially with reranking
+│   │   ├── generation/report.{md,json}      # Checked-in example output — Groq/OpenAI/Claude completed 13/13 queries with distinct scores; Gemini/Ollama recorded as zero-scored candidates with notes.error
+│   │   └── generation/regression.json, regression_report.md  # Checked-in example --check-regression output that actually caught real regressions (a prompt change shifted relevance/completeness/latency past threshold)
 │   ├── reranking/
 │   │   └── benchmark.py                     # RerankingBenchmark — one shared hybrid candidate pool per query, scores hybrid_only / hybrid_cross_encoder / hybrid_voyage against it (dedicated `benchmark_reranking` collection); Recall@5, MRR, NDCG@5, latency, qualitative cost model; hybrid_voyage degrades to a "skipped" note if VOYAGE_API_KEY isn't configured
 │   ├── retrieval/                           # Retrieval Benchmark — dense vs. sparse vs. hybrid (ADR-020)
@@ -704,11 +717,11 @@ ResearchMind-AI/
 │   │   ├── dataset.py                       # load_retrieval_queries() — loads/validates retrieval_queries.json
 │   │   ├── indexer.py                       # BenchmarkRetrievalIndexer — chunks + embeds (dense+sparse) + upserts the benchmark corpus into a dedicated collection, drop/recreate per run; accepts an optional owner_ids_by_document_id map for per-document synthetic owners
 │   │   ├── metadata_filtering_benchmark.py  # MetadataFilteringBenchmark — dedicated `benchmark_retrieval_filtering` collection, per-document synthetic owners, unfiltered vs. owner-filtered dense/sparse/hybrid; reports leakage_rate (correctness signal, expect 0.0)
-│   │   └── metrics.py                       # recall_at_k() / precision_at_k() / reciprocal_rank() / ndcg_at_k() — pure, document-level relevance functions
-│   ├── README.md                             # Platform overview, philosophy, workflow, usage
-│   ├── factory.py                            # create_benchmark_registry() — composition root (Chunking, Embedding, Retrieval, MetadataFiltering, Reranking benchmarks, each retrieval-family one with its own dedicated Qdrant collection)
+│   │   └── metrics.py                       # recall_at_k() / precision_at_k() / reciprocal_rank() / ndcg_at_k() — pure, document-level relevance functions; ndcg_at_k now actually wired into benchmark.py's reported metrics (previously implemented but unused)
+│   ├── README.md                             # Platform overview, philosophy, workflow, usage — now documents the Generation benchmark and --check-regression
+│   ├── factory.py                            # create_benchmark_registry() — composition root (Chunking, Embedding, Retrieval, MetadataFiltering, Reranking, Generation benchmarks, each retrieval-family one with its own dedicated Qdrant collection; GenerationBenchmark wired from create_generation_registry())
 │   ├── registry.py                           # BenchmarkRegistry — name → benchmark resolution
-│   └── runner.py                             # CLI entry point (python -m benchmarks.runner <name> --dataset <path>)
+│   └── runner.py                             # CLI entry point (python -m benchmarks.runner <name> --dataset <path> [--check-regression]) — the flag loads the pre-existing report.json as a baseline before overwriting it, runs RegressionDetector after, writes regression.json/regression_report.md, exits non-zero on failure
 │
 ├── datasets/                    # Data for evaluation and testing
 │   ├── golden/                  # Ground-truth / golden datasets
@@ -771,8 +784,8 @@ ResearchMind-AI/
 │   │   ├── db-sessions.md
 │   │   ├── decision-history.md
 │   │   ├── embedding-platform.md             # Embedding Platform architecture (Phase 2.4, completed V1)
-│   │   ├── evaluation-platform.md            # Runtime Evaluation Platform (planned)
-│   │   ├── evaluation-strategy.md            # Why three evaluation layers (Benchmarks / Runtime Eval / Experimentation)
+│   │   ├── evaluation-platform.md            # Runtime Evaluation Platform (status header still says "Planned", but the concept it describes is already implemented — as the AI Runtime Observability Platform, `app/ai/observability/`, confirmed by this file's own note on the sibling `observability-platform.md`; see PROJECT_STATUS.md's "Evaluation Platform PRD Reconciliation")
+│   │   ├── evaluation-strategy.md            # Why three evaluation layers (Benchmarks / Runtime Eval / Experimentation) — Benchmarks now includes Generation + Regression (repo-root `benchmarks/`), Runtime Eval is the Observability Platform, Experimentation remains not started
 │   │   ├── experimentation-platform.md       # Experimentation Platform (planned)
 │   │   ├── framework-integration-strategy.md # Companion to ADR-023 — LangChain/LangGraph/LangSmith integration boundaries
 │   │   ├── hybrid-retrieval-indexing.md      # Sparse embeddings (FastEmbed SPLADE) + Qdrant native hybrid indexing (ADR-018, ADR-019); complete ingestion pipeline flow diagram
@@ -1159,7 +1172,7 @@ ResearchMind-AI/
 | Artifact Platform | `apps/api/app/ai/artifacts/` | Centralized, cross-cutting canonical persistence/replay layer for AI Runtime executions (Milestone 3.10, `artifacts_platform_prd.md`) — immutable, versioned, policy-gated (`ArtifactPolicyService`). Generation artifacts (wired into `GenerationService.generate()`), Streaming artifacts (wired into `StreamingService._stream_live()`), and Conversation artifacts (wired into `chat.py`, one immutable file per turn) are live; Session/Research/Agent/Evaluation artifacts are built and unit-tested but scaffold-only, since no session/research/agent/evaluation runtime exists yet. `replay/` reconstructs a `GenerationResult` or re-emits a stored `StreamEvent` sequence from persisted artifacts |
 | Upload pipeline | `apps/api/app/ai/knowledge/upload/` | File validation, duplicate detection, S3 upload, checksum hashing, enqueues async processing job |
 | Async worker | `apps/worker/` | Standalone process consuming the queue, running `DocumentProcessingService` per job, retry/dead-letter handling |
-| Engineering benchmarks | `benchmarks/` | Offline, manually-run comparison of competing AI implementations (chunking strategies, embedding providers, dense/sparse/hybrid retrieval) against version-controlled datasets — independent from tests and from production infrastructure |
+| Engineering benchmarks | `benchmarks/` | Offline, manually-run comparison of competing AI implementations (chunking strategies, embedding providers, dense/sparse/hybrid retrieval, reranking, generation providers) against version-controlled datasets — independent from tests and from production infrastructure. Now includes a Generation Benchmark (`generation/`, deterministic no-LLM faithfulness/groundedness/relevance/completeness/citation-accuracy scoring) and threshold-based Regression Detection (`regression/`, wired into `runner.py` via `--check-regression`) — see `evaluation_platform_prd.md` / PROJECT_STATUS.md's "Evaluation Platform PRD Reconciliation" for why this, not a new `app/ai/evaluation/`, is where Evaluation Platform work landed |
 | Infrastructure | `apps/api/app/infrastructure/` | S3 storage, SHA-256 hashing, metrics adapters, queue abstraction (Valkey/SQS-backed) |
 | Composition roots | `apps/api/app/bootstrap/` | Builds shared object graphs (e.g. the worker) used by multiple entry points |
 | Application services | `apps/api/app/services/` | Auth, user lifecycle, document processing orchestration, queued-job processing |

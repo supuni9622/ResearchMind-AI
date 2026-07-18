@@ -48,10 +48,17 @@ from app.ai.knowledge.vectorstores.create import (
     create_qdrant_client,
     create_vectorstore_service,
 )
+from app.ai.runtime.generation.create import (
+    create_generation_registry,
+)
+from app.ai.runtime.generation.service import (
+    GenerationService,
+)
 
 from benchmarks.chunking.benchmark import ChunkingBenchmark
 from benchmarks.common.dataset_loader import DatasetLoader
 from benchmarks.embeddings.benchmark import EmbeddingBenchmark
+from benchmarks.generation.benchmark import GenerationBenchmark
 from benchmarks.registry import BenchmarkRegistry
 from benchmarks.reranking.benchmark import (
     BENCHMARK_COLLECTION_NAME as RERANKING_COLLECTION_NAME,
@@ -191,6 +198,17 @@ def create_benchmark_registry() -> BenchmarkRegistry:
             ),
             fusion_service=RetrievalFusionService(),
             reranking_registry=create_reranking_registry(),
+        )
+    )
+
+    generation_registry = create_generation_registry()
+
+    registry.register(
+        GenerationBenchmark(
+            registry=generation_registry,
+            generation_service=GenerationService(
+                registry=generation_registry,
+            ),
         )
     )
 

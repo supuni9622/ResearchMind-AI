@@ -1,0 +1,97 @@
+{
+  "version": "1.0",
+  "notes": "Query/context/expected_answer/citations judgments for the research-papers benchmark corpus, following evaluation_platform_prd.md's Generation Dataset format. Context excerpts are verbatim (trimmed) passages from each paper's processed_document.json, so the generation benchmark can score answer quality directly against known-correct grounding without depending on live retrieval.",
+  "queries": [
+    {
+      "query_id": "g1",
+      "query": "What statistical tests were used to evaluate the BSE training intervention, and what were the pre/post test scores?",
+      "context": "This study evaluated the effectiveness of a structured PowerPoint-based educational intervention on improving BSE knowledge among 100 female engineering students aged 18-26 years. Using a one-group pre-test post-test design and convenience sampling, participants received a structured training session focused on BSE. Knowledge was assessed before and after the intervention. Statistical analysis using paired t-tests and Fisher's exact test revealed a significant improvement in BSE knowledge following the session. The mean pre-test score was 9.9 ± 3.2, while the post-test score increased markedly to 20.6 ± 2.8 (p < 0.001).",
+      "expected_answer": "The study used paired t-tests and Fisher's exact test. The mean pre-test knowledge score was 9.9 ± 3.2, which increased significantly to 20.6 ± 2.8 after the intervention (p < 0.001).",
+      "citations": ["151__CRC.pdfrevised.pdf"]
+    },
+    {
+      "query_id": "g2",
+      "query": "Why is breast cancer awareness particularly important for young women according to this research?",
+      "context": "Breast cancer is an important global health issue, with over 2.3 million new cases and approximately 700,000 deaths in 2020. Although breast cancer predominantly affects women aged 50 years and older, younger women are increasingly at risk. Every year, about 14,000 American women under 40 receive a breast cancer diagnosis, around 44,800 deaths every year; it is the second most common cause of cancer-related mortality among women ages 0 to 39. The cumulative risk of developing breast cancer before age 40 in Canada is 0.61%, higher than the global average of 0.44%.",
+      "expected_answer": "Younger women are increasingly at risk of breast cancer; about 14,000 American women under 40 are diagnosed each year, and it is the second most common cause of cancer-related mortality among women aged 0 to 39, making early awareness and detection important for this group.",
+      "citations": ["151__CRC.pdfrevised.pdf"]
+    },
+    {
+      "query_id": "g3",
+      "query": "What topics does this LLM survey article cover?",
+      "context": "Large Language Models (LLMs) have recently demonstrated remarkable capabilities in natural language processing tasks and beyond. These works encompass diverse topics such as architectural innovations, better training strategies, context length improvements, fine-tuning, multi-modal LLMs, robotics, datasets, benchmarking, efficiency, and more. This article provides an overview of the literature on a broad range of LLM-related concepts.",
+      "expected_answer": "The survey covers architectural innovations, better training strategies, context length improvements, fine-tuning, multi-modal LLMs, robotics, datasets, benchmarking, and efficiency, providing a comprehensive overview of LLM research.",
+      "citations": ["LLM_RESEARCH.pdf"]
+    },
+    {
+      "query_id": "g4",
+      "query": "What has driven recent breakthroughs in language models, according to the introduction?",
+      "context": "Recently, significant breakthroughs have been witnessed in language models, primarily attributed to transformers, increased computational capabilities, and the availability of large-scale training data. These developments have brought about a revolutionary transformation by enabling the creation of LLMs that can approximate human-level performance on various tasks.",
+      "expected_answer": "Breakthroughs in language models are primarily attributed to transformers, increased computational capabilities, and the availability of large-scale training data.",
+      "citations": ["LLM_RESEARCH.pdf"]
+    },
+    {
+      "query_id": "g5",
+      "query": "What is the Emergence-Density Inversion hypothesis and what does it argue about noise in job posting clusters?",
+      "context": "Standard NLP pipelines for occupational clustering discard the 10-15% of job postings that density-based methods assign to noise. We argue this is an error: in rapidly evolving domains, low posting density signals novelty, not incoherence. We formalize this as the Emergence-Density Inversion (EDI) hypothesis and test it longitudinally on 84,988 job postings across eight quarters (Q4 2022-Q3 2024).",
+      "expected_answer": "The Emergence-Density Inversion (EDI) hypothesis argues that in rapidly evolving domains, low posting density -- often discarded as noise by clustering methods -- actually signals novelty or emerging occupations rather than incoherent data.",
+      "citations": ["Noise_is_Signal_Density-Based_Outliers_as_Leading_.pdf"]
+    },
+    {
+      "query_id": "g6",
+      "query": "Which emerging job roles were identified as top occupations by Q3 2024 that are absent from O*NET?",
+      "context": "Prompt Engineer, AI Safety Researcher, Foundation Model Engineer, and Agent Systems Engineer -- all absent from O*NET -- are top-4 in Q3 2024 and form stable clusters by Q1 2025.",
+      "expected_answer": "Prompt Engineer, AI Safety Researcher, Foundation Model Engineer, and Agent Systems Engineer were identified as the top-4 emerging roles in Q3 2024, none of which appear in the O*NET database.",
+      "citations": ["Noise_is_Signal_Density-Based_Outliers_as_Leading_.pdf"]
+    },
+    {
+      "query_id": "g7",
+      "query": "How much improvement did the extended Emerging Occupation Score achieve in cluster-formation prediction?",
+      "context": "We extend the Emerging Occupation Score (EOS) with Temporal Velocity and Cross-Platform Convergence, improving 2-quarter cluster-formation prediction from F1=0.61 to 0.74 -- outperforming Isolation Forest, LOF, GLOSH, and BERTrend baselines.",
+      "expected_answer": "The extended EOS (with Temporal Velocity and Cross-Platform Convergence) improved 2-quarter cluster-formation prediction F1 score from 0.61 to 0.74, outperforming Isolation Forest, LOF, GLOSH, and BERTrend baselines.",
+      "citations": ["Noise_is_Signal_Density-Based_Outliers_as_Leading_.pdf"]
+    },
+    {
+      "query_id": "g8",
+      "query": "What does loop engineering treat the observe-plan-act-evaluate cycle as, and why?",
+      "context": "This paper proposes loop engineering as a conceptual framework for reliable execution in AI agent systems. The framework treats the repeated observe-plan-act-evaluate cycle as the primary engineering unit of agentic behavior, and it positions that cycle as a governance problem rather than only a control-flow problem.",
+      "expected_answer": "Loop engineering treats the observe-plan-act-evaluate cycle as the primary engineering unit of agentic behavior, framing it as a governance problem rather than only a control-flow problem.",
+      "citations": ["Loop_Engineering_Revised.pdf"]
+    },
+    {
+      "query_id": "g9",
+      "query": "How does loop engineering differ from workflow orchestration?",
+      "context": "Workflow orchestration coordinates predefined task graphs with deterministic transitions, whereas loop engineering governs emergent, model-generated plans whose structure is not known in advance; workflow systems typically treat failure as an exception path, whereas loop engineering treats uncertainty, risk, and cost as continuous state variables evaluated every iteration; and workflow systems are concerned with whether a task completed, whereas loop engineering is concerned with whether the agent should have continued at all.",
+      "expected_answer": "Workflow orchestration coordinates predefined task graphs with deterministic transitions and treats failure as an exception path, while loop engineering governs emergent, model-generated plans, treats uncertainty, risk, and cost as continuous state variables evaluated every iteration, and asks whether the agent should have continued at all.",
+      "citations": ["Loop_Engineering_Revised.pdf"]
+    },
+    {
+      "query_id": "g10",
+      "query": "What are the six components of the loop engineering framework?",
+      "context": "The paper defines core constructs including executable AI agents, state models, reflective state, governance loops, and loop traces. It proposes a six-component framework: goal representation, state model, action executor, observation collector, evaluator, and controller.",
+      "expected_answer": "The six-component framework consists of goal representation, state model, action executor, observation collector, evaluator, and controller.",
+      "citations": ["Loop_Engineering_Revised.pdf"]
+    },
+    {
+      "query_id": "g11",
+      "query": "According to this guide, what percentage of time in real fine-tuning projects is spent on data collection versus actual training?",
+      "context": "TIME DISTRIBUTION IN REAL PROJECTS. Data collection 30%. Data cleaning 25%. Data formatting 15%. Validation / QA 10%. Actual training 20%. The industry maxim: \"80% of ML is data work\" -- fine-tuning is no exception.",
+      "expected_answer": "Data collection takes 30% of project time, compared to just 20% spent on actual training, reflecting the maxim that 80% of ML work is data-related.",
+      "citations": ["data engineering .pdf"]
+    },
+    {
+      "query_id": "g12",
+      "query": "What are the main reasons fine-tuning projects fail, according to this guide?",
+      "context": "WHY PROJECTS FAIL: Data too small -> model can't generalize. Data inconsistent -> model learns noise, not patterns. Data duplicated -> model overfits, metrics lie. Data in wrong format -> model ignores structure. Data has wrong distribution -> fails on real inputs.",
+      "expected_answer": "Projects fail due to data being too small (can't generalize), inconsistent (model learns noise instead of patterns), duplicated (model overfits), in the wrong format (model ignores structure), or having the wrong distribution (fails on real inputs).",
+      "citations": ["data engineering .pdf"]
+    },
+    {
+      "query_id": "g13",
+      "query": "When should synthetic data generation be used according to this guide?",
+      "context": "WHEN TO USE SYNTHETIC DATA: You have fewer than 500 real examples. Production data exists but can't be labeled at scale. Domain is niche with few public datasets.",
+      "expected_answer": "Synthetic data should be used when you have fewer than 500 real examples, when production data exists but can't be labeled at scale, or when the domain is niche with few public datasets.",
+      "citations": ["data engineering .pdf"]
+    }
+  ]
+}

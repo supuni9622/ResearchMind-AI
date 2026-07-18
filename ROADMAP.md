@@ -1803,7 +1803,7 @@ Unlike the Observability Platform, which measures AI execution, the Production P
 
 # Engineering Benchmark Platform
 
-**Status:** ✅ Foundation Complete
+**Status:** ✅ Foundation Complete, incl. Generation Evaluation + Regression Detection
 
 Engineering Benchmarks are repository-owned evaluation datasets and an offline benchmarking framework used to compare competing AI implementations.
 
@@ -1813,8 +1813,10 @@ Instead, they help engineers compare engineering trade-offs and produce reproduc
 
 Benchmarks are completely independent from:
 
-- Runtime Observability
-- Experimentation Platform
+- Runtime Observability (already implemented as the AI Runtime Observability Platform, `app/ai/observability/` — not a `benchmarks/` concern)
+- Experimentation Platform (separately designed, not yet built)
+
+`evaluation_platform_prd.md` asked for a new `app/ai/evaluation/` platform covering this same ground; it was reconciled rather than built literally, since it would have duplicated this already-real Benchmark Platform and the already-live Observability Platform, and forked the not-yet-built Experimentation Platform. See PROJECT_STATUS.md's "Evaluation Platform PRD Reconciliation" for the full writeup.
 
 ---
 
@@ -1833,20 +1835,22 @@ Benchmarks are completely independent from:
 Framework
 
 - Benchmark Registry
-- Benchmark Runner
+- Benchmark Runner (now supports `--check-regression`)
 - Canonical Benchmark Models
 - Dataset Loader
 - Markdown Report Generator
 - JSON Report Generator
+- Regression Detection (`benchmarks/regression/`) — threshold-based pass/fail comparing a fresh run against the previously stored `report.json`, non-zero exit on failure
 
 Benchmarks
 
 - Chunking Benchmark
 - Embedding Benchmark
-- Retrieval Benchmark (dense vs. sparse vs. hybrid RRF, ADR-020 metrics)
+- Retrieval Benchmark (dense vs. sparse vs. hybrid RRF, ADR-020 metrics, now incl. NDCG@5/10)
 - Metadata Filtering Benchmark (`leakage_rate` correctness signal, unfiltered vs. owner-filtered)
 - Reranking Benchmark (hybrid-only vs. +CrossEncoder vs. +Voyage AI; Recall@5, MRR, NDCG@5, latency, cost)
 - Pipeline Benchmark (end-to-end ingestion)
+- Generation Benchmark (`benchmarks/generation/`) — deterministic no-LLM scoring (faithfulness, groundedness, relevance, completeness, citation accuracy, hallucination rate) across every configured `GenerationProvider`; verified live against Groq/OpenAI/Claude, with a real citation-accuracy bug found and fixed along the way (the model was never actually given the filename it was asked to cite)
 
 Dataset
 
@@ -2026,7 +2030,7 @@ This project intentionally prioritizes completing the production AI platform (Ti
 12. **Decide Chat vs. Research frontend UX** (deferred design discussion) — separate nav entry/page vs. a unified mode-toggle input; Chat currently has no frontend surface at all
 13. Conversation Memory Platform (Phase 2.9) — note (2026-07-18): Research needs this even more urgently than Chat does, since Research currently has **zero** multi-turn memory (Chat at least persists history, just flattened at the provider boundary)
 14. Knowledge Service (Phase 2.10)
-15. Evaluation Platform expansion (NDCG, Groundedness, Faithfulness, Hallucinations, Citation Accuracy, End-to-End, Security Evaluation)
+15. ~~Evaluation Platform expansion — NDCG, Groundedness, Faithfulness, Citation Accuracy, Hallucination Rate, Regression Detection~~ ✅ Complete, built into `benchmarks/` per the `evaluation_platform_prd.md` reconciliation (see Engineering Benchmark Platform above and PROJECT_STATUS.md) — End-to-End and Security Evaluation remain future work
 16. Research Runtime — Query Decomposition, Planner, Research Agents, Reviewer, Summarizer, LangGraph (builds on the now-complete Research API Platform)
 17. Agentic AI Platform
 18. Long-Term Platform — Research Sessions, Memory, MCP, Feedback Learning

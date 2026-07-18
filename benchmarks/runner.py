@@ -11,10 +11,14 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import sys
 from pathlib import Path
 
 from benchmarks.common.report_generator import BenchmarkReportGenerator
 from benchmarks.factory import create_benchmark_registry
+from benchmarks.models.report import BenchmarkReport
+from benchmarks.regression.detector import RegressionDetector
+from benchmarks.regression.report_generator import RegressionReportGenerator
 
 
 async def main() -> None:
@@ -43,23 +47,41 @@ async def main() -> None:
         help="Output directory.",
     )
 
+    parser.add_argument(
+        "--check-regression",
+        action="store_true",
+        help=(
+            "Compare this run against the previously stored report.json in the "
+            "output directory and exit non-zero if any metric regressed beyond "
+            "its threshold (see benchmarks/regression/thresholds.py)."
+        ),
+    )
+
     args = parser.parse_args()
 
     registry = create_benchmark_registry()
 
     benchmark = registry.get(args.benchmark)
 
-    report = await benchmark.run(
-        args.dataset,
-    )
-
-    generator = BenchmarkReportGenerator()
-
     output_directory = args.output / args.benchmark.lower()
     output_directory.mkdir(
         parents=True,
         exist_ok=True,
     )
+
+    previous_report: BenchmarkReport | None = None
+    previous_report_path = output_directory / "report.json"
+
+    if args.check_regression and previous_report_path.exists():
+        previous_report = BenchmarkReport.model_validate_json(
+            previous_report_path.read_text(encoding="utf-8"),
+        )
+
+    report = await benchmark.run(
+        args.dataset,
+    )
+
+    generator = BenchmarkReportGenerator()
 
     markdown_report = generator.generate_markdown(
         report,
@@ -81,6 +103,40 @@ async def main() -> None:
 
     print(f"Benchmark completed: {benchmark.name}")
     print(f"Reports written to: {output_directory}")
+
+    if not args.check_regression:
+        return
+
+    if previous_report is None:
+        print("No previous report.json found — nothing to compare against yet.")
+        return
+
+    regression_result = RegressionDetector().compare(
+        previous=previous_report,
+        current=report,
+    )
+
+    regression_generator = RegressionReportGenerator()
+
+    (output_directory / "regression.json").write_text(
+        regression_generator.generate_json(regression_result),
+        encoding="utf-8",
+    )
+
+    (output_directory / "regression_report.md").write_text(
+        regression_generator.generate_markdown(regression_result),
+        encoding="utf-8",
+    )
+
+    if not regression_result.passed:
+        print(f"Regression check FAILED ({len(regression_result.regressions)} issue(s)):")
+
+        for issue in regression_result.regressions:
+            print(f"  - {issue.candidate} / {issue.message}")
+
+        sys.exit(1)
+
+    print("Regression check passed.")
 
 
 if __name__ == "__main__":

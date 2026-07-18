@@ -45,6 +45,7 @@ from benchmarks.retrieval.dataset import (
 )
 from benchmarks.retrieval.indexer import BenchmarkRetrievalIndexer
 from benchmarks.retrieval.metrics import (
+    ndcg_at_k,
     precision_at_k,
     recall_at_k,
     reciprocal_rank,
@@ -62,6 +63,7 @@ TOP_K = 20
 # ADR-020 required metrics.
 RECALL_KS = (5, 10, 20)
 PRECISION_KS = (5, 10)
+NDCG_KS = (5, 10)
 
 QUERY_DATASET_FILENAME = "retrieval_queries.json"
 
@@ -249,6 +251,7 @@ class RetrievalBenchmark(Benchmark):
 
         recall_scores: dict[int, list[float]] = {k: [] for k in RECALL_KS}
         precision_scores: dict[int, list[float]] = {k: [] for k in PRECISION_KS}
+        ndcg_scores: dict[int, list[float]] = {k: [] for k in NDCG_KS}
         reciprocal_ranks: list[float] = []
         latencies_ms: list[float] = []
         recall_at_10_by_category: dict[str, list[float]] = {}
@@ -271,6 +274,11 @@ class RetrievalBenchmark(Benchmark):
                 for k in PRECISION_KS:
                     precision_scores[k].append(
                         precision_at_k(retrieved_filenames, relevant, k),
+                    )
+
+                for k in NDCG_KS:
+                    ndcg_scores[k].append(
+                        ndcg_at_k(retrieved_filenames, relevant, k),
                     )
 
                 reciprocal_ranks.append(
@@ -300,6 +308,9 @@ class RetrievalBenchmark(Benchmark):
 
         for k in PRECISION_KS:
             metrics[f"precision_at_{k}"] = average(precision_scores[k])
+
+        for k in NDCG_KS:
+            metrics[f"ndcg_at_{k}"] = average(ndcg_scores[k])
 
         metrics["mrr"] = average(reciprocal_ranks)
         metrics["avg_latency_ms"] = round(average(latencies_ms), 2)

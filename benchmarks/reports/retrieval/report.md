@@ -4,7 +4,7 @@
 
 - **Name:** research-papers
 - **Documents:** 5
-- **Generated:** `2026-07-13T15:28:46.813776+00:00`
+- **Generated:** `2026-07-18T10:04:24.556794+00:00`
 
 ---
 
@@ -12,10 +12,12 @@
 
 | Metric | dense | sparse | hybrid |
 |---|---:|---:|---:|
-| Avg Latency Ms | 316.84 | 10.53 | 324.42 |
+| Avg Latency Ms | 318.38 | 11.53 | 342.94 |
 | Mrr | 0.95 | 0.975 | 0.925 |
-| P95 Latency Ms | 440.41 | 29.28 | 522.82 |
-| P99 Latency Ms | 440.41 | 29.28 | 522.82 |
+| Ndcg At 10 | 0.9631 | 0.9815 | 0.9446 |
+| Ndcg At 5 | 0.9631 | 0.9815 | 0.9446 |
+| P95 Latency Ms | 446.87 | 21.15 | 494.23 |
+| P99 Latency Ms | 446.87 | 21.15 | 494.23 |
 | Precision At 10 | 0.1 | 0.1 | 0.1 |
 | Precision At 5 | 0.2 | 0.2 | 0.2 |
 | Queries Evaluated | 20 | 20 | 20 |
@@ -35,10 +37,12 @@
 | Recall At 20 | 1.0 |
 | Precision At 5 | 0.2 |
 | Precision At 10 | 0.1 |
+| Ndcg At 5 | 0.9631 |
+| Ndcg At 10 | 0.9631 |
 | Mrr | 0.95 |
-| Avg Latency Ms | 316.84 |
-| P95 Latency Ms | 440.41 |
-| P99 Latency Ms | 440.41 |
+| Avg Latency Ms | 318.38 |
+| P95 Latency Ms | 446.87 |
+| P99 Latency Ms | 446.87 |
 
 ### Notes
 
@@ -56,10 +60,12 @@
 | Recall At 20 | 1.0 |
 | Precision At 5 | 0.2 |
 | Precision At 10 | 0.1 |
+| Ndcg At 5 | 0.9815 |
+| Ndcg At 10 | 0.9815 |
 | Mrr | 0.975 |
-| Avg Latency Ms | 10.53 |
-| P95 Latency Ms | 29.28 |
-| P99 Latency Ms | 29.28 |
+| Avg Latency Ms | 11.53 |
+| P95 Latency Ms | 21.15 |
+| P99 Latency Ms | 21.15 |
 
 ### Notes
 
@@ -77,10 +83,12 @@
 | Recall At 20 | 1.0 |
 | Precision At 5 | 0.2 |
 | Precision At 10 | 0.1 |
+| Ndcg At 5 | 0.9446 |
+| Ndcg At 10 | 0.9446 |
 | Mrr | 0.925 |
-| Avg Latency Ms | 324.42 |
-| P95 Latency Ms | 522.82 |
-| P99 Latency Ms | 522.82 |
+| Avg Latency Ms | 342.94 |
+| P95 Latency Ms | 494.23 |
+| P99 Latency Ms | 494.23 |
 
 ### Notes
 

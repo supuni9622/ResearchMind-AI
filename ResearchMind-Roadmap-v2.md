@@ -1901,29 +1901,33 @@ Deliverable
 
 Unified evaluation platform.
 
----
-
-## 7.2 Retrieval Evaluation
-
-Metrics
-
-- Recall@K
-- Precision@K
-- MRR
-- NDCG
-- Latency
+**Status update (2026-07-18):** `evaluation_platform_prd.md` proposed exactly this — a new `app/ai/evaluation/` unifying dataset/benchmark/experiment/regression abstractions. Reconciled instead of built literally: the Benchmark runner (`benchmarks/`) and Dataset abstraction already exist and are real; the Experiment runner remains the separately-designed, not-yet-built Experimentation Platform (§8 below is the closer fit than this section); "Runtime Evaluation" as a concept is already the AI Runtime Observability Platform (Phase 3.9/3.16 in the other roadmap files), not a `benchmarks/` concern. See `PROJECT_STATUS.md`'s "Evaluation Platform PRD Reconciliation" for the full writeup.
 
 ---
 
-## 7.3 Generation Evaluation
+## 7.2 Retrieval Evaluation ✅ Complete
 
 Metrics
 
-- Faithfulness
-- Groundedness
-- Completeness
-- Citation Quality
-- Hallucination Detection
+- ✅ Recall@K
+- ✅ Precision@K
+- ✅ MRR
+- ✅ NDCG (wired into `benchmarks/retrieval/benchmark.py`'s reported metrics — the function existed earlier but was unused)
+- ✅ Latency
+
+---
+
+## 7.3 Generation Evaluation ✅ Complete (deterministic, no-LLM judge)
+
+Metrics
+
+- ✅ Faithfulness (sentence-level claim support against context)
+- ✅ Groundedness (token-level bag-of-words containment)
+- ✅ Completeness (expected-answer term coverage)
+- ✅ Citation Quality (`citation_accuracy` — fraction of expected citation filenames actually referenced)
+- ✅ Hallucination Detection (`hallucination_rate`, derived as `1 - faithfulness`)
+
+Implemented in `benchmarks/generation/` (dataset/metrics/benchmark.py), scored deterministically via lexical overlap rather than an LLM judge — mirrors the existing `hallucination_validator.py` convention. Verified live against Groq/OpenAI/Claude; found and fixed a real bug where `citation_accuracy` was structurally always 0.0 because the model was never given the filename it was asked to cite.
 
 ---
 

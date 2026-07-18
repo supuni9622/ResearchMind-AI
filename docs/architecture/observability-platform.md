@@ -3,8 +3,23 @@
 **Project:** ResearchMind AI
 **Platform:** AI Engineering Platform
 **Phase:** 2.4.4 — Observability Platform
-**Status:** 🚧 Design Approved (Implementation Pending)
-**Last Updated:** 2026-07-06
+**Status:** ✅ Phase 1 (Runtime Evaluation) Implemented — see note below
+**Last Updated:** 2026-07-18
+
+> **2026-07-18 update**: Phase 1 (Runtime Evaluation) described in this
+> document is now implemented, but through the newer AI Runtime
+> Observability Platform (`oberservability_platform_prd.md`, repo root)
+> rather than a new module under this document's own proposed
+> `runtime/`/`telemetry/`/`tracing/`/`cost/` folder structure. The
+> pre-existing `RuntimeMetricsCollector`/`PipelineRuntimeMetrics`/
+> `RuntimeReportBuilder` this document describes (`app/ai/observability/
+> {runtime,models,report}.py`) are unchanged — `ProcessingService` still
+> collects stage timings/artifact sizes exactly as documented below. What
+> changed: the resulting `PipelineRuntimeMetrics`, previously only logged,
+> is now also persisted as an `ObservabilityArtifact` via
+> `ObservabilityService.record_processing()` (see the newer PRD's §17
+> "Chat + Document Processing Wiring Scope"). Pipeline/Cost/Token/Tracing/
+> Telemetry (Phases 2-6 below) remain not implemented.
 
 ---
 

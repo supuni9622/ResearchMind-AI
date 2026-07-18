@@ -73,6 +73,7 @@ from app.ai.knowledge.processing.temporary_file_manager import (
 )
 from app.ai.observability.report import RuntimeReportBuilder
 from app.ai.observability.runtime import RuntimeMetricsCollector
+from app.ai.observability.service import ObservabilityService
 from app.infrastructure.storage.interfaces import DocumentStorage
 
 logger = structlog.get_logger()
@@ -102,6 +103,7 @@ class ProcessingService:
         indexing_service: IndexingService,
         indexing_artifact_builder: IndexingArtifactBuilder,
         indexing_artifact_writer: IndexingArtifactWriter,
+        observability_service: ObservabilityService | None = None,
     ) -> None:
         self._storage = storage
         self._temporary_file_manager = temporary_file_manager
@@ -119,6 +121,15 @@ class ProcessingService:
         self._indexing_service = indexing_service
         self._indexing_artifact_builder = indexing_artifact_builder
         self._indexing_artifact_writer = indexing_artifact_writer
+        self._observability_service = observability_service
+        """
+        Optional (AI Runtime Observability Platform PRD §8, extended to
+        Knowledge Processing). When set, `process()` persists the
+        pipeline's `PipelineRuntimeMetrics` (already computed via
+        `RuntimeMetricsCollector` below -- previously only logged) as an
+        `ObservabilityArtifact`. `None` skips it entirely -- same opt-in
+        shape as `GenerationService._observability_service`.
+        """
 
     async def process(
         self,
@@ -327,6 +338,13 @@ class ProcessingService:
             "processing.runtime_metrics",
             report=RuntimeReportBuilder.build(metrics),
         )
+
+        if self._observability_service is not None:
+            await self._observability_service.record_processing(
+                metrics=metrics,
+                document_id=request.document_id,
+                owner_id=owner_id,
+            )
 
         log.info("processing.completed")
 

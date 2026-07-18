@@ -40,11 +40,32 @@ async def write_json_artifact(
     )
 
 
+async def write_text_artifact(
+    storage: DocumentStorage,
+    *,
+    key: str,
+    content: str,
+    content_type: str = "text/markdown",
+) -> None:
+    """
+    Uploads a plain-text payload (e.g. a `report.md`) to `key`. Sibling to
+    `write_json_artifact` for the one Observability Platform artifact file
+    (PRD §8) that isn't JSON.
+    """
+
+    await storage.upload(
+        key=key,
+        file=BytesIO(content.encode("utf-8")),
+        content_type=content_type,
+    )
+
+
 class BaseArtifactWriter:
     """
     Base class for concrete artifact writers. Stores the storage
-    provider and exposes `_write_json` as a bound convenience so
-    subclasses only implement their own `write()` orchestration.
+    provider and exposes `_write_json`/`_write_text` as bound
+    conveniences so subclasses only implement their own `write()`
+    orchestration.
     """
 
     def __init__(
@@ -63,4 +84,18 @@ class BaseArtifactWriter:
             self._storage,
             key=key,
             payload=payload,
+        )
+
+    async def _write_text(
+        self,
+        *,
+        key: str,
+        content: str,
+        content_type: str = "text/markdown",
+    ) -> None:
+        await write_text_artifact(
+            self._storage,
+            key=key,
+            content=content,
+            content_type=content_type,
         )

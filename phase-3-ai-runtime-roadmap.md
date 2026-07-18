@@ -733,12 +733,14 @@ Milestone	Platform	Deliverables	Status
 3.6	Reranking Platform	Voyage, CrossEncoder	✅ Complete
 3.7	Context Building Platform	Parent Expansion, Merge, Compression, Guardrails, Citations, Prompt Formatter	✅ Complete (Compression V1-V4, LangChain wired into default pipeline)
 3.8	Generation Platform	Multi-provider LLM runtime, structured output, validation, policy layer, regeneration, routing, caching, streaming, metrics, artifacts	✅ Complete, per `generation_platform_complexion_prd.md` — runtime contracts registered but dormant pending a /research API
-3.9	Research APIs	/research, streaming, citations	❌ Not Started
+3.9	Research APIs	/research, streaming, citations	✅ Complete (row stale below — this file is frozen/not continuously updated; see PROJECT_STATUS.md/ROADMAP.md for authoritative status), per `research_api_prd.md`
 3.10	Evaluation Platform	Groundedness, Hallucinations, Citation Accuracy	🟡 Retrieval evaluation complete
-3.11	Research Runtime	Planner, Query Decomposition, Agents	❌ Not Started
+3.11	Research Runtime	Planner, Query Decomposition, Agents	❌ Not Started — also where multi-turn conversation memory for Research would land (Research currently has none at all, confirmed 2026-07-18)
 3.12	Long-Term Platform	Research Sessions, Memory, MCP	❌ Not Started
 3.13	Guardrails Platform	Input/Retrieval/Generation/Runtime guardrails, Source Trust, policies, scoring, artifacts	✅ MVP Foundation Complete + ✅ Integrated into Generation Platform and Context Building Platform (runtime stage still needs a router/agent runtime caller)
 3.14	Artifact Platform	Canonical persistence/replay for Generation/Streaming/Conversation, policy-gated, S3-backed	✅ Complete for Generation/Streaming/Conversation + 🟡 Session/Research/Agent/Evaluation built but scaffold-only
+3.15	Generation Runtime Platform	execute_generation()/GenerationRuntime.execute() canonical entrypoint	✅ Complete, per `generation_runtime_platform_prd.md` (referenced in this doc's own summary paragraph above; row was missing from this table until now)
+3.16	Observability Platform	Metrics/statistics/reports/artifacts (Generation, Streaming, Chat, Processing) + real LangSmith tracing	✅ Complete, per `oberservability_platform_prd.md` (self-numbered "Phase 3.9" in its own PRD header — collides with this table's pre-existing 3.9, so numbered 3.16 here instead). Three real bugs found + fixed via live verification against an actual LangSmith account/S3 bucket (streaming path completely dark, missing artifact-policy rule silently ate research artifacts, tracer never sent real input/output), plus a follow-up closing a real gap (streamed generations never ran post-generation validation/guardrail scoring). See PROJECT_STATUS.md for full detail
 
 # Architecture Principles
 

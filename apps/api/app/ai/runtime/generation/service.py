@@ -24,6 +24,13 @@ from app.ai.guardrails.service import (
 from app.ai.knowledge.context.models import (
     PromptContext,
 )
+from app.ai.observability.providers.langsmith.tracing import (
+    NoOpTracer,
+    RuntimeTracer,
+)
+from app.ai.observability.service import (
+    ObservabilityService,
+)
 from app.ai.runtime.generation.caching.models import (
     CacheResult,
 )
@@ -141,6 +148,8 @@ class GenerationService:
         fail_fast_policy: FailFastPolicy | None = None,
         runtime_validation_policy: RuntimeValidationPolicy | None = None,
         metrics_service: GenerationMetricsService | None = None,
+        observability_service: ObservabilityService | None = None,
+        tracer: RuntimeTracer | None = None,
     ):
         self._registry = registry
 
@@ -184,6 +193,26 @@ class GenerationService:
         wires a real recorder in.
         """
 
+        self._observability_service = observability_service
+        """
+        Optional (AI Runtime Observability Platform PRD §8). When set,
+        `generate()` persists a Generation Report + `ObservabilityArtifact`
+        via this service after metrics recording, gated by its own
+        artifact policy check. `None` skips it entirely -- same
+        opt-in/no-I/O-by-default shape as `artifact_writer`, not the
+        always-on shape `metrics_service` uses (this does real storage
+        I/O, metrics recording doesn't).
+        """
+
+        self._tracer = tracer or NoOpTracer()
+        """
+        Always a real `RuntimeTracer` (PRD §11.1) -- defaults to
+        `NoOpTracer`, which brackets nothing, so every `generate()` call
+        behaves identically whether or not a real tracer (e.g.
+        `LangSmithTracer`) is wired in. Same always-a-real-instance shape
+        as `metrics_service`/`NoOpMetricsRecorder`.
+        """
+
     @property
     def registry(
         self,
@@ -196,6 +225,42 @@ class GenerationService:
         """
 
         return self._registry
+
+    @property
+    def metrics_service(
+        self,
+    ) -> GenerationMetricsService:
+        """
+        Exposes this service's `GenerationMetricsService`, so
+        `StreamingService` records metrics through the same instance
+        `generate()` uses rather than composing a second one.
+        """
+
+        return self._metrics_service
+
+    @property
+    def observability_service(
+        self,
+    ) -> ObservabilityService | None:
+        """
+        Exposes this service's `ObservabilityService` (may be `None`), so
+        `StreamingService` persists observability artifacts through the
+        same instance `generate()` uses rather than composing a second one.
+        """
+
+        return self._observability_service
+
+    @property
+    def tracer(
+        self,
+    ) -> RuntimeTracer:
+        """
+        Exposes this service's `RuntimeTracer`, so `StreamingService` traces
+        through the same instance `generate()`/`_execute_once()` use rather
+        than composing a second one.
+        """
+
+        return self._tracer
 
     # ==========================================================
     # Public
@@ -253,7 +318,7 @@ class GenerationService:
             )
             raise
 
-        self._metrics_service.record(
+        snapshot = self._metrics_service.record(
             result,
         )
 
@@ -261,6 +326,13 @@ class GenerationService:
             await self._persist_generation_artifact(
                 request=request,
                 result=result,
+            )
+
+        if self._observability_service is not None:
+            await self._observability_service.record_generation(
+                metrics=snapshot,
+                artifact_runtime=(request.artifact_runtime or ArtifactRuntime.CHAT),
+                session_id=request.session_id,
             )
 
         return result
@@ -318,6 +390,80 @@ class GenerationService:
             request,
         ):
             yield chunk
+
+    async def score_completed_stream(
+        self,
+        *,
+        request: GenerationRequest,
+        result: GenerationResult,
+    ) -> GenerationResult:
+        """
+        Best-effort, informational-only validation/guardrail scoring for
+        a stream that has already completed and reached the caller.
+
+        `stream_generate()` only runs input guardrails before generation
+        starts (see its own docstring) -- there is no regeneration loop,
+        and once tokens have streamed out there is nothing left to block.
+        This computes the same output-side scores `_execute_once()`
+        records via `_enforce_generation_guardrails()`/`ValidationService.
+        validate()`, purely so streamed generations carry the same
+        `GenerationMetricsSnapshot.{validation_score,hallucination_score,
+        runtime_score,guardrail_risk_score}` fields non-streamed ones do
+        -- it can only ever attach information to a result the caller
+        already has, never change what already happened. Unlike
+        `_enforce_generation_guardrails()`, a `blocked=True` verdict here
+        is recorded, not raised; unlike both callers in `_execute_once()`,
+        a scoring failure itself is swallowed (logged) rather than
+        propagated, since this runs after the client-facing work is done
+        and must never turn a successful stream into a failed request.
+
+        Caller: `StreamingService._stream_live()`, right after
+        `_build_stream_result()` -- see streaming/service.py.
+        """
+
+        generation_provider = self._registry.get(
+            result.provider,
+        )
+
+        if self._guardrail_service is not None:
+            try:
+                result.guardrails = await self._guardrail_service.evaluate(
+                    request=request,
+                    chunks=request.prompt_context.chunks,
+                    result=result,
+                    citations=request.prompt_context.citations,
+                    run_id=result.generation_id,
+                )
+            except Exception:
+                logger.warning(
+                    "streaming.guardrails.scoring_failed",
+                    request_id=str(request.request_id),
+                    exc_info=True,
+                )
+
+        if self._validation_service is not None:
+            try:
+                result.validation = await self._validation_service.validate(
+                    request=request,
+                    result=result,
+                    context=InputValidationContext(
+                        context_window=generation_provider.config.context_window,
+                        supports_streaming=generation_provider.capabilities.streaming,
+                        supports_structured_output=(
+                            generation_provider.capabilities.structured_output
+                        ),
+                        supports_json_mode=generation_provider.capabilities.json_mode,
+                        supports_tool_calling=generation_provider.capabilities.tool_calling,
+                    ),
+                )
+            except Exception:
+                logger.warning(
+                    "streaming.validation.scoring_failed",
+                    request_id=str(request.request_id),
+                    exc_info=True,
+                )
+
+        return result
 
     def resolve_streaming_provider(
         self,
@@ -763,17 +909,33 @@ class GenerationService:
         )
 
         try:
-            result = (
-                await generation_provider.generate_structured(
-                    request,
+            with self._tracer.trace(
+                name="generation",
+                inputs={"prompt": request.user_prompt},
+                tags={
+                    "provider": provider.value,
+                    "model": generation_provider.config.model_name,
+                    "runtime": (request.runtime.value if request.runtime else None),
+                },
+            ) as trace_handle:
+                result = (
+                    await generation_provider.generate_structured(
+                        request,
+                    )
+                    if self._is_structured_request(
+                        request,
+                    )
+                    else await generation_provider.generate(
+                        request,
+                    )
                 )
-                if self._is_structured_request(
-                    request,
+
+                trace_handle.set_output(
+                    content=result.content,
+                    prompt_tokens=result.statistics.prompt_tokens,
+                    completion_tokens=result.statistics.completion_tokens,
+                    total_tokens=result.statistics.total_tokens,
                 )
-                else await generation_provider.generate(
-                    request,
-                )
-            )
         except GenerationError:
             raise
         except Exception as exc:

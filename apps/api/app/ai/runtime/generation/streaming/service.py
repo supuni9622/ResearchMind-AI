@@ -19,6 +19,13 @@ from app.ai.artifacts.streaming.builders import (
 from app.ai.artifacts.streaming.writers import (
     StreamArtifactWriter,
 )
+from app.ai.observability.providers.langsmith.tracing import (
+    NoOpTracer,
+    RuntimeTracer,
+)
+from app.ai.observability.service import (
+    ObservabilityService,
+)
 from app.ai.runtime.events.enums import (
     CoreEventType,
     EventCategory,
@@ -46,6 +53,9 @@ from app.ai.runtime.generation.models import (
 )
 from app.ai.runtime.generation.models import (
     StreamEventType as ProviderStreamEventType,
+)
+from app.ai.runtime.generation.observability.service import (
+    GenerationMetricsService,
 )
 from app.ai.runtime.generation.registry import (
     GenerationRegistry,
@@ -94,6 +104,9 @@ class StreamingService:
         caching_service: CachingService | None = None,
         artifact_writer: StreamArtifactWriter | None = None,
         artifact_policy_service: ArtifactPolicyService | None = None,
+        metrics_service: GenerationMetricsService | None = None,
+        observability_service: ObservabilityService | None = None,
+        tracer: RuntimeTracer | None = None,
     ) -> None:
         self._generation_service = generation_service
         self._registry = registry
@@ -101,6 +114,29 @@ class StreamingService:
         self._caching_service = caching_service
         self._artifact_writer = artifact_writer
         self._artifact_policy_service = artifact_policy_service
+
+        self._metrics_service = metrics_service or GenerationMetricsService()
+        """
+        Always a real `GenerationMetricsService` -- same always-on,
+        zero-cost-by-default shape as `GenerationService._metrics_service`
+        (see service.py). Live wiring (`streaming/create.py`) passes
+        `generation_service.metrics_service` so live streams and live
+        non-streaming generations record through the same instance.
+        """
+
+        self._observability_service = observability_service
+        """
+        Optional (AI Runtime Observability Platform PRD §8), same opt-in
+        shape as `GenerationService._observability_service`. `None` skips
+        persistence entirely.
+        """
+
+        self._tracer = tracer or NoOpTracer()
+        """
+        Always a real `RuntimeTracer`, defaulting to `NoOpTracer`. Live
+        wiring passes `generation_service.tracer` so streamed and
+        non-streamed generations trace through the same instance.
+        """
 
     async def stream_generate(
         self,
@@ -203,21 +239,44 @@ class StreamingService:
         started_at = datetime.now(UTC)
 
         try:
-            async for chunk in self._generation_service.stream_generate(
-                request=request,
-                provider=provider,
-            ):
-                if chunk.event == ProviderStreamEventType.TOKEN and chunk.content:
-                    content_parts.append(chunk.content)
+            with self._tracer.trace(
+                name="generation",
+                inputs={"prompt": request.user_prompt},
+                tags={
+                    "provider": provider.value,
+                    "model": generation_provider_config_model,
+                    "runtime": (request.runtime.value if request.runtime else None),
+                    "streamed": True,
+                },
+            ) as trace_handle:
+                async for chunk in self._generation_service.stream_generate(
+                    request=request,
+                    provider=provider,
+                ):
+                    if chunk.event == ProviderStreamEventType.TOKEN and chunk.content:
+                        content_parts.append(chunk.content)
 
-                event = self._event_adapter.to_stream_event(
-                    chunk,
-                    session_id=request.session_id,
-                    request_id=request.request_id,
-                )
-                emitted_events.append(event)
+                    event = self._event_adapter.to_stream_event(
+                        chunk,
+                        session_id=request.session_id,
+                        request_id=request.request_id,
+                    )
+                    emitted_events.append(event)
 
-                yield event
+                    yield event
+
+                #
+                # Token counts aren't known yet here -- _build_stream_result()
+                # (below, after this trace closes) is what computes them, via
+                # count_tokens() calls that stay outside this try/except so a
+                # failure there surfaces the same way it always has, rather
+                # than being swallowed into a synthetic ERROR event after
+                # real content already streamed. Content is enough to make
+                # the LangSmith Output panel useful; see _execute_once() for
+                # the non-streaming path, which does have tokens available
+                # inside its trace block.
+                #
+                trace_handle.set_output(content="".join(content_parts))
         except GenerationError as exc:
             logger.warning(
                 "streaming.live.failed",
@@ -246,13 +305,25 @@ class StreamingService:
 
         completed_at = datetime.now(UTC)
 
+        result = await self._build_stream_result(
+            request=request,
+            provider=provider,
+            model=generation_provider_config_model,
+            content="".join(content_parts),
+            latency_ms=(perf_counter() - started) * 1000,
+        )
+
+        result = await self._generation_service.score_completed_stream(
+            request=request,
+            result=result,
+        )
+
         if self._caching_service is not None:
             await self._store_completed_stream(
                 request=request,
                 provider=provider,
                 model=generation_provider_config_model,
-                content="".join(content_parts),
-                latency_ms=(perf_counter() - started) * 1000,
+                result=result,
             )
 
         if self._artifact_writer is not None:
@@ -263,6 +334,17 @@ class StreamingService:
                 events=emitted_events,
                 started_at=started_at,
                 completed_at=completed_at,
+            )
+
+        snapshot = self._metrics_service.record(
+            result,
+        )
+
+        if self._observability_service is not None:
+            await self._observability_service.record_generation(
+                metrics=snapshot,
+                artifact_runtime=(request.artifact_runtime or ArtifactRuntime.CHAT),
+                session_id=request.session_id,
             )
 
     async def _persist_stream_artifact(
@@ -321,7 +403,7 @@ class StreamingService:
                 error=str(exc),
             )
 
-    async def _store_completed_stream(
+    async def _build_stream_result(
         self,
         *,
         request: GenerationRequest,
@@ -329,14 +411,20 @@ class StreamingService:
         model: str,
         content: str,
         latency_ms: float,
-    ) -> None:
+    ) -> GenerationResult:
         """
         Best-effort statistics: today's provider `stream()` implementations
         only yield content deltas, not token/cost usage (see
         `generation/providers/*.py`), so prompt/completion tokens here are
         `count_tokens()` estimates rather than provider-reported figures.
-        Known, accepted gap -- not blocking cache-store on upgrading every
-        provider's streaming SDK call to request usage.
+        Known, accepted gap -- not blocking cache-store/metrics-recording on
+        upgrading every provider's streaming SDK call to request usage.
+
+        Built unconditionally once a stream completes (not only when
+        caching is enabled) so `_metrics_service`/`_observability_service`
+        always see a real result, the same way `GenerationService.generate()`
+        always records metrics regardless of which optional collaborators
+        are wired.
         """
 
         generation_provider = self._registry.get(provider)
@@ -348,6 +436,37 @@ class StreamingService:
             content,
         )
 
+        return GenerationResult(
+            request=request,
+            execution=GenerationExecution(
+                completed_at=datetime.now(UTC),
+            ),
+            statistics=GenerationStatistics(
+                provider=provider,
+                model=model,
+                latency_ms=latency_ms,
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                total_tokens=prompt_tokens + completion_tokens,
+                streamed=True,
+                estimated_cost_usd=generation_provider.estimate_cost(
+                    prompt_tokens=prompt_tokens,
+                    completion_tokens=completion_tokens,
+                ),
+            ),
+            provider=provider,
+            model=model,
+            content=content,
+        )
+
+    async def _store_completed_stream(
+        self,
+        *,
+        request: GenerationRequest,
+        provider: GenerationProvider,
+        model: str,
+        result: GenerationResult,
+    ) -> None:
         assert self._caching_service is not None
 
         await self._caching_service.store(
@@ -355,28 +474,7 @@ class StreamingService:
             provider=provider,
             model=model,
             routing_strategy=request.routing_strategy,
-            result=GenerationResult(
-                request=request,
-                execution=GenerationExecution(
-                    completed_at=datetime.now(UTC),
-                ),
-                statistics=GenerationStatistics(
-                    provider=provider,
-                    model=model,
-                    latency_ms=latency_ms,
-                    prompt_tokens=prompt_tokens,
-                    completion_tokens=completion_tokens,
-                    total_tokens=prompt_tokens + completion_tokens,
-                    streamed=True,
-                    estimated_cost_usd=generation_provider.estimate_cost(
-                        prompt_tokens=prompt_tokens,
-                        completion_tokens=completion_tokens,
-                    ),
-                ),
-                provider=provider,
-                model=model,
-                content=content,
-            ),
+            result=result,
         )
 
     # ==========================================================

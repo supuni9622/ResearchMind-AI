@@ -101,6 +101,31 @@ class RetrievalStatistics(BaseModel):
         ge=0,
     )
 
+    #
+    # Per-stage breakdown (Observability Platform §5.2). Only populated by
+    # `search_hybrid()`, which is the only path that actually runs dense +
+    # sparse + optional rerank as distinct sub-stages -- `search()`/
+    # `search_sparse()` leave these `None` since `duration_ms` above
+    # already *is* their one stage's latency.
+    #
+
+    dense_latency_ms: float | None = Field(
+        default=None,
+        ge=0,
+    )
+
+    sparse_latency_ms: float | None = Field(
+        default=None,
+        ge=0,
+    )
+
+    rerank_latency_ms: float | None = Field(
+        default=None,
+        ge=0,
+    )
+
+    reranker_provider: str | None = None
+
 
 # ============================================================================
 # Execution

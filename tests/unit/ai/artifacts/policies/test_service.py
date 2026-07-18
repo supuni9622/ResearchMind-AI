@@ -40,6 +40,25 @@ def test_should_persist_true_for_any_non_never_policy() -> None:
     assert service.should_persist(ArtifactRuntime.CHAT, ArtifactCategory.STREAM) is True
 
 
+def test_research_observability_persists_permanently() -> None:
+    """
+    Regression: ResearchService tags every GenerationRequest
+    `artifact_runtime=ArtifactRuntime.RESEARCH` (research/service.py), so
+    without an explicit (RESEARCH, OBSERVABILITY) rule this silently fell
+    back to NEVER -- ObservabilityService.record_generation() would skip
+    every research observability write with no error, only a debug log
+    line, even with LangSmith tracing fully working.
+    """
+
+    service = ArtifactPolicyService()
+
+    assert (
+        service.resolve_policy(ArtifactRuntime.RESEARCH, ArtifactCategory.OBSERVABILITY)
+        is ArtifactPolicy.PERMANENT
+    )
+    assert service.should_persist(ArtifactRuntime.RESEARCH, ArtifactCategory.OBSERVABILITY) is True
+
+
 def test_custom_rules_override_defaults() -> None:
     service = ArtifactPolicyService(
         rules=[

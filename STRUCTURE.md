@@ -37,13 +37,13 @@ ResearchMind-AI/
 │   │       ├── ai/              # AI subsystem
 │   │       │   ├── artifacts/                # Artifact Platform (Milestone 3.10) — centralized, cross-cutting canonical persistence for AI Runtime executions; see artifacts_platform_prd.md
 │   │       │   │   ├── models.py            # ArtifactMetadata, JsonDictFile (generic dict[str, Any] wrapper for the scaffold-only domains)
-│   │       │   │   ├── enums.py             # ArtifactPolicy (never/session/short_term/long_term/permanent), ArtifactCategory, ArtifactRuntime
+│   │       │   │   ├── enums.py             # ArtifactPolicy (never/session/short_term/long_term/permanent), ArtifactCategory (incl. OBSERVABILITY), ArtifactRuntime (incl. PROCESSING — new, for the Knowledge Processing pipeline's observability artifacts)
 │   │       │   │   ├── interfaces.py        # ArtifactBuilder/Writer/ReaderInterface (generic Protocols)
 │   │       │   │   ├── exceptions.py        # ArtifactError hierarchy
-│   │       │   │   ├── create.py            # composition root — storage + per-category writer factories + get_artifact_policy_service()
-│   │       │   │   ├── policies/            # ArtifactPolicyService.should_persist(runtime, category), DEFAULT_ARTIFACT_POLICY_RULES
-│   │       │   │   ├── writers/base.py      # write_json_artifact() / BaseArtifactWriter — shared upload boilerplate
-│   │       │   │   ├── readers/base.py      # BaseArtifactReader — _read_json()/_read_json_optional()
+│   │       │   │   ├── create.py            # composition root — storage + per-category writer factories + get_artifact_policy_service() + create_observability_artifact_writer()
+│   │       │   │   ├── policies/            # ArtifactPolicyService.should_persist(runtime, category), DEFAULT_ARTIFACT_POLICY_RULES — incl. (CHAT|RESEARCH|PROCESSING, OBSERVABILITY) rules
+│   │       │   │   ├── writers/base.py      # write_json_artifact()/write_text_artifact() / BaseArtifactWriter — shared upload boilerplate (write_text_artifact added for report.md)
+│   │       │   │   ├── readers/base.py      # BaseArtifactReader — _read_json()/_read_json_optional()/_read_text()
 │   │       │   │   ├── generation/          # Implemented, live — GenerationArtifact, wired into GenerationService.generate()
 │   │       │   │   ├── streaming/           # Implemented, live — StreamArtifact, wired into StreamingService._stream_live()
 │   │       │   │   ├── conversation/        # Implemented, live — ConversationTurnArtifact (one immutable file per turn) + ConversationIdentity, wired into chat.py
@@ -51,6 +51,7 @@ ResearchMind-AI/
 │   │       │   │   ├── research/            # Implemented, live — ResearchArtifact, wired into ResearchService (Phase 4, research_api_prd.md)
 │   │       │   │   ├── agent/               # Scaffold-only — AgentArtifact, unwired (no Agent Runtime yet)
 │   │       │   │   ├── evaluation/          # Scaffold-only — EvaluationArtifact, unwired (quality/evaluation/ still empty)
+│   │       │   │   ├── observability/       # Implemented, live (new, Phase 3.9, oberservability_platform_prd.md) — ObservabilityArtifact (metrics/statistics as dict[str, Any], report as markdown string), ObservabilityArtifactBuilder/Writer/Reader; storage layout observability/{execution_id}/{metadata.json,metrics.json,statistics.json?,report.md}; wired from GenerationService.generate()/stream_generate() and ProcessingService.process()
 │   │       │   │   └── replay/              # GenerationReplayService/StreamReplayService (real), ResearchReplayService (stub)
 │   │       │   ├── config/
 │   │       │   │   └── settings.py          # AI-specific configuration
@@ -262,7 +263,7 @@ ResearchMind-AI/
 │   │       │   │   │   ├── interfaces.py           # DocumentParser ABC, ParseRequest
 │   │       │   │   │   ├── models.py               # ProcessedDocument, block types, ProcessingResult
 │   │       │   │   │   ├── registry.py             # ParserRegistry — format → parser resolution
-│   │       │   │   │   ├── service.py              # ProcessingService — orchestrates the full pipeline (parse → enrich → artifacts → chunk → chunk artifacts → embed → embedding artifacts → index (dense+sparse) → indexing artifacts)
+│   │       │   │   │   ├── service.py              # ProcessingService — orchestrates the full pipeline (parse → enrich → artifacts → chunk → chunk artifacts → embed → embedding artifacts → index (dense+sparse) → indexing artifacts); PipelineRuntimeMetrics (via the pre-existing RuntimeMetricsCollector, previously log-only) now also persisted as an ObservabilityArtifact via an optional observability_service param (ArtifactRuntime.PROCESSING) — see the new top-level ai/observability/ below
 │   │       │   │   │   └── temporary_file_manager.py  # Temp file lifecycle for downloaded documents
 │   │       │   │   ├── reranking/           # Reranking Platform — Voyage AI + CrossEncoder (ADR-022)
 │   │       │   │   │   ├── providers/
@@ -295,7 +296,7 @@ ResearchMind-AI/
 │   │       │   │   │   ├── enums.py                # RetrievalProvider, RetrievalStrategy (dense/sparse/hybrid/parent_child/query_decomposition), RetrievalOperation
 │   │       │   │   │   ├── exceptions.py           # RetrievalError hierarchy
 │   │       │   │   │   ├── interfaces.py           # RetrievalProviderInterface ABC — search(), search_sparse()
-│   │       │   │   │   ├── models.py               # RetrievalQuery, RetrievedChunk, RetrievalStatistics, RetrievalExecution, RetrievalResult
+│   │       │   │   │   ├── models.py               # RetrievalQuery, RetrievedChunk, RetrievalStatistics (incl. optional dense_latency_ms/sparse_latency_ms/rerank_latency_ms/reranker_provider, now populated by search_hybrid() from timings that were already computed), RetrievalExecution, RetrievalResult
 │   │       │   │   │   ├── registry.py             # RetrievalRegistry — provider → implementation resolution
 │   │       │   │   │   └── service.py              # RetrievalService — validation, normalization, search() / search_sparse() / search_hybrid(rerank=True) (dense+sparse candidate pool → RRF fusion → reranks via Voyage AI by default)
 │   │       │   │   ├── upload/              # Document upload handling
@@ -328,6 +329,17 @@ ResearchMind-AI/
 │   │       │   │       ├── models.py               # VectorStoreRecord, SparseVector, VectorPayload, CollectionDefinition, CollectionMetadata, IndexStatistics
 │   │       │   │       ├── registry.py             # VectorStoreRegistry — provider → implementation resolution
 │   │       │   │       └── service.py              # VectorStoreService — validates records, delegates to provider
+│   │       │   ├── observability/            # AI Runtime Observability Platform (Phase 3.9, oberservability_platform_prd.md) — implemented 2026-07-18
+│   │       │   │   ├── models.py            # PRE-EXISTING, unrelated to the PRD below despite the name collision — PipelineRuntimeMetrics/RuntimeStageMetric/ArtifactMetric, used by ProcessingService's RuntimeMetricsCollector
+│   │       │   │   ├── runtime.py           # PRE-EXISTING — RuntimeMetricsCollector (stage timing/artifact-size collector for the Knowledge Processing pipeline)
+│   │       │   │   ├── report.py            # PRE-EXISTING — RuntimeReportBuilder.build(PipelineRuntimeMetrics) -> markdown string; now also reused by ObservabilityService.record_processing()
+│   │       │   │   ├── timer.py             # PRE-EXISTING — Timer, reused by validation/runtime/service.py
+│   │       │   │   ├── service.py           # NEW — ObservabilityService.record_generation()/record_processing(): best-effort, policy-gated report+artifact persistence via ObservabilityArtifactBuilder; record_processing() has no LangSmith trace (no LLM call to trace)
+│   │       │   │   ├── create.py            # NEW — get_observability_service() (lru_cache) wiring the real artifact writer + policy service
+│   │       │   │   ├── metrics/             # NEW — canonical snapshot models + pure build_*_metrics_snapshot() functions: retrieval.py, streaming.py, research.py, agent.py (Generation's own snapshot in runtime/generation/observability/models.py is reused as-is, not duplicated)
+│   │       │   │   ├── statistics/          # NEW — enums.py (TimeWindow), models.py (PercentileStats/RankingEntry/StatisticsSnapshot), aggregator.py (percentile/compute_percentiles/average/rate/rank_by_count/rank_by_average — pure functions), service.py (Generation/RetrievalStatisticsBuilder); no persistent metrics store, pure aggregation over a caller-assembled list
+│   │       │   │   ├── reports/             # NEW — markdown report builders: generation.py, retrieval.py, system.py (no research.py — PRD labels Research Report "Future")
+│   │       │   │   └── providers/langsmith/ # NEW, real (not stubbed) — client.py (get_langsmith_client(), lazy/cached, gated on settings.langsmith_api_key, passes api_url=settings.langsmith_endpoint), tracing.py (RuntimeTracer ABC + TraceHandle ABC, NoOpTracer/_NoOpTraceHandle, LangSmithTracer/_LangSmithTraceHandle — trace(inputs=real prompt, tags=metadata incl. streamed) yields a handle whose set_output(content, prompt_tokens, completion_tokens, total_tokens) populates update_run(outputs=...) before the trace closes), recorder.py (LangSmithMetricsRecorder, reads tracing.py's current_run_id ContextVar to attach create_feedback() to the active trace), create.py (create_runtime_tracer()/create_langsmith_metrics_recorder() — require BOTH settings.langsmith_api_key AND settings.langsmith_tracing=true, an API key alone does not enable tracing)
 │   │       │   ├── quality/                 # Evaluation and quality (planned)
 │   │       │   │   ├── benchmarks/
 │   │       │   │   ├── evaluation/
@@ -363,8 +375,8 @@ ResearchMind-AI/
 │   │       │   │       ├── exceptions.py           # GenerationError hierarchy
 │   │       │   │       ├── config.py               # BaseGenerationConfig + per-provider configs
 │   │       │   │       ├── registry.py             # GenerationRegistry — provider → implementation resolution
-│   │       │   │       ├── service.py              # GenerationService — generate() (explicit provider, or routes via RoutingService from request.routing_strategy with automatic fallback across the decision's fallback_models) → capability guard → native structured output → parser fallback → input/output/hallucination validation → regeneration loop; generate_from_template() (PromptService bridge + format instructions)
-│   │       │   │       ├── create.py               # create_generation_service() — composition root wiring providers + structured_output_registry + validation_service + prompt_service + routing_service
+│   │       │   │       ├── service.py              # GenerationService — generate() (explicit provider, or routes via RoutingService from request.routing_strategy with automatic fallback across the decision's fallback_models) → capability guard → native structured output → parser fallback → input/output/hallucination validation → regeneration loop; generate_from_template() (PromptService bridge + format instructions); _execute_once() wraps the provider call in self._tracer.trace() (RuntimeTracer, PRD §11.1) and, after generate() records metrics, calls ObservabilityService.record_generation() best-effort; read-only registry/metrics_service/observability_service/tracer properties expose the same instances to StreamingService; score_completed_stream(request, result) — informational, non-blocking guardrail+validation scoring for an already-completed stream (see streaming/service.py below)
+│   │       │   │       ├── create.py               # create_generation_service() — composition root wiring providers + structured_output_registry + validation_service + prompt_service + routing_service + observability_service (get_observability_service()) + tracer (create_runtime_tracer())
 │   │       │   │       ├── providers/
 │   │       │   │       │   ├── base.py             # BaseGenerationProvider[ConfigT] — retry, parse_structured_output() (json.loads → StructuredOutputRepair fallback)
 │   │       │   │       │   ├── claude.py           # ClaudeProvider — native output_config.format (Structured Outputs API) + prompt-JSON fallback
@@ -466,8 +478,8 @@ ResearchMind-AI/
 │   │       │   │       │   ├── enums.py            # StreamTransport (sse/websocket), ValidationEventType (generation-scoped, not yet emitted)
 │   │       │   │       │   ├── models.py           # StreamCacheOutcome (hit/level/replayed) — carried in the START event's metadata
 │   │       │   │       │   ├── interfaces.py       # StreamSerializerInterface
-│   │       │   │       │   ├── service.py          # StreamingService — stream_generate(): cache lookup → replay hit as synthetic TOKEN events, or stream live via GenerationService.stream_generate() and store the assembled result on COMPLETE
-│   │       │   │       │   ├── create.py           # create_streaming_service() — reuses create_generation_service()'s own registry rather than duplicating one
+│   │       │   │       │   ├── service.py          # StreamingService — stream_generate(): cache lookup → replay hit as synthetic TOKEN events, or stream live via GenerationService.stream_generate() and store the assembled result on COMPLETE; _stream_live() wraps the live provider stream in the shared RuntimeTracer (inputs=real prompt, tags incl. streamed=True), builds a GenerationResult unconditionally on completion (_build_stream_result), runs GenerationService.score_completed_stream() (informational guardrail/validation scoring, never blocking), then records metrics + persists an ObservabilityArtifact the same way generate() does
+│   │       │   │       │   ├── create.py           # create_streaming_service() — reuses create_generation_service()'s own registry AND its metrics_service/observability_service/tracer instances (via those read-only properties), so streamed and non-streamed generations trace/record through identical collaborators
 │   │       │   │       │   ├── transports/         # sse.py (StreamingResponse, heartbeat, max-duration ceiling), websocket.py (JSON frames, disconnect cancels the generator)
 │   │       │   │       │   └── serializers/        # sse.py (event:/data: wire format), json.py (StreamEvent.model_dump)
 │   │       │   │       └── observability/           # Implemented — Runtime Metrics Integration (generation_platform_complexion_prd.md): models.py (GenerationMetricsSnapshot), service.py (GenerationMetricsService), token_counter.py; cost_tracker.py/latency_tracker.py/metrics_collector.py/token_tracker.py deliberately left as empty scaffolds (token/cost accounting lives on GenerationResult.statistics)
@@ -767,8 +779,8 @@ ResearchMind-AI/
 │   │   ├── identity-architecture.md
 │   │   ├── knowledge-platform-roadmap.md     # Full Knowledge Platform subsystem breakdown
 │   │   ├── metadata-filtering.md             # Metadata Filtering architecture (Milestone 2.7.1, Complete) — owner_id/document_id/filename filters, benchmark validation
-│   │   ├── observability-platform.md         # Observability Platform architecture
-│   │   ├── observability-strategy.md
+│   │   ├── observability-platform.md         # Original (2026-07-06) Runtime Evaluation design for the Knowledge Processing pipeline; updated 2026-07-18 — Phase 1 now implemented, but via the newer ai/observability/ platform (oberservability_platform_prd.md) rather than this doc's own proposed folder structure
+│   │   ├── observability-strategy.md         # Logging-only scope doc; updated 2026-07-18 — no longer claims LangSmith "has no implementation yet" (it does now, see monitoring/langsmith.md)
 │   │   ├── project-constitution.md
 │   │   ├── repository-structure.md
 │   │   ├── reranking-platform.md             # Reranking Platform architecture (Milestone 2.7.2, companion to ADR-022)
@@ -828,7 +840,7 @@ ResearchMind-AI/
 │   ├── monitoring/              # Observability setup docs
 │   │   ├── dashboards.md
 │   │   ├── grafana.md
-│   │   ├── langsmith.md
+│   │   ├── langsmith.md         # Implemented (2026-07-18, was an empty placeholder) — LangSmith config table, RuntimeTracer wiring, Input/Output/Token content fix, verification steps
 │   │   ├── otel.md
 │   │   └── prometheus.md
 │   │

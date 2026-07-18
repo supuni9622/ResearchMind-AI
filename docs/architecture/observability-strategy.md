@@ -2,10 +2,12 @@
 
 ## Scope
 
-This document currently covers **logging only**, which is the only
-observability pillar actually implemented. Metrics (Prometheus/Grafana),
-distributed tracing (OpenTelemetry), and LLM tracing (LangSmith) have
-placeholder docs under `docs/monitoring/` but no implementation yet.
+This document covers **logging only** — the pillar it originally described.
+Metrics (Prometheus/Grafana) and distributed tracing (OpenTelemetry) still
+have placeholder docs under `docs/monitoring/` with no implementation. LLM
+tracing (LangSmith), and AI runtime metrics/statistics/reports/artifacts
+more broadly, are now implemented — see `oberservability_platform_prd.md`
+(repo root) and `docs/monitoring/langsmith.md`, not this document.
 
 ---
 

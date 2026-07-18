@@ -60,6 +60,7 @@ from app.ai.knowledge.upload.duplicate.service import (
     DuplicateDetectionService,
 )
 from app.ai.knowledge.upload.service import UploadService
+from app.ai.observability.create import get_observability_service
 from app.core.settings import settings
 from app.db.session import get_db
 from app.infrastructure.hashing import FileHasher, SHA256Hasher
@@ -332,6 +333,7 @@ def get_processing_service(
         indexing_service=_get_indexing_service(),
         indexing_artifact_builder=_get_indexing_artifact_builder(),
         indexing_artifact_writer=IndexingArtifactWriter(storage),
+        observability_service=get_observability_service(),
     )
 
 

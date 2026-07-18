@@ -52,8 +52,18 @@ DEFAULT_ARTIFACT_POLICY_RULES: list[ArtifactPolicyRule] = [
         policy=ArtifactPolicy.SESSION,
     ),
     ArtifactPolicyRule(
+        runtime=ArtifactRuntime.CHAT,
+        category=ArtifactCategory.OBSERVABILITY,
+        policy=ArtifactPolicy.SESSION,
+    ),
+    ArtifactPolicyRule(
         runtime=ArtifactRuntime.RESEARCH,
         category=ArtifactCategory.RESEARCH,
+        policy=ArtifactPolicy.PERMANENT,
+    ),
+    ArtifactPolicyRule(
+        runtime=ArtifactRuntime.RESEARCH,
+        category=ArtifactCategory.OBSERVABILITY,
         policy=ArtifactPolicy.PERMANENT,
     ),
     ArtifactPolicyRule(
@@ -70,5 +80,10 @@ DEFAULT_ARTIFACT_POLICY_RULES: list[ArtifactPolicyRule] = [
         runtime=ArtifactRuntime.EVALUATION,
         category=ArtifactCategory.EVALUATION,
         policy=ArtifactPolicy.PERMANENT,
+    ),
+    ArtifactPolicyRule(
+        runtime=ArtifactRuntime.PROCESSING,
+        category=ArtifactCategory.OBSERVABILITY,
+        policy=ArtifactPolicy.SHORT_TERM,
     ),
 ]

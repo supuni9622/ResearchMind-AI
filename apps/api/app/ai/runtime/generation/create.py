@@ -20,6 +20,12 @@ from app.ai.artifacts.create import (
 from app.ai.guardrails.create import (
     get_guardrail_service,
 )
+from app.ai.observability.create import (
+    get_observability_service,
+)
+from app.ai.observability.providers.langsmith.create import (
+    create_runtime_tracer,
+)
 from app.ai.runtime.generation.caching.create import (
     create_caching_service,
 )
@@ -251,4 +257,6 @@ def create_generation_service() -> GenerationService:
         metrics_service=GenerationMetricsService(
             metrics=NoOpMetricsRecorder(),
         ),
+        observability_service=get_observability_service(),
+        tracer=create_runtime_tracer(),
     )

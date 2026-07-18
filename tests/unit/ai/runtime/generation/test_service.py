@@ -919,3 +919,213 @@ async def test_generate_uses_a_default_metrics_service_when_none_is_wired() -> N
     returned = await service.generate(provider=GenerationProvider.GROQ, request=request)
 
     assert returned is result
+
+
+async def test_generate_records_observability_when_wired() -> None:
+    """
+    AI Runtime Observability Platform PRD §8: when an ObservabilityService
+    is wired, generate() forwards the metrics snapshot produced by
+    `metrics_service.record()` to it, tagged with the request's resolved
+    artifact runtime (defaulting to CHAT, same default
+    `_persist_generation_artifact` uses).
+    """
+
+    request = _make_request()
+    result = _make_result(request)
+
+    provider = _make_provider()
+    provider.generate = AsyncMock(return_value=result)
+
+    from app.ai.artifacts.enums import ArtifactRuntime
+    from app.ai.observability.service import ObservabilityService
+
+    observability_service = MagicMock(spec=ObservabilityService)
+    observability_service.record_generation = AsyncMock()
+
+    registry = GenerationRegistry(providers=[provider])
+    service = GenerationService(
+        registry=registry,
+        observability_service=observability_service,
+    )
+
+    await service.generate(provider=GenerationProvider.GROQ, request=request)
+
+    observability_service.record_generation.assert_awaited_once()
+    call_kwargs = observability_service.record_generation.await_args.kwargs
+    assert call_kwargs["artifact_runtime"] == ArtifactRuntime.CHAT
+    assert call_kwargs["metrics"].generation_id == result.generation_id
+
+
+async def test_generate_skips_observability_when_not_wired() -> None:
+    """Default GenerationService (no observability_service) must behave
+    exactly as before this platform existed -- no attribute error, no
+    extra calls."""
+
+    request = _make_request()
+    result = _make_result(request)
+
+    provider = _make_provider()
+    provider.generate = AsyncMock(return_value=result)
+
+    registry = GenerationRegistry(providers=[provider])
+    service = GenerationService(registry=registry)
+
+    returned = await service.generate(provider=GenerationProvider.GROQ, request=request)
+
+    assert returned is result
+
+
+async def test_generate_wraps_the_provider_call_in_the_configured_tracer() -> None:
+    request = _make_request()
+    result = _make_result(request)
+
+    provider = _make_provider()
+    provider.generate = AsyncMock(return_value=result)
+
+    from app.ai.observability.providers.langsmith.tracing import RuntimeTracer
+
+    tracer = MagicMock(spec=RuntimeTracer)
+    trace_handle = MagicMock()
+    tracer.trace.return_value.__enter__ = MagicMock(return_value=trace_handle)
+    tracer.trace.return_value.__exit__ = MagicMock(return_value=False)
+
+    registry = GenerationRegistry(providers=[provider])
+    service = GenerationService(registry=registry, tracer=tracer)
+
+    returned = await service.generate(provider=GenerationProvider.GROQ, request=request)
+
+    assert returned is result
+    tracer.trace.assert_called_once()
+    assert tracer.trace.call_args.kwargs["name"] == "generation"
+    assert tracer.trace.call_args.kwargs["inputs"] == {"prompt": request.user_prompt}
+    assert tracer.trace.call_args.kwargs["tags"]["provider"] == GenerationProvider.GROQ.value
+
+    trace_handle.set_output.assert_called_once_with(
+        content=result.content,
+        prompt_tokens=result.statistics.prompt_tokens,
+        completion_tokens=result.statistics.completion_tokens,
+        total_tokens=result.statistics.total_tokens,
+    )
+
+
+# ==========================================================
+# score_completed_stream (informational, non-blocking scoring for
+# already-completed streams -- see StreamingService._stream_live())
+# ==========================================================
+
+
+async def test_score_completed_stream_attaches_guardrail_report_when_allowed() -> None:
+    request = _make_request()
+    result = _make_result(request)
+
+    provider = _make_capable_provider()
+    registry = GenerationRegistry(providers=[provider])
+    service = GenerationService(
+        registry=registry,
+        guardrail_service=_make_guardrail_service(),
+    )
+
+    returned = await service.score_completed_stream(request=request, result=result)
+
+    assert returned is result
+    assert returned.guardrails is not None
+    assert returned.guardrails.blocked is False
+
+
+async def test_score_completed_stream_does_not_raise_when_guardrails_blocked() -> None:
+    """
+    Unlike `_enforce_generation_guardrails()` (used by `generate()`), a
+    blocked verdict here must never raise -- the stream has already
+    reached the client, there is nothing left to stop.
+    """
+    guardrail_registry = GuardrailRegistry()
+    guardrail_registry.register_generation_guardrail(_AlwaysBlockGenerationGuardrail())
+
+    request = _make_request()
+    result = _make_result(request)
+
+    provider = _make_capable_provider()
+    registry = GenerationRegistry(providers=[provider])
+    service = GenerationService(
+        registry=registry,
+        guardrail_service=_make_guardrail_service(guardrail_registry),
+    )
+
+    returned = await service.score_completed_stream(request=request, result=result)
+
+    assert returned.guardrails is not None
+    assert returned.guardrails.blocked is True
+
+
+async def test_score_completed_stream_populates_validation_report() -> None:
+    request = _make_request()
+    result = _make_result(request)
+
+    provider = _make_capable_provider()
+    registry = GenerationRegistry(providers=[provider])
+
+    report = ValidationReport(
+        input_validation=_valid_result(),
+        output_validation=_valid_result(),
+        hallucination_validation=_valid_result(),
+        valid=True,
+    )
+    service = GenerationService(
+        registry=registry,
+        validation_service=_make_validation_service(report),
+    )
+
+    returned = await service.score_completed_stream(request=request, result=result)
+
+    assert returned.validation is report
+
+
+async def test_score_completed_stream_swallows_guardrail_evaluation_failure() -> None:
+    request = _make_request()
+    result = _make_result(request)
+
+    provider = _make_capable_provider()
+    registry = GenerationRegistry(providers=[provider])
+
+    guardrail_service = AsyncMock()
+    guardrail_service.evaluate = AsyncMock(side_effect=RuntimeError("guardrail backend down"))
+
+    service = GenerationService(registry=registry, guardrail_service=guardrail_service)
+
+    # Must not raise.
+    returned = await service.score_completed_stream(request=request, result=result)
+
+    assert returned.guardrails is None
+
+
+async def test_score_completed_stream_swallows_validation_failure() -> None:
+    request = _make_request()
+    result = _make_result(request)
+
+    provider = _make_capable_provider()
+    registry = GenerationRegistry(providers=[provider])
+
+    validation_service = AsyncMock()
+    validation_service.validate = AsyncMock(side_effect=RuntimeError("validation backend down"))
+
+    service = GenerationService(registry=registry, validation_service=validation_service)
+
+    # Must not raise.
+    returned = await service.score_completed_stream(request=request, result=result)
+
+    assert returned.validation is None
+
+
+async def test_score_completed_stream_noop_when_neither_service_wired() -> None:
+    request = _make_request()
+    result = _make_result(request)
+
+    provider = _make_capable_provider()
+    registry = GenerationRegistry(providers=[provider])
+    service = GenerationService(registry=registry)
+
+    returned = await service.score_completed_stream(request=request, result=result)
+
+    assert returned is result
+    assert returned.guardrails is None
+    assert returned.validation is None

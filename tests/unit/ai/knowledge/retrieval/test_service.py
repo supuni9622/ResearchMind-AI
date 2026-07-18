@@ -375,6 +375,56 @@ async def test_search_hybrid_skips_reranking_when_no_reranking_service_configure
     assert result.chunks == [fused_chunk]
 
 
+async def test_search_hybrid_populates_dense_and_sparse_latency_from_component_results() -> None:
+    provider = _make_provider()
+    fusion_service = _make_fusion_service()
+    registry = RetrievalRegistry([provider])
+    service = _make_service(registry=registry, fusion_service=fusion_service)
+
+    result = await service.search_hybrid(
+        provider=RetrievalProvider.QDRANT,
+        query=RetrievalQuery(query="rag", top_k=5),
+        rerank=False,
+    )
+
+    assert result.statistics is not None
+    assert result.statistics.dense_latency_ms is not None
+    assert result.statistics.dense_latency_ms >= 0
+    assert result.statistics.sparse_latency_ms is not None
+    assert result.statistics.sparse_latency_ms >= 0
+    assert result.statistics.rerank_latency_ms is None
+    assert result.statistics.reranker_provider is None
+
+
+async def test_search_hybrid_populates_rerank_latency_and_provider_when_reranked() -> None:
+    fused_chunk = _make_chunk()
+    provider = _make_provider()
+    fusion_service = _make_fusion_service(
+        RetrievalResult(
+            query=RetrievalQuery(query="rag"),
+            execution=RetrievalExecution(),
+            chunks=[fused_chunk],
+        )
+    )
+    reranking_service = _make_reranking_service([_make_chunk()])
+    registry = RetrievalRegistry([provider])
+    service = _make_service(
+        registry=registry,
+        fusion_service=fusion_service,
+        reranking_service=reranking_service,
+    )
+
+    result = await service.search_hybrid(
+        provider=RetrievalProvider.QDRANT,
+        query=RetrievalQuery(query="rag", top_k=5),
+    )
+
+    assert result.statistics is not None
+    assert result.statistics.rerank_latency_ms is not None
+    assert result.statistics.rerank_latency_ms >= 0
+    assert result.statistics.reranker_provider == RerankingProvider.VOYAGE_AI.value
+
+
 async def test_search_hybrid_skips_reranking_when_fusion_returns_no_chunks() -> None:
     provider = _make_provider()
     fusion_service = _make_fusion_service(

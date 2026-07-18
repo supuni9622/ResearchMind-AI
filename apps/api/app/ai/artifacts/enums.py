@@ -42,6 +42,8 @@ class ArtifactCategory(StrEnum):
 
     EVALUATION = "evaluations"
 
+    OBSERVABILITY = "observability"
+
 
 class ArtifactRuntime(StrEnum):
     """
@@ -66,3 +68,5 @@ class ArtifactRuntime(StrEnum):
     BENCHMARK = "benchmark"
 
     EVALUATION = "evaluation"
+
+    PROCESSING = "processing"

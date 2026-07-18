@@ -24,6 +24,7 @@ Every file and folder in the ResearchMind-AI monorepo.
 | `FILES.md` | This file — complete file and folder map |
 | `generation_platform_complexion_prd.md` | Generation Platform Completion PRD (Phase 3.8) — closes out the remaining ~10-15%: five per-runtime Validation Contracts (Research/Planner/Reviewer/Agent/MCP), the Acceptance/Fail-Fast/Runtime Validation policy layer (`generation/policies/`), the remaining PRD output validators (Formatting/Completeness/Consistency/Response Size), Runtime Metrics Integration (`generation/observability/`), a `metrics.json` artifact snapshot, and pre-flight input-validation ordering. All implemented; only a `/research` API remains, blocked on a Research Runtime that doesn't exist yet |
 | `LICENSE` | Project license |
+| `oberservability_platform_prd.md` | AI Runtime Observability Platform PRD (Phase 3.9) — metrics/statistics/reports/artifacts + real LangSmith tracing, implemented under a new top-level `app/ai/observability/`, alongside (not replacing) the pre-existing, unrelated `app/ai/observability/{models,runtime,report,timer}.py`. §17 documents three real bugs found and fixed via live verification (streaming path was completely dark, a missing artifact-policy rule silently ate research artifacts, the tracer never sent real input/output content) plus a follow-up closing a real gap (streamed generations never ran post-generation validation/guardrail scoring) |
 | `phase-3-ai-runtime-roadmap.md` | Frozen v2.0 Retrieval, Context, Generation & Research Runtime roadmap (Phase 3.4–3.12); architecture frozen, progress status tracked inline per phase — Phase 3.8 (Generation Platform) now complete, per `generation_platform_complexion_prd.md` |
 | `prompt_guardrails.md` | Short prompt-injection defense snippet — a "Security Notice" block to prepend inside prompt templates warning the model that retrieved context may contain untrusted instructions |
 | `PROJECT_STATUS.md` | Current milestone and progress tracker |
@@ -114,20 +115,21 @@ Artifact Platform (`artifacts_platform_prd.md`, v1.1, Milestone 3.10). A new, ce
 
 | Directory / File | Status |
 |-----------|--------|
-| (root files) | **Implemented** — `models.py` (`ArtifactMetadata`), `enums.py` (`ArtifactPolicy`/`ArtifactCategory`/`ArtifactRuntime`), `interfaces.py`, `exceptions.py`, `create.py` (composition root — storage + per-category writer factories) |
-| `policies/` | **Implemented** — `ArtifactPolicyService.should_persist(runtime, category)`, `DEFAULT_ARTIFACT_POLICY_RULES` |
-| `writers/` | **Implemented** — `write_json_artifact()` / `BaseArtifactWriter`, shared upload boilerplate extracted from `guardrails/artifacts/writers.py`'s pattern |
-| `readers/` | **Implemented** — `BaseArtifactReader._read_json()`/`_read_json_optional()` |
+| (root files) | **Implemented** — `models.py` (`ArtifactMetadata`), `enums.py` (`ArtifactPolicy`/`ArtifactCategory` incl. `OBSERVABILITY`/`ArtifactRuntime` incl. `PROCESSING`, new 2026-07-18 for the Knowledge Processing pipeline's observability artifacts), `interfaces.py`, `exceptions.py`, `create.py` (composition root — storage + per-category writer factories, incl. new `create_observability_artifact_writer()`) |
+| `policies/` | **Implemented** — `ArtifactPolicyService.should_persist(runtime, category)`, `DEFAULT_ARTIFACT_POLICY_RULES` — incl. new `(CHAT, OBSERVABILITY)`, `(RESEARCH, OBSERVABILITY)` (added 2026-07-18 after live verification found it missing — see `oberservability_platform_prd.md` §17), and `(PROCESSING, OBSERVABILITY)` rules |
+| `writers/` | **Implemented** — `write_json_artifact()`/`write_text_artifact()` (new, for `report.md`) / `BaseArtifactWriter`, shared upload boilerplate extracted from `guardrails/artifacts/writers.py`'s pattern |
+| `readers/` | **Implemented** — `BaseArtifactReader._read_json()`/`_read_json_optional()`/`_read_text()` (new) |
 | `generation/` | **Implemented, live** — `GenerationArtifact` (request/response/metadata/metrics/validation/guardrails/routing/cache.json — `metrics.json` always present, the rest optional), wired into `GenerationService.generate()` |
 | `streaming/` | **Implemented, live** — `StreamArtifact` (events/timeline/stream/metrics.json), wired into `StreamingService._stream_live()` |
 | `conversation/` | **Implemented, live** — `ConversationTurnArtifact` (one immutable file per turn, `turns/{turn_id}/turn.json` — never overwrites, unlike the PRD's literal fixed `messages.json`), `ConversationIdentity` (`conversation.json`, written once), wired into `chat.py` |
 | `session/` | **Scaffold-only** — `SessionArtifact` per PRD §16; unwired, since no session concept distinct from `Conversation` exists yet (`GenerationRequest.session_id`/`StreamEvent.session_id` are unpopulated fields) |
-| `research/` | **Scaffold-only** — `ResearchArtifact` per PRD §17 (loosely-typed `dict[str, Any]` fields via `JsonDictFile`); unwired, no Research Runtime exists |
+| `research/` | **Implemented, live** — `ResearchArtifact` per PRD §17, wired into `ResearchService` (Phase 4, `research_api_prd.md`) |
 | `agent/` | **Scaffold-only** — `AgentArtifact` per PRD §18; unwired, no Agent Runtime exists |
 | `evaluation/` | **Scaffold-only** — `EvaluationArtifact` per PRD §19; unwired, `quality/evaluation/` is still empty |
+| `observability/` | **Implemented, live** (new 2026-07-18, `oberservability_platform_prd.md` §8) — `ObservabilityArtifact` (`metrics`/`statistics` as `dict[str, Any]` via the same "no single concrete type fits every caller" reasoning Research/Agent used, `report` as a markdown string), `ObservabilityArtifactBuilder`/`Writer`/`Reader`; storage layout `observability/{execution_id}/{metadata.json,metrics.json,statistics.json?,report.md}`; wired from `GenerationService.generate()`/`stream_generate()` (via `ObservabilityService.record_generation()`) and `ProcessingService.process()` (via `record_processing()`) |
 | `replay/` | **Implemented** — `GenerationReplayService`/`StreamReplayService` (real, reconstruct from persisted artifacts), `ResearchReplayService` (stub, raises `NotImplementedError`) |
 
-`tests/unit/ai/artifacts/` mirrors this tree 1:1 (39 tests). Also required adding `DocumentStorage.list_keys(*, prefix)` to `infrastructure/storage/` (S3 `list_objects_v2` paginator) so `ConversationArtifactReader` can enumerate turns with no mutable index file.
+`tests/unit/ai/artifacts/` mirrors this tree 1:1. Also required adding `DocumentStorage.list_keys(*, prefix)` to `infrastructure/storage/` (S3 `list_objects_v2` paginator) so `ConversationArtifactReader` can enumerate turns with no mutable index file.
 
 ##### `ai/config/`
 
@@ -328,7 +330,7 @@ Indexing Platform (ADR-018, ADR-019). Transforms an `EmbeddingArtifact` (dense v
 | `interfaces.py` | `DocumentParser` ABC, `ParseRequest` |
 | `models.py` | `ProcessedDocument`, block types, `ProcessingResult` |
 | `registry.py` | `ParserRegistry` — format → parser resolution |
-| `service.py` | `ProcessingService` — orchestrates the full pipeline (parse → enrich → build/write artifacts → chunk → persist chunk artifacts → embed → persist embedding artifacts → index dense+sparse vectors into Qdrant → persist indexing artifacts) |
+| `service.py` | `ProcessingService` — orchestrates the full pipeline (parse → enrich → build/write artifacts → chunk → persist chunk artifacts → embed → persist embedding artifacts → index dense+sparse vectors into Qdrant → persist indexing artifacts). Its `PipelineRuntimeMetrics` (via the pre-existing `RuntimeMetricsCollector`, previously log-only) is now also persisted as an `ObservabilityArtifact` via a new optional `observability_service` constructor param (`ArtifactRuntime.PROCESSING`, new 2026-07-18) — wired in both `bootstrap/worker.py` and `dependencies/upload.py::get_processing_service` |
 | `temporary_file_manager.py` | `TemporaryFileManager` — creates temp files from downloaded document bytes, preserves extension, cleans up after processing |
 
 ###### `ai/knowledge/processing/metadata/` — **Implemented**
@@ -394,7 +396,7 @@ Retrieval Platform (ADR-018, ADR-019, ADR-020, ADR-021). Queries the hybrid Qdra
 | `enums.py` | `RetrievalProvider` (qdrant), `RetrievalStrategy` (dense/sparse/hybrid/parent_child/query_decomposition), `RetrievalOperation` |
 | `exceptions.py` | `RetrievalError` hierarchy — `RetrievalProviderNotFoundError`, `RetrievalValidationError`, `RetrievalExecutionError` |
 | `interfaces.py` | `RetrievalProviderInterface` ABC — `provider`, `version`, `config`, `configuration_fingerprint`, `search()`, `search_sparse()` |
-| `models.py` | `RetrievalQuery`, `RetrievedChunk`, `RetrievalStatistics`, `RetrievalExecution`, `RetrievalResult` (`statistics` is `None` until the service populates it after the provider returns) |
+| `models.py` | `RetrievalQuery`, `RetrievedChunk`, `RetrievalStatistics` (incl. optional `dense_latency_ms`/`sparse_latency_ms`/`rerank_latency_ms`/`reranker_provider`, new 2026-07-18 — populated from timings `search_hybrid()` was already computing and previously discarding), `RetrievalExecution`, `RetrievalResult` (`statistics` is `None` until the service populates it after the provider returns) |
 | `registry.py` | `RetrievalRegistry` — provider → implementation resolution; constructor takes the provider list directly (no separate `register()` method, unlike `EmbeddingRegistry`) |
 | `service.py` | `RetrievalService` — validates (empty/whitespace query, max length, `top_k` bounds) and normalizes (whitespace collapsing) the query, then `search()` (dense), `search_sparse()`, and `search_hybrid(rerank=True)` (retrieves up to `min(top_k*5, 50)` candidates from both dense and sparse, fuses via RRF down to `top_k`, then reranks via Voyage AI by default when a `reranking_service` is configured); populates `RetrievalStatistics`/`RetrievalExecution` on the result |
 | `providers/qdrant.py` | `QdrantRetrievalProvider` — `search()` queries the named `dense` Qdrant vector, `search_sparse()` queries the named `sparse` vector (both via `qdrant_client.query_points`, `using=`); `_build_filter()` translates canonical `RetrievalQuery.filters` (`owner_id`, `document_id`, `filename`, `language`) into a Qdrant `Filter`/`FieldCondition`/`MatchValue`, applied to both search methods; shared `_map_points()` static method maps Qdrant points → `RetrievedChunk` (missing optional payload fields default to `""`/`0`/`{}`) |
@@ -453,6 +455,34 @@ Vector Store Platform (ADR-017, ADR-019). Provider-independent vector database a
 | `create.py` | `create_qdrant_client()` / `create_vectorstore_registry()` / `create_vectorstore_service()` — composition root |
 | `providers/qdrant.py` | `QdrantVectorStoreProvider` — creates collections with named `dense` + `sparse` vector configs (`DENSE_VECTOR_NAME`/`SPARSE_VECTOR_NAME` constants), converts records into `PointStruct`s carrying both named vectors, batches upserts, filters deletes by `document_id` payload field |
 | `artifacts/` | `builder.py` / `models.py` / `writer.py` — all empty; unused scaffold, superseded by `indexing/artifacts/` |
+
+##### `ai/observability/` — **Implemented** (AI Runtime Observability Platform, `oberservability_platform_prd.md`, Phase 3.9 — implemented 2026-07-18)
+
+New top-level package, added alongside (not replacing) the pre-existing `models.py`/`runtime.py`/`report.py`/`timer.py` files already here — those predate this PRD and belong to a different, older module used by the Knowledge Processing pipeline (`RuntimeMetricsCollector`/`PipelineRuntimeMetrics`, plus a `Timer` reused by `validation/runtime/service.py`); despite the name collision they have nothing to do with this PRD's AI runtime execution metrics, except that `ObservabilityService.record_processing()` (new) now bridges the two — persisting the pre-existing `PipelineRuntimeMetrics`/`RuntimeReportBuilder` output as an `ObservabilityArtifact` instead of only logging it.
+
+| Directory / File | Status |
+|-----------|--------|
+| `models.py` | **Pre-existing** — `PipelineRuntimeMetrics`/`RuntimeStageMetric`/`ArtifactMetric` |
+| `runtime.py` | **Pre-existing** — `RuntimeMetricsCollector` (stage timing/artifact-size collector for the Knowledge Processing pipeline) |
+| `report.py` | **Pre-existing** — `RuntimeReportBuilder.build(PipelineRuntimeMetrics) -> str`; now also reused by `ObservabilityService.record_processing()` |
+| `timer.py` | **Pre-existing** — `Timer`, reused by `validation/runtime/service.py` |
+| `service.py` | **New** — `ObservabilityService.record_generation()`/`record_processing()`: best-effort, policy-gated report + `ObservabilityArtifact` persistence. `record_processing()` has no LangSmith trace involvement — no LLM call to trace, only pipeline stage timings |
+| `create.py` | **New** — `get_observability_service()` (`@lru_cache`) wiring the real artifact writer + policy service |
+| `metrics/` | **New** — canonical snapshot models + pure `build_*_metrics_snapshot()` functions: `retrieval.py`, `streaming.py`, `research.py`, `agent.py`. Generation's own snapshot (`runtime/generation/observability/models.py::GenerationMetricsSnapshot`) is reused as-is, not duplicated here |
+| `statistics/` | **New** — `enums.py` (`TimeWindow`), `models.py` (`PercentileStats`/`RankingEntry`/`StatisticsSnapshot`), `aggregator.py` (`percentile`/`compute_percentiles`/`average`/`rate`/`rank_by_count`/`rank_by_average` — pure functions), `service.py` (`GenerationStatisticsBuilder`/`RetrievalStatisticsBuilder`); no persistent metrics store — pure aggregation over a caller-assembled list, matching the PRD's own deferral of Prometheus/Grafana-style infra |
+| `reports/` | **New** — markdown report builders: `generation.py`, `retrieval.py`, `system.py` (no `research.py` — the PRD itself labels the Research Report "Future") |
+| `providers/langsmith/` | **New, real (not stubbed)** — see below |
+
+###### `ai/observability/providers/langsmith/` — **Implemented, real**
+
+LangSmith owns tracing/experiments/datasets/comparisons per the PRD's architectural philosophy (§3) — ResearchMind only feeds it trace metadata/tags, never rebuilds the infrastructure. Only the tracing piece (§11.1) is implemented; datasets/experiments/comparisons are not.
+
+| File | Description |
+|------|-------------|
+| `client.py` | `get_langsmith_client()` — lazy, `@lru_cache`, gated on `settings.langsmith_api_key`, passes `api_url=settings.langsmith_endpoint`; returns `None` (never raises) on missing key or construction failure |
+| `tracing.py` | `RuntimeTracer` (ABC) + `TraceHandle` (ABC, new — lets a caller attach real output/token counts before a trace closes), `NoOpTracer`/`_NoOpTraceHandle`, `LangSmithTracer`/`_LangSmithTraceHandle`. `trace(name, inputs, tags)` — `inputs` (the real prompt) goes to `create_run(inputs=...)`; `tags` go under `extra.metadata`, plus `ls_provider`/`ls_model_name` duplicated in there for LangSmith's own cost auto-calculation (best-effort, LangSmith's documented convention, not verified against a live account). The yielded handle's `set_output(content, prompt_tokens, completion_tokens, total_tokens)` populates `update_run(outputs={"content", "usage_metadata"})` before the trace closes. Stores the run id in a module-level `current_run_id: ContextVar` |
+| `recorder.py` | `LangSmithMetricsRecorder(MetricsRecorder)` — reads `tracing.py`'s `current_run_id` to attach `create_feedback()` calls to whichever trace is active; no-op if none |
+| `create.py` | `create_runtime_tracer()`/`create_langsmith_metrics_recorder()` — `_langsmith_enabled()` requires **both** `settings.langsmith_api_key` AND `settings.langsmith_tracing`; an API key alone does not enable tracing (lets ops keep the key configured and toggle tracing off locally without unsetting it). Uses `settings.langsmith_project` for the LangSmith project name |
 
 ##### `ai/quality/`
 
@@ -513,7 +543,7 @@ Generation Platform. Owns all LLM interactions, consuming the Context Platform's
 
 | Directory | Status |
 |-----------|--------|
-| (root files) | **Implemented** — core service, models, interfaces, registry, composition root |
+| (root files) | **Implemented** — core service, models, interfaces, registry, composition root. `service.py` also: wraps the provider call in `self._tracer.trace()` (real `inputs`/`tags`, `set_output()` with content+tokens — `oberservability_platform_prd.md` §17); read-only `registry`/`metrics_service`/`observability_service`/`tracer` properties so `StreamingService` reuses the same instances; `score_completed_stream(request, result)` — informational, non-blocking guardrail+validation scoring for an already-completed stream (new 2026-07-18, closes a real gap where streamed responses never got scored at all) |
 | `providers/` | **Implemented** — Groq, OpenAI, Claude, Gemini, Ollama |
 | `structured_output/` | **Implemented** — parser registry, repair, schemas |
 | `validation/` | **Implemented** — input, output, hallucination, and runtime stage validators, registry, scoring, `ValidationReport`, and five runtime contracts (Research/Planner/Reviewer/Agent/MCP) all done |
@@ -524,7 +554,7 @@ Generation Platform. Owns all LLM interactions, consuming the Context Platform's
 | `catalog/` | **Implemented** — scored per-model capability/cost/policy catalog + `ModelCatalogRegistry` |
 | `routing/` | **Implemented** — Routing Platform: capability/policy filtering, task-based strategy scoring, fallback chains |
 | `caching/` | **Implemented** — Runtime Caching Platform: L1 exact (Valkey), L2 semantic (LangChain `RedisSemanticCache` against a dedicated `redis-stack-server`), L3 session (Valkey, not yet called by anything), policy resolution; streaming requests now participate identically to non-streaming ones (the old blanket `request.stream` bypass was removed — see `streaming/` below) |
-| `streaming/` | **Implemented** — Generation Streaming Platform: `StreamingService`, SSE + WebSocket transports; see below |
+| `streaming/` | **Implemented** — Generation Streaming Platform: `StreamingService`, SSE + WebSocket transports; see below. `_stream_live()` also: traces the live stream via the shared `RuntimeTracer` (reused from `GenerationService`, not a second instance), runs `GenerationService.score_completed_stream()` after building the result, then records metrics + persists an `ObservabilityArtifact` (`create_streaming_service()` reuses `generation_service.{metrics_service,observability_service,tracer}` — fixed 2026-07-18 after live testing found streaming was completely dark for both tracing and artifact persistence) |
 | `artifacts/` | **Deleted** — the old empty 4-file scaffold here was removed in favor of the new centralized `ai/artifacts/generation/` (see the top-level `ai/artifacts/` section above); `GenerationService.generate()` now persists a real `GenerationArtifact` there |
 
 ###### `ai/runtime/generation/` (root)
@@ -1184,8 +1214,8 @@ All empty.
 | `knowledge-platform-roadmap.md` | Knowledge Platform roadmap — the full subsystem breakdown (chunking → embeddings → vector store → retrieval → reranking → memory → knowledge service) and how each communicates via canonical models |
 | `metadata-filtering.md` | Metadata Filtering architecture (Milestone 2.7.1, **Complete**) — supported filters (`owner_id`, `document_id`, `filename`), Qdrant filter translation, benchmark validation exit criterion |
 | `model-routing-platform.md` | Model Routing Platform architecture (companion to ADR-026, **Implemented**) — model catalog, task-based `RoutingStrategy`, capability/policy filtering, the scoring engine, fallback chain construction, observability |
-| `observability-platform.md` | Observability Platform architecture |
-| `observability-strategy.md` | Observability strategy — logging is the only implemented pillar (structlog, request correlation); metrics/tracing are placeholders under `docs/monitoring/` |
+| `observability-platform.md` | Original (2026-07-06) Runtime Evaluation design for the Knowledge Processing pipeline. Updated 2026-07-18 — Phase 1 (Runtime Evaluation) is now implemented, but via the newer `app/ai/observability/` platform (`oberservability_platform_prd.md`) rather than this doc's own proposed folder structure |
+| `observability-strategy.md` | Observability strategy — logging is the only pillar this doc covers. Updated 2026-07-18 — no longer claims LangSmith "has no implementation yet" (it's real now, see `monitoring/langsmith.md`); metrics/OpenTelemetry tracing remain placeholders |
 | `project-constitution.md` | Project principles, goals, and constraints |
 | `repository-structure.md` | Repository layer patterns |
 | `reranking-platform.md` | Reranking Platform architecture (Milestone 2.7.2, companion to ADR-022) — CrossEncoder/Voyage AI providers, canonical models, integration strategy, evaluation metrics |
@@ -1284,13 +1314,13 @@ All empty — planned evaluation documentation.
 
 ### `docs/monitoring/`
 
-All empty — planned observability docs.
+Planned observability docs — all empty except `langsmith.md`, now implemented.
 
 | File | Purpose |
 |------|---------|
 | `dashboards.md` | (empty) |
 | `grafana.md` | (empty) |
-| `langsmith.md` | (empty) |
+| `langsmith.md` | **Implemented** (2026-07-18, was an empty placeholder) — config table (`LANGSMITH_API_KEY`/`TRACING`/`ENDPOINT`/`PROJECT`, dual-gate rule), `RuntimeTracer`/`TraceHandle` wiring for both `generate()` and `stream_generate()`, the Input/Output/Token content fix, failure behavior, and a step-by-step verification checklist |
 | `otel.md` | (empty) |
 | `prometheus.md` | (empty) |
 

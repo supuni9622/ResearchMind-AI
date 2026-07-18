@@ -57,7 +57,10 @@ class Settings(BaseSettings):
     gemini_api_key: str | None = None
     groq_api_key: str | None = None
     ollama_host: str = "http://localhost:11434"
+    langsmith_tracing: bool = False
+    langsmith_endpoint: str | None = None
     langsmith_api_key: str | None = None
+    langsmith_project: str | None = "ResearchMind"
 
     # ============================================================================
     # Default Models

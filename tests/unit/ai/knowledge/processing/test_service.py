@@ -218,7 +218,11 @@ def _make_document(blocks: list | None = None) -> ProcessedDocument:
     )
 
 
-def _make_service(parser: DocumentParser, *extra_parsers: DocumentParser) -> ProcessingService:
+def _make_service(
+    parser: DocumentParser,
+    *extra_parsers: DocumentParser,
+    observability_service: AsyncMock | None = None,
+) -> ProcessingService:
     """Build a ProcessingService with a no-op artifact writer."""
     registry = ParserRegistry(parsers=[parser, *extra_parsers])
     writer = AsyncMock()
@@ -240,6 +244,7 @@ def _make_service(parser: DocumentParser, *extra_parsers: DocumentParser) -> Pro
         indexing_service=_make_indexing_service(),
         indexing_artifact_builder=_make_indexing_artifact_builder(),
         indexing_artifact_writer=_make_indexing_artifact_writer(),
+        observability_service=observability_service,
     )
 
 
@@ -356,6 +361,49 @@ class TestProcessingServiceHappyPath:
             owner_id=_OWNER_ID, request=_make_request(DocumentFormat.PDF)
         )
         assert isinstance(result, ProcessingResult)
+
+
+# ---------------------------------------------------------------------------
+# Observability wiring
+# ---------------------------------------------------------------------------
+
+
+class TestProcessingServiceObservability:
+    @pytest.fixture()
+    def document(self) -> ProcessedDocument:
+        return _make_document(blocks=[ParagraphBlock(id="p1", text="Hello")])
+
+    @pytest.fixture()
+    def parser(self, document: ProcessedDocument) -> FakeParser:
+        return FakeParser({DocumentFormat.PDF}, result=document)
+
+    async def test_observability_service_records_pipeline_metrics_on_completion(
+        self,
+        parser: FakeParser,
+    ) -> None:
+        observability_service = AsyncMock()
+        service = _make_service(parser, observability_service=observability_service)
+        request = _make_request(DocumentFormat.PDF)
+
+        await service.process(owner_id=_OWNER_ID, request=request)
+
+        observability_service.record_processing.assert_awaited_once()
+        call_kwargs = observability_service.record_processing.await_args.kwargs
+        assert call_kwargs["document_id"] == request.document_id
+        assert call_kwargs["owner_id"] == _OWNER_ID
+        assert call_kwargs["metrics"].total_duration_ms >= 0
+
+    async def test_no_observability_service_wired_does_not_raise(
+        self,
+        parser: FakeParser,
+    ) -> None:
+        service = _make_service(parser, observability_service=None)
+
+        result = await service.process(
+            owner_id=_OWNER_ID, request=_make_request(DocumentFormat.PDF)
+        )
+
+        assert result.status == ProcessingStatus.COMPLETED
 
 
 # ---------------------------------------------------------------------------

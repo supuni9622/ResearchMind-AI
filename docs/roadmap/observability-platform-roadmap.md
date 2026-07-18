@@ -2,8 +2,19 @@
 
 **Project:** ResearchMind AI
 **Platform:** Observability Platform
-**Status:** 🚧 Planned
-**Last Updated:** 2026-07-06
+**Status:** 🚧 Phase 1 partially implemented (see note) — Phases 2+ still planned
+**Last Updated:** 2026-07-18
+
+> **2026-07-18 update**: The Phase 1 deliverable "ProcessingService
+> integration" below is now done — `PipelineRuntimeMetrics` is persisted as
+> an `ObservabilityArtifact` (`ObservabilityService.record_processing()`),
+> not just logged. This landed via the newer AI Runtime Observability
+> Platform PRD (`oberservability_platform_prd.md`, repo root) rather than
+> the `RuntimeEvaluationService`/`PipelineReport` models this roadmap
+> originally proposed — see that PRD's §17 for what actually shipped.
+> Phases 2-10 (Pipeline Metrics, Cost/Token Tracking, Resource Monitoring,
+> Queue/Worker Metrics, Tracing, Telemetry, Dashboards, Historical
+> Analytics) remain unimplemented.
 
 ---
 

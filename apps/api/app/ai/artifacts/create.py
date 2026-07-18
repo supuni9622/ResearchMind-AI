@@ -12,6 +12,7 @@ from functools import lru_cache
 
 from app.ai.artifacts.conversation.writers import ConversationArtifactWriter
 from app.ai.artifacts.generation.writers import GenerationArtifactWriter
+from app.ai.artifacts.observability.writers import ObservabilityArtifactWriter
 from app.ai.artifacts.policies.service import ArtifactPolicyService
 from app.ai.artifacts.research.writers import ResearchArtifactWriter
 from app.ai.artifacts.streaming.writers import StreamArtifactWriter
@@ -55,5 +56,12 @@ def create_conversation_artifact_writer() -> ConversationArtifactWriter:
 def create_research_artifact_writer() -> ResearchArtifactWriter:
 
     return ResearchArtifactWriter(
+        storage_provider=create_artifact_storage(),
+    )
+
+
+def create_observability_artifact_writer() -> ObservabilityArtifactWriter:
+
+    return ObservabilityArtifactWriter(
         storage_provider=create_artifact_storage(),
     )

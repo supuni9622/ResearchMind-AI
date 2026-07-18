@@ -46,4 +46,7 @@ def create_streaming_service() -> StreamingService:
         caching_service=create_caching_service(),
         artifact_writer=create_stream_artifact_writer(),
         artifact_policy_service=get_artifact_policy_service(),
+        metrics_service=generation_service.metrics_service,
+        observability_service=generation_service.observability_service,
+        tracer=generation_service.tracer,
     )

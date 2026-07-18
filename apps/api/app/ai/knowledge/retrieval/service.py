@@ -337,6 +337,9 @@ class RetrievalService:
             top_k=query.top_k,
         )
 
+        rerank_latency_ms: float | None = None
+        reranker_provider: str | None = None
+
         if rerank and self._reranking_service and result.chunks:
             from app.ai.knowledge.reranking.enums import (
                 RerankingProvider,
@@ -344,6 +347,8 @@ class RetrievalService:
             from app.ai.knowledge.reranking.models import (
                 RerankingRequest,
             )
+
+            rerank_started = perf_counter()
 
             reranked = await self._reranking_service.rerank(
                 provider=(RerankingProvider.VOYAGE_AI),
@@ -355,6 +360,9 @@ class RetrievalService:
                     )
                 ),
             )
+
+            rerank_latency_ms = (perf_counter() - rerank_started) * 1000
+            reranker_provider = RerankingProvider.VOYAGE_AI.value
 
             result.chunks = [chunk.chunk for chunk in reranked.chunks]
 
@@ -373,6 +381,14 @@ class RetrievalService:
             returned_chunks=len(
                 result.chunks,
             ),
+            dense_latency_ms=(
+                dense_result.statistics.duration_ms if dense_result.statistics else None
+            ),
+            sparse_latency_ms=(
+                sparse_result.statistics.duration_ms if sparse_result.statistics else None
+            ),
+            rerank_latency_ms=rerank_latency_ms,
+            reranker_provider=reranker_provider,
         )
 
         return result

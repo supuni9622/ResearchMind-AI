@@ -55,6 +55,7 @@ from app.ai.knowledge.processing.statistics.service import (
 from app.ai.knowledge.processing.temporary_file_manager import (
     TemporaryFileManager,
 )
+from app.ai.observability.create import get_observability_service
 from app.core.settings import settings
 from app.infrastructure.queue.factory import create_processing_queue
 from app.infrastructure.storage import create_storage
@@ -114,6 +115,7 @@ def create_processing_worker(
         indexing_service=create_indexing_service(),
         indexing_artifact_builder=IndexingArtifactBuilder(),
         indexing_artifact_writer=IndexingArtifactWriter(storage),
+        observability_service=get_observability_service(),
     )
 
     repository = DocumentRepository(session)

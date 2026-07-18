@@ -63,3 +63,20 @@ class BaseArtifactReader:
         raw = await self._storage.download(key=key)
 
         return model.model_validate_json(raw)
+
+    async def _read_text(
+        self,
+        *,
+        key: str,
+    ) -> str:
+        """
+        Downloads a required plain-text file (e.g. `report.md`). Raises
+        `ArtifactNotFoundError` when the key does not exist.
+        """
+
+        if not await self._storage.exists(key=key):
+            raise ArtifactNotFoundError(f"Required artifact file '{key}' was not found.")
+
+        raw = await self._storage.download(key=key)
+
+        return raw.decode("utf-8")

@@ -7,9 +7,10 @@ Covers:
 - The completed turn is persisted (via ConversationService.append_turn)
   with the assembled content once the stream reaches COMPLETE
 
-StreamingService and ConversationService are faked (like
-_FakeRetrievalService in test_retrieval_filters.py) rather than run
-against a live LLM provider or a real Postgres session shared across the
+StreamingService, ConversationService, MemoryService and
+MemoryExtractionService are all faked (like _FakeRetrievalService in
+test_retrieval_filters.py) rather than run against a live LLM provider,
+embedding provider, or a real Postgres session shared across the
 TestClient's independent event loop.
 """
 
@@ -17,14 +18,17 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import AsyncGenerator, Iterator
+from uuid import UUID
 
 import pytest
+from app.ai.memory.models import ExtractedMemory, MemoryContext
 from app.ai.runtime.events.enums import CoreEventType, EventCategory
 from app.ai.runtime.events.models import StreamEvent
 from app.ai.runtime.generation.enums import GenerationProvider
 from app.ai.runtime.generation.models import GenerationRequest
 from app.auth.dependencies import get_current_user
 from app.dependencies.generation import get_conversation_service, get_streaming_service
+from app.dependencies.memory import get_memory_extraction_service, get_memory_service
 from app.main import app
 from app.models.conversation import Conversation
 from app.models.user import User
@@ -94,6 +98,39 @@ class _FakeConversationService:
         )
 
 
+class _FakeMemoryService:
+    """Stands in for MemoryService -- records remember() calls, returns
+    an empty MemoryContext so injection is a no-op by default."""
+
+    def __init__(self) -> None:
+        self.remembered: list[dict] = []
+
+    async def get_context(
+        self,
+        *,
+        owner_id: UUID,
+        session_id: UUID,
+        semantic_query: str | None = None,
+        top_k: int = 5,
+    ) -> MemoryContext:
+        return MemoryContext()
+
+    async def remember(self, **kwargs) -> None:
+        self.remembered.append(kwargs)
+
+
+class _FakeMemoryExtractionService:
+    """Stands in for MemoryExtractionService -- proposes no memories."""
+
+    async def extract(
+        self,
+        *,
+        user_message: str,
+        assistant_message: str,
+    ) -> list[ExtractedMemory]:
+        return []
+
+
 def _canned_events() -> list[StreamEvent]:
     return [
         StreamEvent(category=EventCategory.GENERATION, type=CoreEventType.START.value),
@@ -115,14 +152,20 @@ def _canned_events() -> list[StreamEvent]:
 def fakes() -> Iterator[tuple[_FakeStreamingService, _FakeConversationService]]:
     streaming_service = _FakeStreamingService(_canned_events())
     conversation_service = _FakeConversationService()
+    memory_service = _FakeMemoryService()
+    memory_extraction_service = _FakeMemoryExtractionService()
 
     app.dependency_overrides[get_streaming_service] = lambda: streaming_service
     app.dependency_overrides[get_conversation_service] = lambda: conversation_service
+    app.dependency_overrides[get_memory_service] = lambda: memory_service
+    app.dependency_overrides[get_memory_extraction_service] = lambda: memory_extraction_service
 
     yield streaming_service, conversation_service
 
     del app.dependency_overrides[get_streaming_service]
     del app.dependency_overrides[get_conversation_service]
+    del app.dependency_overrides[get_memory_service]
+    del app.dependency_overrides[get_memory_extraction_service]
 
 
 def test_stream_chat_requires_authentication(

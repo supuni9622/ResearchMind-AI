@@ -9,6 +9,9 @@ from app.ai.runtime.generation.catalog.models import (
 from app.ai.runtime.generation.catalog.registry import (
     ModelCatalogRegistry,
 )
+from app.ai.runtime.generation.enums import (
+    GenerationProvider,
+)
 from app.ai.runtime.generation.routing.enums import (
     RequiredCapability,
     RoutingStrategy,
@@ -99,10 +102,15 @@ class RoutingService(
             weights=profile.weights,
         )
 
-        selected = scored[0]
+        selected = self._select_for_strategy(
+            strategy=request.strategy,
+            scored=scored,
+        )
+
+        remaining = [candidate for candidate in scored if candidate is not selected]
 
         fallback_models = self._build_fallback_chain(
-            scored=scored[1:],
+            scored=remaining,
             selected=selected.model,
             max_fallbacks=request.max_fallbacks,
         )
@@ -141,6 +149,35 @@ class RoutingService(
     # ==========================================================
     # Strategy Resolution
     # ==========================================================
+
+    @staticmethod
+    def _select_for_strategy(
+        *,
+        strategy: RoutingStrategy,
+        scored: list[ScoredModel],
+    ) -> ScoredModel:
+        """
+        AUTO hard-defaults to Groq rather than the scoring engine's own
+        top pick -- the operator wants the no-explicit-provider case to
+        stay on the fastest/cheapest provider by default, not whichever
+        model scores highest on quality/reliability/reasoning. Explicit
+        `provider=`/non-AUTO strategy calls are unaffected (see
+        `GenerationService.generate`/`resolve_streaming_provider`, which
+        only reach here when no provider was given).
+
+        Falls back to the top-scored candidate if Groq didn't survive
+        capability/policy filtering for this request (e.g. a required
+        capability none of Groq's catalog models support) -- callers
+        should never see `NoEligibleModelsError` just because Groq
+        specifically isn't a fit.
+        """
+
+        if strategy == RoutingStrategy.AUTO:
+            for candidate in scored:
+                if candidate.model.provider == GenerationProvider.GROQ:
+                    return candidate
+
+        return scored[0]
 
     def _resolve_profile(
         self,

@@ -98,7 +98,7 @@ class GenerationRequest(BaseModel):
     `GenerationResult.regeneration_attempts`.
     """
 
-    output_model: type[BaseModel] | None = None
+    output_model: type[BaseModel] | None = Field(default=None, exclude=True)
     """
     Convenience alternative to `output_schema`.
 
@@ -110,6 +110,17 @@ class GenerationRequest(BaseModel):
     For strict schema compliance across providers (OpenAI, Groq), the
     model should set `model_config = ConfigDict(extra="forbid")` so the
     generated schema includes `additionalProperties: false`.
+
+    `exclude=True`: this is a class object (`type[BaseModel]`), not
+    data -- `model_dump_json()` (used by `GenerationArtifactBuilder`/
+    `_persist_generation_artifact` to persist `GenerationResult.request`)
+    can't serialize it and previously crashed with
+    `PydanticSerializationError: Unable to serialize unknown type:
+    ModelMetaclass` whenever `output_model` was set, silently dropping
+    the whole artifact (that failure was itself caught and logged, not
+    raised, so no request ever failed from this -- only artifact
+    persistence silently no-op'd). `output_schema`, the JSON-serializable
+    schema derived from this model, is unaffected and still persisted.
     """
 
     conversation_id: UUID | None = None

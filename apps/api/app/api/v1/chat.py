@@ -21,6 +21,11 @@ from app.ai.artifacts.conversation.writers import ConversationArtifactWriter
 from app.ai.artifacts.enums import ArtifactCategory, ArtifactRuntime
 from app.ai.artifacts.policies.service import ArtifactPolicyService
 from app.ai.knowledge.context.models import PromptContext
+from app.ai.memory.create import build_memory_extraction_service, build_memory_service
+from app.ai.memory.enums import MemoryType
+from app.ai.memory.extraction.service import MemoryExtractionService
+from app.ai.memory.services.formatting import format_memory_context, with_memory_context
+from app.ai.memory.services.memory_service import MemoryService
 from app.ai.runtime.events.enums import CoreEventType
 from app.ai.runtime.events.models import StreamEvent
 from app.ai.runtime.generation.enums import GenerationProvider
@@ -36,6 +41,7 @@ from app.dependencies.generation import (
     get_conversation_service,
     get_streaming_service,
 )
+from app.dependencies.memory import get_memory_extraction_service, get_memory_service
 from app.exceptions.base import AppException
 from app.models.user import User
 from app.schemas.chat import ChatStreamRequest
@@ -78,19 +84,131 @@ def _format_transcript(
     return "\n".join(lines)
 
 
+async def _retrieve_memory_context(
+    *,
+    memory_service: MemoryService | None,
+    owner_id: UUID,
+    conversation_id: UUID,
+    query: str,
+) -> str | None:
+    """
+    Memory retrieval, ahead of generation (Runtime Memory Injection
+    Pipeline -- mirrors `ResearchService._retrieve_memory_context`).
+    `conversation_id` doubles as the session id: unlike research's
+    freshly-minted-per-call id, a conversation already persists across
+    turns via `ConversationService.get_or_create()`, so it's the
+    natural session boundary for chat. Best-effort: a memory outage
+    must never block a chat turn.
+    """
+
+    if memory_service is None:
+        return None
+
+    try:
+        context = await memory_service.get_context(
+            owner_id=owner_id,
+            session_id=conversation_id,
+            semantic_query=query,
+            top_k=5,
+        )
+    except Exception as exc:
+        logger.warning(
+            "memory.chat.retrieval_failed",
+            conversation_id=str(conversation_id),
+            error_type=type(exc).__name__,
+            error=str(exc),
+        )
+        return None
+
+    return format_memory_context(context)
+
+
+async def _extract_and_store_memory(
+    *,
+    memory_service: MemoryService | None,
+    memory_extraction_service: MemoryExtractionService | None,
+    owner_id: UUID,
+    conversation_id: UUID,
+    user_prompt: str,
+    assistant_content: str,
+) -> None:
+    """
+    Post-generation half of the Runtime Memory Injection Pipeline
+    (mirrors `ResearchService._extract_and_store_memory`): the raw turn
+    is always captured as SESSION memory; durable USER/RESEARCH facts
+    are additionally proposed by `MemoryExtractionService` and stored
+    when above the importance threshold. Best-effort throughout.
+    """
+
+    if memory_service is None:
+        return
+
+    try:
+        await memory_service.remember(
+            owner_id=owner_id,
+            type=MemoryType.SESSION,
+            content=f"Q: {user_prompt}\nA: {assistant_content}",
+            session_id=conversation_id,
+        )
+    except Exception as exc:
+        logger.warning(
+            "memory.chat.session_remember_failed",
+            conversation_id=str(conversation_id),
+            error_type=type(exc).__name__,
+            error=str(exc),
+        )
+
+    if memory_extraction_service is None:
+        return
+
+    extracted = await memory_extraction_service.extract(
+        user_message=user_prompt,
+        assistant_message=assistant_content,
+    )
+
+    for item in extracted:
+        try:
+            await memory_service.remember(
+                owner_id=owner_id,
+                type=item.type,
+                content=item.content,
+                importance_score=item.importance,
+            )
+        except Exception as exc:
+            logger.warning(
+                "memory.chat.extracted_remember_failed",
+                conversation_id=str(conversation_id),
+                memory_type=item.type.value,
+                error_type=type(exc).__name__,
+                error=str(exc),
+            )
+
+
 async def _build_request(
     *,
     payload: ChatStreamRequest,
     conversation_service: ConversationService,
     conversation_id: UUID,
+    owner_id: UUID,
+    memory_service: MemoryService | None,
 ) -> GenerationRequest:
 
     history = await conversation_service.load_history(
         conversation_id=conversation_id,
     )
 
+    memory_context_text = await _retrieve_memory_context(
+        memory_service=memory_service,
+        owner_id=owner_id,
+        conversation_id=conversation_id,
+        query=payload.user_prompt,
+    )
+
     return GenerationRequest(
-        prompt_context=PromptContext(context="", chunks=[]),
+        prompt_context=with_memory_context(
+            PromptContext(context="", chunks=[]),
+            memory_context_text,
+        ),
         user_prompt=_format_transcript(history, payload.user_prompt),
         stream=True,
         conversation_id=conversation_id,
@@ -143,6 +261,8 @@ async def _persist_on_complete(
     provider: GenerationProvider | None,
     conversation_artifact_writer: ConversationArtifactWriter | None,
     artifact_policy_service: ArtifactPolicyService | None,
+    memory_service: MemoryService | None = None,
+    memory_extraction_service: MemoryExtractionService | None = None,
 ) -> AsyncGenerator[StreamEvent, None]:
     """
     Forwards every event untouched, accumulating TOKEN content along the
@@ -171,6 +291,15 @@ async def _persist_on_complete(
                 user_prompt=user_prompt,
                 assistant_content=assistant_content,
                 provider=provider.value if provider else None,
+            )
+
+            await _extract_and_store_memory(
+                memory_service=memory_service,
+                memory_extraction_service=memory_extraction_service,
+                owner_id=owner_id,
+                conversation_id=conversation_id,
+                user_prompt=user_prompt,
+                assistant_content=assistant_content,
             )
 
             if conversation_artifact_writer is None:
@@ -221,6 +350,8 @@ async def stream_chat(
     artifact_policy_service: ArtifactPolicyService = Depends(
         get_artifact_policy_service_dependency
     ),
+    memory_service: MemoryService = Depends(get_memory_service),
+    memory_extraction_service: MemoryExtractionService = Depends(get_memory_extraction_service),
 ) -> StreamingResponse:
     """
     A `POST` consumed via `fetch` + `ReadableStream` on the frontend, not
@@ -246,6 +377,8 @@ async def stream_chat(
         payload=payload,
         conversation_service=conversation_service,
         conversation_id=conversation.id,
+        owner_id=current_user.id,
+        memory_service=memory_service,
     )
 
     events = streaming_service.stream_generate(
@@ -263,6 +396,8 @@ async def stream_chat(
             provider=payload.provider,
             conversation_artifact_writer=conversation_artifact_writer,
             artifact_policy_service=artifact_policy_service,
+            memory_service=memory_service,
+            memory_extraction_service=memory_extraction_service,
         )
     )
 
@@ -311,6 +446,12 @@ async def stream_chat_ws(
         streaming_service = get_streaming_service()
         conversation_artifact_writer = get_conversation_artifact_writer()
         artifact_policy_service = get_artifact_policy_service_dependency()
+        # `build_memory_service`/`build_memory_extraction_service`, not the
+        # `Depends`-based `get_memory_service`/`get_memory_extraction_service`
+        # -- this route manages its own `session` outside FastAPI's
+        # dependency graph (mirrors `ConversationService(session)` above).
+        memory_service = build_memory_service(session)
+        memory_extraction_service = build_memory_extraction_service()
 
         conversation = await conversation_service.get_or_create(
             conversation_id=payload.conversation_id,
@@ -329,6 +470,8 @@ async def stream_chat_ws(
             payload=payload,
             conversation_service=conversation_service,
             conversation_id=conversation.id,
+            owner_id=current_user.id,
+            memory_service=memory_service,
         )
 
         events = streaming_service.stream_generate(
@@ -348,6 +491,8 @@ async def stream_chat_ws(
                     provider=payload.provider,
                     conversation_artifact_writer=conversation_artifact_writer,
                     artifact_policy_service=artifact_policy_service,
+                    memory_service=memory_service,
+                    memory_extraction_service=memory_extraction_service,
                 ),
             )
         finally:

@@ -170,5 +170,20 @@ class Settings(BaseSettings):
 
     enable_langchain_compression: bool = True
 
+    # ==========================================================================
+    # Memory Platform
+    # ==========================================================================
+
+    # Session Memory (Valkey, PRD §6.1)
+    memory_session_ttl_seconds: int = 60 * 60 * 24 * 7  # 7 days
+
+    # Semantic/Research Memory vector index (Qdrant, PRD §6.4)
+    memory_qdrant_collection_name: str = "researchmind_memory"
+    # Must match the embedding provider/model in use (voyage-3-lite default).
+    memory_vector_dimensions: int = 512
+
+    # Importance scoring (PRD §16)
+    memory_importance_threshold: float = 0.1
+
 
 settings = Settings()  # pyright: ignore[reportCallIssue]

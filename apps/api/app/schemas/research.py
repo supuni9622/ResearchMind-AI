@@ -31,6 +31,15 @@ class ResearchRequest(BaseModel):
 
     routing_strategy: RoutingStrategy | None = None
 
+    session_id: UUID | None = Field(
+        default=None,
+        description=(
+            "Links this call to a continuing research thread for session "
+            "memory (Memory Platform). Omit for a one-off, single-turn "
+            "request -- defaults to a fresh session scoped to this call."
+        ),
+    )
+
 
 class ResearchStreamRequest(ResearchRequest):
     """

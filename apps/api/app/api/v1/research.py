@@ -44,6 +44,7 @@ async def create_research(
         owner_id=current_user.id,
         provider=payload.provider,
         routing_strategy=payload.routing_strategy,
+        session_id=payload.session_id,
     )
 
     return ResearchResponse(
@@ -72,6 +73,7 @@ async def stream_research(
         owner_id=current_user.id,
         provider=payload.provider,
         routing_strategy=payload.routing_strategy,
+        session_id=payload.session_id,
     )
 
     return sse_stream_response(events)

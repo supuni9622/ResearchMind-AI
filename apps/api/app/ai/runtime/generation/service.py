@@ -1432,6 +1432,19 @@ class GenerationService:
     def _validate(
         request: GenerationRequest,
     ) -> None:
+        """
+        `prompt_context.context` is deliberately not required to be
+        non-empty here: it's optional, assembled material (retrieved
+        chunks, injected memory) layered on top of `user_prompt`, which
+        is already required below. A user's message with no retrieval
+        hits and no prior memory -- a brand-new account, an ungrounded
+        chat question -- is a normal, common case, not an error;
+        `ContextValidator` (`validation/input/context_validation.py`)
+        already covers empty/duplicate/orphaned *chunks* as WARNINGs
+        rather than a hard block, and this used to duplicate that at a
+        stricter level for the one case (`context == ""`) that isn't
+        even chunk-shaped.
+        """
 
         if not request.user_prompt.strip():
             logger.warning(
@@ -1439,10 +1452,3 @@ class GenerationService:
                 reason="empty_user_prompt",
             )
             raise (GenerationValidationError("Prompt cannot be empty."))
-
-        if not request.prompt_context.context:
-            logger.warning(
-                "generation.validation_failed",
-                reason="empty_prompt_context",
-            )
-            raise (GenerationValidationError("Prompt context cannot be empty."))

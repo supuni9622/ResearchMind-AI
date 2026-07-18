@@ -130,17 +130,29 @@ async def test_generate_raises_validation_error_for_empty_user_prompt() -> None:
     provider.generate.assert_not_awaited()
 
 
-async def test_generate_raises_validation_error_for_empty_prompt_context() -> None:
+async def test_generate_allows_empty_prompt_context() -> None:
+    """
+    `prompt_context.context` being empty must not be rejected --
+    chat.py legitimately builds this shape (no retrieval wired yet,
+    optionally memory-only context) and relies on `user_prompt` alone
+    being a valid, complete request. This used to raise
+    `GenerationValidationError`, which made every `/chat/stream` and
+    `/chat/ws` call fail unconditionally; `_validate()` now only
+    requires a non-empty `user_prompt`.
+    """
+    request = _make_request(context="")
+    result = _make_result(request)
+
     provider = _make_provider()
+    provider.generate = AsyncMock(return_value=result)
+
     registry = GenerationRegistry(providers=[provider])
     service = GenerationService(registry=registry)
 
-    request = _make_request(context="")
+    returned = await service.generate(provider=GenerationProvider.GROQ, request=request)
 
-    with pytest.raises(GenerationValidationError, match="context"):
-        await service.generate(provider=GenerationProvider.GROQ, request=request)
-
-    provider.generate.assert_not_awaited()
+    assert returned is result
+    provider.generate.assert_awaited_once_with(request)
 
 
 async def test_generate_raises_provider_not_found_error_when_unregistered() -> None:

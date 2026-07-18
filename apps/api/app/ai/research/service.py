@@ -27,6 +27,10 @@ from app.ai.knowledge.context.service import ContextBuilderService
 from app.ai.knowledge.retrieval.enums import RetrievalProvider
 from app.ai.knowledge.retrieval.models import RetrievalQuery, RetrievalResult
 from app.ai.knowledge.retrieval.service import RetrievalService
+from app.ai.memory.enums import MemoryType
+from app.ai.memory.extraction.service import MemoryExtractionService
+from app.ai.memory.services.formatting import format_memory_context, with_memory_context
+from app.ai.memory.services.memory_service import MemoryService
 from app.ai.research.models import ResearchOutcome, ResearchSource
 from app.ai.runtime.events.enums import CoreEventType, EventCategory
 from app.ai.runtime.events.models import StreamEvent
@@ -54,6 +58,8 @@ class ResearchService:
         streaming_service: StreamingService,
         research_artifact_writer: ResearchArtifactWriter | None = None,
         artifact_policy_service: ArtifactPolicyService | None = None,
+        memory_service: MemoryService | None = None,
+        memory_extraction_service: MemoryExtractionService | None = None,
     ) -> None:
         self._session = session
         self._repository = ResearchRepository(session)
@@ -63,6 +69,16 @@ class ResearchService:
         self._streaming_service = streaming_service
         self._artifact_writer = research_artifact_writer
         self._artifact_policy = artifact_policy_service
+        self._memory = memory_service
+        """
+        Optional (Runtime Memory Injection Pipeline). When set,
+        `research()`/`stream_research()` prepend a Memory Context block
+        (session/semantic/research memories) to the prompt before
+        generation and, best-effort, extract + store new memories from
+        the completed turn afterward. `None` skips both -- matches how
+        every other optional collaborator on this service degrades.
+        """
+        self._memory_extraction = memory_extraction_service
 
     async def research(
         self,
@@ -73,15 +89,31 @@ class ResearchService:
         owner_id: UUID,
         provider: GenerationProvider | None = None,
         routing_strategy: RoutingStrategy | None = None,
+        session_id: UUID | None = None,
     ) -> ResearchOutcome:
         """
-        Full linear flow (PRD §17): retrieve -> build context -> generate
-        through the Generation Runtime -> persist session + artifact.
+        Full linear flow (PRD §17, extended with the Memory Platform's
+        Runtime Memory Injection Pipeline): memory retrieval -> retrieve
+        -> build context -> generate through the Generation Runtime ->
+        persist session + artifact -> memory extraction.
+
+        `session_id` lets a caller link multiple `/research` calls into
+        one continuing thread (so session memory and "continue my
+        previous research" phrasing actually mean something) -- it
+        defaults to this call's own `research_id` when omitted, i.e. a
+        single-turn session, unchanged from prior behavior.
         """
 
         research_id = uuid4()
+        session_id = session_id or research_id
 
         started = perf_counter()
+
+        memory_context_text = await self._retrieve_memory_context(
+            owner_id=owner_id,
+            session_id=session_id,
+            query=query,
+        )
 
         retrieval_result, context_result = await self._retrieve_and_build_context(
             query=query,
@@ -91,7 +123,10 @@ class ResearchService:
         )
 
         request = GenerationRequest(
-            prompt_context=context_result.prompt_context,
+            prompt_context=with_memory_context(
+                context_result.prompt_context,
+                memory_context_text,
+            ),
             user_prompt=query,
             session_id=research_id,
             routing_strategy=routing_strategy,
@@ -129,6 +164,14 @@ class ResearchService:
             model=result.model,
         )
 
+        await self._extract_and_store_memory(
+            owner_id=owner_id,
+            session_id=session_id,
+            research_id=research_id,
+            query=query,
+            answer=result.content,
+        )
+
         return ResearchOutcome(
             research_id=research_id,
             query=query,
@@ -147,21 +190,32 @@ class ResearchService:
         owner_id: UUID,
         provider: GenerationProvider | None = None,
         routing_strategy: RoutingStrategy | None = None,
+        session_id: UUID | None = None,
     ) -> AsyncGenerator[StreamEvent, None]:
         """
-        Streaming counterpart of `research()` (PRD §17). Generation goes
-        through `StreamingService` directly rather than the Generation
-        Runtime -- that's what the PRD's own `/research/stream` flow
-        diagram specifies, distinct from `/research`.
+        Streaming counterpart of `research()` (PRD §17), extended with
+        the same Runtime Memory Injection Pipeline -- see `research()`'s
+        docstring. Generation goes through `StreamingService` directly
+        rather than the Generation Runtime -- that's what the PRD's own
+        `/research/stream` flow diagram specifies, distinct from
+        `/research`.
         """
 
         research_id = uuid4()
+        session_id = session_id or research_id
 
         yield StreamEvent(
             category=EventCategory.RESEARCH,
             type=ResearchEventType.RESEARCH_STARTED.value,
             session_id=research_id,
         )
+
+        memory_context_text = await self._retrieve_memory_context(
+            owner_id=owner_id,
+            session_id=session_id,
+            query=query,
+        )
+
         yield StreamEvent(
             category=EventCategory.RESEARCH,
             type=ResearchEventType.RETRIEVAL_STARTED.value,
@@ -183,7 +237,10 @@ class ResearchService:
         )
 
         request = GenerationRequest(
-            prompt_context=context_result.prompt_context,
+            prompt_context=with_memory_context(
+                context_result.prompt_context,
+                memory_context_text,
+            ),
             user_prompt=query,
             stream=True,
             session_id=research_id,
@@ -239,6 +296,14 @@ class ResearchService:
                     model=None,
                 )
 
+                await self._extract_and_store_memory(
+                    owner_id=owner_id,
+                    session_id=session_id,
+                    research_id=research_id,
+                    query=query,
+                    answer=answer,
+                )
+
     async def citations_only(
         self,
         *,
@@ -269,6 +334,114 @@ class ResearchService:
     # ==========================================================
     # Internal helpers
     # ==========================================================
+
+    # -- Runtime Memory Injection Pipeline -----------------------
+
+    async def _retrieve_memory_context(
+        self,
+        *,
+        owner_id: UUID,
+        session_id: UUID,
+        query: str,
+    ) -> str | None:
+        """
+        Memory retrieval, ahead of knowledge retrieval (Request ->
+        Memory Retrieval -> Knowledge Retrieval -> ... per the platform's
+        runtime integration flow). Best-effort: a memory outage must
+        never block a research request.
+        """
+
+        if self._memory is None:
+            return None
+
+        try:
+            context = await self._memory.get_context(
+                owner_id=owner_id,
+                session_id=session_id,
+                semantic_query=query,
+                top_k=5,
+            )
+        except Exception as exc:
+            logger.warning(
+                "memory.research.retrieval_failed",
+                owner_id=str(owner_id),
+                session_id=str(session_id),
+                error_type=type(exc).__name__,
+                error=str(exc),
+            )
+            return None
+
+        return format_memory_context(context)
+
+    async def _extract_and_store_memory(
+        self,
+        *,
+        owner_id: UUID,
+        session_id: UUID,
+        research_id: UUID,
+        query: str,
+        answer: str,
+    ) -> None:
+        """
+        Post-generation half of the Runtime Memory Injection Pipeline:
+        the raw turn is always captured as SESSION memory (unconditional
+        -- it's the conversational record, not an LLM judgment call);
+        durable USER/RESEARCH facts are additionally proposed by
+        `MemoryExtractionService` and stored when above the importance
+        threshold. Best-effort throughout: never fails the request that
+        already completed successfully.
+        """
+
+        if self._memory is None:
+            return
+
+        try:
+            await self._memory.remember(
+                owner_id=owner_id,
+                type=MemoryType.SESSION,
+                content=f"Q: {query}\nA: {answer}",
+                session_id=session_id,
+            )
+        except Exception as exc:
+            logger.warning(
+                "memory.research.session_remember_failed",
+                owner_id=str(owner_id),
+                session_id=str(session_id),
+                error_type=type(exc).__name__,
+                error=str(exc),
+            )
+
+        if self._memory_extraction is None:
+            return
+
+        extracted = await self._memory_extraction.extract(
+            user_message=query,
+            assistant_message=answer,
+        )
+
+        for item in extracted:
+            metadata = (
+                {"research_id": str(research_id)} if item.type == MemoryType.RESEARCH else None
+            )
+
+            try:
+                await self._memory.remember(
+                    owner_id=owner_id,
+                    type=item.type,
+                    content=item.content,
+                    importance_score=item.importance,
+                    metadata=metadata,
+                )
+            except Exception as exc:
+                logger.warning(
+                    "memory.research.extracted_remember_failed",
+                    owner_id=str(owner_id),
+                    memory_type=item.type.value,
+                    error_type=type(exc).__name__,
+                    error=str(exc),
+                )
+
+    # -- Retrieval / context / persistence -----------------------
 
     def _scoped_query(
         self,

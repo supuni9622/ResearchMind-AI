@@ -156,7 +156,7 @@ class TokenCounter:
 
         try:
             response = await self._anthropic.messages.count_tokens(
-                model="claude-sonnet-4-20250514",
+                model="claude-sonnet-5",
                 messages=[
                     {
                         "role": "user",

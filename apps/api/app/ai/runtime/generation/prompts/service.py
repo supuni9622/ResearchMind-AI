@@ -208,7 +208,7 @@ class PromptService(
                 return "llama-3.3-70b-versatile"
 
             case GenerationProvider.CLAUDE:
-                return "claude-sonnet-4-20250514"
+                return "claude-sonnet-5"
 
             case GenerationProvider.GEMINI:
                 return "gemini-2.5-pro"

@@ -1,17 +1,23 @@
 'use client';
 
 import { useRef } from 'react';
+import type { GenerationProvider } from '@/lib/api';
+import { PROVIDER_OPTIONS } from '@/features/research/types';
 
 export function ResearchComposer({
   value,
   onChange,
   onSubmit,
   loading,
+  provider,
+  onProviderChange,
 }: {
   value: string;
   onChange: (v: string) => void;
   onSubmit: () => void;
   loading: boolean;
+  provider: GenerationProvider | 'auto';
+  onProviderChange: (p: GenerationProvider | 'auto') => void;
 }) {
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -65,9 +71,28 @@ export function ResearchComposer({
             )}
           </button>
         </div>
-        <p className="mt-1.5 font-mono text-stone-700 text-[10px]">
-          Enter to send · Shift + Enter for new line
-        </p>
+        <div className="mt-1.5 flex items-center justify-between">
+          <p className="font-mono text-stone-700 text-[10px]">
+            Enter to send · Shift + Enter for new line
+          </p>
+          <label className="flex items-center gap-1.5">
+            <span className="font-mono text-stone-700 text-[10px] uppercase tracking-widest">
+              Model
+            </span>
+            <select
+              value={provider}
+              onChange={(e) => onProviderChange(e.target.value as GenerationProvider | 'auto')}
+              disabled={loading}
+              className="bg-ink-800 border border-ink-600 rounded-md px-1.5 py-0.5 font-mono text-stone-400 text-[10px] focus:outline-none focus:border-sage-600 transition-colors"
+            >
+              {PROVIDER_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
       </form>
     </div>
   );

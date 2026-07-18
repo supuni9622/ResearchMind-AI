@@ -65,7 +65,7 @@ class Settings(BaseSettings):
 
     openai_model: str = "gpt-5-mini"
 
-    claude_model: str = "claude-sonnet-4"
+    claude_model: str = "claude-sonnet-5"
 
     gemini_model: str = "gemini-2.5-flash"
 

@@ -237,8 +237,8 @@ GPT_5_NANO = ModelMetadata(
 
 CLAUDE_SONNET_4 = ModelMetadata(
     provider=GenerationProvider.CLAUDE,
-    model_name="claude-sonnet-4",
-    display_name="Claude Sonnet 4",
+    model_name="claude-sonnet-5",
+    display_name="Claude Sonnet 5",
     context_window=200_000,
     capabilities=ProviderCapabilities(
         streaming=True,

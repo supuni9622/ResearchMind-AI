@@ -1281,6 +1281,29 @@ Deliver the first complete, grounded, cited question-answering product experienc
 
 ---
 
+## Milestone 3.5 — Research Frontend Integration
+
+Status: ✅ Complete — `apps/web`'s Research page now consumes the live Research API instead of a mock.
+
+Completed
+
+- Deleted `apps/web/src/features/research/mock-engine.ts`; added `use-research.ts` (per-turn state machine: `searching` → `generating` → `done`/`error`, `localStorage`-backed history) and `lib/sse.ts` (a `fetch` + `ReadableStream` SSE client — not a bare `EventSource`, since this platform's auth is a bearer token `EventSource` can't attach)
+- New `citation-card.tsx`; `research-block`/`research-composer`/`research-sidebar`/`source-card`/`source-panel`/`streaming-status`/`types.ts`/`lib/api.ts` updated to the real API contract
+
+### Findings — three backend bugs found and fixed while validating against live infra
+
+1. `ResearchService.stream_research()` checked only `CoreEventType.COMPLETE` ("complete") to detect "generation finished," but a live (non-cache-hit) provider stream actually emits `StreamEventType.COMPLETED` ("completed") — `CoreEventType.COMPLETE` is cache-hit-replay-only. Every real streamed research turn silently never wrote its `research_sessions` row. Fixed by checking both values.
+2. `claude-sonnet-4` and its dated `-20250514` snapshot are fully retired from the configured Anthropic account (confirmed against `GET /v1/models`). Updated every hardcoded reference (`.env`, `.env.example`, `core/settings.py`, `generation/config.py`, `generation/catalog/models.py`, `generation/prompts/service.py`, `generation/observability/token_counter.py`) to `claude-sonnet-5`.
+3. `claude-sonnet-5` rejects the `temperature` parameter outright (400, effort-based reasoning model, not classic sampling). `ClaudeProvider` now retries once without `temperature` on that specific error instead of hardcoding a model-name list.
+
+### To-Do / Open Items
+
+- Chat has a complete backend (`/chat/stream`, `/chat/ws`) but zero frontend surface — `apps/web`'s nav is Dashboard/Research/Documents only. Deferred design decision: separate "Chat" nav entry/page (mirrors the backend's already-separate persistence + no-retrieval-grounding) vs. a unified input with a mode toggle.
+- `_sse_byte_stream` (`runtime/generation/streaming/transports/sse.py`) only catches `TimeoutError`/`StopAsyncIteration` around `events.__anext__()` — any other exception propagates unhandled and silently kills the SSE connection with no client-visible `error` event. Not yet hardened.
+- No automated check for upstream model deprecations — Finding 2 above was only caught via a live 404 during manual testing, not proactively.
+
+---
+
 ## Milestone 11.16 — Guardrails Platform
 
 **Status:** ✅ Complete (MVP Foundation, per `guardrails_platform_prd.md`)
@@ -1929,6 +1952,7 @@ The major AI Engineering platforms interact as follows.
 | Phase 3.2 — LangChain Adoption for Generation | 🟡 Mostly Complete for structured output (LCEL not adopted) |
 | Phase 3.3 — Generation Runtime Platform | ✅ Complete, per `generation_runtime_platform_prd.md` (canonical `execute_generation()`/`GenerationRuntime.execute()` entrypoint, `generation/orchestration/`, `get_generation_runtime()` dependency, 11 new tests) |
 | Phase 3.4 — Research API Platform | ✅ Complete, per `research_api_prd.md` — first live, end-to-end product surface (`POST /research`, `/research/stream`, `/research/citations`, `GET /research/{id}`; `research_sessions` table; 23 new tests) |
+| Milestone 3.5 — Research Frontend Integration | ✅ Complete — `apps/web` wired to the live Research API (real SSE, `mock-engine.ts` removed); 3 backend bugs found + fixed (stream-completion event mismatch, retired Claude model, `temperature` rejected by new model) |
 | Milestone 11.16 — Guardrails Platform | ✅ Complete (MVP Foundation — input/retrieval/generation/runtime guardrails, Source Trust, policies, scoring, artifacts; standalone, not yet wired into the generation pipeline) |
 | Phase 3 — Research Engine (broader) | 🟡 First live product surface delivered (Phase 3.4); query decomposition, planning, and a multi-step Research Runtime still planned |
 | Phase 4 — Agentic AI Platform | ⏳ Planned |
@@ -1963,6 +1987,10 @@ Phase 2.8 — Context Platform is now complete (compression V1-V4, and the LangC
 
 The **Guardrails Platform** (Milestone 11.16, see above) is now complete as a standalone MVP foundation and needs no further work to reach its PRD-defined MVP scope — remaining work on it is entirely the future "Generation Integration" wiring phase, not new guardrail logic.
 
+## Milestone 3.5 — Research Frontend Integration (✅ complete)
+
+`apps/web`'s Research page now calls the live `/research`/`/research/stream` APIs for the first time (real SSE via `use-research.ts`/`lib/sse.ts`, `mock-engine.ts` deleted) — see Milestone 3.5 above for full detail, the three backend bugs found and fixed while validating it end-to-end (a stream-completion event-type mismatch that silently dropped every `research_sessions` row, a fully-retired Claude model, and Claude Sonnet 5 rejecting the `temperature` parameter), and the open to-do list. The most significant open item isn't a bug: **Chat has a complete backend but no frontend surface at all**, and how to present it alongside Research (separate nav/page vs. a unified mode-toggle input) is a deliberately deferred design discussion.
+
 ---
 
 # Next Major Milestones
@@ -1978,13 +2006,15 @@ This project intentionally prioritizes completing the production AI platform (Ti
 7. ~~Guardrails Platform (Milestone 11.16) — input/retrieval/generation/runtime guardrails, Source Trust, policies, scoring, artifacts~~ ✅ MVP foundation complete; wiring into `GenerationService` is future work
 8. ~~Generation Runtime Platform (Phase 3.3)~~ ✅ Complete, per `generation_runtime_platform_prd.md` — canonical `execute_generation()`/`GenerationRuntime.execute()` entrypoint, `generation/orchestration/`, no state machines/DAGs/LangGraph duplication
 9. ~~Research API Platform (Phase 3.4)~~ ✅ Complete, per `research_api_prd.md` — first live, end-to-end product surface: `POST /research`/`/research/stream`/`/research/citations`/`GET /research/{id}`, `research_sessions` table, `RuntimeType.RESEARCH`/`ArtifactRuntime.RESEARCH` now exercised
-10. Conversation Memory Platform (Phase 2.9)
-11. Knowledge Service (Phase 2.10)
-12. Evaluation Platform expansion (NDCG, Groundedness, Faithfulness, Hallucinations, Citation Accuracy, End-to-End, Security Evaluation)
-13. Research Runtime — Query Decomposition, Planner, Research Agents, Reviewer, Summarizer, LangGraph (builds on the now-complete Research API Platform)
-14. Agentic AI Platform
-15. Long-Term Platform — Research Sessions, Memory, MCP, Feedback Learning
-16. Advanced Observability, Experimentation Platform (deferred until the core RAG pipeline is complete)
+10. ~~Research Frontend Integration (Milestone 3.5)~~ ✅ Complete — `apps/web` wired to the live Research API; 3 backend bugs found + fixed along the way
+11. **Decide Chat vs. Research frontend UX** (deferred design discussion) — separate nav entry/page vs. a unified mode-toggle input; Chat currently has no frontend surface at all
+12. Conversation Memory Platform (Phase 2.9)
+13. Knowledge Service (Phase 2.10)
+14. Evaluation Platform expansion (NDCG, Groundedness, Faithfulness, Hallucinations, Citation Accuracy, End-to-End, Security Evaluation)
+15. Research Runtime — Query Decomposition, Planner, Research Agents, Reviewer, Summarizer, LangGraph (builds on the now-complete Research API Platform)
+16. Agentic AI Platform
+17. Long-Term Platform — Research Sessions, Memory, MCP, Feedback Learning
+18. Advanced Observability, Experimentation Platform (deferred until the core RAG pipeline is complete)
 
 ---
 

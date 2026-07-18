@@ -94,7 +94,7 @@ class OpenAIGenerationConfig(
 class ClaudeGenerationConfig(
     BaseGenerationConfig,
 ):
-    model_name: str = "claude-sonnet-4"
+    model_name: str = "claude-sonnet-5"
 
     temperature: float = 0.1
 

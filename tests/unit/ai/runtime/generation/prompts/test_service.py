@@ -166,7 +166,7 @@ async def test_estimate_tokens_respects_override_provider() -> None:
 
     token_counter.count.assert_awaited_once_with(
         provider=GenerationProvider.CLAUDE,
-        model="claude-sonnet-4-20250514",
+        model="claude-sonnet-5",
         text=result.rendered_prompt,
     )
 

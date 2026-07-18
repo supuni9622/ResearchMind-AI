@@ -32,7 +32,7 @@ from app.ai.runtime.events.enums import CoreEventType, EventCategory
 from app.ai.runtime.events.models import StreamEvent
 from app.ai.runtime.events.research.models import ResearchEventType
 from app.ai.runtime.generation.enums import GenerationProvider
-from app.ai.runtime.generation.models import GenerationRequest
+from app.ai.runtime.generation.models import GenerationRequest, StreamEventType
 from app.ai.runtime.generation.orchestration.interfaces import GenerationRuntimeInterface
 from app.ai.runtime.generation.routing.enums import RoutingStrategy
 from app.ai.runtime.generation.streaming.service import StreamingService
@@ -203,7 +203,12 @@ class ResearchService:
 
             yield event
 
-            if event.type == CoreEventType.COMPLETE.value:
+            # `StreamingService.stream_generate()` emits `StreamEventType.
+            # COMPLETED` ("completed") for a live provider stream and only
+            # ever emits `CoreEventType.COMPLETE` ("complete") on its
+            # cache-hit replay path -- both mean "generation finished" from
+            # this caller's perspective, so both must be checked here.
+            if event.type in (CoreEventType.COMPLETE.value, StreamEventType.COMPLETED.value):
                 answer = "".join(content_parts)
                 sources = self._build_sources(context_result)
                 citations = context_result.prompt_context.citations

@@ -1,5 +1,6 @@
 import { getStoredToken } from './auth';
 import { extractErrorMessage } from './errors';
+import { parseSSEStream, type SSEEvent } from './sse';
 
 const BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000';
 
@@ -51,9 +52,120 @@ export interface Document {
   created_at: string;
 }
 
+// Matches `app/ai/runtime/generation/enums.py::GenerationProvider`.
+export type GenerationProvider = 'groq' | 'openai' | 'claude' | 'gemini' | 'ollama';
+
+// Matches `app/ai/knowledge/context/citations/models.py::Citation`.
+export interface Citation {
+  citation_id: string;
+  filename: string;
+  document_id: string;
+  page_numbers: number[];
+  heading: string | null;
+  heading_path: string[];
+  chunk_ids: string[];
+}
+
+// Matches `app/ai/research/models.py::ResearchSource`.
+export interface ResearchSource {
+  document_id: string;
+  filename: string;
+  chunk_id: string;
+  score: number;
+  page: number | null;
+}
+
+// Matches `app/schemas/research.py::ResearchResponse`.
+export interface ResearchResponse {
+  research_id: string;
+  query: string;
+  answer: string;
+  citations: Citation[];
+  sources: ResearchSource[];
+  duration_ms: number;
+}
+
+// Matches `app/schemas/research.py::ResearchSessionResponse` (GET /research/{id}).
+export interface ResearchSessionResponse {
+  research_id: string;
+  query: string;
+  answer: string;
+  citations: Citation[];
+  sources: ResearchSource[];
+  created_at: string;
+}
+
+// Matches `app/ai/runtime/events/models.py::StreamEvent`, as sent over SSE.
+export interface ResearchStreamEvent {
+  event_id: string;
+  session_id: string | null;
+  request_id: string | null;
+  parent_event_id: string | null;
+  category: 'generation' | 'research' | 'agent' | 'tool';
+  type: string;
+  timestamp: string;
+  content: string | null;
+  metadata: Record<string, unknown>;
+}
+
+export interface ResearchAskOptions {
+  topK?: number;
+  filters?: Record<string, unknown>;
+  provider?: GenerationProvider;
+}
+
+async function* streamResearch(
+  query: string,
+  options: ResearchAskOptions = {}
+): AsyncGenerator<SSEEvent<ResearchStreamEvent>> {
+  const token = getStoredToken();
+
+  let res: Response;
+  try {
+    res = await fetch(`${BASE}/api/v1/research/stream`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'text/event-stream',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify({
+        query,
+        top_k: options.topK ?? 10,
+        filters: options.filters ?? {},
+        provider: options.provider ?? null,
+      }),
+    });
+  } catch {
+    throw new Error('Could not reach the server. Is the backend running?');
+  }
+
+  if (!res.ok || !res.body) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(extractErrorMessage(body, `Research stream failed (${res.status})`));
+  }
+
+  yield* parseSSEStream<ResearchStreamEvent>(res.body);
+}
+
 export const api = {
   auth: {
     me: () => request<UserProfile>('/api/v1/auth/me'),
+  },
+  research: {
+    ask: (query: string, options: ResearchAskOptions = {}) =>
+      request<ResearchResponse>('/api/v1/research', {
+        method: 'POST',
+        body: JSON.stringify({
+          query,
+          top_k: options.topK ?? 10,
+          filters: options.filters ?? {},
+          provider: options.provider ?? null,
+        }),
+      }),
+    stream: streamResearch,
+    get: (researchId: string) =>
+      request<ResearchSessionResponse>(`/api/v1/research/${researchId}`),
   },
   documents: {
     list: () => request<Document[]>('/api/v1/documents'),

@@ -1,53 +1,34 @@
-export type RetrievalStrategy = 'dense' | 'sparse' | 'hybrid' | 'reranked';
+import type { Citation, GenerationProvider, ResearchSource } from '@/lib/api';
 
-export interface SourceRef {
-  citationId: number;
-  documentName: string;
-  pages: string;
-  score: number;
-  strategy: RetrievalStrategy;
-  excerpt: string;
-}
-
-export interface PlanStep {
-  id: string;
-  label: string;
-}
-
-export interface EvaluationScores {
-  groundedness: number;
-  faithfulness: number;
-}
-
-export interface ResearchMetrics {
-  latencyMs: number;
-  tokens: number;
-  costUsd: number;
-}
+export type ResearchStage = 'searching' | 'generating' | 'done' | 'error';
 
 export interface ResearchTurn {
-  id: string;
-  question: string;
-  planSteps: PlanStep[];
-  sources: SourceRef[];
+  /** Stable client-side key — assigned before the server hands back a research_id. */
+  localId: string;
+  /** `research_id` once the stream (or a non-streamed ask) has told us it. */
+  researchId: string | null;
+  query: string;
   answer: string;
-  evaluation: EvaluationScores;
-  metrics: ResearchMetrics;
+  citations: Citation[];
+  sources: ResearchSource[];
+  stage: ResearchStage;
+  error?: string;
+  chunkCount?: number;
+  durationMs?: number;
+  provider?: GenerationProvider;
   createdAt: string;
 }
 
-export interface ResearchSessionMeta {
-  id: string;
-  title: string;
-  updatedAt: string;
+export interface ResearchHistoryEntry {
+  researchId: string;
+  query: string;
+  createdAt: string;
 }
 
-export const STREAM_STAGES = [
-  'Retrieving documents…',
-  'Expanding context…',
-  'Compressing sources…',
-  'Generating answer…',
-  'Evaluating answer…',
-] as const;
-
-export type StreamStage = (typeof STREAM_STAGES)[number];
+export const PROVIDER_OPTIONS: { value: GenerationProvider | 'auto'; label: string }[] = [
+  { value: 'auto', label: 'Auto' },
+  { value: 'claude', label: 'Claude' },
+  { value: 'openai', label: 'OpenAI' },
+  { value: 'gemini', label: 'Gemini' },
+  { value: 'groq', label: 'Groq' },
+];

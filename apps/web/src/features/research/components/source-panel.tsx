@@ -1,7 +1,8 @@
 import type { ResearchTurn } from '@/features/research/types';
 import { SectionLabel } from '@/components/ui/page-header';
+import { CitationCard } from '@/features/research/components/citation-card';
 import { SourceCard } from '@/features/research/components/source-card';
-import { NetworkIcon, ShieldIcon, ClockIcon, ZapIcon, TargetIcon } from '@/components/ui/icons';
+import { NetworkIcon, ClockIcon, LayersIcon } from '@/components/ui/icons';
 
 function MetricTile({
   icon,
@@ -24,44 +25,67 @@ function MetricTile({
 }
 
 export function SourcePanel({ turn }: { turn: ResearchTurn | null }) {
+  const done = turn?.stage === 'done';
+
   return (
     <aside className="w-80 flex-shrink-0 border-l border-ink-600 bg-ink-900/50 h-full overflow-y-auto scrollbar-thin">
       <div className="px-5 py-4 border-b border-ink-700">
-        <SectionLabel count={turn?.sources.length ?? 0}>Sources</SectionLabel>
+        <SectionLabel count={turn?.citations.length ?? 0}>Citations</SectionLabel>
       </div>
 
       <div className="px-4 py-4">
-        {turn ? (
+        {turn && turn.citations.length > 0 ? (
           <div className="space-y-2.5">
-            {turn.sources.map((s) => (
-              <SourceCard key={s.citationId} source={s} />
+            {turn.citations.map((c) => (
+              <CitationCard key={c.citation_id} citation={c} />
             ))}
           </div>
         ) : (
           <p className="text-stone-700 text-[12.5px] px-1">
-            Sources for your next question will appear here.
+            {turn
+              ? 'No citations for this answer.'
+              : 'Citations for your next question will appear here.'}
           </p>
         )}
       </div>
 
       <div className="px-5 py-4 border-t border-ink-700">
+        <SectionLabel count={turn?.sources.length ?? 0}>Retrieved Passages</SectionLabel>
+        <div className="mt-3">
+          {turn && turn.sources.length > 0 ? (
+            <div className="space-y-2.5">
+              {turn.sources.map((s) => (
+                <SourceCard key={s.chunk_id} source={s} />
+              ))}
+            </div>
+          ) : (
+            <p className="text-stone-700 text-[12.5px]">
+              Passages retrieved from your knowledge base will appear here.
+            </p>
+          )}
+        </div>
+      </div>
+
+      <div className="px-5 py-4 border-t border-ink-700">
         <SectionLabel>Research Metrics</SectionLabel>
-        {turn ? (
+        {done ? (
           <div className="mt-3 grid grid-cols-2 gap-2">
-            <MetricTile icon={<ClockIcon size={11} />} label="Latency" value={`${turn.metrics.latencyMs}ms`} />
-            <MetricTile icon={<ZapIcon size={11} />} label="Tokens" value={turn.metrics.tokens.toLocaleString()} />
-            <MetricTile icon={<ZapIcon size={11} />} label="Cost" value={`$${turn.metrics.costUsd.toFixed(3)}`} />
-            <MetricTile icon={<TargetIcon size={11} />} label="Grounded" value={`${Math.round(turn.evaluation.groundedness * 100)}%`} />
+            <MetricTile
+              icon={<ClockIcon size={11} />}
+              label="Response time"
+              value={turn?.durationMs !== undefined ? `${turn.durationMs}ms` : '—'}
+            />
+            <MetricTile
+              icon={<LayersIcon size={11} />}
+              label="Passages"
+              value={turn?.chunkCount !== undefined ? String(turn.chunkCount) : '—'}
+            />
           </div>
         ) : (
           <p className="mt-3 text-stone-700 text-[12.5px]">
-            Latency, cost, and groundedness for each answer will appear here.
+            Response time and retrieval counts will appear here once an answer completes.
           </p>
         )}
-        <div className="mt-3 flex items-center gap-1.5 text-stone-700">
-          <ShieldIcon size={11} />
-          <span className="font-mono text-[10px]">no security warnings</span>
-        </div>
       </div>
 
       <div className="px-5 py-4 border-t border-ink-700">

@@ -1,8 +1,39 @@
 'use client';
 
-import { useState } from 'react';
+import type { ReactNode } from 'react';
+import type { Citation } from '@/lib/api';
 import type { ResearchTurn } from '@/features/research/types';
-import { ChevronDownIcon, ChevronRightIcon, TargetIcon, CheckCircleIcon } from '@/components/ui/icons';
+import { AlertIcon, ClockIcon, LayersIcon } from '@/components/ui/icons';
+import { StreamingStatus } from '@/features/research/components/streaming-status';
+
+const CITATION_TOKEN = /\[?(S\d+)\]?/g;
+
+function renderAnswer(answer: string, citations: Citation[]): ReactNode[] {
+  const knownIds = new Set(citations.map((c) => c.citation_id));
+  if (knownIds.size === 0) return [answer];
+
+  const parts: ReactNode[] = [];
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+  let key = 0;
+
+  while ((match = CITATION_TOKEN.exec(answer)) !== null) {
+    const id = match[1];
+    if (!knownIds.has(id)) continue;
+    parts.push(answer.slice(lastIndex, match.index));
+    parts.push(
+      <span
+        key={key++}
+        className="font-mono text-amber-500 text-[0.82em] px-1 py-0.5 rounded border border-amber-800/40 bg-amber-500/5 whitespace-nowrap"
+      >
+        [{id.slice(1)}]
+      </span>
+    );
+    lastIndex = match.index + match[0].length;
+  }
+  parts.push(answer.slice(lastIndex));
+  return parts;
+}
 
 export function ResearchBlock({
   turn,
@@ -13,8 +44,6 @@ export function ResearchBlock({
   focused: boolean;
   onFocus: () => void;
 }) {
-  const [planOpen, setPlanOpen] = useState(false);
-
   return (
     <div
       onClick={onFocus}
@@ -26,69 +55,65 @@ export function ResearchBlock({
         <p className="font-mono text-stone-600 text-[10px] tracking-[0.2em] uppercase mb-1.5">
           Question
         </p>
-        <p className="text-stone-100 text-[15px] leading-snug">{turn.question}</p>
+        <p className="text-stone-100 text-[15px] leading-snug">{turn.query}</p>
       </div>
 
       <div className="px-5 py-4">
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            setPlanOpen((v) => !v);
-          }}
-          className="flex items-center gap-1.5 text-stone-500 hover:text-stone-300 transition-colors mb-3"
-        >
-          {planOpen ? <ChevronDownIcon size={10} /> : <ChevronRightIcon size={10} />}
-          <span className="font-mono text-[10px] tracking-widest uppercase">Research Plan</span>
-          <span className="font-mono text-stone-700 text-[10px]">{turn.planSteps.length} steps</span>
-        </button>
-
-        {planOpen && (
-          <ol className="space-y-1.5 mb-4 pl-1">
-            {turn.planSteps.map((step, i) => (
-              <li key={step.id} className="flex items-start gap-2.5">
-                <span className="font-mono text-stone-700 text-[10px] mt-0.5 flex-shrink-0">
-                  {i + 1}
-                </span>
-                <span className="text-stone-400 text-[12.5px] leading-relaxed">{step.label}</span>
-              </li>
-            ))}
-          </ol>
+        {turn.stage === 'error' ? (
+          <div className="flex items-start gap-2.5 px-4 py-3 rounded-lg border border-red-800/50 bg-red-900/20 text-red-400 text-[13px]">
+            <AlertIcon size={13} className="flex-shrink-0 mt-0.5" />
+            <span>{turn.error}</span>
+          </div>
+        ) : turn.answer ? (
+          <p className="text-stone-200 text-sm leading-relaxed mb-4 whitespace-pre-wrap">
+            {renderAnswer(turn.answer, turn.citations)}
+            {turn.stage === 'generating' && (
+              <span className="inline-block w-1.5 h-3.5 ml-0.5 bg-sage-500 animate-pulse align-middle" />
+            )}
+          </p>
+        ) : (
+          <div className="mb-2">
+            <StreamingStatus stage={turn.stage} chunkCount={turn.chunkCount} />
+          </div>
         )}
 
-        <p className="text-stone-200 text-sm leading-relaxed mb-4">{turn.answer}</p>
+        {turn.citations.length > 0 && (
+          <div className="flex items-center gap-1.5 mb-4 flex-wrap">
+            {turn.citations.map((c) => (
+              <span
+                key={c.citation_id}
+                title={c.filename}
+                className="font-mono text-amber-500 text-[11px] px-1.5 py-0.5 rounded border border-amber-800/40 bg-amber-500/5"
+              >
+                [{c.citation_id.slice(1)}]
+              </span>
+            ))}
+          </div>
+        )}
 
-        <div className="flex items-center gap-1.5 mb-4">
-          {turn.sources.map((s) => (
-            <span
-              key={s.citationId}
-              className="font-mono text-amber-500 text-[11px] px-1.5 py-0.5 rounded border border-amber-800/40 bg-amber-500/5"
+        {turn.stage === 'done' && (
+          <div className="flex items-center gap-4 pt-3 border-t border-ink-700">
+            {turn.durationMs !== undefined && (
+              <span className="flex items-center gap-1.5 text-stone-600">
+                <ClockIcon size={11} />
+                <span className="font-mono text-[10px]">{turn.durationMs}ms</span>
+              </span>
+            )}
+            {turn.chunkCount !== undefined && (
+              <span className="flex items-center gap-1.5 text-stone-600">
+                <LayersIcon size={11} />
+                <span className="font-mono text-[10px]">{turn.chunkCount} passages searched</span>
+              </span>
+            )}
+            <button
+              disabled
+              title="Report generation is coming soon"
+              className="ml-auto font-mono text-[10px] text-stone-700 cursor-not-allowed"
             >
-              [{s.citationId}]
-            </span>
-          ))}
-        </div>
-
-        <div className="flex items-center gap-4 pt-3 border-t border-ink-700">
-          <span className="flex items-center gap-1.5 text-stone-600">
-            <TargetIcon size={11} />
-            <span className="font-mono text-[10px]">
-              groundedness {Math.round(turn.evaluation.groundedness * 100)}%
-            </span>
-          </span>
-          <span className="flex items-center gap-1.5 text-stone-600">
-            <CheckCircleIcon size={11} />
-            <span className="font-mono text-[10px]">
-              faithfulness {Math.round(turn.evaluation.faithfulness * 100)}%
-            </span>
-          </span>
-          <button
-            disabled
-            title="Report generation is coming soon"
-            className="ml-auto font-mono text-[10px] text-stone-700 cursor-not-allowed"
-          >
-            generate report →
-          </button>
-        </div>
+              generate report →
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );

@@ -1,92 +1,66 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { ResearchSessionMeta, ResearchTurn, StreamStage } from '@/features/research/types';
-import { runResearchTurn } from '@/features/research/mock-engine';
-import { RECENT_SESSIONS } from '@/features/dashboard/mock-data';
+import type { GenerationProvider } from '@/lib/api';
+import { useResearch } from '@/features/research/use-research';
 import { ResearchSidebar } from '@/features/research/components/research-sidebar';
 import { ResearchBlock } from '@/features/research/components/research-block';
 import { ResearchComposer } from '@/features/research/components/research-composer';
-import { StreamingStatus } from '@/features/research/components/streaming-status';
 import { SourcePanel } from '@/features/research/components/source-panel';
 import { EmptyWorkspace } from '@/features/research/components/empty-workspace';
 
-const INITIAL_SESSIONS: ResearchSessionMeta[] = RECENT_SESSIONS.map((s) => ({
-  id: s.id,
-  title: s.title,
-  updatedAt: s.updatedAt,
-}));
-
 export default function ResearchPage() {
-  const [sessions, setSessions] = useState<ResearchSessionMeta[]>(INITIAL_SESSIONS);
-  const [activeSessionId, setActiveSessionId] = useState(INITIAL_SESSIONS[0].id);
-  const [turnsBySession, setTurnsBySession] = useState<Record<string, ResearchTurn[]>>({});
+  const { turns, history, ask, loadFromHistory, clearWorkspace } = useResearch();
   const [focusedTurnId, setFocusedTurnId] = useState<string | null>(null);
   const [input, setInput] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [stage, setStage] = useState<StreamStage | null>(null);
+  const [provider, setProvider] = useState<GenerationProvider | 'auto'>('auto');
   const bottomRef = useRef<HTMLDivElement>(null);
+
+  const loading = turns.some((t) => t.stage === 'searching' || t.stage === 'generating');
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const sessionParam = params.get('session');
     const qParam = params.get('q');
-    if (sessionParam && INITIAL_SESSIONS.some((s) => s.id === sessionParam)) {
-      setActiveSessionId(sessionParam);
-    }
     if (qParam) setInput(qParam);
+    if (sessionParam) {
+      loadFromHistory(sessionParam).then(setFocusedTurnId);
+    }
+    // Only ever run once, on mount — replaying a URL param shouldn't refire on state changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  const turns = useMemo(
-    () => turnsBySession[activeSessionId] ?? [],
-    [turnsBySession, activeSessionId]
-  );
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [turns.length, loading]);
-
-  useEffect(() => {
-    setFocusedTurnId(turns.length > 0 ? turns[turns.length - 1].id : null);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeSessionId]);
+  }, [turns.length]);
 
   const focusedTurn = useMemo(
-    () => turns.find((t) => t.id === focusedTurnId) ?? turns[turns.length - 1] ?? null,
+    () => turns.find((t) => t.localId === focusedTurnId) ?? turns[turns.length - 1] ?? null,
     [turns, focusedTurnId]
   );
 
-  const handleSubmit = useCallback(async () => {
-    const question = input.trim();
-    if (!question || loading) return;
+  const handleSubmit = useCallback(() => {
+    const query = input.trim();
+    if (!query || loading) return;
     setInput('');
-    setLoading(true);
+    const localId = ask(query, provider === 'auto' ? undefined : provider);
+    setFocusedTurnId(localId);
+  }, [input, loading, ask, provider]);
 
-    const turn = await runResearchTurn(question, setStage);
-
-    setTurnsBySession((prev) => ({
-      ...prev,
-      [activeSessionId]: [...(prev[activeSessionId] ?? []), turn],
-    }));
-    setFocusedTurnId(turn.id);
-    setLoading(false);
-    setStage(null);
-  }, [input, loading, activeSessionId]);
-
-  function handleCreateSession() {
-    const id = crypto.randomUUID();
-    const title = `Untitled Session ${sessions.length + 1}`;
-    setSessions((prev) => [{ id, title, updatedAt: new Date().toISOString() }, ...prev]);
-    setActiveSessionId(id);
+  function handleSelectHistory(researchId: string) {
+    loadFromHistory(researchId).then(setFocusedTurnId);
   }
 
   return (
     <div className="flex h-screen">
       <ResearchSidebar
-        sessions={sessions}
-        activeId={activeSessionId}
-        onSelect={setActiveSessionId}
-        onCreate={handleCreateSession}
+        history={history}
+        activeResearchId={focusedTurn?.researchId ?? null}
+        onSelect={handleSelectHistory}
+        onClear={() => {
+          clearWorkspace();
+          setFocusedTurnId(null);
+        }}
       />
 
       <div className="flex-1 min-w-0 flex flex-col">
@@ -101,30 +75,36 @@ export default function ResearchPage() {
               fontVariationSettings: "'opsz' 32, 'SOFT' 0, 'WONK' 0",
             }}
           >
-            {sessions.find((s) => s.id === activeSessionId)?.title ?? 'Research'}
+            Research
           </h1>
         </div>
 
         <div className="flex-1 overflow-y-auto px-8 py-6 scrollbar-thin">
-          {turns.length === 0 && !loading ? (
+          {turns.length === 0 ? (
             <EmptyWorkspace onSuggest={setInput} />
           ) : (
             <div className="max-w-2xl space-y-4">
               {turns.map((turn) => (
                 <ResearchBlock
-                  key={turn.id}
+                  key={turn.localId}
                   turn={turn}
-                  focused={focusedTurn?.id === turn.id}
-                  onFocus={() => setFocusedTurnId(turn.id)}
+                  focused={focusedTurn?.localId === turn.localId}
+                  onFocus={() => setFocusedTurnId(turn.localId)}
                 />
               ))}
-              {loading && stage && <StreamingStatus currentStage={stage} />}
               <div ref={bottomRef} />
             </div>
           )}
         </div>
 
-        <ResearchComposer value={input} onChange={setInput} onSubmit={handleSubmit} loading={loading} />
+        <ResearchComposer
+          value={input}
+          onChange={setInput}
+          onSubmit={handleSubmit}
+          loading={loading}
+          provider={provider}
+          onProviderChange={setProvider}
+        />
       </div>
 
       <SourcePanel turn={focusedTurn} />

@@ -1,43 +1,26 @@
-import type { SourceRef } from '@/features/research/types';
+import type { ResearchSource } from '@/lib/api';
 import { FileTextIcon } from '@/components/ui/icons';
 
-const STRATEGY_LABEL: Record<SourceRef['strategy'], string> = {
-  dense: 'Dense',
-  sparse: 'Sparse',
-  hybrid: 'Hybrid',
-  reranked: 'Reranked',
-};
+export function SourceCard({ source }: { source: ResearchSource }) {
+  const scorePct = Math.round(source.score * 100);
 
-const STRATEGY_TONE: Record<SourceRef['strategy'], string> = {
-  dense: 'text-sage-400',
-  sparse: 'text-amber-400',
-  hybrid: 'text-stone-300',
-  reranked: 'text-stone-100',
-};
-
-export function SourceCard({ source }: { source: SourceRef }) {
   return (
     <div className="border border-ink-600 rounded-lg p-3.5 hover:border-ink-400 transition-colors duration-100">
       <div className="flex items-start gap-2.5 mb-2.5">
-        <span className="font-mono text-amber-500 text-[11px] flex-shrink-0 mt-0.5">
-          [{source.citationId}]
-        </span>
+        <FileTextIcon size={12} className="flex-shrink-0 mt-0.5 text-stone-600" />
         <div className="min-w-0 flex-1">
-          <p className="flex items-center gap-1.5 text-stone-200 text-[12.5px] font-medium truncate">
-            <FileTextIcon size={11} className="flex-shrink-0 text-stone-600" />
-            {source.documentName}
-          </p>
-          <p className="font-mono text-stone-600 text-[10px] mt-0.5">p. {source.pages}</p>
+          <p className="text-stone-200 text-[12.5px] font-medium truncate">{source.filename}</p>
+          {source.page !== null && (
+            <p className="font-mono text-stone-600 text-[10px] mt-0.5">p. {source.page}</p>
+          )}
         </div>
       </div>
 
-      <p className="text-stone-500 text-[12px] leading-relaxed line-clamp-3 mb-3">
-        {source.excerpt}
-      </p>
-
-      <div className="flex items-center justify-between font-mono text-[10px]">
-        <span className={STRATEGY_TONE[source.strategy]}>{STRATEGY_LABEL[source.strategy]}</span>
-        <span className="text-stone-600">score {source.score.toFixed(2)}</span>
+      <div className="flex items-center gap-2">
+        <div className="flex-1 h-1 rounded-full bg-ink-700 overflow-hidden">
+          <div className="h-full bg-sage-600" style={{ width: `${scorePct}%` }} />
+        </div>
+        <span className="font-mono text-stone-600 text-[10px] tabular-nums">{scorePct}%</span>
       </div>
     </div>
   );

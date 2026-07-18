@@ -1062,6 +1062,26 @@ Every `GenerationRequest` this service builds sets `runtime=RuntimeType.RESEARCH
 
 ---
 
+# Phase 4.1 — Research Frontend Integration
+
+**Status:** ✅ Complete — `apps/web`'s Research page is now wired to the live `/research`/`/research/stream` APIs above instead of a mock
+
+`apps/web/src/features/research/mock-engine.ts` (the placeholder that previously faked streaming/citations/sources for UI development) is deleted. In its place: a new `use-research.ts` hook driving per-turn state (`searching` → `generating` → `done`/`error`), a new `lib/sse.ts` client for consuming the backend's `text/event-stream` responses via `fetch` + `ReadableStream` (not a bare `EventSource`, matching `chat.py`'s own documented reasoning — `EventSource` can't attach a custom bearer `Authorization` header), and a new `citation-card.tsx` component. `research-block`/`research-composer`/`research-sidebar`/`source-card`/`source-panel`/`streaming-status`/`types.ts`/`lib/api.ts` all updated to match the real API contract (citations, sources, `research_id`, replay-by-id) instead of mocked shapes. Research history persists client-side in `localStorage`, keyed by `research_id`.
+
+## Findings (bugs discovered turning this on against live infra, all fixed)
+
+1. **Live-streamed research turns silently never persisted.** `ResearchService.stream_research()` only treated `CoreEventType.COMPLETE` (`"complete"`) as "generation finished," but `StreamingService`'s live-provider path (`_stream_live`) actually emits `StreamEventType.COMPLETED` (`"completed"`) — `CoreEventType.COMPLETE` is only ever emitted on the cache-hit-replay path. Every real (non-cache-hit) research stream finished, showed an answer in the UI, and then `GET /research/{id}` 404'd, because `_persist_session`/`_persist_artifact` were never reached. Fixed in `apps/api/app/ai/research/service.py` by checking both event-type values.
+2. **`claude-sonnet-4` (bare, and its dated `-20250514` snapshot) has been fully retired** from the configured Anthropic account — confirmed directly against `GET /v1/models`, which no longer lists either. Every hardcoded reference (`.env`, `.env.example`, `core/settings.py`, `generation/config.py`, `generation/catalog/models.py`, `generation/prompts/service.py`, `generation/observability/token_counter.py`) updated to `claude-sonnet-5`; one test assertion (`tests/unit/ai/runtime/generation/prompts/test_service.py`) updated to match the new default.
+3. **`claude-sonnet-5` rejects the `temperature` sampling parameter outright** (400 `invalid_request_error`, `` `temperature` is deprecated for this model``) — it's an "effort"-based reasoning model, not a classic sampling-temperature one. Rather than hardcoding a model-name list that would rot as Anthropic ships new snapshots, `ClaudeProvider.stream()`/`_create_message()` (`generation/providers/claude.py`) now attempt the call with `temperature` first and, on that specific error, retry once without it.
+
+## To-Do / Open Items
+
+- **Chat has no frontend surface yet** — `apps/web`'s nav is Dashboard/Research/Documents only; Chat exists only as a backend API (`/chat/stream`, `/chat/ws`). Open design discussion (deferred at the user's request): a separate "Chat" nav entry + page mirroring the backend's already-separate persistence/retrieval-grounding split (no citations/retrieved-passages panels, multi-turn history) vs. a single unified input with a mode toggle. No decision made yet.
+- **SSE error path is not fully hardened.** `_sse_byte_stream` (`runtime/generation/streaming/transports/sse.py`) only catches `TimeoutError`/`StopAsyncIteration` around `events.__anext__()` — any other exception raised deeper in a route's stream generator (e.g. a future DB/commit failure) propagates unhandled and silently kills the SSE connection with no client-visible `error` event, rather than converting cleanly like the existing `CoreEventType.ERROR` path does. Noticed while investigating Finding 1 above, though Finding 1's actual root cause was the event-type mismatch, not this gap — still worth hardening defensively.
+- **No automated check for upstream model deprecations.** Finding 2 was only caught by a live 404 during manual testing, not proactively. Worth a periodic (manual or CI) cross-check of `generation/catalog/models.py` model names against `GET /v1/models` so a provider-side retirement doesn't silently break generation again.
+
+---
+
 # Milestone 11.16 — Guardrails Platform
 
 **Status:** ✅ Complete (MVP Foundation, per `guardrails_platform_prd.md`) — ✅ Integrated into `GenerationService` and `ContextBuilderService` (per `guardrail_integration_prd.md`)
@@ -1264,11 +1284,14 @@ Now wired into the pipeline above: the Guardrails Platform (`app/ai/guardrails/`
 | Milestone 11.16 — Guardrails Platform | ✅ Complete (MVP Foundation — input/retrieval/generation/runtime guardrails, Source Trust, policies, scoring, artifacts) + ✅ Integrated into `GenerationService`/`ContextBuilderService` (runtime stage still has no live caller) |
 | Milestone 3.10 — Artifact Platform | ✅ Generation/Streaming/Conversation/Research artifacts complete and wired (`GenerationService`, `StreamingService`, `chat.py`, `ResearchService`) — 🟡 Session/Agent/Evaluation artifacts built but scaffold-only (no runtime exists yet to call them) |
 | Phase 4 — Research API Platform | ✅ Complete, per `research_api_prd.md` — ResearchMind's first live, end-to-end product surface: `POST /research`, `/research/stream`, `/research/citations`, `GET /research/{id}` |
+| Phase 4.1 — Research Frontend Integration | ✅ Complete — `apps/web`'s Research page wired to the live API (real SSE via `use-research.ts`/`lib/sse.ts`, `mock-engine.ts` deleted); 3 backend bugs found + fixed along the way (stream-completion event-type mismatch, retired Claude model, `temperature` rejected by the new model) |
 | Benchmark Platform | ✅ Foundation Complete (incl. Retrieval, Metadata Filtering, Reranking Benchmarks) |
 
 ---
 
 # Recently Completed
+
+✅ Research Frontend Integration (Phase 4.1) — `apps/web`'s Research page is wired to the live `/research`/`/research/stream` APIs for the first time, replacing the placeholder `mock-engine.ts` (deleted) with a real `use-research.ts` hook + `lib/sse.ts` SSE client, a new `citation-card.tsx` component, and matching updates across the research feature's components/types/API client. Turning this on against live infra surfaced and fixed three real backend bugs: (1) `ResearchService.stream_research()` only recognized `CoreEventType.COMPLETE` as "stream finished," missing the `StreamEventType.COMPLETED` value live provider streams actually emit — every real (non-cache-hit) research turn silently never persisted its `research_sessions` row; (2) `claude-sonnet-4`/`claude-sonnet-4-20250514` have been fully retired from the configured Anthropic account (confirmed via `GET /v1/models`) — every hardcoded reference across settings/config/catalog/prompts/token-counter updated to `claude-sonnet-5`; (3) `claude-sonnet-5` rejects the `temperature` parameter outright as an effort-based reasoning model — `ClaudeProvider` now retries once without `temperature` on that specific 400 rather than hardcoding a model-name list. See Phase 4.1 above for full detail, findings, and open to-dos (no frontend Chat surface yet; SSE error path not fully hardened; no automated model-deprecation check).
 
 ✅ Research API Platform (Phase 4, per `research_api_prd.md`) — **ResearchMind's first live, end-to-end product surface**: a user can upload documents, ask a question, and get a grounded, cited, streamable answer back. New `apps/api/app/api/v1/research.py` (`POST /research`, `/research/stream`, `/research/citations`, `GET /research/{research_id}`, all auth-required and owner-scoped) and a new `ResearchService` (`apps/api/app/ai/research/service.py`) that composes the Retrieval Platform (hybrid search + rerank), Context Platform (dedup/expand/merge/compress/cite), Generation Runtime Platform (its first real caller), Streaming Platform (for the streaming route), and best-effort Artifact persistence — adding no new retrieval/context/generation logic of its own, per the PRD's Non-Goals (no query decomposition, no research planning/multi-step loops, no agents, no LangGraph; a Research Runtime, Deep Research Runtime, and Agent Platform are named as future milestones). New `ResearchSession` Postgres table (`app/models/research.py`, `research_sessions`, migration `37117c83beb2`) is the live read path for replay; `ResearchRepository`/`research` schemas/`dependencies/research.py`+`dependencies/context.py` round out the wiring. Every request sets `runtime=RuntimeType.RESEARCH`/`artifact_runtime=ArtifactRuntime.RESEARCH` — the first live code exercising either enum value, and the first live caller of the previously scaffold-only Research Artifact writer (see Milestone 3.10). 23 new tests (`tests/unit/ai/research/`, `tests/integration/test_research_repository.py`, `tests/integration/ai/test_research_api.py`); full repo suite (1068 tests), ruff, and mypy pass clean; migration verified to round-trip
 
@@ -1384,6 +1407,10 @@ The **Research API Platform** (Phase 4, per `research_api_prd.md`) is that entry
 
 Next up: Evaluation Platform expansion (Milestone 6) and a LangGraph-based Research Runtime (Milestone 7) — query decomposition, planning, multi-step agentic loops on top of this linear foundation.
 
+## Phase 4.1 — Research Frontend Integration (✅ complete)
+
+`apps/web`'s Research page now talks to the real backend end-to-end for the first time — see Phase 4.1 above for the full write-up, the three bugs found and fixed while validating it (stream-completion event-type mismatch, a retired Claude model, and Claude Sonnet 5's dropped `temperature` parameter), and the open to-do list. The biggest open product question right now isn't a bug: **Chat has a complete backend (`/chat/stream`, `/chat/ws`) but no frontend surface at all**, and how to present Chat alongside Research in the UI (separate nav entry/page vs. a unified mode-toggle input) is an active, deliberately deferred design discussion — see the To-Do list in Phase 4.1.
+
 ---
 
 # Immediate Roadmap
@@ -1455,7 +1482,16 @@ Phase 4 — Research API Platform ✅ — per `research_api_prd.md`, ResearchMin
 
 ↓
 
-Chat 🟡 — basic streaming chat (SSE + WebSocket, Conversation/Message history) is live via the Streaming Platform (Milestone 2.9.10); not yet wired to Retrieval/Context (no `PromptContext.chunks`), so the now-guardrail-aware `ContextBuilderService` still isn't reachable from this path — see `guardrail_integration_prd.md`'s "Retrieval Integration" note
+Phase 4.1 — Research Frontend Integration ✅ — apps/web wired to the live Research API
+  use-research.ts hook + lib/sse.ts SSE client (replaces mock-engine.ts) ✅
+  citation-card.tsx + updated research components/types/api client ✅
+  Bugs found + fixed: stream-completion event-type mismatch, retired Claude model, temperature rejected ✅
+  Frontend Chat surface ❌ (no nav entry/page yet — design discussion deferred, see below)
+  SSE error path hardening (non-Timeout/StopAsyncIteration exceptions kill the stream silently) ⏳
+
+↓
+
+Chat 🟡 — basic streaming chat (SSE + WebSocket, Conversation/Message history) is live via the Streaming Platform (Milestone 2.9.10); not yet wired to Retrieval/Context (no `PromptContext.chunks`), so the now-guardrail-aware `ContextBuilderService` still isn't reachable from this path — see `guardrail_integration_prd.md`'s "Retrieval Integration" note. No frontend surface yet either (see Phase 4.1 above) — deferred decision on separate nav/page vs. unified mode-toggle with Research
 
 ↓
 

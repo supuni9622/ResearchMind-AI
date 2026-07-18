@@ -7,6 +7,7 @@ import structlog
 from anthropic import (
     AnthropicError,
     AsyncAnthropic,
+    BadRequestError,
 )
 from anthropic.types import (
     MessageParam,
@@ -40,6 +41,18 @@ from app.ai.runtime.generation.providers.helpers.usage import (
 from app.core.settings import settings
 
 logger = structlog.get_logger()
+
+
+def _is_temperature_unsupported(exc: BadRequestError) -> bool:
+    """
+    Newer "effort"-based Claude models (e.g. claude-sonnet-5) reject the
+    `temperature` sampling parameter outright rather than accepting and
+    ignoring it, so this can't be predicted from a static model-name list --
+    detect it from the API's own error instead and retry once without it.
+    """
+
+    message = str(exc)
+    return "temperature" in message and "deprecated" in message
 
 
 class ClaudeProvider(
@@ -157,18 +170,27 @@ class ClaudeProvider(
             request,
         )
 
+        stream_kwargs: dict[str, Any] = {
+            "model": self.config.model_name,
+            "system": (system_prompt or ""),
+            "messages": cast(
+                list[MessageParam],
+                messages,
+            ),
+            "max_tokens": (request.max_tokens or self.config.max_tokens),
+            "temperature": (request.temperature or self.config.temperature),
+            "stream": True,
+        }
+
         try:
-            stream = await self._client.messages.create(
-                model=self.config.model_name,
-                system=(system_prompt or ""),
-                messages=cast(
-                    list[MessageParam],
-                    messages,
-                ),
-                max_tokens=(request.max_tokens or self.config.max_tokens),
-                temperature=(request.temperature or self.config.temperature),
-                stream=True,
-            )
+            try:
+                stream = await self._client.messages.create(**stream_kwargs)
+            except BadRequestError as exc:
+                if not _is_temperature_unsupported(exc):
+                    raise
+
+                stream_kwargs.pop("temperature", None)
+                stream = await self._client.messages.create(**stream_kwargs)
 
             yield StreamChunk(
                 event=StreamEventType.START,
@@ -300,9 +322,19 @@ class ClaudeProvider(
                 for tool in request.tools
             ]
 
-        return await self._client.messages.create(
-            **kwargs,
-        )
+        try:
+            return await self._client.messages.create(
+                **kwargs,
+            )
+        except BadRequestError as exc:
+            if not _is_temperature_unsupported(exc):
+                raise
+
+            kwargs.pop("temperature", None)
+
+            return await self._client.messages.create(
+                **kwargs,
+            )
 
     ###########################################################################
     # Helpers

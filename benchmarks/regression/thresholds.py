@@ -44,7 +44,9 @@ class MetricThreshold:
 
 _QUALITY_DROP = MetricThreshold(ThresholdDirection.MIN_DROP, 0.05)
 _GENERATION_QUALITY_DROP = MetricThreshold(ThresholdDirection.MIN_DROP, 0.03)
-_LATENCY_INCREASE = MetricThreshold(ThresholdDirection.MAX_RELATIVE_INCREASE, 0.25)
+_UNBOUNDED_INCREASE = MetricThreshold(ThresholdDirection.MAX_RELATIVE_INCREASE, 0.25)
+"""Shared 25% relative-increase threshold for any unbounded, lower-is-better
+metric (latency, cost)."""
 
 DEFAULT_METRIC_THRESHOLDS: dict[str, MetricThreshold] = {
     # Retrieval (PRD §14 / ADR-020).
@@ -64,7 +66,11 @@ DEFAULT_METRIC_THRESHOLDS: dict[str, MetricThreshold] = {
     "citation_accuracy": _GENERATION_QUALITY_DROP,
     "hallucination_rate": MetricThreshold(ThresholdDirection.MAX_INCREASE, 0.03),
     # Latency, any benchmark.
-    "avg_latency_ms": _LATENCY_INCREASE,
-    "p95_latency_ms": _LATENCY_INCREASE,
-    "p99_latency_ms": _LATENCY_INCREASE,
+    "avg_latency_ms": _UNBOUNDED_INCREASE,
+    "p95_latency_ms": _UNBOUNDED_INCREASE,
+    "p99_latency_ms": _UNBOUNDED_INCREASE,
+    # Cost (Generation).
+    "avg_cost_usd": _UNBOUNDED_INCREASE,
+    "cost_per_query": _UNBOUNDED_INCREASE,
+    "cost_per_1k_queries": _UNBOUNDED_INCREASE,
 }

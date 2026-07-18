@@ -130,7 +130,7 @@ class GenerationBenchmark(Benchmark):
         """
         Run every benchmark query through a candidate provider and
         aggregate faithfulness, groundedness, relevance, completeness,
-        citation accuracy, and latency.
+        citation accuracy, latency, and cost.
         """
 
         faithfulness_scores: list[float] = []
@@ -139,6 +139,7 @@ class GenerationBenchmark(Benchmark):
         completeness_scores: list[float] = []
         citation_scores: list[float] = []
         latencies_ms: list[float] = []
+        costs_usd: list[float] = []
         error: str | None = None
 
         try:
@@ -196,6 +197,7 @@ class GenerationBenchmark(Benchmark):
                     ),
                 )
                 latencies_ms.append(result.statistics.latency_ms)
+                costs_usd.append(result.statistics.estimated_cost_usd)
         except Exception as exc:  # noqa: BLE001
             # Generation candidates call external, rate-limited provider
             # APIs. One candidate failing should not prevent the report
@@ -203,6 +205,15 @@ class GenerationBenchmark(Benchmark):
             error = str(exc)
 
         queries_evaluated = len(latencies_ms)
+
+        avg_cost_usd = (
+            round(
+                sum(costs_usd) / len(costs_usd),
+                6,
+            )
+            if costs_usd
+            else 0.0
+        )
 
         metrics: dict[str, float | int | str | bool] = {
             "queries_evaluated": queries_evaluated,
@@ -214,6 +225,9 @@ class GenerationBenchmark(Benchmark):
             "hallucination_rate": round(1 - average(faithfulness_scores), 4),
             "avg_latency_ms": round(average(latencies_ms), 2),
             "p95_latency_ms": round(percentile(latencies_ms, 0.95), 2),
+            "avg_cost_usd": avg_cost_usd,
+            "cost_per_query": avg_cost_usd,
+            "cost_per_1k_queries": round(avg_cost_usd * 1000, 4),
         }
 
         notes: dict[str, object] = {

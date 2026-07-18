@@ -1,6 +1,6 @@
 {
   "benchmark_name": "Generation",
-  "generated_at": "2026-07-18T11:05:03.759675Z",
+  "generated_at": "2026-07-18T11:54:16.525986Z",
   "dataset": {
     "name": "research-papers",
     "document_count": 13
@@ -11,14 +11,17 @@
       "version": null,
       "metrics": {
         "queries_evaluated": 13,
-        "faithfulness": 0.8544,
-        "groundedness": 0.6295,
-        "relevance": 0.7175,
-        "completeness": 0.7191,
+        "faithfulness": 0.8416,
+        "groundedness": 0.6301,
+        "relevance": 0.7121,
+        "completeness": 0.7159,
         "citation_accuracy": 1.0,
-        "hallucination_rate": 0.1456,
-        "avg_latency_ms": 1334.04,
-        "p95_latency_ms": 4316.84
+        "hallucination_rate": 0.1584,
+        "avg_latency_ms": 2400.32,
+        "p95_latency_ms": 21311.73,
+        "avg_cost_usd": 0.000159,
+        "cost_per_query": 0.000159,
+        "cost_per_1k_queries": 0.159
       },
       "notes": {
         "queries_total": 13
@@ -30,13 +33,16 @@
       "metrics": {
         "queries_evaluated": 13,
         "faithfulness": 0.9615,
-        "groundedness": 0.6897,
-        "relevance": 0.64,
-        "completeness": 0.7736,
+        "groundedness": 0.6957,
+        "relevance": 0.6801,
+        "completeness": 0.7914,
         "citation_accuracy": 1.0,
         "hallucination_rate": 0.0385,
-        "avg_latency_ms": 2974.43,
-        "p95_latency_ms": 8977.48
+        "avg_latency_ms": 2689.41,
+        "p95_latency_ms": 5032.63,
+        "avg_cost_usd": 0.000247,
+        "cost_per_query": 0.000247,
+        "cost_per_1k_queries": 0.247
       },
       "notes": {
         "queries_total": 13
@@ -47,14 +53,17 @@
       "version": null,
       "metrics": {
         "queries_evaluated": 13,
-        "faithfulness": 0.8413,
-        "groundedness": 0.6321,
-        "relevance": 0.6974,
-        "completeness": 0.8492,
+        "faithfulness": 0.8487,
+        "groundedness": 0.5873,
+        "relevance": 0.7155,
+        "completeness": 0.8469,
         "citation_accuracy": 1.0,
-        "hallucination_rate": 0.1587,
-        "avg_latency_ms": 3816.78,
-        "p95_latency_ms": 7315.56
+        "hallucination_rate": 0.1513,
+        "avg_latency_ms": 3905.7,
+        "p95_latency_ms": 6645.18,
+        "avg_cost_usd": 0.003759,
+        "cost_per_query": 0.003759,
+        "cost_per_1k_queries": 3.759
       },
       "notes": {
         "queries_total": 13
@@ -72,11 +81,14 @@
         "citation_accuracy": 0.0,
         "hallucination_rate": 1.0,
         "avg_latency_ms": 0.0,
-        "p95_latency_ms": 0.0
+        "p95_latency_ms": 0.0,
+        "avg_cost_usd": 0.0,
+        "cost_per_query": 0.0,
+        "cost_per_1k_queries": 0.0
       },
       "notes": {
         "queries_total": 13,
-        "error": "429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. \\n* Quota exceeded for metric: generativelanguage.googleapis.com/generate_content_free_tier_requests, limit: 0, model: gemini-2.5-pro\\n* Quota exceeded for metric: generativelanguage.googleapis.com/generate_content_free_tier_requests, limit: 0, model: gemini-2.5-pro\\n* Quota exceeded for metric: generativelanguage.googleapis.com/generate_content_free_tier_input_token_count, limit: 0, model: gemini-2.5-pro\\n* Quota exceeded for metric: generativelanguage.googleapis.com/generate_content_free_tier_input_token_count, limit: 0, model: gemini-2.5-pro\\nPlease retry in 59.204928191s.', 'status': 'RESOURCE_EXHAUSTED', 'details': [{'@type': 'type.googleapis.com/google.rpc.Help', 'links': [{'description': 'Learn more about Gemini API quotas', 'url': 'https://ai.google.dev/gemini-api/docs/rate-limits'}]}, {'@type': 'type.googleapis.com/google.rpc.QuotaFailure', 'violations': [{'quotaMetric': 'generativelanguage.googleapis.com/generate_content_free_tier_requests', 'quotaId': 'GenerateRequestsPerDayPerProjectPerModel-FreeTier', 'quotaDimensions': {'model': 'gemini-2.5-pro', 'location': 'global'}}, {'quotaMetric': 'generativelanguage.googleapis.com/generate_content_free_tier_requests', 'quotaId': 'GenerateRequestsPerMinutePerProjectPerModel-FreeTier', 'quotaDimensions': {'model': 'gemini-2.5-pro', 'location': 'global'}}, {'quotaMetric': 'generativelanguage.googleapis.com/generate_content_free_tier_input_token_count', 'quotaId': 'GenerateContentInputTokensPerModelPerMinute-FreeTier', 'quotaDimensions': {'location': 'global', 'model': 'gemini-2.5-pro'}}, {'quotaMetric': 'generativelanguage.googleapis.com/generate_content_free_tier_input_token_count', 'quotaId': 'GenerateContentInputTokensPerModelPerDay-FreeTier', 'quotaDimensions': {'location': 'global', 'model': 'gemini-2.5-pro'}}]}, {'@type': 'type.googleapis.com/google.rpc.RetryInfo', 'retryDelay': '59s'}]}}"
+        "error": "429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. \\n* Quota exceeded for metric: generativelanguage.googleapis.com/generate_content_free_tier_input_token_count, limit: 0, model: gemini-2.5-pro\\n* Quota exceeded for metric: generativelanguage.googleapis.com/generate_content_free_tier_requests, limit: 0, model: gemini-2.5-pro\\n* Quota exceeded for metric: generativelanguage.googleapis.com/generate_content_free_tier_requests, limit: 0, model: gemini-2.5-pro\\n* Quota exceeded for metric: generativelanguage.googleapis.com/generate_content_free_tier_input_token_count, limit: 0, model: gemini-2.5-pro\\nPlease retry in 46.350913365s.', 'status': 'RESOURCE_EXHAUSTED', 'details': [{'@type': 'type.googleapis.com/google.rpc.Help', 'links': [{'description': 'Learn more about Gemini API quotas', 'url': 'https://ai.google.dev/gemini-api/docs/rate-limits'}]}, {'@type': 'type.googleapis.com/google.rpc.QuotaFailure', 'violations': [{'quotaMetric': 'generativelanguage.googleapis.com/generate_content_free_tier_input_token_count', 'quotaId': 'GenerateContentInputTokensPerModelPerMinute-FreeTier', 'quotaDimensions': {'location': 'global', 'model': 'gemini-2.5-pro'}}, {'quotaMetric': 'generativelanguage.googleapis.com/generate_content_free_tier_requests', 'quotaId': 'GenerateRequestsPerMinutePerProjectPerModel-FreeTier', 'quotaDimensions': {'location': 'global', 'model': 'gemini-2.5-pro'}}, {'quotaMetric': 'generativelanguage.googleapis.com/generate_content_free_tier_requests', 'quotaId': 'GenerateRequestsPerDayPerProjectPerModel-FreeTier', 'quotaDimensions': {'location': 'global', 'model': 'gemini-2.5-pro'}}, {'quotaMetric': 'generativelanguage.googleapis.com/generate_content_free_tier_input_token_count', 'quotaId': 'GenerateContentInputTokensPerModelPerDay-FreeTier', 'quotaDimensions': {'location': 'global', 'model': 'gemini-2.5-pro'}}]}, {'@type': 'type.googleapis.com/google.rpc.RetryInfo', 'retryDelay': '46s'}]}}"
       }
     },
     {
@@ -91,7 +103,10 @@
         "citation_accuracy": 0.0,
         "hallucination_rate": 1.0,
         "avg_latency_ms": 0.0,
-        "p95_latency_ms": 0.0
+        "p95_latency_ms": 0.0,
+        "avg_cost_usd": 0.0,
+        "cost_per_query": 0.0,
+        "cost_per_1k_queries": 0.0
       },
       "notes": {
         "queries_total": 13,

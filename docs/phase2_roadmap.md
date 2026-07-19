@@ -476,12 +476,18 @@ answer back. New routes: `POST /research`, `POST /research/stream` (SSE),
 Retrieval, Context, Generation Runtime, Streaming, and Artifact Platforms.
 New Postgres `research_sessions` table (model + repository + Alembic
 migration). First real exercise of `RuntimeType.RESEARCH` and
-`ArtifactRuntime.RESEARCH` (previously reserved-but-unused). Deliberately
-linear/simple per its own PRD's Non-Goals: no query decomposition, no
-research planning/multi-step loops, no agents, no LangGraph — a Research
-Runtime, Deep Research Runtime, Agent Platform, and LangGraph all remain
-future roadmap items. 23 new tests, full suite passing (1068 tests),
-ruff/mypy clean.
+`ArtifactRuntime.RESEARCH` (previously reserved-but-unused). A later
+follow-up added server-backed `research_conversations` and a
+`conversation_id` on `research_sessions`, so Research history is now a
+conversation thread containing many research turns rather than a sidebar
+row per isolated question. Prior turns are folded into the next prompt,
+and the Memory Platform's SESSION memories are scoped to the research
+conversation id. Deliberately linear/simple per its own PRD's Non-Goals:
+no query decomposition, no research planning/multi-step loops, no agents,
+no LangGraph - a Research Runtime, Deep Research Runtime, Agent Platform,
+and LangGraph all remain future roadmap items. 23 new tests shipped with
+the original API milestone; route-level tests for the newer
+`/research/conversations` endpoints should still be added.
 
 Status: COMPLETE
 

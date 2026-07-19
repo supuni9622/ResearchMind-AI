@@ -8,6 +8,8 @@
 **Scope:** `apps/api/app/ai/` (Knowledge Platform + Generation Platform + Research API Platform + Observability Platform), plus the app-wide infrastructure that supports it (observability, error handling, testing, API wiring).
 **Purpose:** Establish an honest, evidence-based baseline of where the platform stands against current AI-engineering practice, and enumerate what's missing so future work can be planned deliberately. This report does not recommend rewriting anything already built — the gaps below are framed as **additions**, not corrections, per the constraint that existing implementations stay as-is.
 
+**Post-audit addendum (2026-07-19):** the Research multi-turn gap described in this audit was later closed at the foundation/product-surface level. Current code has a separate `research_conversations` table, `ResearchSession.conversation_id`, `/research/conversations` list/replay routes, frontend conversation history via `use-research.ts`, prompt transcript folding, and Memory Platform SESSION recall/extraction scoped to the research conversation id. The remaining Research Runtime gap is higher-level: query rewriting/condensation, decomposition/planning, resumable LangGraph checkpoints, human approval interrupts, report versions, and native provider message arrays are still future work.
+
 ---
 
 ## 0. Re-Audit Delta (2026-07-18, this revision)

@@ -1069,7 +1069,7 @@ Every `GenerationRequest` this service builds sets `runtime=RuntimeType.RESEARCH
 
 **Status:** ✅ Complete — `apps/web`'s Research page is now wired to the live `/research`/`/research/stream` APIs above instead of a mock
 
-`apps/web/src/features/research/mock-engine.ts` (the placeholder that previously faked streaming/citations/sources for UI development) is deleted. In its place: a new `use-research.ts` hook driving per-turn state (`searching` → `generating` → `done`/`error`), a new `lib/sse.ts` client for consuming the backend's `text/event-stream` responses via `fetch` + `ReadableStream` (not a bare `EventSource`, matching `chat.py`'s own documented reasoning — `EventSource` can't attach a custom bearer `Authorization` header), and a new `citation-card.tsx` component. `research-block`/`research-composer`/`research-sidebar`/`source-card`/`source-panel`/`streaming-status`/`types.ts`/`lib/api.ts` all updated to match the real API contract (citations, sources, `research_id`, replay-by-id) instead of mocked shapes. Research history persists client-side in `localStorage`, keyed by `research_id`.
+`apps/web/src/features/research/mock-engine.ts` (the placeholder that previously faked streaming/citations/sources for UI development) is deleted. In its place: a new `use-research.ts` hook driving per-turn state (`searching` → `generating` → `done`/`error`), a new `lib/sse.ts` client for consuming the backend's `text/event-stream` responses via `fetch` + `ReadableStream` (not a bare `EventSource`, matching `chat.py`'s own documented reasoning — `EventSource` can't attach a custom bearer `Authorization` header), and a new `citation-card.tsx` component. `research-block`/`research-composer`/`research-sidebar`/`source-card`/`source-panel`/`streaming-status`/`types.ts`/`lib/api.ts` all updated to match the real API contract (citations, sources, `research_id`, replay-by-id) instead of mocked shapes. Initial history was client-side by `research_id`; a later follow-up replaced that with server-backed research conversation history via `/research/conversations`, while keeping `GET /research/{id}` as the single-turn replay path.
 
 ## Findings (bugs discovered turning this on against live infra, all fixed)
 
@@ -1676,7 +1676,7 @@ Evaluation Platform Expansion — NDCG ✅, Groundedness ✅, Faithfulness ✅, 
 ↓
 
 Research Runtime (Query Decomposition, Planner, Agents, Reviewer, Summarizer, LangGraph) — builds on top of the now-live, deliberately linear Research API Platform above
-  Multi-turn conversation memory for Research ❌ — confirmed 2026-07-18: every /research call is fully standalone (no history, no query rewriting, research_id never reloaded); Chat has persisted history but Research has none at all, see AI_ENGINEERING_AUDIT.md
+  Multi-turn conversation memory for Research ✅ foundation landed after the 2026-07-18 audit gap: `research_conversations` groups turns, prior turns are folded into prompts, and SESSION memory is scoped to the conversation id. Remaining work: query rewriting/condensation, planner/decomposition, resumable LangGraph state, human approval, and report/version artifacts.
 
 ↓
 

@@ -1,6 +1,6 @@
 import type { Document } from '@/lib/api';
 import { Badge } from '@/components/ui/badge';
-import { FileTextIcon } from '@/components/ui/icons';
+import { FileTextIcon, AlertIcon } from '@/components/ui/icons';
 import { getDocumentMeta } from '@/features/documents/mock-meta';
 
 function formatBytes(n: number): string {
@@ -45,9 +45,17 @@ export function DocumentRow({ doc, onClick }: { doc: Document; onClick: () => vo
         {meta.chunkCount} chunks
       </span>
 
-      <Badge tone={STATUS_TONE[doc.processing_status]} className="w-24 text-center flex-shrink-0">
-        {doc.processing_status}
-      </Badge>
+      <span
+        className="w-24 flex-shrink-0 flex items-center justify-center gap-1"
+        title={doc.processing_status === 'failed' ? doc.processing_error ?? undefined : undefined}
+      >
+        {doc.processing_status === 'failed' && doc.processing_error && (
+          <AlertIcon size={11} className="text-red-400 flex-shrink-0" />
+        )}
+        <Badge tone={STATUS_TONE[doc.processing_status]} className="text-center">
+          {doc.processing_status}
+        </Badge>
+      </span>
 
       <span className="font-mono text-stone-600 text-[11px] flex-shrink-0 w-28 text-right hidden sm:inline">
         {doc.created_at ? formatDate(doc.created_at) : '—'}

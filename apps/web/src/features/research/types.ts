@@ -1,4 +1,5 @@
 import type { Citation, GenerationProvider, ResearchSource } from '@/lib/api';
+export { PROVIDER_OPTIONS } from '@/lib/api';
 
 export type ResearchStage = 'searching' | 'generating' | 'done' | 'error';
 
@@ -24,11 +25,3 @@ export interface ResearchHistoryEntry {
   query: string;
   createdAt: string;
 }
-
-export const PROVIDER_OPTIONS: { value: GenerationProvider | 'auto'; label: string }[] = [
-  { value: 'auto', label: 'Auto' },
-  { value: 'claude', label: 'Claude' },
-  { value: 'openai', label: 'OpenAI' },
-  { value: 'gemini', label: 'Gemini' },
-  { value: 'groq', label: 'Groq' },
-];

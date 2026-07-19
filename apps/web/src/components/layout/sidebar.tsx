@@ -18,6 +18,20 @@ const NAV_ITEMS = [
     ),
   },
   {
+    href: '/chat',
+    label: 'Chat',
+    icon: (
+      <svg width="15" height="15" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+        <path
+          d="M1.5 3a1.5 1.5 0 0 1 1.5-1.5h8A1.5 1.5 0 0 1 12.5 3v5a1.5 1.5 0 0 1-1.5 1.5H5l-3 2.5V3z"
+          stroke="currentColor"
+          strokeWidth="1.2"
+          strokeLinejoin="round"
+        />
+      </svg>
+    ),
+  },
+  {
     href: '/research',
     label: 'Research',
     icon: (

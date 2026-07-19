@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import time
 from collections.abc import AsyncGenerator, AsyncIterator
+from typing import Any, Literal
 
 import structlog
 from app.ai.runtime.events.enums import (
@@ -18,6 +20,8 @@ from app.ai.runtime.generation.streaming.serializers.sse import (
 from fastapi.responses import StreamingResponse
 
 logger = structlog.get_logger()
+
+_QueueItem = tuple[Literal["event", "error", "done"], Any]
 
 #
 # Production considerations (see ADR-028 / streaming-platform architecture
@@ -39,11 +43,49 @@ SSE_HEADERS = {
 }
 
 
+async def _pump(
+    events: AsyncGenerator[StreamEvent, None],
+    queue: asyncio.Queue[_QueueItem],
+) -> None:
+    """
+    Drives `events` to completion from a single, stable Task/context.
+
+    This matters beyond convenience: the LangSmith tracer wrapping the
+    underlying generator does `current_run_id.set(...)` once and
+    `current_run_id.reset(token)` once, potentially many `yield`s apart.
+    `contextvars.Token.reset()` requires the exact `Context` it was
+    created in -- if each `__anext__()` call were awaited from a
+    *different* Task (each with its own copied context), the reset
+    would raise `ValueError: ... was created in a different Context`.
+    Pumping the whole generator from one Task keeps every `set()`/
+    `reset()` pair inside the same context throughout.
+    """
+
+    try:
+        async for event in events:
+            await queue.put(("event", event))
+    except Exception as exc:
+        await queue.put(("error", exc))
+        return
+    finally:
+        #
+        # Closed here (same Task/context as any `set()` above) rather
+        # than by the consumer loop, for the same contextvars reason --
+        # and so a still-open trace is properly finalized even when
+        # the consumer stops early (client disconnect, duration ceiling).
+        #
+        await events.aclose()
+
+    await queue.put(("done", None))
+
+
 async def _sse_byte_stream(
     events: AsyncGenerator[StreamEvent, None],
 ) -> AsyncIterator[bytes]:
 
     started = time.monotonic()
+    queue: asyncio.Queue[_QueueItem] = asyncio.Queue(maxsize=64)
+    pump_task = asyncio.ensure_future(_pump(events, queue))
 
     try:
         while True:
@@ -64,19 +106,31 @@ async def _sse_byte_stream(
                 return
 
             try:
-                event = await asyncio.wait_for(
-                    events.__anext__(),
+                kind, payload = await asyncio.wait_for(
+                    queue.get(),
                     timeout=HEARTBEAT_INTERVAL_SECONDS,
                 )
             except TimeoutError:
+                #
+                # Nothing new yet -- ping so the connection isn't dropped
+                # as idle. This only ever cancels the lightweight
+                # `queue.get()`, never the in-flight generation/
+                # persistence work still running inside `_pump`.
+                #
                 yield b": ping\n\n"
                 continue
-            except StopAsyncIteration:
+
+            if kind == "done":
                 return
 
-            yield serialize_sse(event).encode("utf-8")
+            if kind == "error":
+                raise payload
+
+            yield serialize_sse(payload).encode("utf-8")
     finally:
-        await events.aclose()
+        pump_task.cancel()
+        with contextlib.suppress(BaseException):
+            await pump_task
 
 
 def sse_stream_response(

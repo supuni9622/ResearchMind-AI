@@ -50,6 +50,7 @@ export interface Document {
   processing_status: DocumentProcessingStatus;
   storage_key: string;
   created_at: string;
+  processing_error?: string | null;
 }
 
 // Matches `app/ai/runtime/generation/enums.py::GenerationProvider`.
@@ -95,8 +96,10 @@ export interface ResearchSessionResponse {
   created_at: string;
 }
 
-// Matches `app/ai/runtime/events/models.py::StreamEvent`, as sent over SSE.
-export interface ResearchStreamEvent {
+// Matches `app/ai/runtime/events/models.py::StreamEvent`, as sent over SSE
+// by both the Research and Chat runtimes (a shared canonical shape — see
+// ADR-028's "Layer 2 — Canonical Stream Events").
+export interface RuntimeStreamEvent {
   event_id: string;
   session_id: string | null;
   request_id: string | null;
@@ -107,6 +110,17 @@ export interface ResearchStreamEvent {
   content: string | null;
   metadata: Record<string, unknown>;
 }
+
+// Alias kept for call sites that specifically mean "a research stream event".
+export type ResearchStreamEvent = RuntimeStreamEvent;
+
+export const PROVIDER_OPTIONS: { value: GenerationProvider | 'auto'; label: string }[] = [
+  { value: 'auto', label: 'Auto' },
+  { value: 'claude', label: 'Claude' },
+  { value: 'openai', label: 'OpenAI' },
+  { value: 'gemini', label: 'Gemini' },
+  { value: 'groq', label: 'Groq' },
+];
 
 export interface ResearchAskOptions {
   topK?: number;
@@ -148,9 +162,54 @@ async function* streamResearch(
   yield* parseSSEStream<ResearchStreamEvent>(res.body);
 }
 
+export interface ChatStreamOptions {
+  conversationId?: string;
+  provider?: GenerationProvider;
+}
+
+// Matches `app/api/v1/chat.py`'s `POST /chat/stream` (SSE) endpoint. There is
+// no non-streaming `POST /chat` or `GET /chat/{id}` — the Chat runtime is
+// stream-only and has no server-side history read path yet, unlike Research
+// (see `features/chat/use-chat.ts` for how the frontend works around that).
+async function* streamChat(
+  userPrompt: string,
+  options: ChatStreamOptions = {}
+): AsyncGenerator<SSEEvent<RuntimeStreamEvent>> {
+  const token = getStoredToken();
+
+  let res: Response;
+  try {
+    res = await fetch(`${BASE}/api/v1/chat/stream`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'text/event-stream',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify({
+        user_prompt: userPrompt,
+        conversation_id: options.conversationId ?? null,
+        provider: options.provider ?? null,
+      }),
+    });
+  } catch {
+    throw new Error('Could not reach the server. Is the backend running?');
+  }
+
+  if (!res.ok || !res.body) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(extractErrorMessage(body, `Chat stream failed (${res.status})`));
+  }
+
+  yield* parseSSEStream<RuntimeStreamEvent>(res.body);
+}
+
 export const api = {
   auth: {
     me: () => request<UserProfile>('/api/v1/auth/me'),
+  },
+  chat: {
+    stream: streamChat,
   },
   research: {
     ask: (query: string, options: ResearchAskOptions = {}) =>

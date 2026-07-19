@@ -2,7 +2,7 @@ import type { Document } from '@/lib/api';
 import { Drawer } from '@/components/ui/drawer';
 import { Badge } from '@/components/ui/badge';
 import { SectionLabel } from '@/components/ui/page-header';
-import { TagIcon, LayersIcon, DatabaseIcon, FileTextIcon, MessageIcon } from '@/components/ui/icons';
+import { TagIcon, LayersIcon, DatabaseIcon, FileTextIcon, MessageIcon, AlertIcon } from '@/components/ui/icons';
 import { getDocumentMeta, getDocKind, DOC_KIND_LABEL } from '@/features/documents/mock-meta';
 import { RECENT_SESSIONS } from '@/features/dashboard/mock-data';
 
@@ -45,6 +45,18 @@ export function DocumentDetailsDrawer({
           <div>
             <Badge tone={STATUS_TONE[doc.processing_status]}>{doc.processing_status}</Badge>
           </div>
+
+          {doc.processing_status === 'failed' && doc.processing_error && (
+            <div>
+              <SectionLabel>Error</SectionLabel>
+              <div className="mt-3 flex items-start gap-2.5 border border-red-900/50 bg-red-900/10 rounded-lg p-3">
+                <span className="text-red-400 mt-0.5"><AlertIcon size={13} /></span>
+                <p className="text-red-300 text-[12.5px] leading-relaxed break-words">
+                  {doc.processing_error}
+                </p>
+              </div>
+            </div>
+          )}
 
           <div>
             <SectionLabel>Metadata</SectionLabel>

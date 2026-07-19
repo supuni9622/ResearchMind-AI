@@ -20,7 +20,7 @@ export function RecentQuestions() {
         {RECENT_QUESTIONS.map((q) => (
           <Link
             key={q.id}
-            href="/research"
+            href="/chat"
             className="block px-5 py-3.5 hover:bg-ink-800/40 transition-colors duration-100"
           >
             <p className="text-stone-300 text-[13px] leading-snug mb-1.5 line-clamp-2">

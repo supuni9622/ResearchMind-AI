@@ -212,6 +212,12 @@ async def _build_request(
         user_prompt=_format_transcript(history, payload.user_prompt),
         stream=True,
         conversation_id=conversation_id,
+        # Mirrors ResearchService: populates StreamEvent.session_id on every
+        # emitted event so a client that started a new conversation (no
+        # `payload.conversation_id`) can learn the server-assigned id from
+        # the stream itself, the same way `use-research.ts` learns
+        # `research_id` from the first event.
+        session_id=conversation_id,
         routing_strategy=payload.routing_strategy,
         artifact_runtime=ArtifactRuntime.CHAT,
     )

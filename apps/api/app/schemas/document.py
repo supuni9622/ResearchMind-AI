@@ -55,3 +55,5 @@ class DocumentResponse(BaseModel):
     storage_key: str
 
     created_at: datetime
+
+    processing_error: str | None = None

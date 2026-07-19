@@ -110,8 +110,20 @@ def build_memory_service(
     return MemoryService(
         session_memory=create_session_memory_service(),
         user_memory=UserMemoryService(store),
-        semantic_memory=SemanticMemoryService(store, vector_index, embeddings, metrics=metrics),
-        research_memory=ResearchMemoryService(store, vector_index, embeddings, metrics=metrics),
+        semantic_memory=SemanticMemoryService(
+            store,
+            vector_index,
+            embeddings,
+            metrics=metrics,
+            score_threshold=settings.memory_search_score_threshold,
+        ),
+        research_memory=ResearchMemoryService(
+            store,
+            vector_index,
+            embeddings,
+            metrics=metrics,
+            score_threshold=settings.memory_search_score_threshold,
+        ),
         artifact_writer=create_memory_artifact_writer(),
         metrics=metrics,
         importance_threshold=settings.memory_importance_threshold,

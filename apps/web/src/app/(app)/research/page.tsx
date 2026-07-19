@@ -10,7 +10,8 @@ import { SourcePanel } from '@/features/research/components/source-panel';
 import { EmptyWorkspace } from '@/features/research/components/empty-workspace';
 
 export default function ResearchPage() {
-  const { turns, history, ask, loadFromHistory, clearWorkspace } = useResearch();
+  const { turns, conversations, activeConversationId, ask, selectConversation, loadFromHistory, newConversation } =
+    useResearch();
   const [focusedTurnId, setFocusedTurnId] = useState<string | null>(null);
   const [input, setInput] = useState('');
   const [provider, setProvider] = useState<GenerationProvider | 'auto'>('auto');
@@ -47,18 +48,20 @@ export default function ResearchPage() {
     setFocusedTurnId(localId);
   }, [input, loading, ask, provider]);
 
-  function handleSelectHistory(researchId: string) {
-    loadFromHistory(researchId).then(setFocusedTurnId);
+  function handleSelectConversation(conversationId: string) {
+    selectConversation(conversationId).then((mapped) => {
+      setFocusedTurnId(mapped[mapped.length - 1]?.localId ?? null);
+    });
   }
 
   return (
     <div className="flex h-screen">
       <ResearchSidebar
-        history={history}
-        activeResearchId={focusedTurn?.researchId ?? null}
-        onSelect={handleSelectHistory}
-        onClear={() => {
-          clearWorkspace();
+        conversations={conversations}
+        activeConversationId={activeConversationId}
+        onSelect={handleSelectConversation}
+        onNew={() => {
+          newConversation();
           setFocusedTurnId(null);
         }}
       />

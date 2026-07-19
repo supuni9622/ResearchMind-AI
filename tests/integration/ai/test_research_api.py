@@ -53,6 +53,7 @@ def _outcome(*, query: str = "How does RAG work?") -> ResearchOutcome:
 
     return ResearchOutcome(
         research_id=uuid.uuid4(),
+        conversation_id=uuid.uuid4(),
         query=query,
         answer="RAG retrieves relevant context before generating an answer.",
         citations=[

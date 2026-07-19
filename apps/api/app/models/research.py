@@ -2,12 +2,46 @@ from __future__ import annotations
 
 import uuid
 
-from sqlalchemy import ForeignKey, Text
+from sqlalchemy import ForeignKey, String, Text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
 from app.db.mixins import TimestampMixin
+
+
+class ResearchConversation(TimestampMixin, Base):
+    """
+    A continuing research thread, owned by a ResearchMind user -- groups
+    multiple `ResearchSession` turns together (mirrors `Conversation` in
+    `app/models/conversation.py`, Chat's equivalent). Holds no turns
+    itself -- see `ResearchSession.conversation_id`.
+
+    Nullable on `ResearchSession` rather than required: turns created
+    before this model existed, and any future one-off `/research` call
+    that omits `conversation_id`, remain valid single-turn rows with no
+    thread.
+    """
+
+    __tablename__ = "research_conversations"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4,
+    )
+
+    owner_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+
+    title: Mapped[str | None] = mapped_column(
+        String(255),
+        nullable=True,
+    )
 
 
 class ResearchSession(TimestampMixin, Base):
@@ -33,6 +67,13 @@ class ResearchSession(TimestampMixin, Base):
         UUID(as_uuid=True),
         ForeignKey("users.id", ondelete="CASCADE"),
         nullable=False,
+        index=True,
+    )
+
+    conversation_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("research_conversations.id", ondelete="CASCADE"),
+        nullable=True,
         index=True,
     )
 

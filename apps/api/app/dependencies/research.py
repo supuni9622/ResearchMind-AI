@@ -28,6 +28,7 @@ from app.dependencies.generation import get_generation_runtime, get_streaming_se
 from app.dependencies.memory import get_memory_extraction_service, get_memory_service
 from app.dependencies.retrieval import get_retrieval_service
 from app.repositories.research import ResearchRepository
+from app.services.research_conversation import ResearchConversationService
 
 
 @lru_cache
@@ -64,6 +65,19 @@ def get_research_repository(
     """
 
     return ResearchRepository(session)
+
+
+def get_research_conversation_service(
+    session: AsyncSession = Depends(get_db),
+) -> ResearchConversationService:
+    """
+    Return a request-scoped ResearchConversationService bound to this
+    request's database session -- mirrors `get_conversation_service`
+    (Chat's equivalent), for the `/research/conversations` routes which
+    don't need the rest of `ResearchService`'s collaborators.
+    """
+
+    return ResearchConversationService(session)
 
 
 def get_research_service(

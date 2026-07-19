@@ -47,6 +47,16 @@ def _make_service(
     session = session or AsyncMock()
     session.add = MagicMock()
 
+    # `ResearchConversationService.load_history()` (conversation
+    # threading) queries `session.execute(...).scalars().all()` for
+    # prior turns -- without this, the bare `AsyncMock` session makes
+    # `.scalars()` resolve to a coroutine (an `AsyncMock` child), not a
+    # chainable result. Tests here don't exercise multi-turn history, so
+    # "no prior turns" is the right default.
+    execute_result = MagicMock()
+    execute_result.scalars.return_value.all.return_value = []
+    session.execute = AsyncMock(return_value=execute_result)
+
     retrieval_service = AsyncMock()
     retrieval_service.search_hybrid = AsyncMock(
         return_value=retrieval_result or make_retrieval_result(),
@@ -154,8 +164,11 @@ async def test_research_persists_the_session() -> None:
         owner_id=uuid4(),
     )
 
-    session.add.assert_called_once()
-    session.commit.assert_awaited_once()
+    # add(): once for the (implicitly created) ResearchConversation, once
+    # for the ResearchSession turn itself. commit(): those same two plus
+    # one for the auto-title set from the first query.
+    assert session.add.call_count == 2
+    assert session.commit.await_count == 3
 
     persisted = session.add.call_args.args[0]
     assert persisted.query == "How does RAG work?"
@@ -262,7 +275,10 @@ async def test_stream_research_emits_research_events_before_generation_events() 
         CoreEventType.COMPLETE.value,
     ]
 
-    collaborators["session"].commit.assert_awaited_once()
+    # commit(): once for the (implicitly created) ResearchConversation,
+    # once for the auto-title set from the first query, once for the
+    # ResearchSession turn itself.
+    assert collaborators["session"].commit.await_count == 3
 
     persisted = collaborators["session"].add.call_args.args[0]
     assert persisted.answer == "RAG works."

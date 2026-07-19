@@ -31,12 +31,14 @@ class ResearchRequest(BaseModel):
 
     routing_strategy: RoutingStrategy | None = None
 
-    session_id: UUID | None = Field(
+    conversation_id: UUID | None = Field(
         default=None,
         description=(
-            "Links this call to a continuing research thread for session "
-            "memory (Memory Platform). Omit for a one-off, single-turn "
-            "request -- defaults to a fresh session scoped to this call."
+            "Links this call to a continuing research conversation -- "
+            "prior turns are folded into the prompt and session memory "
+            "is scoped to the conversation, not just this one call. Omit "
+            "to start a new, single-turn conversation (its id is "
+            "returned in the response so a caller can continue it)."
         ),
     )
 
@@ -70,6 +72,8 @@ class ResearchResponse(BaseModel):
 
     research_id: UUID
 
+    conversation_id: UUID
+
     query: str
 
     answer: str
@@ -94,6 +98,8 @@ class ResearchSessionResponse(BaseModel):
 
     research_id: UUID
 
+    conversation_id: UUID | None
+
     query: str
 
     answer: str
@@ -109,3 +115,43 @@ class ResearchCitationsResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     citations: list[Citation]
+
+
+class ResearchConversationSummary(BaseModel):
+    """
+    One row of `GET /research/conversations` -- enough to render a
+    "History" sidebar entry without fetching every turn.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    conversation_id: UUID
+
+    title: str | None
+
+    created_at: datetime
+
+    updated_at: datetime
+
+
+class ResearchConversationListResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    conversations: list[ResearchConversationSummary]
+
+
+class ResearchConversationResponse(BaseModel):
+    """
+    `GET /research/conversations/{id}` response -- every turn in the
+    thread, oldest first, so a client can replay the whole conversation
+    the same way it already replays a single turn via
+    `ResearchSessionResponse`.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    conversation_id: UUID
+
+    title: str | None
+
+    turns: list[ResearchSessionResponse]

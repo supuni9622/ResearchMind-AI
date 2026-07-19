@@ -79,6 +79,7 @@ export interface ResearchSource {
 // Matches `app/schemas/research.py::ResearchResponse`.
 export interface ResearchResponse {
   research_id: string;
+  conversation_id: string;
   query: string;
   answer: string;
   citations: Citation[];
@@ -89,11 +90,32 @@ export interface ResearchResponse {
 // Matches `app/schemas/research.py::ResearchSessionResponse` (GET /research/{id}).
 export interface ResearchSessionResponse {
   research_id: string;
+  conversation_id: string | null;
   query: string;
   answer: string;
   citations: Citation[];
   sources: ResearchSource[];
   created_at: string;
+}
+
+// Matches `app/schemas/research.py::ResearchConversationSummary`.
+export interface ResearchConversationSummary {
+  conversation_id: string;
+  title: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+// Matches `app/schemas/research.py::ResearchConversationListResponse`.
+export interface ResearchConversationListResponse {
+  conversations: ResearchConversationSummary[];
+}
+
+// Matches `app/schemas/research.py::ResearchConversationResponse`.
+export interface ResearchConversationResponse {
+  conversation_id: string;
+  title: string | null;
+  turns: ResearchSessionResponse[];
 }
 
 // Matches `app/ai/runtime/events/models.py::StreamEvent`, as sent over SSE
@@ -126,6 +148,7 @@ export interface ResearchAskOptions {
   topK?: number;
   filters?: Record<string, unknown>;
   provider?: GenerationProvider;
+  conversationId?: string;
 }
 
 async function* streamResearch(
@@ -148,6 +171,7 @@ async function* streamResearch(
         top_k: options.topK ?? 10,
         filters: options.filters ?? {},
         provider: options.provider ?? null,
+        conversation_id: options.conversationId ?? null,
       }),
     });
   } catch {
@@ -220,11 +244,16 @@ export const api = {
           top_k: options.topK ?? 10,
           filters: options.filters ?? {},
           provider: options.provider ?? null,
+          conversation_id: options.conversationId ?? null,
         }),
       }),
     stream: streamResearch,
     get: (researchId: string) =>
       request<ResearchSessionResponse>(`/api/v1/research/${researchId}`),
+    listConversations: () =>
+      request<ResearchConversationListResponse>('/api/v1/research/conversations'),
+    getConversation: (conversationId: string) =>
+      request<ResearchConversationResponse>(`/api/v1/research/conversations/${conversationId}`),
   },
   documents: {
     list: () => request<Document[]>('/api/v1/documents'),

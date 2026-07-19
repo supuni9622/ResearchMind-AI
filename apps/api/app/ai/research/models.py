@@ -47,6 +47,8 @@ class ResearchOutcome(BaseModel):
 
     research_id: UUID
 
+    conversation_id: UUID
+
     query: str
 
     answer: str

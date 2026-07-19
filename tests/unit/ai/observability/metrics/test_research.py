@@ -18,6 +18,7 @@ from app.ai.research.models import ResearchOutcome
 async def test_research_duration_is_read_from_outcome() -> None:
     outcome = ResearchOutcome(
         research_id=uuid.uuid4(),
+        conversation_id=uuid.uuid4(),
         query="what is rag?",
         answer="Retrieval augmented generation.",
         citations=[],
@@ -34,6 +35,7 @@ async def test_research_duration_is_read_from_outcome() -> None:
 async def test_unimplemented_fields_default_to_none() -> None:
     outcome = ResearchOutcome(
         research_id=uuid.uuid4(),
+        conversation_id=uuid.uuid4(),
         query="what is rag?",
         answer="Retrieval augmented generation.",
         citations=[],

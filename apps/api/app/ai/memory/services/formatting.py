@@ -35,7 +35,20 @@ def format_memory_context(context: MemoryContext) -> str | None:
     if not sections:
         return None
 
-    return "Memory context:\n" + "\n\n".join(sections)
+    # Explicit framing (not just a heading) so the model doesn't mistake this
+    # block for the current question -- it gets merged into the same
+    # `{context}` slot as the retrieved document passages via
+    # `with_memory_context()`, right before the actual "Question:" section,
+    # so without this the model has no other signal that it's background
+    # from a different turn rather than what's being asked right now.
+    return (
+        "Background memory from prior turns (may be unrelated to the "
+        "current question -- use only if directly relevant, otherwise "
+        "ignore it entirely):\n"
+        + "\n\n".join(sections)
+        + "\n\nEnd of background memory. The user's actual question is in "
+        "the Question section below."
+    )
 
 
 def with_memory_context(

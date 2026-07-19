@@ -58,6 +58,7 @@ def get_semantic_memory_service(
         vector_index,
         create_memory_query_embedding_service(),
         metrics=metrics,
+        score_threshold=settings.memory_search_score_threshold,
     )
 
 
@@ -71,6 +72,7 @@ def get_research_memory_service(
         vector_index,
         create_memory_query_embedding_service(),
         metrics=metrics,
+        score_threshold=settings.memory_search_score_threshold,
     )
 
 

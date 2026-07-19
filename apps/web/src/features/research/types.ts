@@ -20,8 +20,15 @@ export interface ResearchTurn {
   createdAt: string;
 }
 
-export interface ResearchHistoryEntry {
-  researchId: string;
-  query: string;
-  createdAt: string;
+/**
+ * One "History" sidebar entry -- a whole conversation thread (possibly
+ * many turns), not a single question. Server-backed via `GET
+ * /research/conversations`, unlike Chat's localStorage-only history
+ * (Chat has no server read path yet -- see `features/chat/use-chat.ts`).
+ */
+export interface ResearchConversationEntry {
+  conversationId: string;
+  /** Auto-set server-side from the thread's first question (`ResearchConversation.title`). */
+  title: string;
+  updatedAt: string;
 }

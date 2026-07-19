@@ -181,6 +181,13 @@ class Settings(BaseSettings):
     memory_qdrant_collection_name: str = "researchmind_memory"
     # Must match the embedding provider/model in use (voyage-3-lite default).
     memory_vector_dimensions: int = 512
+    # Minimum cosine similarity for a SEMANTIC/RESEARCH memory to be considered
+    # relevant to the current query. Without this, `search()`/`get_context()`
+    # always return the nearest `top_k` neighbors even when none of them are
+    # actually topically related -- with few memories stored, an unrelated
+    # memory from a prior, unrelated conversation can rank in the top_k and
+    # get injected into the prompt as if it were relevant context.
+    memory_search_score_threshold: float = 0.5
 
     # Importance scoring (PRD §16)
     memory_importance_threshold: float = 0.1

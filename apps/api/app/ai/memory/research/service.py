@@ -39,6 +39,7 @@ class ResearchMemoryService(VectorBackedMemoryService):
         *,
         embedding_provider: EmbeddingProvider = EmbeddingProvider.VOYAGE_AI,
         metrics: MetricsRecorder | None = None,
+        score_threshold: float | None = None,
     ) -> None:
         super().__init__(
             store,
@@ -47,6 +48,7 @@ class ResearchMemoryService(VectorBackedMemoryService):
             memory_type=MemoryType.RESEARCH,
             embedding_provider=embedding_provider,
             metrics=metrics,
+            score_threshold=score_threshold,
         )
 
     async def remember_finding(

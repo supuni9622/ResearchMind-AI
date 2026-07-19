@@ -27,6 +27,7 @@ class SemanticMemoryService(VectorBackedMemoryService):
         *,
         embedding_provider: EmbeddingProvider = EmbeddingProvider.VOYAGE_AI,
         metrics: MetricsRecorder | None = None,
+        score_threshold: float | None = None,
     ) -> None:
         super().__init__(
             store,
@@ -35,4 +36,5 @@ class SemanticMemoryService(VectorBackedMemoryService):
             memory_type=MemoryType.SEMANTIC,
             embedding_provider=embedding_provider,
             metrics=metrics,
+            score_threshold=score_threshold,
         )

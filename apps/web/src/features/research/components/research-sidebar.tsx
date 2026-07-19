@@ -1,4 +1,4 @@
-import type { ResearchHistoryEntry } from '@/features/research/types';
+import type { ResearchConversationEntry } from '@/features/research/types';
 import { MessageIcon } from '@/components/ui/icons';
 
 function formatWhen(iso: string): string {
@@ -12,15 +12,15 @@ function formatWhen(iso: string): string {
 }
 
 export function ResearchSidebar({
-  history,
-  activeResearchId,
+  conversations,
+  activeConversationId,
   onSelect,
-  onClear,
+  onNew,
 }: {
-  history: ResearchHistoryEntry[];
-  activeResearchId: string | null;
-  onSelect: (researchId: string) => void;
-  onClear: () => void;
+  conversations: ResearchConversationEntry[];
+  activeConversationId: string | null;
+  onSelect: (conversationId: string) => void;
+  onNew: () => void;
 }) {
   return (
     <aside className="w-56 flex-shrink-0 border-r border-ink-600 bg-ink-900/50 flex flex-col h-full">
@@ -29,8 +29,8 @@ export function ResearchSidebar({
           History
         </span>
         <button
-          onClick={onClear}
-          title="Clear workspace"
+          onClick={onNew}
+          title="Start a new conversation"
           className="w-5 h-5 rounded flex items-center justify-center text-stone-500 hover:text-sage-400 hover:bg-ink-700 transition-colors"
         >
           +
@@ -38,33 +38,33 @@ export function ResearchSidebar({
       </div>
 
       <nav className="flex-1 overflow-y-auto scrollbar-thin px-2 py-2">
-        {history.length === 0 ? (
+        {conversations.length === 0 ? (
           <p className="px-3 py-4 text-stone-700 text-[12px] leading-relaxed">
-            Questions you ask will show up here for this browser.
+            Conversations you start will show up here.
           </p>
         ) : (
           <ul className="space-y-0.5" role="list">
-            {history.map((h) => (
-              <li key={h.researchId}>
+            {conversations.map((c) => (
+              <li key={c.conversationId}>
                 <button
-                  onClick={() => onSelect(h.researchId)}
+                  onClick={() => onSelect(c.conversationId)}
                   className={`w-full flex items-start gap-2 px-3 py-2 rounded-md text-left transition-colors duration-100 ${
-                    activeResearchId === h.researchId
+                    activeConversationId === c.conversationId
                       ? 'bg-ink-700 text-stone-100'
                       : 'text-stone-400 hover:text-stone-200 hover:bg-ink-700/60'
                   }`}
                 >
                   <span
                     className={`mt-0.5 flex-shrink-0 ${
-                      activeResearchId === h.researchId ? 'text-sage-400' : 'text-stone-600'
+                      activeConversationId === c.conversationId ? 'text-sage-400' : 'text-stone-600'
                     }`}
                   >
                     <MessageIcon size={12} />
                   </span>
                   <span className="min-w-0 flex-1">
-                    <span className="block text-[13px] truncate">{h.query}</span>
+                    <span className="block text-[13px] truncate">{c.title}</span>
                     <span className="block font-mono text-stone-600 text-[10px] mt-0.5">
-                      {formatWhen(h.createdAt)}
+                      {formatWhen(c.updatedAt)}
                     </span>
                   </span>
                 </button>
@@ -76,7 +76,7 @@ export function ResearchSidebar({
 
       <div className="px-4 py-3 border-t border-ink-600">
         <p className="font-mono text-stone-700 text-[10px] leading-relaxed">
-          History is stored in this browser only. Folders and sharing are coming soon.
+          Conversations and their questions are saved to your account.
         </p>
       </div>
     </aside>

@@ -15,6 +15,7 @@ from typing import Any
 from uuid import UUID, uuid4
 
 import structlog
+from langchain_core.messages import BaseMessage, HumanMessage
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.artifacts.enums import ArtifactCategory, ArtifactRuntime
@@ -43,6 +44,7 @@ from app.ai.runtime.generation.streaming.service import StreamingService
 from app.ai.runtime.generation.validation.runtime.enums import RuntimeType
 from app.models.research import ResearchSession
 from app.repositories.research import ResearchRepository
+from app.services.research_conversation import ResearchConversationService
 
 logger = structlog.get_logger()
 
@@ -63,6 +65,7 @@ class ResearchService:
     ) -> None:
         self._session = session
         self._repository = ResearchRepository(session)
+        self._conversations = ResearchConversationService(session, self._repository)
         self._retrieval = retrieval_service
         self._context_builder = context_builder
         self._generation_runtime = generation_runtime
@@ -89,25 +92,41 @@ class ResearchService:
         owner_id: UUID,
         provider: GenerationProvider | None = None,
         routing_strategy: RoutingStrategy | None = None,
-        session_id: UUID | None = None,
+        conversation_id: UUID | None = None,
     ) -> ResearchOutcome:
         """
         Full linear flow (PRD §17, extended with the Memory Platform's
-        Runtime Memory Injection Pipeline): memory retrieval -> retrieve
-        -> build context -> generate through the Generation Runtime ->
+        Runtime Memory Injection Pipeline and conversation threading):
+        get-or-create conversation -> memory retrieval -> retrieve ->
+        build context -> generate through the Generation Runtime ->
         persist session + artifact -> memory extraction.
 
-        `session_id` lets a caller link multiple `/research` calls into
-        one continuing thread (so session memory and "continue my
-        previous research" phrasing actually mean something) -- it
-        defaults to this call's own `research_id` when omitted, i.e. a
-        single-turn session, unchanged from prior behavior.
+        `conversation_id` lets a caller link multiple `/research` calls
+        into one continuing thread -- omit it for a fresh, single-turn
+        thread (mirrors `chat.py`'s `ConversationService.get_or_create()`
+        pattern). The conversation's own id doubles as the session-memory
+        boundary, replacing the old default of "a fresh session per call"
+        that made SESSION memory a no-op across turns.
         """
 
+        conversation = await self._conversations.get_or_create(
+            conversation_id=conversation_id,
+            owner_id=owner_id,
+        )
+        await self._conversations.set_title_from_first_query(
+            conversation=conversation,
+            query=query,
+        )
+
         research_id = uuid4()
-        session_id = session_id or research_id
+        session_id = conversation.id
 
         started = perf_counter()
+
+        history = await self._conversations.load_history(
+            conversation_id=conversation.id,
+            owner_id=owner_id,
+        )
 
         memory_context_text = await self._retrieve_memory_context(
             owner_id=owner_id,
@@ -127,7 +146,7 @@ class ResearchService:
                 context_result.prompt_context,
                 memory_context_text,
             ),
-            user_prompt=query,
+            user_prompt=self._format_transcript(history, query),
             session_id=research_id,
             routing_strategy=routing_strategy,
             runtime=RuntimeType.RESEARCH,
@@ -143,6 +162,7 @@ class ResearchService:
 
         await self._persist_session(
             research_id=research_id,
+            conversation_id=conversation.id,
             owner_id=owner_id,
             query=query,
             answer=result.content,
@@ -174,6 +194,7 @@ class ResearchService:
 
         return ResearchOutcome(
             research_id=research_id,
+            conversation_id=conversation.id,
             query=query,
             answer=result.content,
             citations=citations,
@@ -190,24 +211,44 @@ class ResearchService:
         owner_id: UUID,
         provider: GenerationProvider | None = None,
         routing_strategy: RoutingStrategy | None = None,
-        session_id: UUID | None = None,
+        conversation_id: UUID | None = None,
     ) -> AsyncGenerator[StreamEvent, None]:
         """
         Streaming counterpart of `research()` (PRD §17), extended with
-        the same Runtime Memory Injection Pipeline -- see `research()`'s
-        docstring. Generation goes through `StreamingService` directly
-        rather than the Generation Runtime -- that's what the PRD's own
-        `/research/stream` flow diagram specifies, distinct from
-        `/research`.
+        the same Runtime Memory Injection Pipeline and conversation
+        threading -- see `research()`'s docstring. Generation goes
+        through `StreamingService` directly rather than the Generation
+        Runtime -- that's what the PRD's own `/research/stream` flow
+        diagram specifies, distinct from `/research`.
         """
 
-        research_id = uuid4()
-        session_id = session_id or research_id
+        conversation = await self._conversations.get_or_create(
+            conversation_id=conversation_id,
+            owner_id=owner_id,
+        )
+        await self._conversations.set_title_from_first_query(
+            conversation=conversation,
+            query=query,
+        )
 
+        research_id = uuid4()
+        session_id = conversation.id
+
+        # `session_id` here stays `research_id`, not `conversation.id` --
+        # the frontend (`use-research.ts`) reads the first event's
+        # `session_id` as the turn's own `research_id` for `GET
+        # /research/{id}` replay, unchanged wire shape. `conversation_id`
+        # rides in `metadata` instead so existing consumers aren't broken.
         yield StreamEvent(
             category=EventCategory.RESEARCH,
             type=ResearchEventType.RESEARCH_STARTED.value,
             session_id=research_id,
+            metadata={"conversation_id": str(conversation.id)},
+        )
+
+        history = await self._conversations.load_history(
+            conversation_id=conversation.id,
+            owner_id=owner_id,
         )
 
         memory_context_text = await self._retrieve_memory_context(
@@ -241,7 +282,7 @@ class ResearchService:
                 context_result.prompt_context,
                 memory_context_text,
             ),
-            user_prompt=query,
+            user_prompt=self._format_transcript(history, query),
             stream=True,
             session_id=research_id,
             routing_strategy=routing_strategy,
@@ -272,6 +313,7 @@ class ResearchService:
 
                 await self._persist_session(
                     research_id=research_id,
+                    conversation_id=conversation.id,
                     owner_id=owner_id,
                     query=query,
                     answer=answer,
@@ -486,6 +528,30 @@ class ResearchService:
         return retrieval_result, context_result
 
     @staticmethod
+    def _format_transcript(history: list[BaseMessage], query: str) -> str:
+        """
+        Folds prior turns of the conversation into a plain-text transcript
+        prefix for `query` -- mirrors `chat.py::_format_transcript`
+        (same scope limitation: no native multi-message array support in
+        `BaseGenerationProvider.build_messages` yet, so history is folded
+        into `user_prompt` as text). Without this, a follow-up like "so
+        if I make a RAG application..." has no way to resolve what "so"
+        refers to -- only the current turn's `query` reaches the prompt.
+        """
+
+        if not history:
+            return query
+
+        lines = [
+            f"{'User' if isinstance(message, HumanMessage) else 'Assistant'}: {message.content}"
+            for message in history
+        ]
+
+        lines.append(f"User: {query}")
+
+        return "\n".join(lines)
+
+    @staticmethod
     def _build_sources(context_result: ContextResult) -> list[ResearchSource]:
         return [
             ResearchSource(
@@ -502,6 +568,7 @@ class ResearchService:
         self,
         *,
         research_id: UUID,
+        conversation_id: UUID,
         owner_id: UUID,
         query: str,
         answer: str,
@@ -512,6 +579,7 @@ class ResearchService:
         research_session = await self._repository.create(
             ResearchSession(
                 id=research_id,
+                conversation_id=conversation_id,
                 owner_id=owner_id,
                 query=query,
                 answer=answer,

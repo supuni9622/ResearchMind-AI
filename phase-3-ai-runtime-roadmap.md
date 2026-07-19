@@ -3,7 +3,7 @@
 
 **Status:** Frozen (v2.0)
 
-**Last Updated:** 2026-07-18
+**Last Updated:** 2026-07-19
 
 ---
 
@@ -28,6 +28,13 @@ Perplexity Foundation
 ```
 
 Hybrid Retrieval, Reranking, Parent Expansion, Compression, Context Guardrails, and strategy-based Prompt Formatting are all implemented — beyond a plain NotebookLM clone and closing in on Perplexity v1. A platform-wide Guardrails Platform (Milestone 3.13 below — input/retrieval/generation/runtime stages, Source Trust, policies, scoring, artifacts) is now complete as an MVP foundation and wired directly into both the Generation Platform and the Context Building Platform (per `guardrail_integration_prd.md`). A new, centralized Artifact Platform (Milestone 3.14 below — canonical, immutable, policy-gated persistence for AI Runtime executions) is now also complete for generation/streaming/conversation, per `artifacts_platform_prd.md`. A Generation Runtime Platform (Milestone 3.15 below — a thin orchestration layer giving every future runtime one canonical `execute_generation()` entrypoint) is now complete, per `generation_runtime_platform_prd.md`. And the Research API (Milestone 3.9 below) is now complete too, per `research_api_prd.md` — ResearchMind's first live, end-to-end product surface: a user can upload documents, ask a question, and get a grounded, cited, streamable answer back.
+
+**Chat runtime growth-control update (2026-07-19):** Chat now cursor-pages
+canonical conversation/message replay and compacts only its **prompt** history:
+the newest 12 messages remain verbatim and older content is retained as a
+persisted deterministic summary. This is a Chat-only additive capability
+(ADR-030), not a substitute for the future Research Runtime's compact
+checkpoint state or its own context policy.
 
 Current Focus:
 
@@ -736,8 +743,8 @@ Milestone	Platform	Deliverables	Status
 3.8	Generation Platform	Multi-provider LLM runtime, structured output, validation, policy layer, regeneration, routing, caching, streaming, metrics, artifacts	✅ Complete, per `generation_platform_complexion_prd.md` — runtime contracts registered but dormant pending a /research API
 3.9	Research APIs	/research, streaming, citations	✅ Complete (row stale below — this file is frozen/not continuously updated; see PROJECT_STATUS.md/ROADMAP.md for authoritative status), per `research_api_prd.md`
 3.10	Evaluation Platform	Groundedness, Hallucinations, Citation Accuracy	🟡 Retrieval evaluation complete + ✅ Generation evaluation (Groundedness/Faithfulness/Relevance/Completeness/Citation Accuracy/Hallucination Rate/Cost) + ✅ Regression Detection (incl. cost thresholds), both built into repo-root `benchmarks/` rather than a new `app/ai/evaluation/` (`evaluation_platform_prd.md` was reconciled against the already-live Observability Platform and the already-real Benchmark Platform rather than implemented literally — see PROJECT_STATUS.md). Runtime Evaluation (Layer 2) is the already-complete Observability Platform (3.16 below); Experimentation Platform (Layer 3) remains not started
-3.11	Research Runtime	Planner, Query Decomposition, Agents	❌ Not Started — Research now has persisted thread history and Memory Platform context; query decomposition/rewriting, planning, and agents remain future work
-3.12	Long-Term Platform	Research Sessions, Memory, MCP	🟡 Memory Platform is complete and wired into Chat/Research; MCP and broader long-term-platform work remain not started
+3.11	Research Runtime	Planner, Query Decomposition, Agents	❌ Not Started — Research now has persisted thread history and cost-aware Memory Platform context; the future graph must reuse the final-turn extraction orchestrator rather than extracting from planner/tool/reviewer nodes. Query decomposition/rewriting, planning, and agents remain future work
+3.12	Long-Term Platform	Research Sessions, Memory, MCP	🟡 Memory Platform is complete and wired into Chat/Research: compact session state, policy-gated extraction, bounded interest promotion, parallel durable retrieval, and separate memory-cost accounting are live. MCP and broader long-term-platform work remain not started
 3.13	Guardrails Platform	Input/Retrieval/Generation/Runtime guardrails, Source Trust, policies, scoring, artifacts	✅ MVP Foundation Complete + ✅ Integrated into Generation Platform and Context Building Platform (runtime stage still needs a router/agent runtime caller)
 3.14	Artifact Platform	Canonical persistence/replay for Generation/Streaming/Conversation, policy-gated, S3-backed	✅ Complete for Generation/Streaming/Conversation + 🟡 Session/Research/Agent/Evaluation built but scaffold-only
 3.15	Generation Runtime Platform	execute_generation()/GenerationRuntime.execute() canonical entrypoint	✅ Complete, per `generation_runtime_platform_prd.md` (referenced in this doc's own summary paragraph above; row was missing from this table until now)

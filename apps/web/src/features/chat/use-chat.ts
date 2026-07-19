@@ -23,24 +23,32 @@ export function useChat() {
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [sending, setSending] = useState(false);
+  const [conversationCursor, setConversationCursor] = useState<string | null>(null);
+  const [messageCursor, setMessageCursor] = useState<string | null>(null);
+  const [loadingOlderMessages, setLoadingOlderMessages] = useState(false);
+  const [loadingMoreConversations, setLoadingMoreConversations] = useState(false);
 
   useEffect(() => {
     void api.chat
       .listConversations()
-      .then(({ conversations: items }) =>
+      .then(({ conversations: items, next_cursor }) => {
         setConversations(
           items.map((conversation) => ({
             conversationId: conversation.conversation_id,
             title: conversation.title ?? 'New chat',
             updatedAt: conversation.updated_at,
           }))
-        )
-      )
-      .catch(() => setConversations([]));
+        );
+        setConversationCursor(next_cursor);
+      })
+      .catch(() => {
+        setConversations([]);
+        setConversationCursor(null);
+      });
   }, []);
 
   const refreshConversations = useCallback(async () => {
-    const { conversations: items } = await api.chat.listConversations();
+    const { conversations: items, next_cursor } = await api.chat.listConversations();
     setConversations(
       items.map((conversation) => ({
         conversationId: conversation.conversation_id,
@@ -48,7 +56,34 @@ export function useChat() {
         updatedAt: conversation.updated_at,
       }))
     );
+    setConversationCursor(next_cursor);
   }, []);
+
+  const loadMoreConversations = useCallback(async () => {
+    if (!conversationCursor || loadingMoreConversations) return;
+    setLoadingMoreConversations(true);
+    try {
+      const { conversations: items, next_cursor } = await api.chat.listConversations(
+        conversationCursor
+      );
+      setConversations((current) => {
+        const seen = new Set(current.map((conversation) => conversation.conversationId));
+        return [
+          ...current,
+          ...items
+            .filter((conversation) => !seen.has(conversation.conversation_id))
+            .map((conversation) => ({
+              conversationId: conversation.conversation_id,
+              title: conversation.title ?? 'New chat',
+              updatedAt: conversation.updated_at,
+            })),
+        ];
+      });
+      setConversationCursor(next_cursor);
+    } finally {
+      setLoadingMoreConversations(false);
+    }
+  }, [conversationCursor, loadingMoreConversations]);
 
   const send = useCallback(
     async (text: string, options: ChatSendOptions = {}) => {
@@ -140,13 +175,36 @@ export function useChat() {
           createdAt: message.created_at,
         }))
       );
+      setMessageCursor(conversation.next_cursor);
     },
     []
   );
 
+  const loadOlderMessages = useCallback(async () => {
+    if (!activeConversationId || !messageCursor || loadingOlderMessages) return;
+    setLoadingOlderMessages(true);
+    try {
+      const conversation = await api.chat.getConversation(activeConversationId, messageCursor);
+      setMessages((current) => [
+        ...conversation.messages.map((message) => ({
+          id: message.id,
+          role: message.role,
+          content: message.content,
+          stage: 'done' as const,
+          createdAt: message.created_at,
+        })),
+        ...current,
+      ]);
+      setMessageCursor(conversation.next_cursor);
+    } finally {
+      setLoadingOlderMessages(false);
+    }
+  }, [activeConversationId, loadingOlderMessages, messageCursor]);
+
   const newConversation = useCallback(() => {
     setActiveConversationId(null);
     setMessages([]);
+    setMessageCursor(null);
   }, []);
 
   return {
@@ -154,8 +212,14 @@ export function useChat() {
     activeConversationId,
     messages,
     sending,
+    hasMoreConversations: conversationCursor !== null,
+    hasOlderMessages: messageCursor !== null,
+    loadingMoreConversations,
+    loadingOlderMessages,
     send,
     selectConversation,
     newConversation,
+    loadMoreConversations,
+    loadOlderMessages,
   };
 }

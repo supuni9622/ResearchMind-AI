@@ -94,6 +94,12 @@ class _FakeConversationService:
     async def list_for_owner(self, *, owner_id, limit: int = 50) -> list[Conversation]:
         return [await self.get_or_create(conversation_id=_CONVERSATION_ID, owner_id=owner_id)]
 
+    async def list_page_for_owner(self, *, owner_id, before_conversation_id=None, limit: int = 50):
+        return SimpleNamespace(
+            conversations=await self.list_for_owner(owner_id=owner_id, limit=limit),
+            next_cursor=None,
+        )
+
     async def list_messages(self, *, conversation_id, limit: int = 50) -> list[Message]:
         return [
             Message(
@@ -115,11 +121,25 @@ class _FakeConversationService:
             ),
         ]
 
+    async def list_messages_page(self, *, conversation_id, before_message_id=None, limit: int = 50):
+        return SimpleNamespace(
+            messages=await self.list_messages(conversation_id=conversation_id, limit=limit),
+            next_cursor=None,
+        )
+
     async def get_first_user_prompt(self, *, conversation_id) -> str:
         return "What are applications of RAG?"
 
     async def load_history(self, *, conversation_id, limit: int = 50) -> list:
         return []
+
+    async def compact_history_if_needed(
+        self, *, conversation, recent_message_limit: int, summary_max_characters: int
+    ) -> None:
+        return None
+
+    async def load_prompt_history(self, *, conversation, recent_message_limit: int):
+        return SimpleNamespace(summary=None, messages=[])
 
     async def append_turn(
         self,
@@ -365,3 +385,4 @@ def test_chat_history_is_available_over_authenticated_http(
     assert listed.json()["conversations"][0]["conversation_id"] == str(_CONVERSATION_ID)
     assert replayed.status_code == 200
     assert [message["role"] for message in replayed.json()["messages"]] == ["user", "assistant"]
+    assert replayed.json()["next_cursor"] is None

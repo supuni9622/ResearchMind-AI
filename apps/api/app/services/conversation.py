@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
@@ -10,6 +11,33 @@ from app.exceptions.base import NotFoundException
 from app.models.conversation import Conversation, Message
 from app.models.enums import MessageRole
 from app.repositories.conversation import ConversationRepository
+from app.services.conversation_compaction import compact_conversation_history
+
+
+@dataclass(frozen=True)
+class ConversationPage:
+    conversations: list[Conversation]
+    next_cursor: uuid.UUID | None
+
+
+@dataclass(frozen=True)
+class MessagePage:
+    messages: list[Message]
+    next_cursor: uuid.UUID | None
+
+
+@dataclass(frozen=True)
+class PromptHistory:
+    summary: str | None
+    messages: list[BaseMessage]
+
+
+@dataclass(frozen=True)
+class PersistedConversationTurn:
+    """Canonical identifiers for an exchange that was committed to history."""
+
+    user_message_id: uuid.UUID
+    assistant_message_id: uuid.UUID
 
 
 class ConversationService:
@@ -95,6 +123,20 @@ class ConversationService:
             limit=limit,
         )
 
+    async def list_page_for_owner(
+        self,
+        *,
+        owner_id: uuid.UUID,
+        before_conversation_id: uuid.UUID | None,
+        limit: int,
+    ) -> ConversationPage:
+        conversations, next_cursor = await self.repository.list_conversations_page(
+            owner_id=owner_id,
+            before_conversation_id=before_conversation_id,
+            limit=limit,
+        )
+        return ConversationPage(conversations=conversations, next_cursor=next_cursor)
+
     async def list_messages(
         self,
         *,
@@ -106,6 +148,73 @@ class ConversationService:
         return await self.repository.list_messages(
             conversation_id=conversation_id,
             limit=limit,
+        )
+
+    async def list_messages_page(
+        self,
+        *,
+        conversation_id: uuid.UUID,
+        before_message_id: uuid.UUID | None,
+        limit: int,
+    ) -> MessagePage:
+        messages, next_cursor = await self.repository.list_messages_page(
+            conversation_id=conversation_id,
+            before_message_id=before_message_id,
+            limit=limit,
+        )
+        return MessagePage(messages=messages, next_cursor=next_cursor)
+
+    async def compact_history_if_needed(
+        self,
+        *,
+        conversation: Conversation,
+        recent_message_limit: int,
+        summary_max_characters: int,
+    ) -> None:
+        """Compact older prompt history while retaining every canonical row."""
+
+        uncompacted = await self.repository.list_messages_after(
+            conversation_id=conversation.id,
+            after=conversation.history_compacted_through_at,
+        )
+        compactable = uncompacted[:-recent_message_limit]
+        if not compactable:
+            return
+
+        summary = compact_conversation_history(
+            existing_summary=conversation.history_summary,
+            messages=compactable,
+            max_characters=summary_max_characters,
+        )
+        await self.repository.set_history_compaction(
+            conversation_id=conversation.id,
+            summary=summary,
+            through_at=compactable[-1].created_at,
+        )
+        await self.session.commit()
+        conversation.history_summary = summary
+        conversation.history_compacted_through_at = compactable[-1].created_at
+
+    async def load_prompt_history(
+        self,
+        *,
+        conversation: Conversation,
+        recent_message_limit: int,
+    ) -> PromptHistory:
+        """Return compacted older context plus recent messages for a prompt."""
+
+        messages = await self.repository.list_messages(
+            conversation_id=conversation.id,
+            limit=recent_message_limit,
+        )
+        return PromptHistory(
+            summary=conversation.history_summary,
+            messages=[
+                HumanMessage(content=message.content)
+                if message.role == MessageRole.USER
+                else AIMessage(content=message.content)
+                for message in messages
+            ],
         )
 
     async def get_first_user_prompt(
@@ -128,14 +237,14 @@ class ConversationService:
         assistant_content: str,
         provider: str | None = None,
         model: str | None = None,
-    ) -> None:
+    ) -> PersistedConversationTurn:
         """
         Persists both halves of a completed exchange.
         """
 
         turn_started_at = datetime.now(UTC)
 
-        await self.repository.add_message(
+        user_message = await self.repository.add_message(
             Message(
                 conversation_id=conversation_id,
                 role=MessageRole.USER,
@@ -144,7 +253,7 @@ class ConversationService:
             ),
         )
 
-        await self.repository.add_message(
+        assistant_message = await self.repository.add_message(
             Message(
                 conversation_id=conversation_id,
                 role=MessageRole.ASSISTANT,
@@ -163,6 +272,11 @@ class ConversationService:
         )
 
         await self.session.commit()
+
+        return PersistedConversationTurn(
+            user_message_id=user_message.id,
+            assistant_message_id=assistant_message.id,
+        )
 
     async def set_title(
         self,

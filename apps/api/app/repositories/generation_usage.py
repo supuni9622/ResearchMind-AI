@@ -56,6 +56,11 @@ class GenerationUsageRepository:
     ) -> dict[str, float | int]:
         total = await self._aggregate(owner_id)
         month = await self._aggregate(owner_id, month_start=month_start)
+        memory_extraction_cost, memory_extraction_requests = await self._runtime_aggregate(
+            owner_id,
+            runtime="memory_extraction",
+        )
+        answer_turns = await self._answer_turn_count(owner_id)
         return {
             "total_cost_usd": total[0],
             "total_requests": total[1],
@@ -63,7 +68,31 @@ class GenerationUsageRepository:
             "month_cost_usd": month[0],
             "month_requests": month[1],
             "month_tokens": month[2],
+            "memory_extraction_cost_usd": memory_extraction_cost,
+            "memory_extraction_requests": memory_extraction_requests,
+            "answer_turns": answer_turns,
+            "memory_extraction_cost_per_100_turns": (
+                memory_extraction_cost / answer_turns * 100 if answer_turns else 0.0
+            ),
         }
+
+    async def _runtime_aggregate(self, owner_id: UUID, *, runtime: str) -> tuple[float, int]:
+        statement = select(
+            func.coalesce(func.sum(GenerationUsage.estimated_cost_usd), 0),
+            func.count(GenerationUsage.id),
+        ).where(
+            GenerationUsage.owner_id == owner_id,
+            GenerationUsage.runtime == runtime,
+        )
+        cost, requests = (await self._session.execute(statement)).one()
+        return float(cost), int(requests)
+
+    async def _answer_turn_count(self, owner_id: UUID) -> int:
+        statement = select(func.count(GenerationUsage.id)).where(
+            GenerationUsage.owner_id == owner_id,
+            GenerationUsage.runtime.in_(("chat", "research")),
+        )
+        return int((await self._session.execute(statement)).scalar_one())
 
     async def _aggregate(
         self,

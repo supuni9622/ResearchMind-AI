@@ -299,7 +299,7 @@ Complete — see Milestone 2.7 in `PROJECT_STATUS.md` for full detail.
 * ✅ `POST /retrieve/sparse`
 * ✅ `POST /retrieve/hybrid`
 * ✅ `POST /research`, `POST /research/stream`, `POST /research/citations`, `GET /research/{id}` — Research API Platform now complete, per `research_api_prd.md` (see Phase 4 note below); a Generation Runtime Platform (`generation_runtime_platform_prd.md`) gives it — and every future runtime — one canonical `execute_generation()` entrypoint into the Generation Platform
-* ✅ Streaming chat — `POST /api/v1/chat/stream` (SSE) and `/api/v1/chat/ws` (WebSocket), plus owner-scoped `GET /api/v1/chat/conversations` and `GET /api/v1/chat/conversations/{id}` history/replay
+* ✅ Streaming chat — `POST /api/v1/chat/stream` (SSE) and `/api/v1/chat/ws` (WebSocket), plus owner-scoped cursor-paginated `GET /api/v1/chat/conversations` and `GET /api/v1/chat/conversations/{id}` history/replay
 * ✅ Citations — delivered by the Context Platform's Citation Platform (2.9)
 
 ### AI Learning
@@ -442,7 +442,7 @@ Build a production conversational AI platform.
 
 Production chat platform.
 
-**Current status:** ✅ The core Chat platform is live: a separate `/chat` frontend, streaming, persisted conversation/message history, session/semantic/user/research memory injection, deterministic user → assistant replay, and first-question Groq titles with full-title tooltips. Chat intentionally remains ungrounded: query rewriting, retrieval, citations, and conversation evaluation remain future work.
+**Current status:** ✅ The core Chat platform is live: a separate `/chat` frontend, streaming, cursor-paginated persisted conversation/message history, deterministic prompt compaction (newest 12 messages plus a bounded persisted older-history summary), session/semantic/user/research memory injection, deterministic user → assistant replay, and first-question Groq titles with full-title tooltips. Compaction never deletes canonical rows and adds no LLM call. Its Memory Platform uses policy-gated extraction, compact session state, parallel durable retrieval, bounded interest promotion, and separate memory-cost accounting. Chat intentionally remains ungrounded: query rewriting, retrieval, citations, and conversation evaluation remain future work.
 
 ---
 

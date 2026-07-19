@@ -21,3 +21,10 @@ ADRs preserve architectural reasoning for future contributors.
 - ADR-003 Lifespan
 - ADR-004 Application State
 - ADR-005 API Contracts
+
+---
+
+# Recent Accepted ADRs
+
+- [ADR-029 — Cost-Aware Durable Memory Promotion](ADR-029-cost-aware-memory-promotion.md)
+- [ADR-030 — Chat History Pagination and Context Compaction](ADR-030-chat-history-pagination-and-context-compaction.md)

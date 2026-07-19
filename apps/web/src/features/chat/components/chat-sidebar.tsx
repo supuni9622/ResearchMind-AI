@@ -16,11 +16,17 @@ export function ChatSidebar({
   activeConversationId,
   onSelect,
   onNew,
+  hasMore,
+  loadingMore,
+  onLoadMore,
 }: {
   conversations: ChatConversationSummary[];
   activeConversationId: string | null;
   onSelect: (conversationId: string) => void;
   onNew: () => void;
+  hasMore: boolean;
+  loadingMore: boolean;
+  onLoadMore: () => void;
 }) {
   return (
     <aside className="w-56 flex-shrink-0 border-r border-ink-600 bg-ink-900/50 flex flex-col h-full">
@@ -43,36 +49,48 @@ export function ChatSidebar({
             Your persisted conversations will show up here.
           </p>
         ) : (
-          <ul className="space-y-0.5" role="list">
-            {conversations.map((c) => (
-              <li key={c.conversationId} className="group relative">
-                <button
-                  onClick={() => onSelect(c.conversationId)}
-                  title={c.title || 'New chat'}
-                  aria-label={`Open conversation: ${c.title || 'New chat'}`}
-                  className={`w-full flex items-start gap-2 px-3 py-2 pr-7 rounded-md text-left transition-colors duration-100 ${
-                    activeConversationId === c.conversationId
-                      ? 'bg-ink-700 text-stone-100'
-                      : 'text-stone-400 hover:text-stone-200 hover:bg-ink-700/60'
-                  }`}
-                >
-                  <span
-                    className={`mt-0.5 flex-shrink-0 ${
-                      activeConversationId === c.conversationId ? 'text-sage-400' : 'text-stone-600'
+          <>
+            <ul className="space-y-0.5" role="list">
+              {conversations.map((c) => (
+                <li key={c.conversationId} className="group relative">
+                  <button
+                    onClick={() => onSelect(c.conversationId)}
+                    title={c.title || 'New chat'}
+                    aria-label={`Open conversation: ${c.title || 'New chat'}`}
+                    className={`w-full flex items-start gap-2 px-3 py-2 pr-7 rounded-md text-left transition-colors duration-100 ${
+                      activeConversationId === c.conversationId
+                        ? 'bg-ink-700 text-stone-100'
+                        : 'text-stone-400 hover:text-stone-200 hover:bg-ink-700/60'
                     }`}
                   >
-                    <MessageIcon size={12} />
-                  </span>
-                  <span className="min-w-0 flex-1">
-                    <span className="block text-[13px] truncate">{c.title || 'New chat'}</span>
-                    <span className="block font-mono text-stone-600 text-[10px] mt-0.5">
-                      {formatWhen(c.updatedAt)}
+                    <span
+                      className={`mt-0.5 flex-shrink-0 ${
+                        activeConversationId === c.conversationId ? 'text-sage-400' : 'text-stone-600'
+                      }`}
+                    >
+                      <MessageIcon size={12} />
                     </span>
-                  </span>
-                </button>
-              </li>
-            ))}
-          </ul>
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-[13px] truncate">{c.title || 'New chat'}</span>
+                      <span className="block font-mono text-stone-600 text-[10px] mt-0.5">
+                        {formatWhen(c.updatedAt)}
+                      </span>
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+            {hasMore && (
+              <button
+                type="button"
+                onClick={onLoadMore}
+                disabled={loadingMore}
+                className="w-full mt-2 px-3 py-2 text-[11px] text-stone-500 hover:text-sage-400 disabled:opacity-50"
+              >
+                {loadingMore ? 'Loading…' : 'Load older conversations'}
+              </button>
+            )}
+          </>
         )}
       </nav>
 

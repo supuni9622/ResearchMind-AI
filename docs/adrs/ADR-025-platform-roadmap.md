@@ -265,7 +265,7 @@ Responsibilities:
   see `routing_platform_prd.md`, ADR-026
 - ✅ Streaming — per-provider `stream()` implementations, plus a full
   Streaming Platform (canonical event protocol, SSE/WebSocket
-  transports) wired into `POST /api/v1/chat/stream` / `/api/v1/chat/ws`, with owner-scoped history/replay at `GET /api/v1/chat/conversations` and `GET /api/v1/chat/conversations/{id}`
+  transports) wired into `POST /api/v1/chat/stream` / `/api/v1/chat/ws`, with owner-scoped cursor-paginated history/replay at `GET /api/v1/chat/conversations` and `GET /api/v1/chat/conversations/{id}`. Chat prompt history is bounded separately by ADR-030's persisted deterministic compaction; canonical rows remain available for replay.
   — see `docs/architecture/streaming-platform.md`, ADR-028
 - ✅ Caching — Runtime Caching Platform (`generation/caching/`): L1
   exact/L2 semantic/L3 session, policy resolution, wired into

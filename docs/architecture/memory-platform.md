@@ -919,5 +919,101 @@ audit artifacts; no dashboards, no `memory_metrics.json`, see §21)
 ❌ memory evaluation exists — **not built**, corrected from the
 original ✅ (see §22)
 
+---
+
+# 26. Memory Optimization Architecture (2026-07-19)
+
+This section preserves the architecture above as the baseline and records the
+production optimization added afterwards. It does not replace the original
+Memory Platform design; it explains how the live implementation balances
+memory recall with provider cost, latency, privacy, and profile quality.
+
+## 26.1 Baseline flow
+
+```text
+Completed Chat or Research turn
+              ↓
+LLM memory extraction
+              ↓
+Importance / type decision
+              ↓
+Durable memory write
+```
+
+The baseline was simple and maximized recall, but could send every completed
+turn to an LLM. A one-off question could therefore create provider spend and
+weak profile memories.
+
+## 26.2 Optimized flow
+
+```text
+Completed user-facing Chat or Research turn
+              ↓
+Deterministic eligibility policy
+    ┌─────────┼──────────────────────────────┐
+    ↓         ↓                              ↓
+Trivial    Explicit durable              Generic topic
+or one-off preference / goal /             ↓
+question   finding / learning       Bounded lexical candidate
+    ↓             ↓                       ↓
+ Skip       LLM extraction          Valkey distinct-session set
+                  ↓                       ↓
+            USER / RESEARCH       Fewer than 2 sessions → skip
+            durable candidate             ↓
+                                  2 sessions + unclaimed topic
+                                           ↓
+                                    LLM interest validation
+                                           ↓
+                                USER interest write, or no-op
+```
+
+The deterministic stage is inexpensive and runs after the answer. The LLM is
+still responsible for durable-memory judgment and classification, but only
+after explicit evidence or a repeated-topic threshold.
+
+## 26.3 Interest promotion
+
+- Explicit statements such as “I am learning RAG” are immediately eligible.
+- A generic topic must occur in two distinct server-side conversation or
+  research session IDs before one LLM validation is permitted.
+- Topic candidates are bounded to three lexical tokens per turn; the topic
+  text is hashed in Valkey keys.
+- A per-owner/topic claim allows one promotion attempt during the 90-day
+  retention period, avoiding repeated extraction cost in later sessions.
+- The LLM may decline to create a memory. An empty extraction means no
+  PostgreSQL write by design.
+- Assistant-generated inferences are never evidence for a USER preference or
+  interest write.
+- Historical chats are not backfilled into this counter; only traffic observed
+  after deployment contributes to the threshold.
+
+## 26.4 Storage responsibilities after optimization
+
+| Concern | Canonical storage | Notes |
+|---|---|---|
+| Conversation / research transcript | PostgreSQL | The canonical history; not duplicated as raw SESSION Q/A memory. |
+| Compact temporary session state | Valkey | Explicit working state only, TTL-managed. |
+| Repeated-topic candidate / promotion claim | Valkey | Hashed owner/topic keys, 90-day TTL; not a durable user profile. |
+| Durable USER interest or preference | PostgreSQL `memories` | Created or updated only after LLM validation. |
+| Durable RESEARCH finding | PostgreSQL `memories` + Qdrant index | PostgreSQL is canonical; Qdrant supports semantic recall. |
+
+## 26.5 Operational safeguards
+
+- Extraction is idempotent by canonical turn ID and policy version `v2`.
+- Valkey/provider/storage failures fail open and never fail the answer.
+- Exact durable-memory duplicates update provenance/importance rather than
+  creating a new row.
+- Structured logs record policy decisions, skipped/empty/failed/successful
+  extraction outcomes, and memory-context durations.
+- The owner-scoped `/usage/summary` endpoint exposes memory-extraction
+  requests, cost, answer-turn count, and extraction cost per 100 turns.
+
+## 26.6 Validation
+
+Use real staged traffic to validate extraction skip rate, empty extraction
+rate, memory-context P50/P95, extraction P50/P95, and extraction cost per 100
+answer turns. The detailed rollout procedure and target ranges are maintained
+in `memory_platform_optimization_plan.md`.
+
 ✅ future runtimes can consume memory (Chat and Research today; Agent/
 Workspace runtimes don't exist yet to consume it — see §20)

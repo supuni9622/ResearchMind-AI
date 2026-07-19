@@ -47,6 +47,7 @@ class ChatConversationListResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     conversations: list[ChatConversationSummary]
+    next_cursor: UUID | None = None
 
 
 class ChatConversationResponse(BaseModel):
@@ -55,3 +56,4 @@ class ChatConversationResponse(BaseModel):
     conversation_id: UUID
     title: str | None
     messages: list[ChatMessageResponse]
+    next_cursor: UUID | None = None

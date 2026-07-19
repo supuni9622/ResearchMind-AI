@@ -59,6 +59,11 @@ class UserMemoryService:
             limit=limit,
         )
 
+    async def find_exact_content(self, *, owner_id: UUID, content: str) -> MemoryRecord | None:
+        return await self._store.find_exact_content(
+            owner_id=owner_id, memory_type=MemoryType.USER, content=content
+        )
+
     async def update(
         self,
         *,

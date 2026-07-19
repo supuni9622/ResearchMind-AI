@@ -22,6 +22,7 @@ branch is a recency listing, not a ranked query match.
 
 from __future__ import annotations
 
+import asyncio
 from time import perf_counter
 from typing import Any, Protocol
 from uuid import UUID
@@ -40,17 +41,33 @@ from app.ai.memory.models import (
     MemorySearchResult,
 )
 from app.ai.memory.observability.metrics import (
+    CONTEXT_DURABLE_AVAILABLE,
+    CONTEXT_DURABLE_EMPTY,
+    CONTEXT_LATENCY,
+    CONTEXT_REQUESTS,
+    CONTEXT_RETRIEVAL_SKIPPED,
+    DURABLE_SEARCH_LATENCY,
     MEMORY_COUNT,
+    MEMORY_CREATED,
+    MEMORY_DUPLICATE,
     MEMORY_HITS,
     MEMORY_MISSES,
+    MEMORY_UPDATED,
+    PARALLEL_SEARCH,
     REMEMBER_LATENCY,
+    RESEARCH_SEARCH,
     SEARCH_LATENCY,
+    SEMANTIC_SEARCH,
+    SESSION_DUPLICATES_REMOVED,
+    SESSION_ITEMS_LOADED,
 )
 from app.ai.memory.profile.service import UserMemoryService
 from app.ai.memory.research.service import ResearchMemoryService
+from app.ai.memory.retrieval.availability import DurableMemoryAvailabilityService
 from app.ai.memory.retrieval.fusion import reciprocal_rank_fusion
 from app.ai.memory.semantic.service import SemanticMemoryService
 from app.ai.memory.session.service import SessionMemoryService
+from app.core.settings import settings
 from app.infrastructure.metrics.interfaces import MetricsRecorder
 from app.infrastructure.metrics.noop import NoOpMetricsRecorder
 
@@ -123,6 +140,7 @@ class MemoryService:
         artifact_writer: MemoryArtifactWriter | None = None,
         metrics: MetricsRecorder | None = None,
         importance_threshold: float = _DEFAULT_IMPORTANCE_THRESHOLD,
+        availability_service: DurableMemoryAvailabilityService | None = None,
     ) -> None:
         self._session = session_memory
         self._user = user_memory
@@ -145,6 +163,7 @@ class MemoryService:
         self._artifact_writer = artifact_writer
         self._metrics = metrics or NoOpMetricsRecorder()
         self._importance_threshold = importance_threshold
+        self._availability = availability_service
 
     # ==========================================================
     # Remember
@@ -204,7 +223,52 @@ class MemoryService:
         )
         self._metrics.increment(metric=MEMORY_COUNT)
 
+        if type in {MemoryType.SEMANTIC, MemoryType.RESEARCH} and self._availability is not None:
+            await self._availability.invalidate(owner_id=owner_id)
+
         return record
+
+    async def remember_extracted(
+        self,
+        *,
+        owner_id: UUID,
+        type: MemoryType,
+        content: str,
+        importance_score: float,
+        metadata: dict[str, Any],
+    ) -> tuple[MemoryRecord | None, str]:
+        """Persist an extracted durable memory without duplicating facts.
+
+        Exact normalized duplicates are updated only with provenance (rather
+        than creating another row). Broader semantic supersession is deferred
+        until extracted memories have an explicit subject/version contract.
+        """
+
+        if type not in {MemoryType.USER, MemoryType.RESEARCH}:
+            raise MemoryValidationError("Only USER and RESEARCH extracted memories are allowed.")
+        service = self._user if type == MemoryType.USER else self._research
+        existing = await service.find_exact_content(owner_id=owner_id, content=content)
+        if existing is not None:
+            updated = await service.update(
+                owner_id=owner_id,
+                memory_id=existing.id,
+                metadata=metadata,
+                importance_score=max(existing.importance_score, importance_score),
+            )
+            self._metrics.increment(metric=MEMORY_DUPLICATE)
+            self._metrics.increment(metric=MEMORY_UPDATED)
+            return updated, "duplicate"
+        record = await self.remember(
+            owner_id=owner_id,
+            type=type,
+            content=content,
+            importance_score=importance_score,
+            metadata=metadata,
+        )
+        if record is None:
+            return None, "skipped"
+        self._metrics.increment(metric=MEMORY_CREATED)
+        return record, "created"
 
     # ==========================================================
     # Recall / Forget / Update
@@ -236,10 +300,19 @@ class MemoryService:
         type: MemoryType | None = None,
     ) -> bool:
         if type is not None:
-            return await self._registry[type].forget(owner_id=owner_id, memory_id=memory_id)
+            deleted = await self._registry[type].forget(owner_id=owner_id, memory_id=memory_id)
+            if (
+                deleted
+                and type in {MemoryType.SEMANTIC, MemoryType.RESEARCH}
+                and self._availability
+            ):
+                await self._availability.invalidate(owner_id=owner_id)
+            return deleted
 
-        for service in self._registry.values():
+        for memory_type, service in self._registry.items():
             if await service.forget(owner_id=owner_id, memory_id=memory_id):
+                if memory_type in {MemoryType.SEMANTIC, MemoryType.RESEARCH} and self._availability:
+                    await self._availability.invalidate(owner_id=owner_id)
                 return True
 
         return False
@@ -340,30 +413,100 @@ class MemoryService:
         session_id: UUID,
         semantic_query: str | None = None,
         top_k: int = 10,
+        transcript: str | None = None,
     ) -> MemoryContext:
+        started = perf_counter()
+        self._metrics.increment(metric=CONTEXT_REQUESTS)
+        logger.info(
+            "memory.context.started",
+            owner_id=str(owner_id),
+            session_id=str(session_id),
+            query_length=len(semantic_query or ""),
+        )
         session_memories = await self._session.get_context(
             owner_id=owner_id,
             session_id=session_id,
             limit=top_k,
         )
+        for _ in session_memories:
+            self._metrics.increment(metric=SESSION_ITEMS_LOADED)
 
         semantic_memories: list[MemoryRecord] = []
         research_memories: list[MemoryRecord] = []
 
-        if semantic_query:
-            semantic_memories = await self._semantic.search(
-                owner_id=owner_id,
-                query=semantic_query,
-                top_k=top_k,
+        if semantic_query and settings.memory_durable_retrieval_enabled:
+            has_durable_memory = (
+                await self._availability.has_durable_memory(owner_id=owner_id)
+                if self._availability is not None
+                else True
             )
-            research_memories = await self._research.search(
-                owner_id=owner_id,
-                query=semantic_query,
-                top_k=top_k,
-            )
+            if has_durable_memory:
+                self._metrics.increment(metric=CONTEXT_DURABLE_AVAILABLE)
+                search_started = perf_counter()
+                try:
+                    embedding = await self._semantic.embed_query(semantic_query)
+                    if settings.memory_parallel_search_enabled:
+                        self._metrics.increment(metric=PARALLEL_SEARCH)
+                        results = await asyncio.gather(
+                            self._semantic.search_with_embedding(
+                                owner_id=owner_id, embedding=embedding, top_k=top_k
+                            ),
+                            self._research.search_with_embedding(
+                                owner_id=owner_id, embedding=embedding, top_k=top_k
+                            ),
+                            return_exceptions=True,
+                        )
+                        if isinstance(results[0], list):
+                            semantic_memories = results[0]
+                            self._metrics.increment(metric=SEMANTIC_SEARCH)
+                        else:
+                            self._log_search_failure("semantic", owner_id, results[0])
+                        if isinstance(results[1], list):
+                            research_memories = results[1]
+                            self._metrics.increment(metric=RESEARCH_SEARCH)
+                        else:
+                            self._log_search_failure("research", owner_id, results[1])
+                    else:
+                        try:
+                            semantic_memories = await self._semantic.search_with_embedding(
+                                owner_id=owner_id, embedding=embedding, top_k=top_k
+                            )
+                            self._metrics.increment(metric=SEMANTIC_SEARCH)
+                        except Exception as exc:
+                            self._log_search_failure("semantic", owner_id, exc)
+                        try:
+                            research_memories = await self._research.search_with_embedding(
+                                owner_id=owner_id, embedding=embedding, top_k=top_k
+                            )
+                            self._metrics.increment(metric=RESEARCH_SEARCH)
+                        except Exception as exc:
+                            self._log_search_failure("research", owner_id, exc)
+                except Exception as exc:
+                    logger.warning(
+                        "memory.retrieval.embedding_failed",
+                        owner_id=str(owner_id),
+                        error_type=type(exc).__name__,
+                        error=str(exc),
+                    )
+                finally:
+                    self._metrics.record_duration(
+                        operation=DURABLE_SEARCH_LATENCY,
+                        duration_ms=(perf_counter() - search_started) * 1000,
+                    )
+            else:
+                self._metrics.increment(metric=CONTEXT_DURABLE_EMPTY)
+                self._metrics.increment(metric=CONTEXT_RETRIEVAL_SKIPPED)
+                logger.info(
+                    "memory.context.skipped_durable_retrieval",
+                    owner_id=str(owner_id),
+                    session_id=str(session_id),
+                )
 
+        deduplicated_session = self._deduplicate_session_history(session_memories, transcript)
+        for _ in range(len(session_memories) - len(deduplicated_session)):
+            self._metrics.increment(metric=SESSION_DUPLICATES_REMOVED)
         context = MemoryContext(
-            session_memories=session_memories,
+            session_memories=deduplicated_session,
             semantic_memories=semantic_memories,
             research_memories=research_memories,
         )
@@ -374,7 +517,53 @@ class MemoryService:
             context=context,
         )
 
+        latency_ms = (perf_counter() - started) * 1000
+        self._metrics.record_duration(operation=CONTEXT_LATENCY, duration_ms=latency_ms)
+        logger.info(
+            "memory.context.completed",
+            owner_id=str(owner_id),
+            session_id=str(session_id),
+            session_result_count=len(context.session_memories),
+            semantic_result_count=len(context.semantic_memories),
+            research_result_count=len(context.research_memories),
+            latency_ms=latency_ms,
+        )
         return context
+
+    @staticmethod
+    def _deduplicate_session_history(
+        memories: list[MemoryRecord],
+        transcript: str | None,
+    ) -> list[MemoryRecord]:
+        if not settings.memory_context_deduplication_enabled or not transcript:
+            return memories
+        normalized_transcript = " ".join(transcript.lower().split())
+        return [
+            memory
+            for memory in memories
+            if not (
+                # Transitional raw entries are redundant when their source
+                # turn is already present in canonical persisted history.
+                (
+                    memory.content.startswith("Q: ")
+                    and " ".join(memory.content.lower().split()) in normalized_transcript
+                )
+                or (
+                    len(" ".join(memory.content.split())) >= 32
+                    and " ".join(memory.content.lower().split()) in normalized_transcript
+                )
+            )
+        ]
+
+    @staticmethod
+    def _log_search_failure(category: str, owner_id: UUID, error: object) -> None:
+        exc = error if isinstance(error, Exception) else Exception(str(error))
+        logger.warning(
+            f"memory.{category}_search.failed",
+            owner_id=str(owner_id),
+            error_type=type(exc).__name__,
+            error=str(exc),
+        )
 
     # ==========================================================
     # Internal

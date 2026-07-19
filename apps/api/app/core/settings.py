@@ -189,6 +189,40 @@ class Settings(BaseSettings):
     # get injected into the prompt as if it were relevant context.
     memory_search_score_threshold: float = 0.5
 
+    # Memory runtime optimization. Defaults preserve the established memory
+    # contract while allowing each optimization to be rolled back independently.
+    memory_durable_retrieval_enabled: bool = True
+    memory_durable_availability_cache_enabled: bool = True
+    memory_durable_availability_ttl_seconds: int = 120
+    memory_parallel_search_enabled: bool = True
+    memory_extraction_policy_enabled: bool = True
+    memory_extraction_policy_version: str = "v2"
+    memory_extraction_min_user_characters: int = 12
+    memory_extraction_idempotency_ttl_seconds: int = 60 * 60 * 24 * 7
+    # A topic must appear in this many distinct conversations before it can
+    # make an otherwise-generic turn eligible for LLM memory extraction.
+    # This keeps a single exploratory question out of the user profile.
+    memory_interest_promotion_enabled: bool = True
+    memory_interest_promotion_min_distinct_sessions: int = 2
+    memory_interest_promotion_ttl_seconds: int = 60 * 60 * 24 * 90
+    # Canonical Chat/Research history already persists complete turns. Keep
+    # raw SESSION copies disabled; only compact, stateful entries belong here.
+    memory_session_raw_turn_storage_enabled: bool = False
+    memory_session_state_storage_enabled: bool = True
+    memory_context_deduplication_enabled: bool = True
+    memory_context_session_max_items: int = 5
+    memory_context_semantic_max_items: int = 5
+    memory_context_research_max_items: int = 5
+    memory_context_item_max_characters: int = 500
+
+    # Chat history is paginated for replay. Model context receives recent turns
+    # verbatim and a deterministic, persisted summary of older turns; this
+    # avoids an extra summarization-model call on the answer path.
+    chat_history_page_size: int = 50
+    chat_history_page_max_size: int = 100
+    chat_prompt_recent_message_limit: int = 12
+    chat_prompt_summary_max_characters: int = 4_000
+
     # Importance scoring (PRD §16)
     memory_importance_threshold: float = 0.1
 

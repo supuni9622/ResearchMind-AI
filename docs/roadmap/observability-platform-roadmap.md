@@ -3,7 +3,13 @@
 **Project:** ResearchMind AI
 **Platform:** Observability Platform
 **Status:** 🚧 Phase 1 partially implemented (see note) — Phases 2+ still planned
-**Last Updated:** 2026-07-18
+**Last Updated:** 2026-07-19
+
+> **2026-07-19 Chat growth update:** cursor pagination and deterministic
+> prompt compaction are implemented without a new provider call. Tuning their
+> 50/100 page bounds and 12-message/4,000-character prompt bounds requires
+> real-traffic payload, token, latency, compaction-frequency, and UI-load data;
+> those measurements remain part of the planned observability expansion.
 
 > **2026-07-18 update**: The Phase 1 deliverable "ProcessingService
 > integration" below is now done — `PipelineRuntimeMetrics` is persisted as

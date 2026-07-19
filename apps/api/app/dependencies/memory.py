@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.ai.memory.artifacts.writers import MemoryArtifactWriter
 from app.ai.memory.create import (
     create_memory_artifact_writer,
+    create_memory_availability_client,
     create_memory_query_embedding_service,
     create_memory_vector_index,
     create_session_memory_service,
@@ -19,6 +20,7 @@ from app.ai.memory.extraction.service import MemoryExtractionService
 from app.ai.memory.lifecycle.service import MemoryLifecycleService
 from app.ai.memory.profile.service import UserMemoryService
 from app.ai.memory.research.service import ResearchMemoryService
+from app.ai.memory.retrieval.availability import DurableMemoryAvailabilityService
 from app.ai.memory.semantic.service import SemanticMemoryService
 from app.ai.memory.services.memory_service import MemoryService
 from app.ai.memory.session.service import SessionMemoryService
@@ -119,6 +121,7 @@ def get_memory_lifecycle_service(
 
 
 def get_memory_service(
+    store: PostgresMemoryStore = Depends(get_postgres_memory_store),
     session_memory: SessionMemoryService = Depends(get_session_memory_service),
     user_memory: UserMemoryService = Depends(get_user_memory_service),
     semantic_memory: SemanticMemoryService = Depends(get_semantic_memory_service),
@@ -140,4 +143,9 @@ def get_memory_service(
         artifact_writer=artifact_writer,
         metrics=metrics,
         importance_threshold=settings.memory_importance_threshold,
+        availability_service=DurableMemoryAvailabilityService(
+            store,
+            create_memory_availability_client(),
+            metrics,
+        ),
     )

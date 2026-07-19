@@ -28,10 +28,14 @@ from app.ai.knowledge.context.service import ContextBuilderService
 from app.ai.knowledge.retrieval.enums import RetrievalProvider
 from app.ai.knowledge.retrieval.models import RetrievalQuery, RetrievalResult
 from app.ai.knowledge.retrieval.service import RetrievalService
+from app.ai.memory.create import create_memory_availability_client, get_memory_metrics
 from app.ai.memory.enums import MemoryType
+from app.ai.memory.extraction.orchestrator import MemoryExtractionOrchestrator
 from app.ai.memory.extraction.service import MemoryExtractionService
+from app.ai.memory.policy.models import MemoryTurnEvent
 from app.ai.memory.services.formatting import format_memory_context, with_memory_context
 from app.ai.memory.services.memory_service import MemoryService
+from app.ai.memory.session.state import state_from_user_turn
 from app.ai.research.models import ResearchOutcome, ResearchSource
 from app.ai.runtime.events.enums import CoreEventType, EventCategory
 from app.ai.runtime.events.models import StreamEvent
@@ -43,6 +47,7 @@ from app.ai.runtime.generation.orchestration.interfaces import GenerationRuntime
 from app.ai.runtime.generation.routing.enums import RoutingStrategy
 from app.ai.runtime.generation.streaming.service import StreamingService
 from app.ai.runtime.generation.validation.runtime.enums import RuntimeType
+from app.core.settings import settings
 from app.models.research import ResearchSession
 from app.repositories.research import ResearchRepository
 from app.services.research_conversation import ResearchConversationService
@@ -133,6 +138,7 @@ class ResearchService:
             owner_id=owner_id,
             session_id=session_id,
             query=query,
+            transcript="\n".join(str(message.content) for message in history),
         )
 
         retrieval_result, context_result = await self._retrieve_and_build_context(
@@ -258,6 +264,7 @@ class ResearchService:
             owner_id=owner_id,
             session_id=session_id,
             query=query,
+            transcript="\n".join(str(message.content) for message in history),
         )
 
         yield StreamEvent(
@@ -390,6 +397,7 @@ class ResearchService:
         owner_id: UUID,
         session_id: UUID,
         query: str,
+        transcript: str | None = None,
     ) -> str | None:
         """
         Memory retrieval, ahead of knowledge retrieval (Request ->
@@ -407,6 +415,7 @@ class ResearchService:
                 session_id=session_id,
                 semantic_query=query,
                 top_k=5,
+                transcript=transcript,
             )
         except Exception as exc:
             logger.warning(
@@ -443,12 +452,31 @@ class ResearchService:
             return
 
         try:
-            await self._memory.remember(
-                owner_id=owner_id,
-                type=MemoryType.SESSION,
-                content=f"Q: {query}\nA: {answer}",
-                session_id=session_id,
-            )
+            if settings.memory_session_raw_turn_storage_enabled:
+                await self._memory.remember(
+                    owner_id=owner_id,
+                    type=MemoryType.SESSION,
+                    content=f"Q: {query}\nA: {answer}",
+                    session_id=session_id,
+                    metadata={
+                        "kind": "raw_turn",
+                        "source_turn_id": str(research_id),
+                        "research_id": str(research_id),
+                    },
+                )
+            elif settings.memory_session_state_storage_enabled:
+                state = state_from_user_turn(
+                    user_message=query,
+                    source_turn_id=str(research_id),
+                )
+                if state is not None:
+                    await self._memory.remember(
+                        owner_id=owner_id,
+                        type=MemoryType.SESSION,
+                        content=state.content,
+                        session_id=session_id,
+                        metadata=state.metadata(),
+                    )
         except Exception as exc:
             logger.warning(
                 "memory.research.session_remember_failed",
@@ -461,34 +489,31 @@ class ResearchService:
         if self._memory_extraction is None:
             return
 
-        extracted = await self._memory_extraction.extract(
-            user_message=query,
-            assistant_message=answer,
-            owner_id=owner_id,
-            conversation_id=session_id,
-        )
-
-        for item in extracted:
-            metadata = (
-                {"research_id": str(research_id)} if item.type == MemoryType.RESEARCH else None
-            )
-
-            try:
-                await self._memory.remember(
+        try:
+            await MemoryExtractionOrchestrator(
+                self._memory,
+                self._memory_extraction,
+                create_memory_availability_client(),
+                get_memory_metrics(),
+            ).process_turn(
+                MemoryTurnEvent(
                     owner_id=owner_id,
-                    type=item.type,
-                    content=item.content,
-                    importance_score=item.importance,
-                    metadata=metadata,
+                    session_id=session_id,
+                    conversation_id=session_id,
+                    research_id=research_id,
+                    runtime="research",
+                    user_message=query,
+                    assistant_message=answer,
+                    turn_id=f"research:{research_id}",
                 )
-            except Exception as exc:
-                logger.warning(
-                    "memory.research.extracted_remember_failed",
-                    owner_id=str(owner_id),
-                    memory_type=item.type.value,
-                    error_type=type(exc).__name__,
-                    error=str(exc),
-                )
+            )
+        except Exception as exc:
+            logger.warning(
+                "memory.research.extraction_orchestration_failed",
+                research_id=str(research_id),
+                error_type=type(exc).__name__,
+                error=str(exc),
+            )
 
     # -- Retrieval / context / persistence -----------------------
 

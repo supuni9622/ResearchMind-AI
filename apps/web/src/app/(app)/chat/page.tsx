@@ -14,9 +14,15 @@ export default function ChatPage() {
     activeConversationId,
     messages,
     sending,
+    hasMoreConversations,
+    hasOlderMessages,
+    loadingMoreConversations,
+    loadingOlderMessages,
     send,
     selectConversation,
     newConversation,
+    loadMoreConversations,
+    loadOlderMessages,
   } = useChat();
   const [input, setInput] = useState('');
   const [provider, setProvider] = useState<GenerationProvider | 'auto'>('auto');
@@ -47,6 +53,9 @@ export default function ChatPage() {
         activeConversationId={activeConversationId}
         onSelect={selectConversation}
         onNew={newConversation}
+        hasMore={hasMoreConversations}
+        loadingMore={loadingMoreConversations}
+        onLoadMore={loadMoreConversations}
       />
 
       <div className="flex-1 min-w-0 flex flex-col">
@@ -70,6 +79,16 @@ export default function ChatPage() {
             <EmptyChat onSuggest={setInput} />
           ) : (
             <div className="max-w-2xl mx-auto space-y-5">
+              {hasOlderMessages && (
+                <button
+                  type="button"
+                  onClick={() => void loadOlderMessages()}
+                  disabled={loadingOlderMessages}
+                  className="block mx-auto text-xs text-stone-500 hover:text-sage-400 disabled:opacity-50"
+                >
+                  {loadingOlderMessages ? 'Loading earlier messages…' : 'Load earlier messages'}
+                </button>
+              )}
               {messages.map((message) => (
                 <MessageBubble key={message.id} message={message} />
               ))}

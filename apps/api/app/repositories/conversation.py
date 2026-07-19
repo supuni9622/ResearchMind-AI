@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import case, select, update
+from sqlalchemy import and_, case, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.conversation import Conversation, Message
@@ -108,6 +108,64 @@ class ConversationRepository:
 
         return list(reversed(result.scalars().all()))
 
+    async def list_messages_page(
+        self,
+        *,
+        conversation_id: uuid.UUID,
+        before_message_id: uuid.UUID | None,
+        limit: int,
+    ) -> tuple[list[Message], uuid.UUID | None]:
+        """Return one newest-first cursor page, presented oldest first."""
+
+        statement = select(Message).where(Message.conversation_id == conversation_id)
+        if before_message_id is not None:
+            cursor = await self.session.scalar(
+                select(Message).where(
+                    Message.id == before_message_id,
+                    Message.conversation_id == conversation_id,
+                )
+            )
+            if cursor is None:
+                return [], None
+            statement = statement.where(
+                or_(
+                    Message.created_at < cursor.created_at,
+                    and_(
+                        Message.created_at == cursor.created_at,
+                        Message.id < cursor.id,
+                    ),
+                )
+            )
+
+        rows = list(
+            (
+                await self.session.execute(
+                    statement.order_by(Message.created_at.desc(), Message.id.desc()).limit(
+                        limit + 1
+                    )
+                )
+            ).scalars()
+        )
+        has_more = len(rows) > limit
+        page = rows[:limit]
+        return list(reversed(page)), (page[-1].id if has_more and page else None)
+
+    async def list_messages_after(
+        self,
+        *,
+        conversation_id: uuid.UUID,
+        after: datetime | None,
+    ) -> list[Message]:
+        """Load uncompacted messages oldest first; used only for compaction."""
+
+        statement = select(Message).where(Message.conversation_id == conversation_id)
+        if after is not None:
+            statement = statement.where(Message.created_at > after)
+        result = await self.session.execute(
+            statement.order_by(Message.created_at.asc(), Message.id.asc())
+        )
+        return list(result.scalars().all())
+
     async def get_first_user_message(
         self,
         *,
@@ -145,6 +203,66 @@ class ConversationRepository:
         result = await self.session.execute(statement)
 
         return list(result.scalars().all())
+
+    async def list_conversations_page(
+        self,
+        *,
+        owner_id: uuid.UUID,
+        before_conversation_id: uuid.UUID | None,
+        limit: int,
+    ) -> tuple[list[Conversation], uuid.UUID | None]:
+        """Return owner-scoped conversations with a stable activity cursor."""
+
+        statement = select(Conversation).where(Conversation.owner_id == owner_id)
+        if before_conversation_id is not None:
+            cursor = await self.session.scalar(
+                select(Conversation).where(
+                    Conversation.id == before_conversation_id,
+                    Conversation.owner_id == owner_id,
+                )
+            )
+            if cursor is None:
+                return [], None
+            statement = statement.where(
+                or_(
+                    Conversation.updated_at < cursor.updated_at,
+                    and_(
+                        Conversation.updated_at == cursor.updated_at,
+                        Conversation.id < cursor.id,
+                    ),
+                )
+            )
+
+        rows = list(
+            (
+                await self.session.execute(
+                    statement.order_by(
+                        Conversation.updated_at.desc(), Conversation.id.desc()
+                    ).limit(limit + 1)
+                )
+            ).scalars()
+        )
+        has_more = len(rows) > limit
+        page = rows[:limit]
+        return page, (page[-1].id if has_more and page else None)
+
+    async def set_history_compaction(
+        self,
+        *,
+        conversation_id: uuid.UUID,
+        summary: str,
+        through_at: datetime,
+    ) -> None:
+        """Persist prompt-only compaction state without deleting messages."""
+
+        await self.session.execute(
+            update(Conversation)
+            .where(Conversation.id == conversation_id)
+            .values(
+                history_summary=summary,
+                history_compacted_through_at=through_at,
+            )
+        )
 
     async def touch_conversation(
         self,

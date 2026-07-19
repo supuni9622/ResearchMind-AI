@@ -14,23 +14,40 @@ nothing runtime-specific about it.
 from __future__ import annotations
 
 from app.ai.knowledge.context.models import PromptContext
-from app.ai.memory.models import MemoryContext
+from app.ai.memory.models import MemoryContext, MemoryRecord
+from app.core.settings import settings
+
+
+def _format_entries(memories: list[MemoryRecord], limit: int) -> str | None:
+    entries = [
+        memory.content.strip()[: settings.memory_context_item_max_characters]
+        for memory in memories[:limit]
+        if memory.content.strip()
+    ]
+    return "\n".join(f"- {entry}" for entry in entries) if entries else None
 
 
 def format_memory_context(context: MemoryContext) -> str | None:
     sections: list[str] = []
 
     if context.session_memories:
-        lines = "\n".join(f"- {m.content}" for m in context.session_memories)
-        sections.append(f"Recent conversation:\n{lines}")
+        lines = _format_entries(context.session_memories, settings.memory_context_session_max_items)
+        if lines:
+            sections.append(f"Active session state:\n{lines}")
 
     if context.semantic_memories:
-        lines = "\n".join(f"- {m.content}" for m in context.semantic_memories)
-        sections.append(f"What we know about this user:\n{lines}")
+        lines = _format_entries(
+            context.semantic_memories, settings.memory_context_semantic_max_items
+        )
+        if lines:
+            sections.append(f"What we know about this user:\n{lines}")
 
     if context.research_memories:
-        lines = "\n".join(f"- {m.content}" for m in context.research_memories)
-        sections.append(f"Relevant prior research findings:\n{lines}")
+        lines = _format_entries(
+            context.research_memories, settings.memory_context_research_max_items
+        )
+        if lines:
+            sections.append(f"Relevant prior research findings:\n{lines}")
 
     if not sections:
         return None

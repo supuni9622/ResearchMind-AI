@@ -52,6 +52,15 @@ class Conversation(TimestampMixin, Base):
         nullable=True,
     )
 
+    # A deterministic, bounded representation of older messages for model
+    # context. Canonical Message rows are retained and paginated separately.
+    history_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    history_compacted_through_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+
 
 class Message(TimestampMixin, Base):
     """

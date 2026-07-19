@@ -8,6 +8,7 @@ import structlog
 from fastapi import (
     APIRouter,
     Depends,
+    Query,
     WebSocket,
     status,
 )
@@ -21,11 +22,19 @@ from app.ai.artifacts.conversation.writers import ConversationArtifactWriter
 from app.ai.artifacts.enums import ArtifactCategory, ArtifactRuntime
 from app.ai.artifacts.policies.service import ArtifactPolicyService
 from app.ai.knowledge.context.models import PromptContext
-from app.ai.memory.create import build_memory_extraction_service, build_memory_service
+from app.ai.memory.create import (
+    build_memory_extraction_service,
+    build_memory_service,
+    create_memory_availability_client,
+    get_memory_metrics,
+)
 from app.ai.memory.enums import MemoryType
+from app.ai.memory.extraction.orchestrator import MemoryExtractionOrchestrator
 from app.ai.memory.extraction.service import MemoryExtractionService
+from app.ai.memory.policy.models import MemoryTurnEvent
 from app.ai.memory.services.formatting import format_memory_context, with_memory_context
 from app.ai.memory.services.memory_service import MemoryService
+from app.ai.memory.session.state import state_from_user_turn
 from app.ai.runtime.events.enums import CoreEventType
 from app.ai.runtime.events.models import StreamEvent
 from app.ai.runtime.generation.caching.enums import CachePolicy, CacheRuntime
@@ -37,6 +46,7 @@ from app.ai.runtime.generation.streaming.transports.sse import sse_stream_respon
 from app.ai.runtime.generation.streaming.transports.websocket import run_websocket_stream
 from app.ai.runtime.generation.validation.runtime.enums import RuntimeType
 from app.auth.dependencies import authenticate_token, get_current_user
+from app.core.settings import settings
 from app.db.session import SessionFactory
 from app.dependencies.generation import (
     get_artifact_policy_service_dependency,
@@ -47,7 +57,7 @@ from app.dependencies.generation import (
 )
 from app.dependencies.memory import get_memory_extraction_service, get_memory_service
 from app.exceptions.base import AppException
-from app.models.conversation import Message
+from app.models.conversation import Conversation, Message
 from app.models.user import User
 from app.schemas.chat import (
     ChatConversationListResponse,
@@ -85,6 +95,7 @@ def _message_response(message: Message) -> ChatMessageResponse:
 def _format_transcript(
     history: list[BaseMessage],
     user_prompt: str,
+    compacted_summary: str | None = None,
 ) -> str:
     """
     Folds prior turns into a plain-text transcript prefix for
@@ -98,13 +109,24 @@ def _format_transcript(
     until providers support a message array.
     """
 
-    if not history:
+    if not history and not compacted_summary:
         return user_prompt
 
-    lines = [
-        f"{'User' if isinstance(message, HumanMessage) else 'Assistant'}: {message.content}"
-        for message in history
-    ]
+    lines: list[str] = []
+    if compacted_summary:
+        lines.extend(
+            [
+                "Earlier conversation summary "
+                "(preserve these facts unless the user corrects them):",
+                compacted_summary,
+            ]
+        )
+    lines.extend(
+        [
+            f"{'User' if isinstance(message, HumanMessage) else 'Assistant'}: {message.content}"
+            for message in history
+        ]
+    )
 
     lines.append(f"User: {user_prompt}")
 
@@ -117,6 +139,7 @@ async def _retrieve_memory_context(
     owner_id: UUID,
     conversation_id: UUID,
     query: str,
+    transcript: str | None = None,
 ) -> str | None:
     """
     Memory retrieval, ahead of generation (Runtime Memory Injection
@@ -137,6 +160,7 @@ async def _retrieve_memory_context(
             session_id=conversation_id,
             semantic_query=query,
             top_k=5,
+            transcript=transcript,
         )
     except Exception as exc:
         logger.warning(
@@ -158,6 +182,8 @@ async def _extract_and_store_memory(
     conversation_id: UUID,
     user_prompt: str,
     assistant_content: str,
+    user_message_id: UUID | None = None,
+    assistant_message_id: UUID | None = None,
 ) -> None:
     """
     Post-generation half of the Runtime Memory Injection Pipeline
@@ -171,12 +197,39 @@ async def _extract_and_store_memory(
         return
 
     try:
-        await memory_service.remember(
-            owner_id=owner_id,
-            type=MemoryType.SESSION,
-            content=f"Q: {user_prompt}\nA: {assistant_content}",
-            session_id=conversation_id,
-        )
+        turn_id = str(assistant_message_id) if assistant_message_id else f"chat:{conversation_id}"
+        if settings.memory_session_raw_turn_storage_enabled:
+            await memory_service.remember(
+                owner_id=owner_id,
+                type=MemoryType.SESSION,
+                content=f"Q: {user_prompt}\nA: {assistant_content}",
+                session_id=conversation_id,
+                metadata={
+                    "kind": "raw_turn",
+                    "source_turn_id": turn_id,
+                    **({"source_user_message_id": str(user_message_id)} if user_message_id else {}),
+                    **(
+                        {"source_assistant_message_id": str(assistant_message_id)}
+                        if assistant_message_id
+                        else {}
+                    ),
+                },
+            )
+        elif settings.memory_session_state_storage_enabled:
+            state = state_from_user_turn(
+                user_message=user_prompt,
+                source_turn_id=turn_id,
+                source_user_message_id=user_message_id,
+                source_assistant_message_id=assistant_message_id,
+            )
+            if state is not None:
+                await memory_service.remember(
+                    owner_id=owner_id,
+                    type=MemoryType.SESSION,
+                    content=state.content,
+                    session_id=conversation_id,
+                    metadata=state.metadata(),
+                )
     except Exception as exc:
         logger.warning(
             "memory.chat.session_remember_failed",
@@ -188,49 +241,62 @@ async def _extract_and_store_memory(
     if memory_extraction_service is None:
         return
 
-    extracted = await memory_extraction_service.extract(
-        user_message=user_prompt,
-        assistant_message=assistant_content,
-        owner_id=owner_id,
-        conversation_id=conversation_id,
-    )
-
-    for item in extracted:
-        try:
-            await memory_service.remember(
+    try:
+        await MemoryExtractionOrchestrator(
+            memory_service,
+            memory_extraction_service,
+            create_memory_availability_client(),
+            get_memory_metrics(),
+        ).process_turn(
+            MemoryTurnEvent(
                 owner_id=owner_id,
-                type=item.type,
-                content=item.content,
-                importance_score=item.importance,
+                session_id=conversation_id,
+                conversation_id=conversation_id,
+                runtime="chat",
+                user_message=user_prompt,
+                assistant_message=assistant_content,
+                turn_id=turn_id,
             )
-        except Exception as exc:
-            logger.warning(
-                "memory.chat.extracted_remember_failed",
-                conversation_id=str(conversation_id),
-                memory_type=item.type.value,
-                error_type=type(exc).__name__,
-                error=str(exc),
-            )
+        )
+    except Exception as exc:
+        logger.warning(
+            "memory.chat.extraction_orchestration_failed",
+            conversation_id=str(conversation_id),
+            error_type=type(exc).__name__,
+            error=str(exc),
+        )
 
 
 async def _build_request(
     *,
     payload: ChatStreamRequest,
     conversation_service: ConversationService,
-    conversation_id: UUID,
+    conversation: Conversation,
     owner_id: UUID,
     memory_service: MemoryService | None,
 ) -> GenerationRequest:
-
-    history = await conversation_service.load_history(
-        conversation_id=conversation_id,
+    await conversation_service.compact_history_if_needed(
+        conversation=conversation,
+        recent_message_limit=settings.chat_prompt_recent_message_limit,
+        summary_max_characters=settings.chat_prompt_summary_max_characters,
+    )
+    prompt_history = await conversation_service.load_prompt_history(
+        conversation=conversation,
+        recent_message_limit=settings.chat_prompt_recent_message_limit,
+    )
+    history = prompt_history.messages
+    transcript = _format_transcript(
+        history,
+        payload.user_prompt,
+        prompt_history.summary,
     )
 
     memory_context_text = await _retrieve_memory_context(
         memory_service=memory_service,
         owner_id=owner_id,
-        conversation_id=conversation_id,
+        conversation_id=conversation.id,
         query=payload.user_prompt,
+        transcript=transcript,
     )
 
     return GenerationRequest(
@@ -238,16 +304,16 @@ async def _build_request(
             PromptContext(context="", chunks=[]),
             memory_context_text,
         ),
-        user_prompt=_format_transcript(history, payload.user_prompt),
+        user_prompt=transcript,
         stream=True,
         owner_id=owner_id,
-        conversation_id=conversation_id,
+        conversation_id=conversation.id,
         # Mirrors ResearchService: populates StreamEvent.session_id on every
         # emitted event so a client that started a new conversation (no
         # `payload.conversation_id`) can learn the server-assigned id from
         # the stream itself, the same way `use-research.ts` learns
         # `research_id` from the first event.
-        session_id=conversation_id,
+        session_id=conversation.id,
         routing_strategy=payload.routing_strategy,
         cache_runtime=CacheRuntime.CHAT,
         runtime=RuntimeType.CHAT,
@@ -396,7 +462,7 @@ async def _persist_on_complete(
         if event.type in _COMPLETION_EVENT_TYPES:
             assistant_content = "".join(content_parts)
 
-            await conversation_service.append_turn(
+            persisted_turn = await conversation_service.append_turn(
                 conversation_id=conversation_id,
                 user_prompt=user_prompt,
                 assistant_content=assistant_content,
@@ -410,6 +476,12 @@ async def _persist_on_complete(
                 conversation_id=conversation_id,
                 user_prompt=user_prompt,
                 assistant_content=assistant_content,
+                user_message_id=(
+                    persisted_turn.user_message_id if persisted_turn is not None else None
+                ),
+                assistant_message_id=(
+                    persisted_turn.assistant_message_id if persisted_turn is not None else None
+                ),
             )
 
             if generation_service is not None:
@@ -459,10 +531,18 @@ async def _persist_on_complete(
     summary="List this user's chat conversations, most recently updated first",
 )
 async def list_chat_conversations(
+    cursor: UUID | None = None,
+    limit: int = Query(
+        default=settings.chat_history_page_size, ge=1, le=settings.chat_history_page_max_size
+    ),
     current_user: User = Depends(get_current_user),
     conversation_service: ConversationService = Depends(get_conversation_service),
 ) -> ChatConversationListResponse:
-    conversations = await conversation_service.list_for_owner(owner_id=current_user.id)
+    page = await conversation_service.list_page_for_owner(
+        owner_id=current_user.id,
+        before_conversation_id=cursor,
+        limit=limit,
+    )
     return ChatConversationListResponse(
         conversations=[
             ChatConversationSummary(
@@ -471,8 +551,9 @@ async def list_chat_conversations(
                 created_at=conversation.created_at,
                 updated_at=conversation.updated_at,
             )
-            for conversation in conversations
-        ]
+            for conversation in page.conversations
+        ],
+        next_cursor=page.next_cursor,
     )
 
 
@@ -483,6 +564,10 @@ async def list_chat_conversations(
 )
 async def get_chat_conversation(
     conversation_id: UUID,
+    cursor: UUID | None = None,
+    limit: int = Query(
+        default=settings.chat_history_page_size, ge=1, le=settings.chat_history_page_max_size
+    ),
     current_user: User = Depends(get_current_user),
     conversation_service: ConversationService = Depends(get_conversation_service),
 ) -> ChatConversationResponse:
@@ -490,13 +575,16 @@ async def get_chat_conversation(
         conversation_id=conversation_id,
         owner_id=current_user.id,
     )
-    messages = await conversation_service.list_messages(
+    page = await conversation_service.list_messages_page(
         conversation_id=conversation.id,
+        before_message_id=cursor,
+        limit=limit,
     )
     return ChatConversationResponse(
         conversation_id=conversation.id,
         title=conversation.title,
-        messages=[_message_response(message) for message in messages],
+        messages=[_message_response(message) for message in page.messages],
+        next_cursor=page.next_cursor,
     )
 
 
@@ -542,7 +630,7 @@ async def stream_chat(
     request = await _build_request(
         payload=payload,
         conversation_service=conversation_service,
-        conversation_id=conversation.id,
+        conversation=conversation,
         owner_id=current_user.id,
         memory_service=memory_service,
     )
@@ -637,7 +725,7 @@ async def stream_chat_ws(
         request = await _build_request(
             payload=payload,
             conversation_service=conversation_service,
-            conversation_id=conversation.id,
+            conversation=conversation,
             owner_id=current_user.id,
             memory_service=memory_service,
         )

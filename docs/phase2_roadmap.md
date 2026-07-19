@@ -377,7 +377,7 @@ strategies, capability/policy filtering, fallback chains —
 exact/L2 semantic/L3 session, policy resolution —
 `runtime_caching_platform_prd.md`, ADR-027), a Streaming Platform
 (canonical event protocol, SSE/WebSocket, wired into `POST
-/api/v1/chat/stream` / `/api/v1/chat/ws`, plus owner-scoped `GET /api/v1/chat/conversations` and `GET /api/v1/chat/conversations/{id}` replay — `streaming_platform_prd.md`,
+/api/v1/chat/stream` / `/api/v1/chat/ws`, plus owner-scoped cursor-paginated `GET /api/v1/chat/conversations` and `GET /api/v1/chat/conversations/{id}` replay. Chat prompt history is bounded non-destructively by ADR-030's persisted deterministic summary — `streaming_platform_prd.md`,
 ADR-028), five per-runtime Validation Contracts (Research, Planner,
 Reviewer, Agent, MCP — `generation/validation/runtime/contracts/`), a
 Validation Policy Layer (`AcceptancePolicy`/`FailFastPolicy`/
@@ -481,8 +481,11 @@ follow-up added server-backed `research_conversations` and a
 `conversation_id` on `research_sessions`, so Research history is now a
 conversation thread containing many research turns rather than a sidebar
 row per isolated question. Prior turns are folded into the next prompt,
-and the Memory Platform's SESSION memories are scoped to the research
-conversation id. Deliberately linear/simple per its own PRD's Non-Goals:
+and the Memory Platform's compact SESSION state is scoped to the research
+conversation id. Its optimized policy gates durable extraction to eligible
+final user-facing turns, short-circuits absent durable memory, and uses one
+embedding for concurrent semantic/research retrieval. Deliberately
+linear/simple per its own PRD's Non-Goals:
 no query decomposition, no research planning/multi-step loops, no agents,
 no LangGraph - a Research Runtime, Deep Research Runtime, Agent Platform,
 and LangGraph all remain future roadmap items. 23 new tests shipped with

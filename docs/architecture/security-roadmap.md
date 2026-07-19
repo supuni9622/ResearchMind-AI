@@ -2,7 +2,12 @@
 
 **Status:** Living Document
 
-**Last Updated:** 2026-07-16
+**Last Updated:** 2026-07-19
+
+> **2026-07-19 Chat history update:** ADR-030 adds owner-scoped cursor replay
+> and non-destructive prompt compaction. Canonical Chat rows remain retained;
+> future retention/deletion controls must govern those canonical records, not
+> the derived prompt summary.
 
 ---
 

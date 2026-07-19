@@ -26,7 +26,8 @@ ResearchMind-AI/
 │   │   ├── 43dc35ceb875_debug.py                          # Initial migration: creates users table + updated_at trigger
 │   │   ├── a97b3b8eee9f_create_documents_table.py          # Creates documents table with processing lifecycle columns
 │   │   ├── 1b6e40f3a754_split_document_status_into_upload_.py  # Splits status into upload_status + processing_status
-│   │   └── bca5e4edca5c_create_conversations_and_messages_tables.py  # Creates conversations + messages tables (Streaming Platform, Milestone 2.9.10); downgrade explicitly drops the message_role enum type
+│   │   ├── bca5e4edca5c_create_conversations_and_messages_tables.py  # Creates conversations + messages tables (Streaming Platform, Milestone 2.9.10); downgrade explicitly drops the message_role enum type
+│   │   └── d9e2f4a6b8c0_add_conversation_history_compaction.py # Adds persisted Chat prompt-summary and compaction-boundary fields
 │   ├── env.py                   # Alembic runtime config (async engine, model imports)
 │   ├── script.py.mako           # Migration file template
 │   └── README                   # Alembic usage notes
@@ -329,6 +330,17 @@ ResearchMind-AI/
 │   │       │   │       ├── models.py               # VectorStoreRecord, SparseVector, VectorPayload, CollectionDefinition, CollectionMetadata, IndexStatistics
 │   │       │   │       ├── registry.py             # VectorStoreRegistry — provider → implementation resolution
 │   │       │   │       └── service.py              # VectorStoreService — validates records, delegates to provider
+│   │       │   ├── memory/                   # Conversation Memory Platform — canonical PostgreSQL durable memory, Valkey compact session state, and Qdrant-backed semantic/research retrieval
+│   │       │   │   ├── extraction/            # MemoryExtractionService + orchestrator — policy-gated, canonical-turn-idempotent durable extraction; Groq primary with OpenAI fallback
+│   │       │   │   ├── policy/                # Eligibility policy and bounded interest promotion — explicit durable interests immediately eligible; generic topics require two distinct sessions and one 90-day promotion claim
+│   │       │   │   ├── retrieval/             # Durable-memory availability cache + shared query embedding; semantic and research searches run concurrently and fail open independently
+│   │       │   │   ├── session/               # Compact, non-transcript session state in Valkey
+│   │       │   │   ├── semantic/              # PostgreSQL canonical semantic-memory service, indexed in Qdrant for search
+│   │       │   │   ├── research/              # PostgreSQL canonical research-memory service, indexed in Qdrant for search
+│   │       │   │   ├── profile/               # USER-memory persistence and duplicate/supersession handling
+│   │       │   │   ├── storage/               # Postgres/Valkey/vector-store adapters; PostgreSQL remains the source of truth
+│   │       │   │   ├── observability/         # Structured decision, failure, and latency metrics; generation ledger distinguishes answer and memory-extraction cost
+│   │       │   │   └── services/              # Memory context assembly/formatting and duplicate suppression against canonical history
 │   │       │   ├── observability/            # AI Runtime Observability Platform (Phase 3.9, oberservability_platform_prd.md) — implemented 2026-07-18
 │   │       │   │   ├── models.py            # PRE-EXISTING, unrelated to the PRD below despite the name collision — PipelineRuntimeMetrics/RuntimeStageMetric/ArtifactMetric, used by ProcessingService's RuntimeMetricsCollector
 │   │       │   │   ├── runtime.py           # PRE-EXISTING — RuntimeMetricsCollector (stage timing/artifact-size collector for the Knowledge Processing pipeline)
@@ -496,7 +508,7 @@ ResearchMind-AI/
 │   │       │       ├── api.py           # Router aggregator
 │   │       │       ├── admin.py         # Admin endpoints
 │   │       │       ├── auth.py          # Auth endpoints (callback, me)
-│   │       │       ├── chat.py          # POST /chat/stream (SSE), WebSocket /chat/ws, GET /chat/conversations, GET /chat/conversations/{id}; transcript + Memory injection, durable turn persistence for both complete/completed events, and first-question Groq titles
+│   │       │       ├── chat.py          # POST /chat/stream (SSE), WebSocket /chat/ws, cursor-paginated GET /chat/conversations and /chat/conversations/{id}; bounded transcript + Memory injection, durable turn persistence, and first-question Groq titles
 │   │       │       ├── documents.py     # Document management + owner-scoped Qdrant knowledge-base statistics
 │   │       │       ├── evaluation.py    # Evaluation endpoints
 │   │       │       ├── feedback.py      # Feedback endpoints
@@ -585,13 +597,13 @@ ResearchMind-AI/
 │   │       │
 │   │       ├── models/          # SQLAlchemy ORM models
 │   │       │   ├── __init__.py          # Exports all models (required for Alembic)
-│   │       │   ├── conversation.py      # Conversation + Message models — Streaming Platform, Milestone 2.9.10
+│   │       │   ├── conversation.py      # Conversation + Message models — includes persisted prompt-history summary/boundary; canonical messages remain replayable
 │   │       │   ├── document.py          # Document model — upload_status + processing_status lifecycle columns
 │   │       │   ├── enums.py             # DocumentUploadStatus, DocumentProcessingStatus (split lifecycle), MessageRole
 │   │       │   └── user.py              # User model
 │   │       │
 │   │       ├── repositories/    # Data access layer
-│   │       │   ├── conversation.py      # ConversationRepository — owner-scoped conversation/message replay, first-user lookup, title update, deterministic tied-timestamp ordering
+│   │       │   ├── conversation.py      # ConversationRepository — owner-scoped cursor-paginated replay, prompt-history reads/updates, first-user lookup, title update, deterministic ordering
 │   │       │   ├── document.py          # DocumentRepository (CRUD operations)
 │   │       │   └── user.py              # UserRepository (CRUD operations)
 │   │       │
@@ -606,7 +618,8 @@ ResearchMind-AI/
 │   │       │
 │   │       ├── services/        # Business logic layer
 │   │       │   ├── auth.py                        # OAuth code exchange with Cognito
-│   │       │   ├── conversation.py                 # ConversationService — owner-scoped history/replay, first prompt/title helpers, and ordered append_turn()
+│   │       │   ├── conversation.py                 # ConversationService — cursor replay, rolling compaction orchestration, first prompt/title helpers, ordered append_turn()
+│   │       │   ├── conversation_compaction.py      # Deterministic, zero-provider-cost bounded summary for old Chat prompt history
 │   │       │   ├── document_processing_service.py # Orchestrates processing lifecycle + status updates
 │   │       │   ├── queued_document_processing_service.py  # Bridges queue jobs to DocumentProcessingService
 │   │       │   └── user.py                        # User sync, creation, and lifecycle
@@ -1100,6 +1113,13 @@ ResearchMind-AI/
 │   │   │   ├── artifacts/                   # test_models.py, test_builders.py, test_writers.py (_FakeDocumentStorage double)
 │   │   │   ├── reports/                     # test_guardrail_report.py, test_issue_report.py
 │   │   │   └── utils/                       # test_patterns.py
+│   │   ├── ai/memory/                        # Memory Optimization test suite — eligibility, availability short-circuit, compact session state, extraction idempotency/orchestration, and two-session interest promotion
+│   │   │   ├── test_availability.py
+│   │   │   ├── test_extraction_policy.py
+│   │   │   ├── test_interest_promotion.py
+│   │   │   ├── test_memory_context.py
+│   │   │   ├── test_memory_extraction_orchestrator.py
+│   │   │   └── test_session_state.py
 │   │   ├── infrastructure/storage/
 │   │   │   └── test_s3_storage.py           # S3StorageService — boto3 ClientError → typed StorageError mapping
 │   │   ├── benchmarks/common/
@@ -1171,6 +1191,8 @@ ResearchMind-AI/
 | Generation Platform | `apps/api/app/ai/runtime/generation/` | Owns all LLM interactions over 5 providers (Groq, OpenAI, Claude, Gemini, Ollama): native structured-output decoding, a parser/repair fallback, input/output/hallucination/runtime Validation Platform integration (registry, weighted scoring, `ValidationReport`, five runtime contracts — Research/Planner/Reviewer/Agent/MCP), a Validation Policy Layer (`AcceptancePolicy`/`FailFastPolicy`/`RuntimeValidationPolicy`), a regenerate-on-invalid-output loop, a Prompt Platform bridge (`generate_from_template()`), a Routing Platform bridge — `generate()`/`stream_generate()` resolve a model via `routing_strategy` when no `provider` is given explicitly — a Runtime Caching Platform bridge, a Streaming Platform bridge, Runtime Metrics Integration (`GenerationMetricsService`), and an Artifact Platform bridge (`generate()` persists a `GenerationArtifact` incl. `metrics.json`). Complete, per `generation_platform_complexion_prd.md` — see `docs/architecture/structured-output-platform.md`; now reachable over HTTP via `POST /api/v1/chat/stream` / `/api/v1/chat/ws` (`/research` still does not exist, blocked on a Research Runtime) |
 | Routing Platform | `apps/api/app/ai/runtime/generation/routing/`, `catalog/` | Model/provider selection layer between callers and the Generation Platform: a scored `ModelCatalogRegistry` (12 models, per-task 0-1 scores, cost/context/policy metadata), a `RoutingService` (capability + policy filtering → strategy-weighted scoring → distinct-provider-preferred fallback chain), 15 `RoutingStrategy` values (6 with dedicated task profiles), and structlog-logged `RoutingDecision`s. Implemented — see `docs/architecture/model-routing-platform.md`, ADR-026 |
 | Runtime Caching Platform | `apps/api/app/ai/runtime/generation/caching/` | Caches `GenerationResult`s to cut provider cost/latency/duplicate execution: L1 Exact Cache (Valkey, content-hash keyed), L2 Semantic Cache (LangChain `RedisSemanticCache` against a dedicated `redis-stack-server` instance, context-isolated), L3 Session Cache (Valkey, implemented but not yet called by anything), and a `CachePolicyResolver` (AUTO/NEVER/EXACT_ONLY/SEMANTIC/SESSION per `CacheRuntime`). Wired into `GenerationService`. Streaming requests are no longer bypassed (see Streaming Platform row) — Implemented — see `docs/architecture/runtime-caching-platform.md`, ADR-027 |
+| Memory Platform | `apps/api/app/ai/memory/` | Provides compact SESSION state, canonical PostgreSQL USER/SEMANTIC/RESEARCH memory, Qdrant search indexing, and bounded context injection for Chat and Research. The original four-memory architecture remains intact; its optimized runtime now short-circuits users with no durable memory, computes one query embedding, searches semantic/research memory concurrently, and fails open per branch. A versioned deterministic extraction policy invokes the LLM only for eligible final user-facing turns. The Generation Usage ledger labels memory-extraction cost separately from answer cost. See `docs/architecture/memory-platform.md` §26 and ADR-029. |
+| Chat History Growth Controls | `apps/api/app/services/conversation.py`, `conversation_compaction.py` | Cursor-pagination provides safe canonical conversation/message replay; a persisted deterministic summary plus the newest 12 messages bounds generation history without an extra LLM call. Defaults are page size 50, page maximum 100, and a 4,000-character summary cap. Canonical rows are retained. See ADR-030. |
 | Streaming Platform | `apps/api/app/ai/runtime/events/`, `apps/api/app/ai/runtime/generation/streaming/` | Real-time execution infrastructure, two independent layers: a Runtime Event Platform (`events/` — canonical `StreamEvent`, layered so future Research/Agent/Tool runtimes each own their event vocabulary rather than a shared enum) and a Generation Streaming Platform (`generation/streaming/` — `StreamingService`, SSE transport with heartbeat/timeout-ceiling, WebSocket transport). On a Runtime Cache hit, replays the content as a synthetic token stream instead of skipping the streaming contract; on a miss, streams live and stores the assembled result on completion. Wired into `POST /api/v1/chat/stream` / `/api/v1/chat/ws` (`apps/api/app/api/v1/chat.py`), backed by a new minimal `Conversation`/`Message` persistence layer. Implemented (Milestone 2.9.10) — see `docs/architecture/streaming-platform.md`, ADR-028 |
 | Guardrails Platform | `apps/api/app/ai/guardrails/` | Standalone, platform-wide policy/safety layer answering "should the system do this?" (Milestone 11.16, `guardrails_platform_prd.md`) — Input (prompt injection/jailbreak, scope, PII), Retrieval (Context Sanitization composing the pre-existing `context/guardrails/`, a new Source Trust Platform, Citation Integrity), Generation (Faithfulness + Schema Enforcement, both reusing Validation Platform validators, PII Leakage), and Runtime (Budget, Loop Detection) guardrails, plus policies/scoring/artifacts. MVP foundation complete and wired directly into `GenerationService` (input gate + full `evaluate()` report on `GenerationResult.guardrails`) and `ContextBuilderService` (retrieval-stage gate) — `guardrail_integration_prd.md` |
 | Artifact Platform | `apps/api/app/ai/artifacts/` | Centralized, cross-cutting canonical persistence/replay layer for AI Runtime executions (Milestone 3.10, `artifacts_platform_prd.md`) — immutable, versioned, policy-gated (`ArtifactPolicyService`). Generation artifacts (wired into `GenerationService.generate()`), Streaming artifacts (wired into `StreamingService._stream_live()`), and Conversation artifacts (wired into `chat.py`, one immutable file per turn) are live; Session/Research/Agent/Evaluation artifacts are built and unit-tested but scaffold-only, since no session/research/agent/evaluation runtime exists yet. `replay/` reconstructs a `GenerationResult` or re-emits a stored `StreamEvent` sequence from persisted artifacts |

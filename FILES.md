@@ -102,6 +102,7 @@ All subdirectories are empty — planned AI agent implementations.
 | `versions/bca5e4edca5c_create_conversations_and_messages_tables.py` | Migration 4: creates `conversations` (FK to `users`) and `messages` (FK to `conversations`, `message_role` enum) tables — Streaming Platform, Milestone 2.9.10. Downgrade explicitly drops the `message_role` Postgres enum type (not done automatically by `drop_table`) so downgrade→upgrade round-trips cleanly |
 | `versions/9ab1f891554a_create_memories_table.py` | Migration: creates `memories` table (`id`, `owner_id` FK→`users`, `type`, `content`, `memory_metadata` JSONB, `importance_score`, timestamps) — Memory Platform, 2026-07-18. Verified via `alembic upgrade head` |
 | `versions/cfd2f848f25b_create_research_conversations_table.py` | Migration: creates `research_conversations` and adds nullable `research_sessions.conversation_id` FK/index — groups Research turns into server-backed conversation threads |
+| `versions/d9e2f4a6b8c0_add_conversation_history_compaction.py` | Adds nullable `conversations.history_summary` and `history_compacted_through_at` — persistent, non-destructive Chat prompt-history compaction boundary |
 
 ---
 
@@ -1011,7 +1012,7 @@ FastAPI application entry point — creates the app, registers middleware and ex
 | File | Description |
 |------|-------------|
 | `__init__.py` | Exports all models (required so Alembic autogenerate can detect them) |
-| `conversation.py` | **Implemented** (Streaming Platform, Milestone 2.9.10) — `Conversation` (id, owner_id FK→users, title) and `Message` (id, conversation_id FK→conversations, `role: MessageRole`, content, provider, model) SQLAlchemy models, modeled directly on `document.py`'s conventions |
+| `conversation.py` | **Implemented** (Streaming Platform, Milestone 2.9.10) — `Conversation` (id, owner_id FK→users, title, persisted history summary/boundary) and `Message` (id, conversation_id FK→conversations, `role: MessageRole`, content, provider, model) SQLAlchemy models. Canonical message rows are never deleted by compaction. |
 | `document.py` | `Document` SQLAlchemy model — id, owner_id (FK→users), filename, storage_key, content_type, size_bytes, checksum, `upload_status`, `processing_status`, `processed_at`, `processing_error` |
 | `enums.py` | `DocumentUploadStatus` StrEnum (pending, uploading, completed, failed), `DocumentProcessingStatus` StrEnum (pending, processing, completed, failed) — split from the original single `DocumentStatus` — and `MessageRole` StrEnum (user, assistant) |
 | `memory.py` | **Implemented** (Memory Platform, 2026-07-18) — `Memory` SQLAlchemy model backing `MemoryRecord` for the USER/RESEARCH/SEMANTIC types (`id`, `owner_id` FK→users, `type`, `content`, `memory_metadata` JSONB, `importance_score`). SESSION memory never reaches this table — Valkey-only, TTL-bound. Python attribute is `memory_metadata`, not `metadata` (reserved on every `DeclarativeBase` subclass, mirrors `ResearchSession.runtime_metadata`) |
@@ -1024,7 +1025,7 @@ FastAPI application entry point — creates the app, registers middleware and ex
 | File | Description |
 |------|-------------|
 | `__init__.py` | Exports `UserRepository`, `DocumentRepository`, `ConversationRepository` |
-| `conversation.py` | **Implemented** — owner-scoped create/read/list operations, message append/replay, first-user-message lookup, and title update. Message replay is deterministic user → assistant even when database timestamps tie. |
+| `conversation.py` | **Implemented** — owner-scoped create/read/list operations, cursor-paginated conversation/message replay, message append, first-user-message lookup, title update, and persistent compaction-boundary updates. Message replay is deterministic user → assistant even when database timestamps tie. |
 | `document.py` | `DocumentRepository` — CRUD operations for documents |
 | `memory.py` | **Implemented** (Memory Platform, 2026-07-18) — `MemoryRepository`: `create`, `get_by_id_for_owner` (owner-scoped), `list_for_owner` (optionally type-filtered, recency-ordered — backs the non-semantic branches of `MemoryService.search()`), `list_stale(older_than, max_importance, types, owner_id=None)` (candidates for `MemoryLifecycleService.sweep_stale()`; `owner_id=None` scans every owner, since the sweep is an administrative job), `delete`. Not yet added to `repositories/__init__.py`'s exports (constructed directly by `dependencies/memory.py`/`ai/memory/create.py` instead) |
 | `user.py` | `UserRepository` — get by id/email/provider_user_id, create, update, delete, exists |
@@ -1060,7 +1061,8 @@ Empty directory — placeholder.
 |------|-------------|
 | `__init__.py` | Package marker |
 | `auth.py` | `AuthService.exchange_code()` — POSTs to Cognito `/oauth2/token`, supports PKCE and confidential clients; logs exchange start/success/failure |
-| `conversation.py` | **Implemented** — owner-scoped create/read/list, transcript loading, first-user-prompt lookup, title update, and turn persistence. `append_turn()` assigns distinct timestamps to the user and assistant messages, preserving visual and transcript order. |
+| `conversation.py` | **Implemented** — owner-scoped create/read/list, cursor-paginated replay, compacted prompt-history loading, first-user-prompt lookup, title update, and turn persistence. `append_turn()` assigns distinct timestamps to the user and assistant messages, preserving visual and transcript order. |
+| `conversation_compaction.py` | **Implemented** — deterministic, zero-provider-cost rolling summary of older Chat turns; preserves explicit interest/preference/decision phrases before bounded turn excerpts while canonical rows remain available through pagination. |
 | `document_processing_service.py` | `DocumentProcessingService` — orchestrates the processing lifecycle and persists status transitions (PROCESSING → COMPLETED/FAILED) |
 | `queued_document_processing_service.py` | `QueuedDocumentProcessingService` — bridges the queue to the processing pipeline: resolves the `Document` for a `ProcessingJob`, builds the `ParseRequest`, and invokes `DocumentProcessingService` |
 | `user.py` | `UserService` — `sync_user`, `create_user`, `get_user_by_id/email`, `update_last_login`, `deactivate_user`; logs all lifecycle events including `user.not_found` and `user.deactivated` |
@@ -1240,6 +1242,8 @@ All empty.
 | `ADR-026-model-routing-platform.md` | Decision: introduces a dedicated Model Routing Platform inside the Generation Platform — a centralized decision layer (model/provider/fallback selection, cost optimization, task-based routing) rather than embedding model choice inside agents or duplicating provider-selection logic across callers |
 | `ADR-027-runtime-caching-platform.md` | Decision: introduces a Runtime Caching Platform (L1 exact/L2 semantic/L3 session) wired into `GenerationService`; streaming requests participate in caching identically to non-streaming ones (corrected as part of the Streaming Platform work — see ADR-028) rather than bypassing the cache entirely |
 | `ADR-028-streaming-platform.md` | Decision: introduces the Streaming Platform as two independent layers — a Runtime Event Platform (`runtime/events/`, canonical `StreamEvent` protocol reusable by any future runtime) and a Generation Streaming Platform (`generation/streaming/`, SSE/WebSocket transport + cache-aware orchestration) — rather than a chat-only streaming feature or a duplicated `streaming/providers/` hierarchy. Reconciled during implementation: the event-type model is layered (each future runtime owns its own enum) rather than one flat shared enum, and `StreamEvent` is the richer 8-field shape consistently across the doc |
+| `ADR-029-cost-aware-memory-promotion.md` | Decision: replace per-turn LLM memory extraction with deterministic eligibility plus one-time, repeated-topic promotion; preserve LLM validation for durable USER/RESEARCH memories while constraining cost, latency, profile noise, and provider exposure |
+| `ADR-030-chat-history-pagination-and-context-compaction.md` | Decision: cursor-page canonical Chat replay while keeping the prompt bounded with a persisted, deterministic rolling summary; documents initial 50/100/12/4,000-character defaults and their tuning criteria |
 
 ---
 
@@ -1304,6 +1308,7 @@ All empty.
 | `retrieval-benchmarking-strategy.md` | Retrieval Benchmarking Strategy (**Accepted**) — freezes the initial evaluation methodology: dense/sparse/hybrid scope, dataset size/format, 6 query categories with expected winners, ADR-020 metric requirements, the Hybrid decision gate (`Dense Results != Sparse Results`) |
 | `runtime-caching-platform.md` | Runtime Caching Platform architecture (companion to ADR-027, **Implemented**) — L1 exact/L2 semantic/L3 session caching, policy resolution; its "Streaming" section was corrected during the Streaming Platform work to remove the blanket `request.stream` cache bypass |
 | `streaming-platform.md` | Streaming Platform architecture (companion to ADR-028, **Implemented**) — Runtime Event Platform + Generation Streaming Platform two-layer design, layered event-type model, SSE/WebSocket transports, cache-hit replay, "Production Considerations" (SSE heartbeats, proxy buffering, stream timeout ceiling, browser `EventSource`/WebSocket auth limitations) |
+| `memory-platform.md` | Memory Platform architecture — baseline design plus §26 **Memory Optimization Architecture** documenting cost-aware eligibility, explicit-interest extraction, repeated-topic promotion, PostgreSQL/Valkey/Qdrant storage responsibilities, idempotency, and staged operational validation (companion to ADR-029) |
 | `structured-output-platform.md` | Structured Output Platform (**~99% complete in its own scope**) — the continuously-updated, detailed architecture doc for `generation/structured_output/`, `generation/validation/`, `generation/langchain/`, and the Prompt Platform bridge: native provider structured output, parser/repair fallback, input/output/hallucination validation (registry, scoring, `ValidationReport`), regeneration strategy, provider capability flags, prompt-template integration |
 | `system-overview.md` | High-level system overview |
 

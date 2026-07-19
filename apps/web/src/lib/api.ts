@@ -65,6 +65,10 @@ export interface GenerationUsageSummary {
   month_cost_usd: number;
   month_requests: number;
   month_tokens: number;
+  memory_extraction_cost_usd: number;
+  memory_extraction_requests: number;
+  answer_turns: number;
+  memory_extraction_cost_per_100_turns: number;
 }
 
 export type InfrastructureServiceStatus = 'healthy' | 'unhealthy';
@@ -234,12 +238,14 @@ export interface ChatConversationSummaryResponse {
 
 export interface ChatConversationListResponse {
   conversations: ChatConversationSummaryResponse[];
+  next_cursor: string | null;
 }
 
 export interface ChatConversationResponse {
   conversation_id: string;
   title: string | null;
   messages: ChatMessageResponse[];
+  next_cursor: string | null;
 }
 
 // Matches `app/api/v1/chat.py`'s SSE streaming endpoint.
@@ -291,9 +297,16 @@ export const api = {
   },
   chat: {
     stream: streamChat,
-    listConversations: () => request<ChatConversationListResponse>('/api/v1/chat/conversations'),
-    getConversation: (conversationId: string) =>
-      request<ChatConversationResponse>(`/api/v1/chat/conversations/${conversationId}`),
+    listConversations: (cursor?: string) =>
+      request<ChatConversationListResponse>(
+        `/api/v1/chat/conversations${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''}`
+      ),
+    getConversation: (conversationId: string, cursor?: string) =>
+      request<ChatConversationResponse>(
+        `/api/v1/chat/conversations/${conversationId}${
+          cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''
+        }`
+      ),
   },
   research: {
     ask: (query: string, options: ResearchAskOptions = {}) =>

@@ -22,8 +22,10 @@ from app.ai.knowledge.retrieval.query.dense_service import QueryEmbeddingService
 from app.ai.knowledge.vectorstores.create import create_qdrant_client
 from app.ai.memory.artifacts.writers import MemoryArtifactWriter
 from app.ai.memory.extraction.service import MemoryExtractionService
+from app.ai.memory.observability.recorder import StructuredMemoryMetricsRecorder
 from app.ai.memory.profile.service import UserMemoryService
 from app.ai.memory.research.service import ResearchMemoryService
+from app.ai.memory.retrieval.availability import DurableMemoryAvailabilityService
 from app.ai.memory.semantic.service import SemanticMemoryService
 from app.ai.memory.services.memory_service import MemoryService
 from app.ai.memory.session.service import SessionMemoryService
@@ -34,7 +36,6 @@ from app.ai.runtime.generation.enums import GenerationProvider
 from app.ai.runtime.generation.orchestration.create import create_generation_runtime
 from app.core.settings import settings
 from app.infrastructure.metrics.interfaces import MetricsRecorder
-from app.infrastructure.metrics.noop import NoOpMetricsRecorder
 from app.infrastructure.storage import create_storage
 
 
@@ -86,8 +87,13 @@ def create_memory_artifact_writer() -> MemoryArtifactWriter:
 
 
 @lru_cache
+def create_memory_availability_client() -> Redis:
+    return Redis.from_url(settings.valkey_url, decode_responses=True)
+
+
+@lru_cache
 def get_memory_metrics() -> MetricsRecorder:
-    return NoOpMetricsRecorder()
+    return StructuredMemoryMetricsRecorder()
 
 
 def build_memory_service(
@@ -128,6 +134,11 @@ def build_memory_service(
         artifact_writer=create_memory_artifact_writer(),
         metrics=metrics,
         importance_threshold=settings.memory_importance_threshold,
+        availability_service=DurableMemoryAvailabilityService(
+            store,
+            create_memory_availability_client(),
+            metrics,
+        ),
     )
 
 

@@ -302,14 +302,19 @@ Examples
 
 # Phase 2.7 — Conversation Memory
 
-**Status:** Planned
+**Status:** ✅ Complete — implemented as the optimized Memory Platform; representative live-traffic validation remains pending.
 
 Responsibilities
 
-- ✅ Conversation history and owner-scoped Chat replay
+- ✅ Cursor-paginated conversation history and owner-scoped Chat replay; deterministic prompt compaction retains canonical rows while bounding model history (ADR-030)
 - ✅ Session, user, semantic, and research memory
 - ✅ Session and user context injection
+- ✅ Cost-aware extraction policy, compact session state, and canonical turn idempotency
+- ✅ Explicit durable-interest promotion and bounded repeated-topic promotion across two distinct sessions
+- ✅ Durable-memory availability short-circuit, one shared query embedding, and parallel semantic/research search
+- ✅ Structured memory metrics plus separate answer and memory-extraction cost accounting
 - 🟡 Query rewriting and retrieval-grounded Chat remain future work
+- 🟡 Validate production skip/empty rates, P50/P95 memory latency, and extraction cost per 100 answer turns
 
 ---
 

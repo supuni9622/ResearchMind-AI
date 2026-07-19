@@ -78,11 +78,19 @@ class MemoryExtractionService:
         assistant_message: str | None = None,
         owner_id: UUID | None = None,
         conversation_id: UUID | None = None,
+        interest_topics: list[str] | None = None,
     ) -> list[ExtractedMemory]:
         turn = f"User: {user_message}"
 
         if assistant_message:
             turn += f"\nAssistant: {assistant_message}"
+        if interest_topics:
+            turn += (
+                "\nSystem evidence: the user has engaged with these topics in "
+                f"multiple distinct conversations: {', '.join(interest_topics)}. "
+                "Consider a USER research-interest memory only when that evidence "
+                "supports a stable interest; do not infer response preferences."
+            )
 
         request = GenerationRequest(
             # `GenerationService._validate()` rejects both an empty

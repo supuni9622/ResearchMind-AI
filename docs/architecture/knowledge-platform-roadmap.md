@@ -204,7 +204,7 @@ chunking/
 
 # Phase 2.3 — Embedding Platform
 
-**Status:** Planned
+**Status:** ✅ Complete — implemented as the Memory Platform and wired into both Chat and Research.
 
 Responsibilities
 
@@ -306,10 +306,10 @@ Examples
 
 Responsibilities
 
-- Conversation history
-- Long-term memory
-- Session context
-- User context
+- ✅ Conversation history and owner-scoped Chat replay
+- ✅ Session, user, semantic, and research memory
+- ✅ Session and user context injection
+- 🟡 Query rewriting and retrieval-grounded Chat remain future work
 
 ---
 

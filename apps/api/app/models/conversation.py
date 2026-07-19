@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
 
-from sqlalchemy import Enum, ForeignKey, String, Text
+from sqlalchemy import DateTime, Enum, ForeignKey, String, Text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -36,6 +37,18 @@ class Conversation(TimestampMixin, Base):
 
     title: Mapped[str | None] = mapped_column(
         String(255),
+        nullable=True,
+    )
+
+    # A short-lived, database-backed lease prevents concurrent completed
+    # turns from making duplicate title-model calls or overwriting a title.
+    title_generation_token: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        nullable=True,
+    )
+
+    title_generation_started_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
         nullable=True,
     )
 

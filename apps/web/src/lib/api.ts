@@ -191,10 +191,33 @@ export interface ChatStreamOptions {
   provider?: GenerationProvider;
 }
 
-// Matches `app/api/v1/chat.py`'s `POST /chat/stream` (SSE) endpoint. There is
-// no non-streaming `POST /chat` or `GET /chat/{id}` — the Chat runtime is
-// stream-only and has no server-side history read path yet, unlike Research
-// (see `features/chat/use-chat.ts` for how the frontend works around that).
+export interface ChatMessageResponse {
+  id: string;
+  role: 'user' | 'assistant';
+  content: string;
+  provider: string | null;
+  model: string | null;
+  created_at: string;
+}
+
+export interface ChatConversationSummaryResponse {
+  conversation_id: string;
+  title: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ChatConversationListResponse {
+  conversations: ChatConversationSummaryResponse[];
+}
+
+export interface ChatConversationResponse {
+  conversation_id: string;
+  title: string | null;
+  messages: ChatMessageResponse[];
+}
+
+// Matches `app/api/v1/chat.py`'s SSE streaming endpoint.
 async function* streamChat(
   userPrompt: string,
   options: ChatStreamOptions = {}
@@ -234,6 +257,9 @@ export const api = {
   },
   chat: {
     stream: streamChat,
+    listConversations: () => request<ChatConversationListResponse>('/api/v1/chat/conversations'),
+    getConversation: (conversationId: string) =>
+      request<ChatConversationResponse>(`/api/v1/chat/conversations/${conversationId}`),
   },
   research: {
     ask: (query: string, options: ResearchAskOptions = {}) =>

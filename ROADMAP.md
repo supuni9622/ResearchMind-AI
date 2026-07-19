@@ -1,6 +1,6 @@
 # ResearchMind AI Roadmap
 
-**Last Updated:** 2026-07-18 (Retrieval Platform: Parent/Child Retrieval + 3-way Parallel Retrieval closed, see below)
+**Last Updated:** 2026-07-19 (Chat follow-up: account-backed history/replay, reliable terminal-event persistence, deterministic turn order, and first-question Groq titles)
 
 **Current Maturity:** NotebookLM++ + Perplexity v1. Hybrid Retrieval, Reranking, Parent Expansion, Compression, Context Guardrails, and strategy-based Prompt Formatting are all in place — beyond a plain NotebookLM clone. A standalone, platform-wide Guardrails Platform (Milestone 11.16 — input/retrieval/generation/runtime stages, Source Trust, policies, scoring, artifacts) is now complete as an MVP foundation, alongside the Validation Platform. The Generation Platform is now fully complete per `generation_platform_complexion_prd.md` — Routing Platform, Runtime Caching Platform (L1 exact/L2 semantic/L3 session caching, policy resolution), five runtime validation contracts (Research/Planner/Reviewer/Agent/MCP), a Validation Policy Layer (Acceptance/Fail-Fast/Runtime Validation), every PRD output validator, and Runtime Metrics Integration are all done. A Generation Runtime Platform (`generation/orchestration/`, `execute_generation()`/`GenerationRuntime.execute()`) now gives every future caller one canonical entrypoint into that stack instead of reaching into `GenerationService` directly, per `generation_runtime_platform_prd.md`. **`POST /research` is now live** — the Research API Platform (`app/ai/research/`) composes Retrieval → Context → Generation Runtime → Streaming → Artifacts into the first complete, end-to-end, cited product answer ResearchMind has ever produced, with `POST /research`, `/research/stream`, `/research/citations`, `GET /research/{id}` (single-turn replay, backed by `research_sessions`), and server-backed `/research/conversations` thread replay. This is deliberately linear — no query decomposition, planning, or agents yet, per `research_api_prd.md`'s own Non-Goals; that broader Research Runtime / Deep Research / Agent Platform work is next. Most recently, an **AI Runtime Observability Platform** (`oberservability_platform_prd.md`) shipped: real LangSmith tracing + a new metrics/statistics/report/artifact layer, wired into both Generation entry points (`generate()` and `stream_generate()`, so Research and Chat both get it, plus the Knowledge Processing pipeline). Live verification against an actual LangSmith account and S3 bucket found and fixed three real bugs (streaming was completely dark for both tracing and artifact persistence; a missing artifact-policy rule silently dropped every research artifact; the tracer never sent a real prompt or output) and surfaced a real product gap that got closed as a follow-up (streamed generations never ran post-generation validation/guardrail scoring, unlike non-streamed ones). The same verification pass also surfaced Research's lack of multi-turn continuity; a later Memory Platform and research-conversation follow-up closed the core product gap by threading `ResearchSession` rows under `ResearchConversation`, folding prior turns into prompts, and scoping SESSION memory to the conversation id. Since then, two previously-tracked Retrieval Platform gaps have closed: **Parent/Child Retrieval** now has a real producer — a new `HierarchicalChunkingProvider` (Milestone 2.2) generates parent sections + child chunks via LangChain's `RecursiveCharacterTextSplitter`, feeding the Context Platform's previously-orphaned Parent Expansion consumer (Milestone 2.8.1) for the first time — and **Parallel Retrieval** grew from a dense+sparse 2-way `asyncio.gather()` to a genuine 3-way one, adding a filter-only Metadata branch (`QdrantRetrievalProvider.search_metadata()` via Qdrant `scroll()`) fused in by RRF alongside dense and sparse. Maturity ladder: `NotebookLM++ → Perplexity v1 (here) → Open Deep Research → Manus / Glean`.
 
@@ -177,7 +177,7 @@ Completed
 
 ## 1.5 Authorization
 
-**Status:** Planned
+**Status:** ✅ Complete — delivered as the Memory Platform and wired into Chat and Research.
 
 Planned
 
@@ -999,10 +999,10 @@ Provides conversational memory capabilities for downstream AI systems.
 
 ### Planned Capabilities
 
-- Short-term conversation memory
-- Long-term user memory
-- Semantic memory retrieval
-- Context window optimization
+- ✅ Session, user, semantic, and research memory
+- ✅ Conversation transcript/history and memory-context injection
+- ✅ Owner-scoped Chat history/replay (`GET /chat/conversations`, `GET /chat/conversations/{id}`)
+- 🟡 Context-window optimization remains future work
 
 ---
 
@@ -1303,7 +1303,7 @@ Completed
 
 ### To-Do / Open Items
 
-- Chat has a complete backend (`/chat/stream`, `/chat/ws`) but zero frontend surface — `apps/web`'s nav is Dashboard/Research/Documents only. Deferred design decision: separate "Chat" nav entry/page (mirrors the backend's already-separate persistence + no-retrieval-grounding) vs. a unified input with a mode toggle.
+- Chat now has a separate `/chat` surface with server-backed conversation list/replay, full-title tooltips, and first-question Groq titles. Remaining Chat work is query rewriting and retrieval/citations, not a frontend/history gap.
 - `_sse_byte_stream` (`runtime/generation/streaming/transports/sse.py`) only catches `TimeoutError`/`StopAsyncIteration` around `events.__anext__()` — any other exception propagates unhandled and silently kills the SSE connection with no client-visible `error` event. Not yet hardened.
 - No automated check for upstream model deprecations — Finding 2 above was only caught via a live 404 during manual testing, not proactively.
 
@@ -1955,7 +1955,7 @@ The major AI Engineering platforms interact as follows.
 | Phase 2.6 — Retrieval Platform | ✅ Complete (Foundation + Metadata Filtering + Reranking + 3-way Parallel Retrieval [dense+sparse+metadata via `asyncio.gather`]) |
 | Phase 2.7 — Reranking Platform | ✅ Complete (Foundation) |
 | Phase 2.8 — Context Platform | ✅ Complete (Parent Expansion, Adjacent Merge, Compression V1-V4, Guardrails V1, Citations, Prompt Formatter — Phase 3.7, `context_platform_complexion_prd.md`) |
-| Phase 2.9 — Conversation Memory Platform | ⏳ Planned |
+| Phase 2.9 — Conversation Memory Platform | ✅ Complete — Memory Platform wired into Chat and Research; Chat also has owner-scoped server history/replay. Query rewriting and retrieval remain future Chat work. |
 | Phase 2.10 — Knowledge Service | ⏳ Planned |
 | Phase 3.1 — Generation Platform | ✅ Complete, per `generation_platform_complexion_prd.md` (structured output, input/output/hallucination/runtime validation + scoring, five runtime contracts, Acceptance/Fail-Fast/Runtime Validation policy layer, every PRD output validator, regeneration, prompt bridge, Routing Platform, Runtime Caching Platform, Streaming Platform, Runtime Metrics Integration, Artifact Platform done) |
 | Phase 3.2 — LangChain Adoption for Generation | 🟡 Mostly Complete for structured output (LCEL not adopted) |
@@ -1990,7 +1990,7 @@ Only remaining items nearby:
 
 Phase 2.8 — Context Platform is now complete (compression V1-V4, and the LangChain provider is wired into `ContextBuilderService.build()`'s default pipeline behind `settings.enable_langchain_compression`). Remaining nearby scope:
 
-- Conversation Memory Platform (Phase 2.9)
+- Conversation-memory consolidation/context-window optimization beyond the completed Memory Platform
 - Knowledge Service — unified orchestration API (Phase 2.10)
 - Forward `HybridRetrieveRequest.rerank` from `/retrieve/hybrid` into `RetrievalService.search_hybrid` (currently always uses the service's `rerank=True` default)
 - Multi-query Retrieval (query decomposition moved to the future Research Runtime)
@@ -1999,7 +1999,7 @@ The **Guardrails Platform** (Milestone 11.16, see above) is now complete as a st
 
 ## Milestone 3.5 — Research Frontend Integration (✅ complete)
 
-`apps/web`'s Research page now calls the live `/research`/`/research/stream` APIs for the first time (real SSE via `use-research.ts`/`lib/sse.ts`, `mock-engine.ts` deleted) — see Milestone 3.5 above for full detail, the three backend bugs found and fixed while validating it end-to-end (a stream-completion event-type mismatch that silently dropped every `research_sessions` row, a fully-retired Claude model, and Claude Sonnet 5 rejecting the `temperature` parameter), and the open to-do list. The most significant open item isn't a bug: **Chat has a complete backend but no frontend surface at all**, and how to present it alongside Research (separate nav/page vs. a unified mode-toggle input) is a deliberately deferred design discussion.
+`apps/web`'s Research page now calls the live `/research`/`/research/stream` APIs for the first time (real SSE via `use-research.ts`/`lib/sse.ts`, `mock-engine.ts` deleted). Chat is now a separate `/chat` surface, with account-backed conversation list/replay. Completed Chat turns recognize both `complete` and `completed` stream events, preserve user → assistant replay order, and generate a low-cost Groq title from the first persisted user question. Chat still intentionally has no query-rewrite or retrieval/citation stage.
 
 ## Milestone 3.6 — AI Runtime Observability Platform (✅ complete)
 

@@ -1,5 +1,5 @@
 import type { ChatConversationSummary } from '@/features/chat/types';
-import { MessageIcon, CloseIcon } from '@/components/ui/icons';
+import { MessageIcon } from '@/components/ui/icons';
 
 function formatWhen(iso: string): string {
   const diffMs = Date.now() - new Date(iso).getTime();
@@ -16,13 +16,11 @@ export function ChatSidebar({
   activeConversationId,
   onSelect,
   onNew,
-  onDelete,
 }: {
   conversations: ChatConversationSummary[];
   activeConversationId: string | null;
   onSelect: (conversationId: string) => void;
   onNew: () => void;
-  onDelete: (conversationId: string) => void;
 }) {
   return (
     <aside className="w-56 flex-shrink-0 border-r border-ink-600 bg-ink-900/50 flex flex-col h-full">
@@ -42,7 +40,7 @@ export function ChatSidebar({
       <nav className="flex-1 overflow-y-auto scrollbar-thin px-2 py-2">
         {conversations.length === 0 ? (
           <p className="px-3 py-4 text-stone-700 text-[12px] leading-relaxed">
-            Conversations you start will show up here for this browser.
+            Your persisted conversations will show up here.
           </p>
         ) : (
           <ul className="space-y-0.5" role="list">
@@ -50,6 +48,8 @@ export function ChatSidebar({
               <li key={c.conversationId} className="group relative">
                 <button
                   onClick={() => onSelect(c.conversationId)}
+                  title={c.title || 'New chat'}
+                  aria-label={`Open conversation: ${c.title || 'New chat'}`}
                   className={`w-full flex items-start gap-2 px-3 py-2 pr-7 rounded-md text-left transition-colors duration-100 ${
                     activeConversationId === c.conversationId
                       ? 'bg-ink-700 text-stone-100'
@@ -70,16 +70,6 @@ export function ChatSidebar({
                     </span>
                   </span>
                 </button>
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onDelete(c.conversationId);
-                  }}
-                  title="Delete conversation"
-                  className="absolute right-1.5 top-1/2 -translate-y-1/2 w-5 h-5 rounded flex items-center justify-center text-stone-700 opacity-0 group-hover:opacity-100 hover:text-red-400 hover:bg-ink-800 transition-all"
-                >
-                  <CloseIcon size={10} />
-                </button>
               </li>
             ))}
           </ul>
@@ -88,7 +78,7 @@ export function ChatSidebar({
 
       <div className="px-4 py-3 border-t border-ink-600">
         <p className="font-mono text-stone-700 text-[10px] leading-relaxed">
-          Conversations are stored in this browser only.
+          Conversations sync from your account.
         </p>
       </div>
     </aside>

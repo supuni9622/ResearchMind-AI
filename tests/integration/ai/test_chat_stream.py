@@ -18,6 +18,8 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import AsyncGenerator, Iterator
+from datetime import UTC, datetime
+from types import SimpleNamespace
 from uuid import UUID
 
 import pytest
@@ -25,12 +27,17 @@ from app.ai.memory.models import ExtractedMemory, MemoryContext
 from app.ai.runtime.events.enums import CoreEventType, EventCategory
 from app.ai.runtime.events.models import StreamEvent
 from app.ai.runtime.generation.enums import GenerationProvider
-from app.ai.runtime.generation.models import GenerationRequest
+from app.ai.runtime.generation.models import GenerationRequest, StreamEventType
 from app.auth.dependencies import get_current_user
-from app.dependencies.generation import get_conversation_service, get_streaming_service
+from app.dependencies.generation import (
+    get_conversation_service,
+    get_generation_service,
+    get_streaming_service,
+)
 from app.dependencies.memory import get_memory_extraction_service, get_memory_service
 from app.main import app
-from app.models.conversation import Conversation
+from app.models.conversation import Conversation, Message
+from app.models.enums import MessageRole
 from app.models.user import User
 from fastapi.testclient import TestClient
 
@@ -71,9 +78,45 @@ class _FakeConversationService:
 
     def __init__(self) -> None:
         self.appended_turns: list[dict] = []
+        self.titles: list[str] = []
+        self.title_claimed = False
+        self.created_at = datetime.now(UTC)
 
     async def get_or_create(self, *, conversation_id, owner_id) -> Conversation:
-        return Conversation(id=_CONVERSATION_ID, owner_id=owner_id)
+        return Conversation(
+            id=_CONVERSATION_ID,
+            owner_id=owner_id,
+            title="Chat about LoRA",
+            created_at=self.created_at,
+            updated_at=self.created_at,
+        )
+
+    async def list_for_owner(self, *, owner_id, limit: int = 50) -> list[Conversation]:
+        return [await self.get_or_create(conversation_id=_CONVERSATION_ID, owner_id=owner_id)]
+
+    async def list_messages(self, *, conversation_id, limit: int = 50) -> list[Message]:
+        return [
+            Message(
+                id=uuid.uuid4(),
+                conversation_id=conversation_id,
+                role=MessageRole.USER,
+                content="Explain LoRA.",
+                created_at=self.created_at,
+                updated_at=self.created_at,
+            ),
+            Message(
+                id=uuid.uuid4(),
+                conversation_id=conversation_id,
+                role=MessageRole.ASSISTANT,
+                content="LoRA is a parameter-efficient fine-tuning method.",
+                provider="groq",
+                created_at=self.created_at,
+                updated_at=self.created_at,
+            ),
+        ]
+
+    async def get_first_user_prompt(self, *, conversation_id) -> str:
+        return "What are applications of RAG?"
 
     async def load_history(self, *, conversation_id, limit: int = 50) -> list:
         return []
@@ -96,6 +139,29 @@ class _FakeConversationService:
                 "model": model,
             }
         )
+
+    async def claim_title_generation(self, *, conversation_id):
+        if self.title_claimed:
+            return None
+        self.title_claimed = True
+        return uuid.uuid4()
+
+    async def complete_title_generation(self, *, conversation_id, token, title: str) -> bool:
+        self.titles.append(title)
+        return True
+
+    async def release_title_generation(self, *, conversation_id, token) -> None:
+        self.title_claimed = False
+
+
+class _FakeGenerationService:
+    def __init__(self) -> None:
+        self.requests: list[GenerationRequest] = []
+
+    async def generate(self, *, request: GenerationRequest, provider: GenerationProvider):
+        assert provider == GenerationProvider.GROQ
+        self.requests.append(request)
+        return SimpleNamespace(content="LoRA and QLoRA Comparison")
 
 
 class _FakeMemoryService:
@@ -149,20 +215,25 @@ def _canned_events() -> list[StreamEvent]:
 
 
 @pytest.fixture
-def fakes() -> Iterator[tuple[_FakeStreamingService, _FakeConversationService]]:
+def fakes() -> Iterator[
+    tuple[_FakeStreamingService, _FakeConversationService, _FakeGenerationService]
+]:
     streaming_service = _FakeStreamingService(_canned_events())
     conversation_service = _FakeConversationService()
     memory_service = _FakeMemoryService()
     memory_extraction_service = _FakeMemoryExtractionService()
+    generation_service = _FakeGenerationService()
 
     app.dependency_overrides[get_streaming_service] = lambda: streaming_service
+    app.dependency_overrides[get_generation_service] = lambda: generation_service
     app.dependency_overrides[get_conversation_service] = lambda: conversation_service
     app.dependency_overrides[get_memory_service] = lambda: memory_service
     app.dependency_overrides[get_memory_extraction_service] = lambda: memory_extraction_service
 
-    yield streaming_service, conversation_service
+    yield streaming_service, conversation_service, generation_service
 
     del app.dependency_overrides[get_streaming_service]
+    del app.dependency_overrides[get_generation_service]
     del app.dependency_overrides[get_conversation_service]
     del app.dependency_overrides[get_memory_service]
     del app.dependency_overrides[get_memory_extraction_service]
@@ -170,7 +241,7 @@ def fakes() -> Iterator[tuple[_FakeStreamingService, _FakeConversationService]]:
 
 def test_stream_chat_requires_authentication(
     client: TestClient,
-    fakes: tuple[_FakeStreamingService, _FakeConversationService],
+    fakes: tuple[_FakeStreamingService, _FakeConversationService, _FakeGenerationService],
 ) -> None:
     response = client.post(
         "/api/v1/chat/stream",
@@ -182,9 +253,9 @@ def test_stream_chat_requires_authentication(
 
 def test_stream_chat_returns_sse_frames_in_order(
     client: TestClient,
-    fakes: tuple[_FakeStreamingService, _FakeConversationService],
+    fakes: tuple[_FakeStreamingService, _FakeConversationService, _FakeGenerationService],
 ) -> None:
-    streaming_service, _ = fakes
+    streaming_service, _, _ = fakes
 
     app.dependency_overrides[get_current_user] = _fake_user
 
@@ -210,9 +281,9 @@ def test_stream_chat_returns_sse_frames_in_order(
 
 def test_stream_chat_persists_the_assembled_turn_on_complete(
     client: TestClient,
-    fakes: tuple[_FakeStreamingService, _FakeConversationService],
+    fakes: tuple[_FakeStreamingService, _FakeConversationService, _FakeGenerationService],
 ) -> None:
-    _, conversation_service = fakes
+    _, conversation_service, generation_service = fakes
 
     app.dependency_overrides[get_current_user] = _fake_user
 
@@ -231,3 +302,65 @@ def test_stream_chat_persists_the_assembled_turn_on_complete(
     assert turn["conversation_id"] == _CONVERSATION_ID
     assert turn["user_prompt"] == "hi there"
     assert turn["assistant_content"] == "Hello world"
+    assert conversation_service.titles == ["LoRA and QLoRA Comparison"]
+    assert generation_service.requests[0].user_prompt == (
+        "First user question: What are applications of RAG?"
+    )
+
+
+def test_stream_chat_generates_a_title_only_once_per_conversation(
+    client: TestClient,
+    fakes: tuple[_FakeStreamingService, _FakeConversationService, _FakeGenerationService],
+) -> None:
+    _, conversation_service, generation_service = fakes
+    app.dependency_overrides[get_current_user] = _fake_user
+
+    try:
+        client.post("/api/v1/chat/stream", json={"user_prompt": "first turn"})
+        client.post(
+            "/api/v1/chat/stream",
+            json={"user_prompt": "a follow-up", "conversation_id": str(_CONVERSATION_ID)},
+        )
+    finally:
+        del app.dependency_overrides[get_current_user]
+
+    assert conversation_service.titles == ["LoRA and QLoRA Comparison"]
+    assert len(generation_service.requests) == 1
+
+
+def test_stream_chat_persists_a_provider_completed_event(
+    client: TestClient,
+    fakes: tuple[_FakeStreamingService, _FakeConversationService, _FakeGenerationService],
+) -> None:
+    streaming_service, conversation_service, _ = fakes
+    streaming_service._events[-1] = StreamEvent(
+        category=EventCategory.GENERATION,
+        type=StreamEventType.COMPLETED.value,
+    )
+    app.dependency_overrides[get_current_user] = _fake_user
+
+    try:
+        response = client.post("/api/v1/chat/stream", json={"user_prompt": "hi there"})
+    finally:
+        del app.dependency_overrides[get_current_user]
+
+    assert response.status_code == 200
+    assert len(conversation_service.appended_turns) == 1
+
+
+def test_chat_history_is_available_over_authenticated_http(
+    client: TestClient,
+    fakes: tuple[_FakeStreamingService, _FakeConversationService, _FakeGenerationService],
+) -> None:
+    app.dependency_overrides[get_current_user] = _fake_user
+
+    try:
+        listed = client.get("/api/v1/chat/conversations")
+        replayed = client.get(f"/api/v1/chat/conversations/{_CONVERSATION_ID}")
+    finally:
+        del app.dependency_overrides[get_current_user]
+
+    assert listed.status_code == 200
+    assert listed.json()["conversations"][0]["conversation_id"] == str(_CONVERSATION_ID)
+    assert replayed.status_code == 200
+    assert [message["role"] for message in replayed.json()["messages"]] == ["user", "assistant"]

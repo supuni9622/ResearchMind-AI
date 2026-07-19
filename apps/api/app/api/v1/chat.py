@@ -28,8 +28,10 @@ from app.ai.memory.services.formatting import format_memory_context, with_memory
 from app.ai.memory.services.memory_service import MemoryService
 from app.ai.runtime.events.enums import CoreEventType
 from app.ai.runtime.events.models import StreamEvent
+from app.ai.runtime.generation.caching.enums import CachePolicy
 from app.ai.runtime.generation.enums import GenerationProvider
-from app.ai.runtime.generation.models import GenerationRequest
+from app.ai.runtime.generation.models import GenerationRequest, StreamEventType
+from app.ai.runtime.generation.service import GenerationService
 from app.ai.runtime.generation.streaming.service import StreamingService
 from app.ai.runtime.generation.streaming.transports.sse import sse_stream_response
 from app.ai.runtime.generation.streaming.transports.websocket import run_websocket_stream
@@ -39,20 +41,44 @@ from app.dependencies.generation import (
     get_artifact_policy_service_dependency,
     get_conversation_artifact_writer,
     get_conversation_service,
+    get_generation_service,
     get_streaming_service,
 )
 from app.dependencies.memory import get_memory_extraction_service, get_memory_service
 from app.exceptions.base import AppException
+from app.models.conversation import Message
 from app.models.user import User
-from app.schemas.chat import ChatStreamRequest
+from app.schemas.chat import (
+    ChatConversationListResponse,
+    ChatConversationResponse,
+    ChatConversationSummary,
+    ChatMessageResponse,
+    ChatStreamRequest,
+)
 from app.services.conversation import ConversationService
 
 logger = structlog.get_logger()
+
+_COMPLETION_EVENT_TYPES = {
+    CoreEventType.COMPLETE.value,
+    StreamEventType.COMPLETED.value,
+}
 
 router = APIRouter(
     prefix="/chat",
     tags=["Chat"],
 )
+
+
+def _message_response(message: Message) -> ChatMessageResponse:
+    return ChatMessageResponse(
+        id=message.id,
+        role=message.role.value,
+        content=message.content,
+        provider=message.provider,
+        model=message.model,
+        created_at=message.created_at,
+    )
 
 
 def _format_transcript(
@@ -257,6 +283,73 @@ async def _persist_conversation_identity(
         )
 
 
+async def _generate_and_store_title(
+    *,
+    generation_service: GenerationService,
+    conversation_service: ConversationService,
+    conversation_id: UUID,
+) -> None:
+    """Best-effort, Groq-only one-time title generation from the first question."""
+
+    token = await conversation_service.claim_title_generation(
+        conversation_id=conversation_id,
+    )
+    if token is None:
+        return
+
+    try:
+        first_question = await conversation_service.get_first_user_prompt(
+            conversation_id=conversation_id,
+        )
+        if not first_question:
+            await conversation_service.release_title_generation(
+                conversation_id=conversation_id,
+                token=token,
+            )
+            return
+
+        result = await generation_service.generate(
+            provider=GenerationProvider.GROQ,
+            request=GenerationRequest(
+                prompt_context=PromptContext(context="", chunks=[]),
+                system_prompt=(
+                    "Write a concise title of at most eight words for the user's "
+                    "question below. Use only the question's explicit subject; do "
+                    "not infer a different subject or expand acronyms. Return only "
+                    "the title, with no quotation marks or ending punctuation."
+                ),
+                user_prompt=f"First user question: {first_question}",
+                max_tokens=24,
+                temperature=0,
+                cache_policy=CachePolicy.NEVER,
+                artifact_runtime=ArtifactRuntime.CHAT,
+            ),
+        )
+        title = " ".join(result.content.strip().strip('"').split())[:255]
+        if title:
+            await conversation_service.complete_title_generation(
+                conversation_id=conversation_id,
+                token=token,
+                title=title,
+            )
+        else:
+            await conversation_service.release_title_generation(
+                conversation_id=conversation_id,
+                token=token,
+            )
+    except Exception as exc:
+        await conversation_service.release_title_generation(
+            conversation_id=conversation_id,
+            token=token,
+        )
+        logger.warning(
+            "chat.title_generation_failed",
+            conversation_id=str(conversation_id),
+            error_type=type(exc).__name__,
+            error=str(exc),
+        )
+
+
 async def _persist_on_complete(
     *,
     events: AsyncGenerator[StreamEvent, None],
@@ -267,6 +360,7 @@ async def _persist_on_complete(
     provider: GenerationProvider | None,
     conversation_artifact_writer: ConversationArtifactWriter | None,
     artifact_policy_service: ArtifactPolicyService | None,
+    generation_service: GenerationService | None = None,
     memory_service: MemoryService | None = None,
     memory_extraction_service: MemoryExtractionService | None = None,
 ) -> AsyncGenerator[StreamEvent, None]:
@@ -289,7 +383,7 @@ async def _persist_on_complete(
 
         yield event
 
-        if event.type == CoreEventType.COMPLETE.value:
+        if event.type in _COMPLETION_EVENT_TYPES:
             assistant_content = "".join(content_parts)
 
             await conversation_service.append_turn(
@@ -307,6 +401,13 @@ async def _persist_on_complete(
                 user_prompt=user_prompt,
                 assistant_content=assistant_content,
             )
+
+            if generation_service is not None:
+                await _generate_and_store_title(
+                    generation_service=generation_service,
+                    conversation_service=conversation_service,
+                    conversation_id=conversation_id,
+                )
 
             if conversation_artifact_writer is None:
                 continue
@@ -341,6 +442,53 @@ async def _persist_on_complete(
                 )
 
 
+@router.get(
+    "/conversations",
+    response_model=ChatConversationListResponse,
+    summary="List this user's chat conversations, most recently updated first",
+)
+async def list_chat_conversations(
+    current_user: User = Depends(get_current_user),
+    conversation_service: ConversationService = Depends(get_conversation_service),
+) -> ChatConversationListResponse:
+    conversations = await conversation_service.list_for_owner(owner_id=current_user.id)
+    return ChatConversationListResponse(
+        conversations=[
+            ChatConversationSummary(
+                conversation_id=conversation.id,
+                title=conversation.title,
+                created_at=conversation.created_at,
+                updated_at=conversation.updated_at,
+            )
+            for conversation in conversations
+        ]
+    )
+
+
+@router.get(
+    "/conversations/{conversation_id}",
+    response_model=ChatConversationResponse,
+    summary="Replay every message in a chat conversation, oldest first",
+)
+async def get_chat_conversation(
+    conversation_id: UUID,
+    current_user: User = Depends(get_current_user),
+    conversation_service: ConversationService = Depends(get_conversation_service),
+) -> ChatConversationResponse:
+    conversation = await conversation_service.get_or_create(
+        conversation_id=conversation_id,
+        owner_id=current_user.id,
+    )
+    messages = await conversation_service.list_messages(
+        conversation_id=conversation.id,
+    )
+    return ChatConversationResponse(
+        conversation_id=conversation.id,
+        title=conversation.title,
+        messages=[_message_response(message) for message in messages],
+    )
+
+
 @router.post(
     "/stream",
     summary="Stream a chat completion over Server-Sent Events",
@@ -349,6 +497,7 @@ async def stream_chat(
     payload: ChatStreamRequest,
     current_user: User = Depends(get_current_user),
     streaming_service: StreamingService = Depends(get_streaming_service),
+    generation_service: GenerationService = Depends(get_generation_service),
     conversation_service: ConversationService = Depends(get_conversation_service),
     conversation_artifact_writer: ConversationArtifactWriter = Depends(
         get_conversation_artifact_writer
@@ -402,6 +551,7 @@ async def stream_chat(
             provider=payload.provider,
             conversation_artifact_writer=conversation_artifact_writer,
             artifact_policy_service=artifact_policy_service,
+            generation_service=generation_service,
             memory_service=memory_service,
             memory_extraction_service=memory_extraction_service,
         )
@@ -450,6 +600,7 @@ async def stream_chat_ws(
 
         conversation_service = ConversationService(session)
         streaming_service = get_streaming_service()
+        generation_service = get_generation_service()
         conversation_artifact_writer = get_conversation_artifact_writer()
         artifact_policy_service = get_artifact_policy_service_dependency()
         # `build_memory_service`/`build_memory_extraction_service`, not the
@@ -497,6 +648,7 @@ async def stream_chat_ws(
                     provider=payload.provider,
                     conversation_artifact_writer=conversation_artifact_writer,
                     artifact_policy_service=artifact_policy_service,
+                    generation_service=generation_service,
                     memory_service=memory_service,
                     memory_extraction_service=memory_extraction_service,
                 ),

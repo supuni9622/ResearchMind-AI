@@ -496,7 +496,7 @@ ResearchMind-AI/
 │   │       │       ├── api.py           # Router aggregator
 │   │       │       ├── admin.py         # Admin endpoints
 │   │       │       ├── auth.py          # Auth endpoints (callback, me)
-│   │       │       ├── chat.py          # POST /chat/stream (SSE) + WebSocket /chat/ws — Streaming Platform, Milestone 2.9.10; persists ConversationIdentity + per-turn ConversationTurnArtifact — Artifact Platform, Milestone 3.10
+│   │       │       ├── chat.py          # POST /chat/stream (SSE), WebSocket /chat/ws, GET /chat/conversations, GET /chat/conversations/{id}; transcript + Memory injection, durable turn persistence for both complete/completed events, and first-question Groq titles
 │   │       │       ├── documents.py     # Document management endpoints
 │   │       │       ├── evaluation.py    # Evaluation endpoints
 │   │       │       ├── feedback.py      # Feedback endpoints
@@ -589,13 +589,13 @@ ResearchMind-AI/
 │   │       │   └── user.py              # User model
 │   │       │
 │   │       ├── repositories/    # Data access layer
-│   │       │   ├── conversation.py      # ConversationRepository (create/get_by_id_for_owner/add_message/list_messages) — Streaming Platform, Milestone 2.9.10
+│   │       │   ├── conversation.py      # ConversationRepository — owner-scoped conversation/message replay, first-user lookup, title update, deterministic tied-timestamp ordering
 │   │       │   ├── document.py          # DocumentRepository (CRUD operations)
 │   │       │   └── user.py              # UserRepository (CRUD operations)
 │   │       │
 │   │       ├── schemas/         # Pydantic request/response schemas
 │   │       │   ├── auth.py              # Auth schemas (CallbackRequest, TokenResponse)
-│   │       │   ├── chat.py              # ChatStreamRequest — Streaming Platform, Milestone 2.9.10
+│   │       │   ├── chat.py              # Stream request plus conversation summary/detail response schemas
 │   │       │   ├── common.py            # Shared/generic schemas
 │   │       │   ├── document.py          # Document schemas
 │   │       │   ├── error.py             # Error response schemas
@@ -604,7 +604,7 @@ ResearchMind-AI/
 │   │       │
 │   │       ├── services/        # Business logic layer
 │   │       │   ├── auth.py                        # OAuth code exchange with Cognito
-│   │       │   ├── conversation.py                 # ConversationService — get_or_create/load_history/append_turn — Streaming Platform, Milestone 2.9.10
+│   │       │   ├── conversation.py                 # ConversationService — owner-scoped history/replay, first prompt/title helpers, and ordered append_turn()
 │   │       │   ├── document_processing_service.py # Orchestrates processing lifecycle + status updates
 │   │       │   ├── queued_document_processing_service.py  # Bridges queue jobs to DocumentProcessingService
 │   │       │   └── user.py                        # User sync, creation, and lifecycle
@@ -619,6 +619,8 @@ ResearchMind-AI/
 │   │   │   │   │   │   └── page.tsx         # Dashboard page
 │   │   │   │   │   ├── documents/
 │   │   │   │   │   │   └── page.tsx         # Document upload page (drag-and-drop)
+│   │   │   │   │   ├── chat/
+│   │   │   │   │   │   └── page.tsx         # Server-backed Chat conversation interface
 │   │   │   │   │   ├── research/
 │   │   │   │   │   │   └── page.tsx         # Research chat interface
 │   │   │   │   │   └── layout.tsx           # AppShell — auth guard, redirects unauthenticated users
@@ -973,7 +975,7 @@ ResearchMind-AI/
 │   │   │   └── test_processing_service.py   # Full DoclingParser → ProcessingService pipeline (incl. chunking + a mocked embedding stage — ProcessingService hardcodes Voyage AI, which this test avoids calling for real)
 │   │   ├── ai/knowledge/upload/
 │   │   │   └── test_duplicate_detection.py  # Real UploadService + DuplicateDetectionService against Postgres
-│   │   ├── ai/test_chat_stream.py           # POST /api/v1/chat/stream — 401 without auth, SSE frame order (start/token/complete), persisted turn on completion (StreamingService + ConversationService faked, like _FakeRetrievalService) — Streaming Platform, Milestone 2.9.10
+│   │   ├── ai/test_chat_stream.py           # Chat SSE/history integration: auth, event ordering, both completion event variants, turn persistence, and Groq title from the first user question
 │   │   ├── test_document_repository.py
 │   │   ├── test_document_service.py
 │   │   ├── test_memory.py

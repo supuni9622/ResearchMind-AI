@@ -377,7 +377,7 @@ strategies, capability/policy filtering, fallback chains —
 exact/L2 semantic/L3 session, policy resolution —
 `runtime_caching_platform_prd.md`, ADR-027), a Streaming Platform
 (canonical event protocol, SSE/WebSocket, wired into `POST
-/api/v1/chat/stream` / `/api/v1/chat/ws` — `streaming_platform_prd.md`,
+/api/v1/chat/stream` / `/api/v1/chat/ws`, plus owner-scoped `GET /api/v1/chat/conversations` and `GET /api/v1/chat/conversations/{id}` replay — `streaming_platform_prd.md`,
 ADR-028), five per-runtime Validation Contracts (Research, Planner,
 Reviewer, Agent, MCP — `generation/validation/runtime/contracts/`), a
 Validation Policy Layer (`AcceptancePolicy`/`FailFastPolicy`/

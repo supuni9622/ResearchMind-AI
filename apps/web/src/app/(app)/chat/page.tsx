@@ -17,7 +17,6 @@ export default function ChatPage() {
     send,
     selectConversation,
     newConversation,
-    deleteConversation,
   } = useChat();
   const [input, setInput] = useState('');
   const [provider, setProvider] = useState<GenerationProvider | 'auto'>('auto');
@@ -43,7 +42,6 @@ export default function ChatPage() {
         activeConversationId={activeConversationId}
         onSelect={selectConversation}
         onNew={newConversation}
-        onDelete={deleteConversation}
       />
 
       <div className="flex-1 min-w-0 flex flex-col">

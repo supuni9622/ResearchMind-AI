@@ -53,6 +53,31 @@ export interface Document {
   processing_error?: string | null;
 }
 
+export interface DocumentKnowledgeStats {
+  indexed_chunk_count: number;
+  embedding_count: number;
+}
+
+export interface GenerationUsageSummary {
+  total_cost_usd: number;
+  total_requests: number;
+  total_tokens: number;
+  month_cost_usd: number;
+  month_requests: number;
+  month_tokens: number;
+}
+
+export type InfrastructureServiceStatus = 'healthy' | 'unhealthy';
+
+export interface HealthStatus {
+  status: InfrastructureServiceStatus;
+  services: {
+    postgres: InfrastructureServiceStatus;
+    valkey: InfrastructureServiceStatus;
+    qdrant: InfrastructureServiceStatus;
+  };
+}
+
 // Matches `app/ai/runtime/generation/enums.py::GenerationProvider`.
 export type GenerationProvider = 'groq' | 'openai' | 'claude' | 'gemini' | 'ollama';
 
@@ -255,6 +280,15 @@ export const api = {
   auth: {
     me: () => request<UserProfile>('/api/v1/auth/me'),
   },
+  health: {
+    get: async () => {
+      const response = await request<{ data: HealthStatus }>('/api/v1/health');
+      return response.data;
+    },
+  },
+  usage: {
+    summary: () => request<GenerationUsageSummary>('/api/v1/usage/summary'),
+  },
   chat: {
     stream: streamChat,
     listConversations: () => request<ChatConversationListResponse>('/api/v1/chat/conversations'),
@@ -283,6 +317,7 @@ export const api = {
   },
   documents: {
     list: () => request<Document[]>('/api/v1/documents'),
+    stats: () => request<DocumentKnowledgeStats>('/api/v1/documents/stats'),
     upload: async (file: File): Promise<Document> => {
       const token = getStoredToken();
       const form = new FormData();

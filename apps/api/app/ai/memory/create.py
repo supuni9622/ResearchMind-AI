@@ -30,6 +30,7 @@ from app.ai.memory.session.service import SessionMemoryService
 from app.ai.memory.storage.postgres_store import PostgresMemoryStore
 from app.ai.memory.storage.valkey_store import ValkeySessionStore
 from app.ai.memory.storage.vector_index import MemoryVectorIndex
+from app.ai.runtime.generation.enums import GenerationProvider
 from app.ai.runtime.generation.orchestration.create import create_generation_runtime
 from app.core.settings import settings
 from app.infrastructure.metrics.interfaces import MetricsRecorder
@@ -132,4 +133,18 @@ def build_memory_service(
 
 @lru_cache
 def build_memory_extraction_service() -> MemoryExtractionService:
-    return MemoryExtractionService(create_generation_runtime())
+    provider = (
+        GenerationProvider.GROQ
+        if settings.groq_api_key
+        else GenerationProvider.OPENAI
+        if settings.openai_api_key
+        else None
+    )
+    fallback_provider = (
+        GenerationProvider.OPENAI if settings.groq_api_key and settings.openai_api_key else None
+    )
+    return MemoryExtractionService(
+        create_generation_runtime(),
+        provider=provider,
+        fallback_provider=fallback_provider,
+    )

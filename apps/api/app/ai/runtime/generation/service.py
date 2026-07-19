@@ -105,6 +105,7 @@ from app.ai.runtime.generation.validation.models import (
 from app.ai.runtime.generation.validation.service import (
     ValidationService,
 )
+from app.services.generation_usage import GenerationUsageService
 from langchain_core.messages import (
     AIMessage,
     BaseMessage,
@@ -150,6 +151,7 @@ class GenerationService:
         metrics_service: GenerationMetricsService | None = None,
         observability_service: ObservabilityService | None = None,
         tracer: RuntimeTracer | None = None,
+        usage_service: GenerationUsageService | None = None,
     ):
         self._registry = registry
 
@@ -212,6 +214,8 @@ class GenerationService:
         `LangSmithTracer`) is wired in. Same always-a-real-instance shape
         as `metrics_service`/`NoOpMetricsRecorder`.
         """
+
+        self._usage_service = usage_service
 
     @property
     def registry(
@@ -334,6 +338,9 @@ class GenerationService:
                 artifact_runtime=(request.artifact_runtime or ArtifactRuntime.CHAT),
                 session_id=request.session_id,
             )
+
+        if self._usage_service is not None:
+            await self._usage_service.record(result)
 
         return result
 

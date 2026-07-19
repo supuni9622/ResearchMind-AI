@@ -212,6 +212,18 @@ async def test_count_returns_client_reported_count() -> None:
     assert result == 42
 
 
+async def test_count_filters_vectors_by_owner_when_requested() -> None:
+    provider, client = _make_provider()
+    client.count = AsyncMock(return_value=SimpleNamespace(count=12))
+
+    result = await provider.count("researchmind_knowledge", owner_id="owner-1")
+
+    assert result == 12
+    count_filter = client.count.await_args.kwargs["count_filter"]
+    assert count_filter.must[0].key == "owner_id"
+    assert count_filter.must[0].match.value == "owner-1"
+
+
 async def test_count_wraps_client_failures_in_collection_operation_error() -> None:
     provider, client = _make_provider()
     client.count = AsyncMock(side_effect=RuntimeError("boom"))

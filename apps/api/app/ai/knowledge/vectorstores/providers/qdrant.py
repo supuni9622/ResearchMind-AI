@@ -294,6 +294,8 @@ class QdrantVectorStoreProvider(
     async def count(
         self,
         collection_name: str,
+        *,
+        owner_id: str | None = None,
     ) -> int:
         """
         Return the number of indexed vectors.
@@ -303,6 +305,18 @@ class QdrantVectorStoreProvider(
             response = await self._client.count(
                 collection_name=collection_name,
                 exact=True,
+                count_filter=(
+                    qdrant.Filter(
+                        must=[
+                            qdrant.FieldCondition(
+                                key="owner_id",
+                                match=qdrant.MatchValue(value=owner_id),
+                            )
+                        ]
+                    )
+                    if owner_id
+                    else None
+                ),
             )
 
             return response.count

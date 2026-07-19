@@ -117,6 +117,24 @@ async def test_generate_delegates_to_the_resolved_provider() -> None:
     provider.generate.assert_awaited_once_with(request)
 
 
+async def test_generate_records_owner_scoped_usage_after_completion() -> None:
+    request = _make_request()
+    request.owner_id = uuid4()
+    result = _make_result(request)
+    provider = _make_provider()
+    provider.generate = AsyncMock(return_value=result)
+    usage_service = AsyncMock()
+
+    service = GenerationService(
+        registry=GenerationRegistry(providers=[provider]),
+        usage_service=usage_service,
+    )
+
+    await service.generate(provider=GenerationProvider.GROQ, request=request)
+
+    usage_service.record.assert_awaited_once_with(result)
+
+
 async def test_generate_raises_validation_error_for_empty_user_prompt() -> None:
     provider = _make_provider()
     registry = GenerationRegistry(providers=[provider])

@@ -193,6 +193,7 @@ class _FakeMemoryExtractionService:
         *,
         user_message: str,
         assistant_message: str,
+        **_: object,
     ) -> list[ExtractedMemory]:
         return []
 

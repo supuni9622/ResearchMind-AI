@@ -20,6 +20,8 @@ conversation/research turn that triggered it.
 
 from __future__ import annotations
 
+from uuid import UUID
+
 import structlog
 
 from app.ai.knowledge.context.models import PromptContext
@@ -52,8 +54,9 @@ those are assigned elsewhere in the pipeline.
 Score `importance` in [0.0, 1.0]: trivial acknowledgements are near 0, strong explicit \
 preferences or significant findings are near 1.
 
-Return zero memories when nothing durable is worth keeping -- this is the common case, not \
-the exception."""
+Return a valid JSON object matching the requested schema.
+Return zero memories when nothing durable is worth keeping.
+This is the common case, not the exception."""
 
 
 class MemoryExtractionService:
@@ -62,15 +65,19 @@ class MemoryExtractionService:
         generation_runtime: GenerationRuntimeInterface,
         *,
         provider: GenerationProvider | None = None,
+        fallback_provider: GenerationProvider | None = None,
     ) -> None:
         self._generation_runtime = generation_runtime
         self._provider = provider
+        self._fallback_provider = fallback_provider
 
     async def extract(
         self,
         *,
         user_message: str,
         assistant_message: str | None = None,
+        owner_id: UUID | None = None,
+        conversation_id: UUID | None = None,
     ) -> list[ExtractedMemory]:
         turn = f"User: {user_message}"
 
@@ -88,6 +95,10 @@ class MemoryExtractionService:
             prompt_context=PromptContext(context=turn, chunks=[]),
             system_prompt=_SYSTEM_PROMPT,
             user_prompt="Extract memories from the conversation turn above.",
+            owner_id=owner_id,
+            conversation_id=conversation_id,
+            session_id=conversation_id,
+            metadata={"usage_category": "memory_extraction"},
             response_format=ResponseFormat.STRUCTURED,
             output_model=ExtractedMemoryBatch,
             temperature=0.0,
@@ -96,12 +107,34 @@ class MemoryExtractionService:
         try:
             result = await self._generation_runtime.execute(request, provider=self._provider)
         except Exception as exc:
-            logger.warning(
-                "memory.extraction.generation_failed",
-                error_type=type(exc).__name__,
-                error=str(exc),
-            )
-            return []
+            if self._fallback_provider is not None:
+                logger.warning(
+                    "memory.extraction.primary_generation_failed",
+                    provider=self._provider.value if self._provider else None,
+                    fallback_provider=self._fallback_provider.value,
+                    error_type=type(exc).__name__,
+                    error=str(exc),
+                )
+                try:
+                    result = await self._generation_runtime.execute(
+                        request,
+                        provider=self._fallback_provider,
+                    )
+                except Exception as fallback_exc:
+                    logger.warning(
+                        "memory.extraction.fallback_generation_failed",
+                        provider=self._fallback_provider.value,
+                        error_type=type(fallback_exc).__name__,
+                        error=str(fallback_exc),
+                    )
+                    return []
+            else:
+                logger.warning(
+                    "memory.extraction.generation_failed",
+                    error_type=type(exc).__name__,
+                    error=str(exc),
+                )
+                return []
 
         batch = result.parsed_output
 

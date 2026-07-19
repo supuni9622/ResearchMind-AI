@@ -1644,6 +1644,16 @@ Phase 4.2 — Chat Surface Frontend Integration ✅ — apps/web's new /chat pag
 
 ↓
 
+Generation Usage Ledger ✅ — owner-scoped estimated AI cost tracking for Chat and Research
+  `generation_usage` PostgreSQL ledger, append-only and idempotent by generation request ID ✅
+  Records provider/model/runtime, token totals, estimated USD cost, cache status, streaming flag, and conversation/session linkage ✅
+  GenerationService + StreamingService persist successful owner-owned requests; cache replays record $0 new provider spend ✅
+  `GET /usage/summary` returns authenticated user's all-time/current-month cost, request, and token totals ✅
+  Dashboard displays estimated AI cost for the current month plus all-time total ✅
+  Historical usage before this migration is intentionally unavailable; streamed provider usage is an estimate when the provider does not supply exact token metadata ⚠️
+
+↓
+
 Phase 3.9 — AI Runtime Observability Platform ✅ — per `oberservability_platform_prd.md`
   Metrics/Statistics/Reports subpackages (Retrieval/Streaming/Research/Agent snapshots, percentiles/aggregations/rankings, markdown reports) ✅
   ObservabilityArtifact (metrics/statistics/report, S3-persisted under observability/{execution_id}/) ✅

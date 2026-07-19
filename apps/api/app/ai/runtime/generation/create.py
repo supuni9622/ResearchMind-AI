@@ -84,6 +84,7 @@ from app.ai.runtime.generation.validation.create import (
 )
 from app.core.settings import settings
 from app.infrastructure.metrics.noop import NoOpMetricsRecorder
+from app.services.generation_usage import GenerationUsageService
 
 logger = structlog.get_logger()
 
@@ -259,4 +260,5 @@ def create_generation_service() -> GenerationService:
         ),
         observability_service=get_observability_service(),
         tracer=create_runtime_tracer(),
+        usage_service=GenerationUsageService(),
     )

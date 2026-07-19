@@ -118,6 +118,7 @@ async def test_research_scopes_retrieval_to_owner_id() -> None:
 
 async def test_research_tags_the_generation_request_for_the_research_runtime() -> None:
     from app.ai.artifacts.enums import ArtifactRuntime
+    from app.ai.runtime.generation.caching.enums import CacheRuntime
     from app.ai.runtime.generation.validation.runtime.enums import RuntimeType
 
     service, collaborators = _make_service()
@@ -132,6 +133,7 @@ async def test_research_tags_the_generation_request_for_the_research_runtime() -
     request = collaborators["generation_runtime"].execute.await_args.args[0]
 
     assert request.runtime == RuntimeType.RESEARCH
+    assert request.cache_runtime == CacheRuntime.RESEARCH
     assert request.artifact_runtime == ArtifactRuntime.RESEARCH
 
 

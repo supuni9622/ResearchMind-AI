@@ -840,13 +840,14 @@ Mostly empty — planned shared AI types and interfaces. `local_embeddings.py` i
 | `v1/admin.py` | (empty) |
 | `v1/auth.py` | `POST /auth/callback` (Cognito code exchange) and `GET /auth/me` |
 | `v1/chat.py` | **Implemented** — authenticated `POST /chat/stream` (SSE), `WebSocket /chat/ws`, `GET /chat/conversations`, and `GET /chat/conversations/{conversation_id}`. Stream routes load/create an owner-scoped `Conversation`, inject transcript and Memory Platform context, call `StreamingService.stream_generate()`, and persist the completed turn for both terminal event variants (`complete` and `completed`). Completion also stores session/extracted memory, an artifact, and a Groq title generated only from the persisted first user question; a database lease makes title generation one-time, retryable after failure, and safe under concurrent turns. History routes return owner-scoped summaries and replayable messages; `GenerationRequest.session_id=conversation_id` exposes server-minted ids to the frontend. Chat remains deliberately ungrounded: it has memory and transcript context, but no query-rewrite or document-retrieval stage. |
-| `v1/documents.py` | `GET /documents` — lists the current user's documents; `POST /documents/upload` — validates filename, measures file size, delegates to `UploadService` (upload now enqueues async processing instead of processing synchronously — the old inline `ProcessingService` call is commented out) |
+| `v1/documents.py` | `GET /documents` — lists the current user's documents; `GET /documents/stats` — returns exact owner-scoped indexed chunk/embedding counts from Qdrant; `POST /documents/upload` — validates filename, measures file size, delegates to `UploadService` (upload now enqueues async processing instead of processing synchronously — the old inline `ProcessingService` call is commented out) |
 | `v1/evaluation.py` | (empty) |
 | `v1/feedback.py` | (empty) |
 | `v1/health.py` | `GET /health` — checks PostgreSQL, Valkey, Qdrant connectivity |
 | `v1/memory.py` | **Implemented** (Memory Platform, `memory_platform_prd.md`, 2026-07-18) — `POST /memory` (remember; returns `null`, not an error, when importance falls below threshold), `POST /memory/search`, `GET /memory/context` (assembles a `MemoryContext` for a session), `GET/PUT/DELETE /memory/{memory_id}` (recall/update/forget). All auth-required via `get_current_user`, owner always injected server-side. Fixed-path routes (`/search`, `/context`) are registered before the `/{memory_id}` catch-all — route ordering matters here |
 | `v1/reports.py` | (empty) |
 | `v1/retrieval.py` | `POST /retrieve` (dense), `POST /retrieve/sparse`, `POST /retrieve/hybrid` (RRF, reranks via Voyage AI by default) — all three require `Depends(get_current_user)` and build their `RetrievalQuery.filters` via `_scoped_filters()`, which always overwrites `owner_id` with the authenticated user's id (never trusts the request body); each asserts `result.statistics is not None` (guaranteed non-`None` by the time `RetrievalService` returns, but the field is `Optional` until then) before building the response |
+| `v1/usage.py` | `GET /usage/summary` — owner-scoped all-time/current-month generation cost, request, and token totals from the durable PostgreSQL ledger |
 
 ---
 
@@ -903,12 +904,13 @@ Mostly empty — planned shared AI types and interfaces. `local_embeddings.py` i
 | `cache.py` | (empty) |
 | `database.py` | (empty) |
 | `generation.py` | **Implemented** (Streaming Platform, Milestone 2.9.10; Artifact Platform, Milestone 3.10) — `get_generation_service()` / `get_streaming_service()` (`@lru_cache`d singletons, wrap `create_generation_service()`/`create_streaming_service()`), `get_conversation_service(session)` — request-scoped (not cached — carries the per-request DB session), builds a `ConversationService`, `get_conversation_artifact_writer()` / `get_artifact_policy_service_dependency()` — `@lru_cache`d singletons for the Artifact Platform, threaded into the chat routes |
+| `generation_usage.py` | Request-scoped `GenerationUsageRepository` dependency for authenticated cost summaries |
 | `memory.py` | **Implemented** (Memory Platform, 2026-07-18) — `get_session_memory_service()`, `get_postgres_memory_store(session)`, `get_user_memory_service()`, `get_semantic_memory_service()`, `get_research_memory_service()`, `get_memory_artifact_writer()`, `get_memory_extraction_service()` (depends on `get_generation_runtime()`), `get_memory_lifecycle_service()` (not wired to any HTTP route or scheduler — an operator-invoked sweep), `get_memory_service()` — request-scoped (carries a request-scoped `AsyncSession` via its Postgres-backed collaborators, so unlike its own singleton pieces it can't be `@lru_cache`d) |
 | `settings.py` | (empty) |
 | `upload.py` | FastAPI dependency providers for the upload/processing workflow: `get_document_storage`, `get_file_hasher`, `get_document_repository`, `get_processing_queue`, `get_processing_service` (now also wires the Chunking Platform — `_get_chunking_service`, `_get_chunk_artifact_builder`, `ChunkArtifactWriter` — the Embedding Platform — `_get_embedding_service`, `_get_embedding_artifact_builder`, `EmbeddingArtifactWriter` — and the Indexing Platform — `_get_indexing_service`, `_get_indexing_artifact_builder`, `IndexingArtifactWriter`), `get_document_processing_service`, `get_queued_document_processing_service`, `get_upload_service`, `get_processing_worker` |
 | `reranking.py` | `get_reranking_service()` — `@lru_cache`d singleton, wraps `create_reranking_service()` |
 | `retrieval.py` | `get_retrieval_service()` — `@lru_cache`d singleton, wraps `create_retrieval_service()` |
-| `vector_store.py` | (empty) |
+| `vector_store.py` | Cached dependency provider for the configured `VectorStoreService` used by owner-scoped document statistics |
 
 ---
 
@@ -1083,7 +1085,7 @@ Next.js 15 frontend — **implemented** (Cognito auth, dashboard, documents, and
 | `tailwind.config.ts` | Custom palette: ink, stone, sage, amber scales; `content` glob must list every top-level UI directory (`src/pages`, `src/components`, `src/features`, `src/app`) or Tailwind silently drops classes used only in unscanned files, with no build error |
 | `tsconfig.json` | TypeScript configuration |
 | `tsconfig.tsbuildinfo` | TypeScript incremental build cache (generated) |
-| `src/app/(app)/dashboard/page.tsx` | Dashboard page — composes `features/dashboard/components/*` (still mock-data-backed; no `/dashboard` API exists) |
+| `src/app/(app)/dashboard/page.tsx` | Dashboard page — composes live documents, owner-scoped Qdrant knowledge-base stats, Research conversations, Chat conversations, and health APIs into overview cards; no dedicated `/dashboard` aggregate API exists yet |
 | `src/app/(app)/documents/page.tsx` | Document upload page (drag-and-drop), wired to the live `POST /api/v1/documents/upload` / `GET /api/v1/documents` |
 | `src/app/(app)/research/page.tsx` | **Research** page — "user knows the goal" surface: sidebar + citation-card blocks + source/citation panel, wired to the live `/research`, `/research/stream` (SSE), `GET /research/{id}`, and `/research/conversations` APIs via `features/research/use-research.ts` |
 | `src/app/(app)/chat/page.tsx` | **Chat** page — "user knows the question" surface: server-backed conversation sidebar + ChatGPT-style message bubbles + composer, wired to streaming and history APIs via `features/chat/use-chat.ts`. Deliberately no citations/sources panel (Chat has no retrieval/RAG wired server-side yet). |
@@ -1103,8 +1105,8 @@ Next.js 15 frontend — **implemented** (Cognito auth, dashboard, documents, and
 | `src/components/ui/icons.tsx` | Shared inline SVG icon set (Search/Filter/Chevron/FileText/Layers/Message/Sparkles/Clock/Alert/...) reused across every feature |
 | `src/components/ui/page-header.tsx` | `PageHeader` (eyebrow/title/actions) + `SectionLabel` (amber Fraunces section label, optional count) |
 | `src/components/ui/stat-tile.tsx` | `StatTile` — labeled metric tile (label/value/icon/sub) |
-| `src/features/dashboard/components/*.tsx` | `kb-stats`, `platform-health`, `recent-questions` (links to `/chat` as of Phase 4.2 — quick Q&A maps to Chat), `recent-sessions`, `recent-uploads`, `suggested-research` (all still mock-data-backed) |
-| `src/features/dashboard/mock-data.ts` | Mock `RECENT_SESSIONS`/`RECENT_QUESTIONS`/`SUGGESTED_RESEARCH`/`STATIC_SERVICES` pending real dashboard-aggregation APIs |
+| `src/features/dashboard/components/*.tsx` | `kb-stats`, `platform-health`, `recent-questions`, `recent-sessions`, `recent-uploads`, and `suggested-research` — dashboard components are live-data-backed; chunk/embedding totals are exact owner-scoped indexed-vector counts from Qdrant (unavailable only when that request fails), never document-count estimates |
+| `src/features/dashboard/mock-data.ts` | Legacy mock session data retained only by the document-detail drawer; no longer used by the dashboard |
 | `src/features/documents/components/*.tsx` | `document-details-drawer`, `document-filters`, `document-row` |
 | `src/features/documents/mock-meta.ts` | Mock chunk/embedding/tag metadata pending real per-document pipeline-detail APIs |
 | `src/features/research/types.ts` | `ResearchTurn`/`ResearchStage`/`ResearchConversationEntry`; re-exports `PROVIDER_OPTIONS` from `lib/api.ts` (moved there in Phase 4.2 since it's runtime-agnostic, shared with Chat) |

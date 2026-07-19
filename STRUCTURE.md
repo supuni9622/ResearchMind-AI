@@ -497,10 +497,11 @@ ResearchMind-AI/
 │   │       │       ├── admin.py         # Admin endpoints
 │   │       │       ├── auth.py          # Auth endpoints (callback, me)
 │   │       │       ├── chat.py          # POST /chat/stream (SSE), WebSocket /chat/ws, GET /chat/conversations, GET /chat/conversations/{id}; transcript + Memory injection, durable turn persistence for both complete/completed events, and first-question Groq titles
-│   │       │       ├── documents.py     # Document management endpoints
+│   │       │       ├── documents.py     # Document management + owner-scoped Qdrant knowledge-base statistics
 │   │       │       ├── evaluation.py    # Evaluation endpoints
 │   │       │       ├── feedback.py      # Feedback endpoints
 │   │       │       ├── health.py        # Health check endpoints
+│   │       │       ├── usage.py         # Owner-scoped generation cost summary endpoint
 │   │       │       └── reports.py       # Report endpoints
 │   │       │
 │   │       ├── auth/            # Authentication layer
@@ -533,9 +534,10 @@ ResearchMind-AI/
 │   │       │   ├── cache.py             # Cache dependency
 │   │       │   ├── database.py          # DB session dependency
 │   │       │   ├── generation.py        # get_generation_service()/get_streaming_service() (cached singletons), get_conversation_service(session) (request-scoped) — Streaming Platform, Milestone 2.9.10; get_conversation_artifact_writer()/get_artifact_policy_service_dependency() (cached singletons) — Artifact Platform, Milestone 3.10
+│   │       │   ├── generation_usage.py  # Generation usage summary repository dependency
 │   │       │   ├── settings.py          # Settings dependency
 │   │       │   ├── upload.py            # Upload/processing service dependencies (incl. processing queue, worker, chunking/embedding/indexing service/artifact builder/writer)
-│   │       │   └── vector_store.py      # Vector store dependency
+│   │       │   └── vector_store.py      # Cached vector-store service dependency
 │   │       │
 │   │       ├── exceptions/      # Exception hierarchy and handlers
 │   │       │   ├── auth.py              # Auth-specific exceptions

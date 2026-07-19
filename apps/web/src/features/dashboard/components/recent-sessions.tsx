@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { SectionLabel } from '@/components/ui/page-header';
 import { ChevronRightIcon, MessageIcon, FileTextIcon } from '@/components/ui/icons';
-import { RECENT_SESSIONS } from '@/features/dashboard/mock-data';
+import type { DashboardResearchSession } from '@/features/dashboard/types';
 
 function relativeTime(iso: string): string {
   const diffMs = Date.now() - new Date(iso).getTime();
@@ -11,11 +11,11 @@ function relativeTime(iso: string): string {
   return `${Math.round(hours / 24)}d ago`;
 }
 
-export function RecentSessions() {
+export function RecentSessions({ sessions }: { sessions: DashboardResearchSession[] }) {
   return (
     <div className="border border-ink-600 rounded-xl overflow-hidden">
       <div className="px-5 py-3.5 border-b border-ink-700 flex items-center justify-between">
-        <SectionLabel count={RECENT_SESSIONS.length}>Research Sessions</SectionLabel>
+        <SectionLabel count={sessions.length}>Research Sessions</SectionLabel>
         <Link
           href="/research"
           className="font-mono text-stone-600 hover:text-sage-400 text-[10px] transition-colors"
@@ -23,11 +23,16 @@ export function RecentSessions() {
           view all
         </Link>
       </div>
+      {sessions.length === 0 ? (
+        <div className="px-5 py-6 text-center text-stone-700 text-[12px]">
+          No research sessions yet.
+        </div>
+      ) : (
       <div className="divide-y divide-ink-700">
-        {RECENT_SESSIONS.map((session) => (
+        {sessions.map((session) => (
           <Link
             key={session.id}
-            href={`/research?session=${session.id}`}
+            href={`/research?conversation=${session.id}`}
             className="group flex items-center gap-3 px-5 py-3.5 hover:bg-ink-800/40 transition-colors duration-100"
           >
             <div className="flex-1 min-w-0">
@@ -52,6 +57,7 @@ export function RecentSessions() {
           </Link>
         ))}
       </div>
+      )}
     </div>
   );
 }

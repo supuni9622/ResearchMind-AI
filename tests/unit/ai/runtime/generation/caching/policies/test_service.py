@@ -23,7 +23,7 @@ _PROFILES: dict[CacheRuntime, RuntimeCacheProfile] = {
     ),
     CacheRuntime.RESEARCH: RuntimeCacheProfile(
         runtime=CacheRuntime.RESEARCH,
-        policy=CachePolicy.SEMANTIC,
+        policy=CachePolicy.AUTO,
         exact_ttl_seconds=86400,
     ),
     CacheRuntime.BENCHMARK: RuntimeCacheProfile(
@@ -63,13 +63,10 @@ def test_explicit_override_wins_over_runtime_default() -> None:
     assert resolved == CachePolicy.NEVER
 
 
-def test_research_defaults_to_semantic() -> None:
+def test_research_defaults_to_safe_exact_then_semantic_cache() -> None:
     resolver = _make_resolver()
 
-    assert (
-        resolver.resolve_policy(runtime=CacheRuntime.RESEARCH, override=None)
-        == CachePolicy.SEMANTIC
-    )
+    assert resolver.resolve_policy(runtime=CacheRuntime.RESEARCH, override=None) == CachePolicy.AUTO
 
 
 def test_benchmark_defaults_to_exact_only_with_infinite_ttl() -> None:

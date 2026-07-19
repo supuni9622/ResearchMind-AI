@@ -28,13 +28,14 @@ from app.ai.memory.services.formatting import format_memory_context, with_memory
 from app.ai.memory.services.memory_service import MemoryService
 from app.ai.runtime.events.enums import CoreEventType
 from app.ai.runtime.events.models import StreamEvent
-from app.ai.runtime.generation.caching.enums import CachePolicy
+from app.ai.runtime.generation.caching.enums import CachePolicy, CacheRuntime
 from app.ai.runtime.generation.enums import GenerationProvider
 from app.ai.runtime.generation.models import GenerationRequest, StreamEventType
 from app.ai.runtime.generation.service import GenerationService
 from app.ai.runtime.generation.streaming.service import StreamingService
 from app.ai.runtime.generation.streaming.transports.sse import sse_stream_response
 from app.ai.runtime.generation.streaming.transports.websocket import run_websocket_stream
+from app.ai.runtime.generation.validation.runtime.enums import RuntimeType
 from app.auth.dependencies import authenticate_token, get_current_user
 from app.db.session import SessionFactory
 from app.dependencies.generation import (
@@ -190,6 +191,8 @@ async def _extract_and_store_memory(
     extracted = await memory_extraction_service.extract(
         user_message=user_prompt,
         assistant_message=assistant_content,
+        owner_id=owner_id,
+        conversation_id=conversation_id,
     )
 
     for item in extracted:
@@ -237,6 +240,7 @@ async def _build_request(
         ),
         user_prompt=_format_transcript(history, payload.user_prompt),
         stream=True,
+        owner_id=owner_id,
         conversation_id=conversation_id,
         # Mirrors ResearchService: populates StreamEvent.session_id on every
         # emitted event so a client that started a new conversation (no
@@ -245,6 +249,8 @@ async def _build_request(
         # `research_id` from the first event.
         session_id=conversation_id,
         routing_strategy=payload.routing_strategy,
+        cache_runtime=CacheRuntime.CHAT,
+        runtime=RuntimeType.CHAT,
         artifact_runtime=ArtifactRuntime.CHAT,
     )
 
@@ -288,6 +294,7 @@ async def _generate_and_store_title(
     generation_service: GenerationService,
     conversation_service: ConversationService,
     conversation_id: UUID,
+    owner_id: UUID,
 ) -> None:
     """Best-effort, Groq-only one-time title generation from the first question."""
 
@@ -319,9 +326,12 @@ async def _generate_and_store_title(
                     "the title, with no quotation marks or ending punctuation."
                 ),
                 user_prompt=f"First user question: {first_question}",
+                owner_id=owner_id,
+                conversation_id=conversation_id,
                 max_tokens=24,
                 temperature=0,
                 cache_policy=CachePolicy.NEVER,
+                metadata={"usage_category": "conversation_title"},
                 artifact_runtime=ArtifactRuntime.CHAT,
             ),
         )
@@ -407,6 +417,7 @@ async def _persist_on_complete(
                     generation_service=generation_service,
                     conversation_service=conversation_service,
                     conversation_id=conversation_id,
+                    owner_id=owner_id,
                 )
 
             if conversation_artifact_writer is None:

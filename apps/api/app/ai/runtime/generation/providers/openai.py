@@ -37,6 +37,13 @@ from openai import (
 logger = structlog.get_logger()
 
 
+def _is_temperature_unsupported(exc: OpenAIError) -> bool:
+    """Detect Responses API models that reject the temperature parameter."""
+
+    message = str(exc).lower()
+    return "temperature" in message and "not supported" in message
+
+
 class OpenAIProvider(
     BaseGenerationProvider,
 ):
@@ -231,9 +238,18 @@ class OpenAIProvider(
         if request.tools:
             kwargs["tools"] = [tool.model_dump() for tool in request.tools]
 
-        return await self._client.responses.create(
-            **kwargs,
-        )
+        try:
+            return await self._client.responses.create(**kwargs)
+        except OpenAIError as exc:
+            if "temperature" not in kwargs or not _is_temperature_unsupported(exc):
+                raise
+
+            logger.info(
+                "generation.openai.temperature_omitted",
+                model=self.config.model_name,
+            )
+            kwargs.pop("temperature")
+            return await self._client.responses.create(**kwargs)
 
     ###########################################################################
     # Usage Extraction

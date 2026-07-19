@@ -110,9 +110,11 @@ class VectorStoreProviderInterface(ABC):
     async def count(
         self,
         collection_name: str,
+        *,
+        owner_id: str | None = None,
     ) -> int:
         """
-        Return the total number of indexed vectors.
+        Return the number of indexed vectors, optionally scoped to an owner.
         """
 
     @abstractmethod

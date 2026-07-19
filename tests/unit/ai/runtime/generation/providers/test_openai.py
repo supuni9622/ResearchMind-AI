@@ -168,6 +168,22 @@ async def test_generate_passes_temperature_and_max_tokens_when_set_on_request(
     assert kwargs["max_output_tokens"] == 256
 
 
+async def test_generate_retries_without_temperature_when_model_rejects_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provider, client = _make_provider(monkeypatch)
+    client.responses.create.side_effect = [
+        OpenAIError("Unsupported parameter: 'temperature' is not supported with this model."),
+        _make_response(),
+    ]
+
+    result = await provider.generate(_make_request(temperature=0.0))
+
+    assert result.content == "hello world"
+    assert client.responses.create.await_count == 2
+    assert "temperature" not in client.responses.create.await_args_list[1].kwargs
+
+
 async def test_generate_handles_missing_usage_gracefully(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

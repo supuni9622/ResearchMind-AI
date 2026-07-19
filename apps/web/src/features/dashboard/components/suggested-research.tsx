@@ -1,16 +1,21 @@
 import Link from 'next/link';
 import { SectionLabel } from '@/components/ui/page-header';
 import { SparklesIcon } from '@/components/ui/icons';
-import { SUGGESTED_RESEARCH } from '@/features/dashboard/mock-data';
+import type { DashboardSuggestion } from '@/features/dashboard/types';
 
-export function SuggestedResearch() {
+export function SuggestedResearch({ suggestions }: { suggestions: DashboardSuggestion[] }) {
   return (
     <div className="border border-ink-600 rounded-xl overflow-hidden">
       <div className="px-5 py-3.5 border-b border-ink-700">
         <SectionLabel>Suggested Research</SectionLabel>
       </div>
+      {suggestions.length === 0 ? (
+        <div className="px-5 py-6 text-center text-stone-700 text-[12px]">
+          Upload documents to receive research suggestions.
+        </div>
+      ) : (
       <div className="divide-y divide-ink-700">
-        {SUGGESTED_RESEARCH.map((s) => (
+        {suggestions.map((s) => (
           <Link
             key={s.id}
             href={{ pathname: '/research', query: { q: s.prompt } }}
@@ -30,6 +35,7 @@ export function SuggestedResearch() {
           </Link>
         ))}
       </div>
+      )}
     </div>
   );
 }

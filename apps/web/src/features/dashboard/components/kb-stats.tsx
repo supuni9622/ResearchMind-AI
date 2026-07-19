@@ -3,32 +3,56 @@ import { FileTextIcon, LayersIcon, DatabaseIcon, ActivityIcon } from '@/componen
 
 export function KnowledgeBaseStats({
   documentCount,
+  indexedChunkCount,
+  embeddingCount,
+  researchSessionCount,
+  monthCostUsd,
+  totalCostUsd,
 }: {
   documentCount: number;
+  indexedChunkCount: number | null;
+  embeddingCount: number | null;
+  researchSessionCount: number;
+  monthCostUsd: number | null;
+  totalCostUsd: number | null;
 }) {
+  const formatCost = (cost: number) =>
+    new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: 'USD',
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 4,
+    }).format(cost);
+
   return (
-    <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+    <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
       <StatTile
         label="Documents"
         value={documentCount}
         icon={<FileTextIcon size={12} />}
       />
       <StatTile
-        label="Chunks"
-        value={documentCount > 0 ? (documentCount * 42).toLocaleString() : 0}
+        label="Indexed Chunks"
+        value={indexedChunkCount ?? '—'}
         icon={<LayersIcon size={12} />}
-        sub="estimated"
+        sub={indexedChunkCount === null ? 'not available' : 'in your knowledge base'}
       />
       <StatTile
         label="Embeddings"
-        value={documentCount > 0 ? (documentCount * 42).toLocaleString() : 0}
+        value={embeddingCount ?? '—'}
         icon={<DatabaseIcon size={12} />}
-        sub="estimated"
+        sub={embeddingCount === null ? 'not available' : 'stored vectors'}
       />
       <StatTile
         label="Research Sessions"
-        value={3}
+        value={researchSessionCount}
         icon={<ActivityIcon size={12} />}
+      />
+      <StatTile
+        label="AI Cost (Month)"
+        value={monthCostUsd === null ? '—' : formatCost(monthCostUsd)}
+        icon={<ActivityIcon size={12} />}
+        sub={totalCostUsd === null ? 'not available' : `${formatCost(totalCostUsd)} all time`}
       />
     </div>
   );

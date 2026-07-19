@@ -66,6 +66,7 @@ from app.ai.runtime.generation.service import (
 from app.ai.runtime.generation.streaming.models import (
     StreamCacheOutcome,
 )
+from app.services.generation_usage import GenerationUsageService
 
 logger = structlog.get_logger()
 
@@ -107,6 +108,7 @@ class StreamingService:
         metrics_service: GenerationMetricsService | None = None,
         observability_service: ObservabilityService | None = None,
         tracer: RuntimeTracer | None = None,
+        usage_service: GenerationUsageService | None = None,
     ) -> None:
         self._generation_service = generation_service
         self._registry = registry
@@ -125,6 +127,7 @@ class StreamingService:
         """
 
         self._observability_service = observability_service
+        self._usage_service = usage_service
         """
         Optional (AI Runtime Observability Platform PRD §8), same opt-in
         shape as `GenerationService._observability_service`. `None` skips
@@ -162,6 +165,26 @@ class StreamingService:
             )
 
             if cache_result.hit:
+                if self._usage_service is not None and cache_result.generation_result is not None:
+                    # A replay is a completed user request but incurs no new
+                    # provider spend. Preserve the original output/tokens
+                    # while recording a zero-cost cache hit under this
+                    # request and owner.
+                    cached_statistics = cache_result.generation_result.statistics.model_copy(
+                        update={
+                            "estimated_cost_usd": 0,
+                            "cache_hit": True,
+                            "streamed": True,
+                        }
+                    )
+                    await self._usage_service.record(
+                        cache_result.generation_result.model_copy(
+                            update={
+                                "request": request,
+                                "statistics": cached_statistics,
+                            }
+                        )
+                    )
                 async for event in self._replay_cache_hit(
                     request=request,
                     cache_result_level=cache_result.level,
@@ -346,6 +369,9 @@ class StreamingService:
                 artifact_runtime=(request.artifact_runtime or ArtifactRuntime.CHAT),
                 session_id=request.session_id,
             )
+
+        if self._usage_service is not None:
+            await self._usage_service.record(result)
 
     async def _persist_stream_artifact(
         self,

@@ -57,3 +57,10 @@ class DocumentResponse(BaseModel):
     created_at: datetime
 
     processing_error: str | None = None
+
+
+class DocumentKnowledgeStats(BaseModel):
+    """Owner-scoped knowledge-base counts backed by the vector index."""
+
+    indexed_chunk_count: int
+    embedding_count: int

@@ -3,20 +3,20 @@
 import { useEffect, useState } from 'react';
 import { SectionLabel } from '@/components/ui/page-header';
 import { ServerIcon, DatabaseIcon, CpuIcon, PlugIcon } from '@/components/ui/icons';
-import { STATIC_SERVICES, type ServiceStatus } from '@/features/dashboard/mock-data';
+import { api, type InfrastructureServiceStatus } from '@/lib/api';
 
-const STATUS_DOT: Record<ServiceStatus, string> = {
+type DisplayStatus = 'operational' | 'degraded' | 'offline';
+
+const STATUS_DOT: Record<DisplayStatus, string> = {
   operational: 'bg-sage-500',
   degraded: 'bg-amber-400',
   offline: 'bg-red-500',
-  pending: 'bg-stone-700',
 };
 
-const STATUS_LABEL: Record<ServiceStatus, string> = {
+const STATUS_LABEL: Record<DisplayStatus, string> = {
   operational: 'operational',
   degraded: 'degraded',
   offline: 'offline',
-  pending: 'coming soon',
 };
 
 const ICONS: Record<string, React.ComponentType<{ size?: number }>> = {
@@ -27,26 +27,42 @@ const ICONS: Record<string, React.ComponentType<{ size?: number }>> = {
 };
 
 export function PlatformHealth() {
-  const [backendStatus, setBackendStatus] = useState<ServiceStatus>('pending');
+  const [health, setHealth] = useState<{
+    status: InfrastructureServiceStatus;
+    services: Record<'postgres' | 'valkey' | 'qdrant', InfrastructureServiceStatus>;
+  } | null>(null);
 
   useEffect(() => {
-    const base = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000';
     let cancelled = false;
-    fetch(`${base}/health`)
-      .then((res) => {
-        if (!cancelled) setBackendStatus(res.ok ? 'operational' : 'degraded');
+    api.health
+      .get()
+      .then((result) => {
+        if (!cancelled) setHealth(result);
       })
       .catch(() => {
-        if (!cancelled) setBackendStatus('offline');
+        if (!cancelled) {
+          setHealth({
+            status: 'unhealthy',
+            services: { postgres: 'unhealthy', valkey: 'unhealthy', qdrant: 'unhealthy' },
+          });
+        }
       });
     return () => {
       cancelled = true;
     };
   }, []);
 
+  const displayStatus = (status: InfrastructureServiceStatus | undefined): DisplayStatus => {
+    if (status === 'healthy') return 'operational';
+    if (health === null) return 'degraded';
+    return 'offline';
+  };
+
   const services = [
-    { id: 'backend', label: 'Backend API', detail: 'FastAPI', status: backendStatus },
-    ...STATIC_SERVICES,
+    { id: 'backend', label: 'Backend API', detail: 'FastAPI', status: displayStatus(health?.status) },
+    { id: 'postgres', label: 'PostgreSQL', detail: 'Primary database', status: displayStatus(health?.services.postgres) },
+    { id: 'valkey', label: 'Valkey', detail: 'Cache and session memory', status: displayStatus(health?.services.valkey) },
+    { id: 'qdrant', label: 'Qdrant', detail: 'Vector store', status: displayStatus(health?.services.qdrant) },
   ];
 
   return (

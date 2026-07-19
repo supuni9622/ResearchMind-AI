@@ -18,6 +18,7 @@ Covers:
 from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock
+from uuid import uuid4
 
 from app.ai.knowledge.context.models import PromptContext
 from app.ai.runtime.events.create import get_event_adapter
@@ -99,6 +100,7 @@ def _make_service(
     metrics_service: MagicMock | None = None,
     observability_service: AsyncMock | None = None,
     tracer: MagicMock | None = None,
+    usage_service: AsyncMock | None = None,
 ) -> StreamingService:
     return StreamingService(
         generation_service=generation_service,
@@ -109,6 +111,7 @@ def _make_service(
         metrics_service=metrics_service,
         observability_service=observability_service,
         tracer=tracer,
+        usage_service=usage_service,
     )
 
 
@@ -149,6 +152,38 @@ async def test_cache_hit_is_replayed_as_synthetic_events_without_live_streaming(
     caching_service.store.assert_not_awaited()
 
 
+async def test_cache_hit_records_zero_cost_owner_scoped_usage() -> None:
+    provider = _make_registered_provider()
+    generation_service = _make_generation_service()
+    generation_service.resolve_streaming_provider = MagicMock(return_value=GenerationProvider.GROQ)
+    caching_service = AsyncMock()
+    caching_service.lookup = AsyncMock(
+        return_value=CacheResult(
+            hit=True,
+            level=CacheLevel.EXACT,
+            generation_result=_make_result("cached answer"),
+        )
+    )
+    usage_service = AsyncMock()
+    request = _make_request()
+    request.owner_id = uuid4()
+
+    service = _make_service(
+        generation_service=generation_service,
+        provider=provider,
+        caching_service=caching_service,
+        usage_service=usage_service,
+    )
+
+    await _collect(service.stream_generate(request=request, provider=GenerationProvider.GROQ))
+
+    recorded = usage_service.record.await_args.args[0]
+    assert recorded.request is request
+    assert recorded.statistics.cache_hit is True
+    assert recorded.statistics.streamed is True
+    assert recorded.statistics.estimated_cost_usd == 0
+
+
 async def test_cache_miss_streams_live_and_stores_the_assembled_result() -> None:
     provider = _make_registered_provider()
 
@@ -187,6 +222,31 @@ async def test_cache_miss_streams_live_and_stores_the_assembled_result() -> None
     stored_result = caching_service.store.await_args.kwargs["result"]
     assert stored_result.content == "hello"
     assert stored_result.statistics.streamed is True
+
+
+async def test_completed_stream_records_owner_scoped_usage() -> None:
+    provider = _make_registered_provider()
+    generation_service = _make_generation_service()
+    generation_service.resolve_streaming_provider = MagicMock(return_value=GenerationProvider.GROQ)
+    generation_service.stream_generate = MagicMock(
+        return_value=_fake_stream([StreamChunk(event=StreamEventType.TOKEN, content="hello")])
+    )
+    usage_service = AsyncMock()
+    request = _make_request()
+    request.owner_id = uuid4()
+
+    service = _make_service(
+        generation_service=generation_service,
+        provider=provider,
+        caching_service=None,
+        usage_service=usage_service,
+    )
+
+    await _collect(service.stream_generate(request=request, provider=GenerationProvider.GROQ))
+
+    recorded = usage_service.record.await_args.args[0]
+    assert recorded.request is request
+    assert recorded.statistics.streamed is True
 
 
 async def test_completed_stream_is_scored_via_the_generation_service() -> None:

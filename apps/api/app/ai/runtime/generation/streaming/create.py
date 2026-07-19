@@ -25,6 +25,7 @@ from app.ai.runtime.generation.create import (
 from app.ai.runtime.generation.streaming.service import (
     StreamingService,
 )
+from app.services.generation_usage import GenerationUsageService
 
 
 @lru_cache
@@ -49,4 +50,5 @@ def create_streaming_service() -> StreamingService:
         metrics_service=generation_service.metrics_service,
         observability_service=generation_service.observability_service,
         tracer=generation_service.tracer,
+        usage_service=GenerationUsageService(),
     )

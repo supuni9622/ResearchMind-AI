@@ -22,10 +22,16 @@ export default function ResearchPage() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const sessionParam = params.get('session');
+    const conversationParam = params.get('conversation');
     const qParam = params.get('q');
     if (qParam) setInput(qParam);
     if (sessionParam) {
       loadFromHistory(sessionParam).then(setFocusedTurnId);
+    }
+    if (conversationParam) {
+      selectConversation(conversationParam).then((mapped) => {
+        setFocusedTurnId(mapped[mapped.length - 1]?.localId ?? null);
+      });
     }
     // Only ever run once, on mount — replaying a URL param shouldn't refire on state changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps

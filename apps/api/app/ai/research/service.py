@@ -36,6 +36,7 @@ from app.ai.research.models import ResearchOutcome, ResearchSource
 from app.ai.runtime.events.enums import CoreEventType, EventCategory
 from app.ai.runtime.events.models import StreamEvent
 from app.ai.runtime.events.research.models import ResearchEventType
+from app.ai.runtime.generation.caching.enums import CacheRuntime
 from app.ai.runtime.generation.enums import GenerationProvider
 from app.ai.runtime.generation.models import GenerationRequest, StreamEventType
 from app.ai.runtime.generation.orchestration.interfaces import GenerationRuntimeInterface
@@ -147,8 +148,10 @@ class ResearchService:
                 memory_context_text,
             ),
             user_prompt=self._format_transcript(history, query),
+            owner_id=owner_id,
             session_id=research_id,
             routing_strategy=routing_strategy,
+            cache_runtime=CacheRuntime.RESEARCH,
             runtime=RuntimeType.RESEARCH,
             artifact_runtime=ArtifactRuntime.RESEARCH,
         )
@@ -284,8 +287,10 @@ class ResearchService:
             ),
             user_prompt=self._format_transcript(history, query),
             stream=True,
+            owner_id=owner_id,
             session_id=research_id,
             routing_strategy=routing_strategy,
+            cache_runtime=CacheRuntime.RESEARCH,
             runtime=RuntimeType.RESEARCH,
             artifact_runtime=ArtifactRuntime.RESEARCH,
         )
@@ -459,6 +464,8 @@ class ResearchService:
         extracted = await self._memory_extraction.extract(
             user_message=query,
             assistant_message=answer,
+            owner_id=owner_id,
+            conversation_id=session_id,
         )
 
         for item in extracted:

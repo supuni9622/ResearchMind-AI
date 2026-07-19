@@ -25,6 +25,11 @@ export default function ChatPage() {
   const lastMessageContent = messages[messages.length - 1]?.content;
 
   useEffect(() => {
+    const conversationId = new URLSearchParams(window.location.search).get('conversation');
+    if (conversationId) void selectConversation(conversationId);
+  }, [selectConversation]);
+
+  useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages.length, lastMessageContent]);
 

@@ -19,6 +19,7 @@ from app.api.v1.research import (
 from app.api.v1.retrieval import (
     router as retrieval_router,
 )
+from app.api.v1.usage import router as usage_router
 
 api_router = APIRouter()
 
@@ -44,4 +45,7 @@ api_router.include_router(
 )
 api_router.include_router(
     memory_router,
+)
+api_router.include_router(
+    usage_router,
 )

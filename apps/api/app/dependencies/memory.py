@@ -24,6 +24,7 @@ from app.ai.memory.services.memory_service import MemoryService
 from app.ai.memory.session.service import SessionMemoryService
 from app.ai.memory.storage.postgres_store import PostgresMemoryStore
 from app.ai.memory.storage.vector_index import MemoryVectorIndex
+from app.ai.runtime.generation.enums import GenerationProvider
 from app.ai.runtime.generation.orchestration.orchestrator import GenerationRuntime
 from app.core.settings import settings
 from app.db.session import get_db
@@ -80,10 +81,28 @@ def get_memory_artifact_writer() -> MemoryArtifactWriter:
     return create_memory_artifact_writer()
 
 
+def _memory_extraction_providers() -> tuple[GenerationProvider | None, GenerationProvider | None]:
+    """Prefer inexpensive structured-output providers for background memory work."""
+
+    if settings.groq_api_key:
+        return (
+            GenerationProvider.GROQ,
+            GenerationProvider.OPENAI if settings.openai_api_key else None,
+        )
+    if settings.openai_api_key:
+        return GenerationProvider.OPENAI, None
+    return None, None
+
+
 def get_memory_extraction_service(
     generation_runtime: GenerationRuntime = Depends(get_generation_runtime),
 ) -> MemoryExtractionService:
-    return MemoryExtractionService(generation_runtime)
+    provider, fallback_provider = _memory_extraction_providers()
+    return MemoryExtractionService(
+        generation_runtime,
+        provider=provider,
+        fallback_provider=fallback_provider,
+    )
 
 
 def get_memory_lifecycle_service(

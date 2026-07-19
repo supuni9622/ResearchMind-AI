@@ -163,7 +163,28 @@ async def test_count_delegates_to_resolved_provider() -> None:
     )
 
     assert result == 7
-    provider.count.assert_awaited_once_with("researchmind_knowledge")
+    provider.count.assert_awaited_once_with(
+        "researchmind_knowledge",
+        owner_id=None,
+    )
+
+
+async def test_count_passes_owner_scope_to_resolved_provider() -> None:
+    registry, provider = _make_registry_with_provider()
+    provider.count = AsyncMock(return_value=7)
+    service = VectorStoreService(registry=registry)
+
+    result = await service.count(
+        provider=VectorStoreProvider.QDRANT,
+        collection_name="researchmind_knowledge",
+        owner_id="owner-1",
+    )
+
+    assert result == 7
+    provider.count.assert_awaited_once_with(
+        "researchmind_knowledge",
+        owner_id="owner-1",
+    )
 
 
 async def test_operations_raise_when_provider_not_registered() -> None:

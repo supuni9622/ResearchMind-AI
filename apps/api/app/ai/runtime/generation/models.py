@@ -125,6 +125,8 @@ class GenerationRequest(BaseModel):
 
     conversation_id: UUID | None = None
 
+    owner_id: UUID | None = None
+
     session_id: UUID | None = None
 
     request_id: UUID = Field(default_factory=uuid4)

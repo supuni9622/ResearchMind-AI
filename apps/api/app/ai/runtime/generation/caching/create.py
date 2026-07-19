@@ -58,7 +58,11 @@ logger = structlog.get_logger()
 
 _DEFAULT_RUNTIME_POLICIES: dict[CacheRuntime, CachePolicy] = {
     CacheRuntime.CHAT: CachePolicy.AUTO,
-    CacheRuntime.RESEARCH: CachePolicy.SEMANTIC,
+    # Research answers are context-sensitive, but the exact-cache key includes
+    # the fully rendered transcript and retrieval context. AUTO can therefore
+    # safely replay truly identical research requests before falling back to
+    # semantic matching for equivalent context.
+    CacheRuntime.RESEARCH: CachePolicy.AUTO,
     CacheRuntime.BENCHMARK: CachePolicy.EXACT_ONLY,
     CacheRuntime.PLANNER: CachePolicy.NEVER,
     CacheRuntime.TOOL_AGENT: CachePolicy.NEVER,

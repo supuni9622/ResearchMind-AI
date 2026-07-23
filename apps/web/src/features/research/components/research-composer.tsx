@@ -2,7 +2,18 @@
 
 import { useRef } from 'react';
 import type { GenerationProvider } from '@/lib/api';
-import { PROVIDER_OPTIONS } from '@/features/research/types';
+import { PROVIDER_OPTIONS, type ResearchMode } from '@/features/research/types';
+import { SparklesIcon, ZapIcon } from '@/components/ui/icons';
+
+const MODE_OPTIONS: { value: ResearchMode; label: string; icon: typeof ZapIcon; title: string }[] = [
+  { value: 'linear', label: 'Linear', icon: ZapIcon, title: 'Fast, one-shot cited answer' },
+  {
+    value: 'deep',
+    label: 'Deep',
+    icon: SparklesIcon,
+    title: 'Multi-step research report -- plan review, then an approved async run',
+  },
+];
 
 export function ResearchComposer({
   value,
@@ -11,6 +22,8 @@ export function ResearchComposer({
   loading,
   provider,
   onProviderChange,
+  mode,
+  onModeChange,
 }: {
   value: string;
   onChange: (v: string) => void;
@@ -18,6 +31,8 @@ export function ResearchComposer({
   loading: boolean;
   provider: GenerationProvider | 'auto';
   onProviderChange: (p: GenerationProvider | 'auto') => void;
+  mode: ResearchMode;
+  onModeChange: (m: ResearchMode) => void;
 }) {
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -37,6 +52,29 @@ export function ResearchComposer({
         }}
         className="max-w-2xl"
       >
+        <div className="flex items-center gap-1 mb-2 w-fit bg-ink-800 border border-ink-600 rounded-lg p-0.5">
+          {MODE_OPTIONS.map((opt) => {
+            const Icon = opt.icon;
+            const active = mode === opt.value;
+            return (
+              <button
+                key={opt.value}
+                type="button"
+                title={opt.title}
+                disabled={loading}
+                onClick={() => onModeChange(opt.value)}
+                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md font-mono text-[10px] uppercase tracking-widest transition-colors duration-150 disabled:cursor-not-allowed ${
+                  active
+                    ? 'bg-sage-600 text-stone-100'
+                    : 'text-stone-500 hover:text-stone-300'
+                }`}
+              >
+                <Icon size={11} />
+                {opt.label}
+              </button>
+            );
+          })}
+        </div>
         <div className="flex gap-2.5 items-end">
           <div className="flex-1 relative">
             <textarea
@@ -44,7 +82,11 @@ export function ResearchComposer({
               value={value}
               onChange={(e) => onChange(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="Ask a research question…"
+              placeholder={
+                mode === 'deep'
+                  ? 'Describe what you want a comprehensive report on…'
+                  : 'Ask a research question…'
+              }
               rows={1}
               disabled={loading}
               className="w-full bg-ink-800 border border-ink-500 rounded-xl px-4 py-2.5 text-stone-100 text-sm placeholder-stone-600 resize-none focus:outline-none focus:border-sage-600 transition-colors min-h-[42px] max-h-36 overflow-y-auto scrollbar-thin"

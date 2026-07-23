@@ -137,12 +137,12 @@ def create_validation_registry() -> ValidationRegistry:
     #
     # Runtime
     #
-    # Planner/Reviewer/Agent/MCP are registered but dormant in
-    # production today: `RuntimeValidationService` only runs a
-    # contract when `GenerationRequest.runtime` matches it, and
-    # nothing sets `runtime` to those values yet (no Planner/Reviewer/
-    # Agent/MCP runtime exists in this codebase). Registering them now
-    # means the day one of those runtimes starts issuing requests with
+    # `RuntimeValidationService` only runs a contract when
+    # `GenerationRequest.runtime` matches it. `PlannerRuntimeContract`
+    # is live: `ResearchPlanner` sets `runtime=RuntimeType.PLANNER` on
+    # every planning request (`app/ai/runtime/research/planner/service.py`).
+    # Reviewer/Agent/MCP remain dormant -- registered ahead of time so
+    # the day one of those runtimes starts issuing requests with
     # `runtime` set, its contract is already active with no further
     # wiring here.
     #

@@ -56,7 +56,9 @@ from app.dependencies.generation import (
     get_streaming_service,
 )
 from app.dependencies.memory import get_memory_extraction_service, get_memory_service
-from app.exceptions.base import AppException
+from app.dependencies.rate_limiting import enforce_rate_limit, get_rate_limiter
+from app.exceptions.base import AppException, RateLimitExceededException
+from app.infrastructure.rate_limiting import ValkeyRateLimiter
 from app.models.conversation import Conversation, Message
 from app.models.user import User
 from app.schemas.chat import (
@@ -79,6 +81,24 @@ router = APIRouter(
     prefix="/chat",
     tags=["Chat"],
 )
+
+
+async def _check_chat_rate_limit(*, rate_limiter: ValkeyRateLimiter, owner_id: UUID) -> None:
+    """Raise if `owner_id` has exceeded the per-window chat-turn cap.
+
+    Called before any conversation/generation work starts on both
+    `/chat/stream` and `/chat/ws`, so a limited request never reaches the
+    provider (no cost incurred) and never opens a stream that would then
+    have to be aborted mid-flight.
+    """
+
+    await enforce_rate_limit(
+        rate_limiter,
+        scope="chat",
+        owner_id=owner_id,
+        limit=settings.chat_rate_limit_requests,
+        window_seconds=settings.chat_rate_limit_window_seconds,
+    )
 
 
 def _message_response(message: Message) -> ChatMessageResponse:
@@ -606,6 +626,7 @@ async def stream_chat(
     ),
     memory_service: MemoryService = Depends(get_memory_service),
     memory_extraction_service: MemoryExtractionService = Depends(get_memory_extraction_service),
+    rate_limiter: ValkeyRateLimiter = Depends(get_rate_limiter),
 ) -> StreamingResponse:
     """
     A `POST` consumed via `fetch` + `ReadableStream` on the frontend, not
@@ -613,6 +634,8 @@ async def stream_chat(
     custom `Authorization` header, and this platform's auth is Bearer
     `id_token`. See ADR-028's "Production Considerations".
     """
+
+    await _check_chat_rate_limit(rate_limiter=rate_limiter, owner_id=current_user.id)
 
     conversation = await conversation_service.get_or_create(
         conversation_id=payload.conversation_id,
@@ -682,6 +705,15 @@ async def stream_chat_ws(
         except AppException as exc:
             await websocket.close(
                 code=status.WS_1008_POLICY_VIOLATION,
+                reason=exc.message,
+            )
+            return
+
+        try:
+            await _check_chat_rate_limit(rate_limiter=get_rate_limiter(), owner_id=current_user.id)
+        except RateLimitExceededException as exc:
+            await websocket.close(
+                code=status.WS_1013_TRY_AGAIN_LATER,
                 reason=exc.message,
             )
             return

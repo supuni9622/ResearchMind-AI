@@ -81,6 +81,8 @@ async def _pump(
 
 async def _sse_byte_stream(
     events: AsyncGenerator[StreamEvent, None],
+    *,
+    max_duration_seconds: float = MAX_STREAM_DURATION_SECONDS,
 ) -> AsyncIterator[bytes]:
 
     started = time.monotonic()
@@ -89,10 +91,10 @@ async def _sse_byte_stream(
 
     try:
         while True:
-            if time.monotonic() - started > MAX_STREAM_DURATION_SECONDS:
+            if time.monotonic() - started > max_duration_seconds:
                 logger.warning(
                     "streaming.sse.max_duration_exceeded",
-                    max_duration_seconds=MAX_STREAM_DURATION_SECONDS,
+                    max_duration_seconds=max_duration_seconds,
                 )
 
                 yield serialize_sse(
@@ -135,13 +137,21 @@ async def _sse_byte_stream(
 
 def sse_stream_response(
     events: AsyncGenerator[StreamEvent, None],
+    *,
+    max_duration_seconds: float = MAX_STREAM_DURATION_SECONDS,
 ) -> StreamingResponse:
     """
     Wraps a StreamEvent iterator as a `text/event-stream` FastAPI response.
+
+    `max_duration_seconds` defaults to the ceiling tuned for LLM generation
+    streams (seconds-to-low-minutes). Long-running progress feeds -- e.g. a
+    multi-wave Deep Research run's event replay -- should pass a longer
+    value; the client is expected to reconnect with `?after=<cursor>` if it
+    still hits the ceiling.
     """
 
     return StreamingResponse(
-        _sse_byte_stream(events),
+        _sse_byte_stream(events, max_duration_seconds=max_duration_seconds),
         media_type="text/event-stream",
         headers=SSE_HEADERS,
     )

@@ -25,10 +25,8 @@ from app.ai.runtime.generation.validation.runtime.validators.evidence import (
     EvidenceValidator,
 )
 
-_MIN_SECTIONS = 2
-_MIN_CITATIONS = 1
-_MIN_EVIDENCE = 1
-_MIN_SUMMARY_LENGTH = 40
+_MIN_FINDINGS = 2
+_MIN_CITATION_IDS = 1
 
 
 class ResearchRuntimeContract(
@@ -36,15 +34,16 @@ class ResearchRuntimeContract(
 ):
     """
     Research Runtime Contract (PRD §15) — the first concrete runtime
-    contract. Requires a non-trivial `summary`, at least 2 `sections`,
-    at least 1 `citation`, at least 1 `evidence` item, and a
-    `confidence` score in `[0, 1]` on `GenerationResult.parsed_output`.
-
-    Entirely composed from the generic runtime validators (PRD §14) —
-    `EvidenceValidator`'s own count check is disabled (`minimum=0`)
-    since `CompletenessValidator`'s `list_minimums` already enforces
-    the evidence-count requirement; composing both would double-flag
-    the same missing-evidence condition.
+    contract. Requires a non-empty `abstract`, at least 2 `findings`
+    sections, and at least 1 cited source id on `GenerationResult.
+    parsed_output`. Field names mirror `ResearchDraft`/
+    `ResearchDraftSection` (`app/ai/runtime/research/synthesis/models.py`),
+    the actual `output_model` the synthesis step requests -- that
+    schema has no `confidence`/`evidence` concept, so unlike the
+    original PRD §15 sketch there's nothing for `ConfidenceValidator`/
+    `EvidenceValidator`/`ConsistencyValidator` to check; they're kept
+    here as safe no-ops (each only runs when its target field is
+    present at all) in case a future schema revision adds one.
     """
 
     def __init__(
@@ -53,15 +52,12 @@ class ResearchRuntimeContract(
         self._checks: list[OutputValidatorInterface] = [
             CompletenessValidator(
                 required_fields=[
-                    "summary",
-                    "confidence",
+                    "abstract",
                 ],
                 list_minimums={
-                    "sections": _MIN_SECTIONS,
-                    "citations": _MIN_CITATIONS,
-                    "evidence": _MIN_EVIDENCE,
+                    "findings": _MIN_FINDINGS,
+                    "citation_ids": _MIN_CITATION_IDS,
                 },
-                min_summary_length=_MIN_SUMMARY_LENGTH,
             ),
             ConsistencyValidator(),
             EvidenceValidator(

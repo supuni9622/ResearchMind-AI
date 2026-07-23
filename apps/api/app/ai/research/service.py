@@ -47,6 +47,8 @@ from app.ai.runtime.generation.orchestration.interfaces import GenerationRuntime
 from app.ai.runtime.generation.routing.enums import RoutingStrategy
 from app.ai.runtime.generation.streaming.service import StreamingService
 from app.ai.runtime.generation.validation.runtime.enums import RuntimeType
+from app.ai.runtime.research.evidence import ResearchEvidenceBundle
+from app.ai.runtime.research.synthesis.models import ResearchDraft
 from app.core.settings import settings
 from app.models.research import ResearchSession
 from app.repositories.research import ResearchRepository
@@ -385,6 +387,58 @@ class ResearchService:
 
         return context_result.prompt_context.citations
 
+    async def publish_runtime_report(
+        self,
+        *,
+        query: str,
+        draft: ResearchDraft,
+        evidence: ResearchEvidenceBundle,
+        owner_id: UUID,
+        conversation_id: UUID | None,
+        duration_ms: float,
+    ) -> ResearchOutcome:
+        """Persist a reviewed runtime draft before invoking memory extraction.
+
+        This is intentionally the only handoff from the graph to durable user
+        state. Planner, retrieval, reviewer, and PDF nodes never receive the
+        memory collaborators.
+        """
+
+        conversation = await self._conversations.get_or_create(
+            conversation_id=conversation_id,
+            owner_id=owner_id,
+        )
+        await self._conversations.set_title_from_first_query(conversation=conversation, query=query)
+        research_id = uuid4()
+        citations, sources = self._runtime_evidence_metadata(evidence)
+        answer = self._format_runtime_draft(draft)
+        await self._persist_session(
+            research_id=research_id,
+            conversation_id=conversation.id,
+            owner_id=owner_id,
+            query=query,
+            answer=answer,
+            citations=citations,
+            sources=sources,
+            runtime_metadata={"runtime": "research_runtime_v1", "report_title": draft.title},
+        )
+        await self._extract_and_store_memory(
+            owner_id=owner_id,
+            session_id=conversation.id,
+            research_id=research_id,
+            query=query,
+            answer=answer,
+        )
+        return ResearchOutcome(
+            research_id=research_id,
+            conversation_id=conversation.id,
+            query=query,
+            answer=answer,
+            citations=citations,
+            sources=sources,
+            duration_ms=duration_ms,
+        )
+
     # ==========================================================
     # Internal helpers
     # ==========================================================
@@ -595,6 +649,58 @@ class ResearchService:
             )
             for chunk in context_result.prompt_context.chunks
         ]
+
+    @staticmethod
+    def _runtime_evidence_metadata(
+        evidence: ResearchEvidenceBundle,
+    ) -> tuple[list[Citation], list[ResearchSource]]:
+        """Convert compact, already-owner-scoped evidence references to API metadata."""
+
+        citations: list[Citation] = []
+        sources: list[ResearchSource] = []
+        seen_citations: set[str] = set()
+        seen_sources: set[tuple[str, str]] = set()
+        for item in evidence.evidence:
+            document_id = UUID(item.document_id)
+            chunk_id = UUID(item.chunk_id)
+            source_key = (item.document_id, item.chunk_id)
+            if source_key not in seen_sources:
+                sources.append(
+                    ResearchSource(
+                        document_id=document_id,
+                        filename=item.filename,
+                        chunk_id=chunk_id,
+                        score=item.score,
+                    )
+                )
+                seen_sources.add(source_key)
+            if item.citation_id and item.citation_id not in seen_citations:
+                citations.append(
+                    Citation(
+                        citation_id=item.citation_id,
+                        filename=item.filename,
+                        document_id=document_id,
+                        chunk_ids=[chunk_id],
+                    )
+                )
+                seen_citations.add(item.citation_id)
+        return citations, sources
+
+    @staticmethod
+    def _format_runtime_draft(draft: ResearchDraft) -> str:
+        sections = [
+            ("Abstract", draft.abstract),
+            ("Methodology", draft.methodology),
+            *[(finding.heading, finding.content) for finding in draft.findings],
+            ("Discussion", draft.discussion),
+            ("Conclusion", draft.conclusion),
+        ]
+        if draft.limitations:
+            sections.append(("Limitations", "\n".join(f"- {item}" for item in draft.limitations)))
+        if draft.citation_ids:
+            sections.append(("References", "\n".join(f"- [{item}]" for item in draft.citation_ids)))
+        rendered_sections = [f"## {heading}\n{content}" for heading, content in sections]
+        return "\n\n".join([f"# {draft.title}", *rendered_sections])
 
     async def _persist_session(
         self,

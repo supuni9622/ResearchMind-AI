@@ -55,11 +55,23 @@ from app.ai.knowledge.processing.statistics.service import (
 from app.ai.knowledge.processing.temporary_file_manager import (
     TemporaryFileManager,
 )
+from app.ai.memory.create import build_memory_extraction_service, build_memory_service
 from app.ai.observability.create import get_observability_service
+from app.ai.research.service import ResearchService
+from app.ai.runtime.research.execution import ResearchRuntimeExecutionService
 from app.core.settings import settings
+from app.dependencies.context import get_context_builder
+from app.dependencies.generation import (
+    get_artifact_policy_service_dependency,
+    get_generation_runtime,
+    get_streaming_service,
+)
+from app.dependencies.research import get_research_artifact_writer
+from app.dependencies.retrieval import get_retrieval_service
 from app.infrastructure.queue.factory import create_processing_queue
 from app.infrastructure.storage import create_storage
 from app.repositories.document import DocumentRepository
+from app.repositories.research_run_dispatch import ResearchRunDispatchRepository
 from app.services.document_processing_service import (
     DocumentProcessingService,
 )
@@ -69,6 +81,7 @@ from app.services.queued_document_processing_service import (
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.worker.processing_worker import ProcessingWorker
+from apps.worker.research_runtime_worker import ResearchRuntimeWorker
 
 
 def create_processing_worker(
@@ -134,4 +147,39 @@ def create_processing_worker(
     return ProcessingWorker(
         queue=create_processing_queue(settings),
         queued_document_processing_service=(queued_document_processing_service),
+    )
+
+
+def create_research_runtime_worker(*, session: AsyncSession) -> ResearchRuntimeWorker:
+    """Compose the isolated worker that executes only approved research runs."""
+
+    storage = create_storage(settings)
+    memory_service = build_memory_service(session)
+    research_service = ResearchService(
+        session=session,
+        retrieval_service=get_retrieval_service(),
+        context_builder=get_context_builder(),
+        generation_runtime=get_generation_runtime(),
+        streaming_service=get_streaming_service(),
+        research_artifact_writer=get_research_artifact_writer(),
+        artifact_policy_service=get_artifact_policy_service_dependency(),
+        memory_service=memory_service,
+        memory_extraction_service=build_memory_extraction_service(),
+    )
+    execution = ResearchRuntimeExecutionService(
+        session=session,
+        research_service=research_service,
+        database_url=settings.database_url,
+        generation_runtime=get_generation_runtime(),
+        retrieval_service=get_retrieval_service(),
+        context_builder=get_context_builder(),
+        storage=storage,
+        v1_graph_enabled=settings.research_runtime_v1_graph_enabled,
+        memory_service=memory_service,
+    )
+    return ResearchRuntimeWorker(
+        dispatches=ResearchRunDispatchRepository(session),
+        execute_run=lambda run_id: execution.execute_approved_run(run_id=run_id),
+        commit=session.commit,
+        rollback=session.rollback,
     )

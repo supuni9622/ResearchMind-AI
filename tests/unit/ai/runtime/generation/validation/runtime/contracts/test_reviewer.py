@@ -2,10 +2,13 @@
 Unit tests for ReviewerRuntimeContract.
 
 Covers:
-- A fully compliant review output is valid, with confidence reflected as score
-- Missing critique/confidence/recommendations produce the expected errors
-- An out-of-range confidence is an error
+- A fully compliant review output is valid, with quality_score reflected as score
+- Missing quality_score produces the expected error
+- An out-of-range quality_score is an error
 - runtime/contract_name/name identity
+
+Field name mirrors `ModelReviewAssessment` (`app/ai/runtime/research/review.py`),
+the actual `output_model` the reviewer step requests.
 """
 
 from __future__ import annotations
@@ -18,9 +21,9 @@ from app.ai.runtime.generation.validation.runtime.enums import RuntimeType
 from tests.unit.ai.runtime.generation.validation.factories import make_result
 
 _COMPLIANT_PAYLOAD = {
-    "critique": "The report is well-sourced but light on counterarguments.",
-    "confidence": 0.7,
-    "recommendations": ["Add a section addressing opposing viewpoints."],
+    "quality_score": 0.7,
+    "gap_questions": [],
+    "concerns": ["Light on counterarguments."],
 }
 
 
@@ -52,19 +55,16 @@ async def test_missing_requirements_produce_expected_errors() -> None:
 
     messages = " ".join(issue.message for issue in outcome.issues)
 
-    assert "critique" in messages
-    assert "confidence" in messages
-    assert "recommendations" in messages
+    assert "quality_score" in messages
 
 
-async def test_out_of_range_confidence_is_an_error() -> None:
+async def test_out_of_range_quality_score_is_an_error() -> None:
     contract = ReviewerRuntimeContract()
 
     result = make_result(
         parsed_output={
-            "critique": "x",
-            "confidence": 1.5,
-            "recommendations": ["y"],
+            "quality_score": 1.5,
+            "concerns": ["y"],
         }
     )
 

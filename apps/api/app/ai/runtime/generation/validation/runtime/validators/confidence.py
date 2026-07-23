@@ -20,12 +20,24 @@ class ConfidenceValidator(
     OutputValidatorInterface,
 ):
     """
-    Checks a runtime output's `confidence` (if present) is numeric and
-    falls within `[0, 1]` (PRD §14). Contributes it as this check's
-    score when valid. Runs only when `confidence` is present — whether
-    it's *required* is a contract-level concern (PRD §15), not this
-    validator's.
+    Checks a runtime output's confidence-style score field (if
+    present) is numeric and falls within `[0, 1]` (PRD §14).
+    Contributes it as this check's score when valid. Runs only when
+    the field is present — whether it's *required* is a
+    contract-level concern (PRD §15), not this validator's.
+
+    `field_name` is configurable since contracts name this
+    differently (e.g. the Reviewer Runtime Contract's
+    `ModelReviewAssessment.quality_score` vs. a generic `confidence`
+    field) rather than each writing a bespoke range-check validator.
     """
+
+    def __init__(
+        self,
+        *,
+        field_name: str = "confidence",
+    ) -> None:
+        self._field_name = field_name
 
     @property
     def name(
@@ -40,7 +52,7 @@ class ConfidenceValidator(
 
         confidence = get_field(
             result.parsed_output,
-            "confidence",
+            self._field_name,
         )
 
         if confidence is None:

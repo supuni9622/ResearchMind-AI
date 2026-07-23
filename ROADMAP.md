@@ -1,8 +1,8 @@
 # ResearchMind AI Roadmap
 
-**Last Updated:** 2026-07-19 (Memory Platform optimization plus Chat cursor pagination and deterministic prompt-history compaction)
+**Last Updated:** 2026-07-23 (Research Runtime / Deep Research is now a complete, working, end-to-end single-agent workflow with a real frontend — see Phase 6 below. Same day, later: manually browser-verified end to end for the first time, surfacing and fixing two worker session-staleness bugs — see Phase 6's "Same day, later" note.)
 
-**Current Maturity:** NotebookLM++ + Perplexity v1. Hybrid Retrieval, Reranking, Parent Expansion, Compression, Context Guardrails, and strategy-based Prompt Formatting are all in place — beyond a plain NotebookLM clone. A standalone, platform-wide Guardrails Platform (Milestone 11.16 — input/retrieval/generation/runtime stages, Source Trust, policies, scoring, artifacts) is now complete as an MVP foundation, alongside the Validation Platform. The Generation Platform is now fully complete per `generation_platform_complexion_prd.md` — Routing Platform, Runtime Caching Platform (L1 exact/L2 semantic/L3 session caching, policy resolution), five runtime validation contracts (Research/Planner/Reviewer/Agent/MCP), a Validation Policy Layer (Acceptance/Fail-Fast/Runtime Validation), every PRD output validator, and Runtime Metrics Integration are all done. A Generation Runtime Platform (`generation/orchestration/`, `execute_generation()`/`GenerationRuntime.execute()`) now gives every future caller one canonical entrypoint into that stack instead of reaching into `GenerationService` directly, per `generation_runtime_platform_prd.md`. **`POST /research` is now live** — the Research API Platform (`app/ai/research/`) composes Retrieval → Context → Generation Runtime → Streaming → Artifacts into the first complete, end-to-end, cited product answer ResearchMind has ever produced, with `POST /research`, `/research/stream`, `/research/citations`, `GET /research/{id}` (single-turn replay, backed by `research_sessions`), and server-backed `/research/conversations` thread replay. This is deliberately linear — no query decomposition, planning, or agents yet, per `research_api_prd.md`'s own Non-Goals; that broader Research Runtime / Deep Research / Agent Platform work is next. Most recently, an **AI Runtime Observability Platform** (`oberservability_platform_prd.md`) shipped: real LangSmith tracing + a new metrics/statistics/report/artifact layer, wired into both Generation entry points (`generate()` and `stream_generate()`, so Research and Chat both get it, plus the Knowledge Processing pipeline). Live verification against an actual LangSmith account and S3 bucket found and fixed three real bugs (streaming was completely dark for both tracing and artifact persistence; a missing artifact-policy rule silently dropped every research artifact; the tracer never sent a real prompt or output) and surfaced a real product gap that got closed as a follow-up (streamed generations never ran post-generation validation/guardrail scoring, unlike non-streamed ones). The same verification pass also surfaced Research's lack of multi-turn continuity; a later Memory Platform and research-conversation follow-up closed the core product gap by threading `ResearchSession` rows under `ResearchConversation`, folding prior turns into prompts, and scoping SESSION memory to the conversation id. Since then, two previously-tracked Retrieval Platform gaps have closed: **Parent/Child Retrieval** now has a real producer — a new `HierarchicalChunkingProvider` (Milestone 2.2) generates parent sections + child chunks via LangChain's `RecursiveCharacterTextSplitter`, feeding the Context Platform's previously-orphaned Parent Expansion consumer (Milestone 2.8.1) for the first time — and **Parallel Retrieval** grew from a dense+sparse 2-way `asyncio.gather()` to a genuine 3-way one, adding a filter-only Metadata branch (`QdrantRetrievalProvider.search_metadata()` via Qdrant `scroll()`) fused in by RRF alongside dense and sparse. Maturity ladder: `NotebookLM++ → Perplexity v1 (here) → Open Deep Research → Manus / Glean`.
+**Current Maturity:** NotebookLM++ + Perplexity v1, reaching into Open Deep Research territory for the Deep Research path specifically. Hybrid Retrieval, Reranking, Parent Expansion, Compression, Context Guardrails, and strategy-based Prompt Formatting are all in place — beyond a plain NotebookLM clone. A standalone, platform-wide Guardrails Platform (Milestone 11.16 — input/retrieval/generation/runtime stages, Source Trust, policies, scoring, artifacts) is now complete as an MVP foundation, alongside the Validation Platform. The Generation Platform is now fully complete per `generation_platform_complexion_prd.md` — Routing Platform, Runtime Caching Platform (L1 exact/L2 semantic/L3 session caching, policy resolution), five runtime validation contracts (Research/Planner/Reviewer/Agent/MCP), a Validation Policy Layer (Acceptance/Fail-Fast/Runtime Validation), every PRD output validator, and Runtime Metrics Integration are all done. A Generation Runtime Platform (`generation/orchestration/`, `execute_generation()`/`GenerationRuntime.execute()`) now gives every future caller one canonical entrypoint into that stack instead of reaching into `GenerationService` directly, per `generation_runtime_platform_prd.md`. `POST /research` is live — the Research API Platform (`app/ai/research/`) composes Retrieval → Context → Generation Runtime → Streaming → Artifacts into a complete, end-to-end, cited product answer, with `POST /research`, `/research/stream`, `/research/citations`, `GET /research/{id}` (single-turn replay, backed by `research_sessions`), and server-backed `/research/conversations` thread replay — deliberately linear by design (one retrieval + one generation call), unchanged. An **AI Runtime Observability Platform** (`oberservability_platform_prd.md`) shipped: real LangSmith tracing + a new metrics/statistics/report/artifact layer, wired into both Generation entry points (`generate()` and `stream_generate()`, so Research and Chat both get it, plus the Knowledge Processing pipeline); live verification against an actual LangSmith account and S3 bucket found and fixed three real bugs and surfaced a real product gap that got closed as a follow-up. A later Memory Platform and research-conversation follow-up gave Research conversation-thread history and SESSION memory scoped to the conversation id. Two Retrieval Platform gaps closed: **Parent/Child Retrieval** got a real producer (`HierarchicalChunkingProvider`) and **Parallel Retrieval** grew to a genuine 3-way `asyncio.gather()` (dense+sparse+metadata). **Most recently (2026-07-23): the Research Runtime / Deep Research Platform (Phase 6) is complete** — the query decomposition, planning, and multi-step agentic work this file used to describe as "next" is now real, working, LangGraph-based, single-agent code with a full frontend: memory-aware planning with query rewriting, dependency-wave parallel retrieval, synthesis, deterministic+model review with bounded repair, a genuine second human-in-the-loop checkpoint (report-approval `interrupt()`, not just plan approval), real per-owner rate limiting across all three product paths, and a Research UI destination consuming the whole thing live over SSE. See the Phase 6 section below and `PRODUCT_FLOWS_AND_GAPS.md` for full detail and remaining gaps (worker horizontal scaling, plan edits before approval). Maturity ladder: `NotebookLM++ → Perplexity v1 → Open Deep Research (Deep Research path reaches here) → Manus / Glean`.
 
 ---
 
@@ -1969,8 +1969,9 @@ The major AI Engineering platforms interact as follows.
 | Milestone 3.5 — Research Frontend Integration | ✅ Complete — `apps/web` wired to the live Research API (real SSE, `mock-engine.ts` removed); 3 backend bugs found + fixed (stream-completion event mismatch, retired Claude model, `temperature` rejected by new model) |
 | Milestone 3.6 — AI Runtime Observability Platform | ✅ Complete, per `oberservability_platform_prd.md` — metrics/statistics/reports/artifacts + real LangSmith tracing, wired into `generate()`, `stream_generate()` (Research + Chat both covered), and the Knowledge Processing pipeline; 3 real bugs found + fixed via live verification (streaming was completely dark, a missing artifact-policy rule silently dropped research artifacts, the tracer never sent real input/output) + a follow-up closing a real gap (streamed generations never scored for validation/guardrails) |
 | Milestone 11.16 — Guardrails Platform | ✅ Complete (MVP Foundation — input/retrieval/generation/runtime guardrails, Source Trust, policies, scoring, artifacts; standalone, not yet wired into the generation pipeline) |
-| Phase 3 — Research Engine (broader) | 🟡 First live product surface delivered (Phase 3.4); query decomposition, planning, and a multi-step Research Runtime still planned |
-| Phase 4 — Agentic AI Platform | ⏳ Planned |
+| Phase 3 — Research Engine (broader) | ✅ Superseded — see Phase 6 below. Query decomposition, planning, and the multi-step Research Runtime this row once deferred are now complete and shipped as their own phase. |
+| Phase 6 — Research Runtime Platform (Deep Research) | ✅ Complete, working, end-to-end single-agent workflow with a real frontend (2026-07-23) — proposal → memory-aware planning → approval → async multi-wave LangGraph (decomposition, parallel retrieval, synthesis, review, bounded repair) → report-approval `interrupt()` → PDF, plus a Research UI destination consuming it live over SSE. Per-owner rate limiting across all three product paths (Chat/Linear Research/Deep Research). See `PROJECT_STATUS.md` and `PRODUCT_FLOWS_AND_GAPS.md` for full detail and remaining gaps (worker horizontal scaling, plan-edit-before-approval). Chat → Deep Research escalation was considered and is explicitly out of scope (will not be built). |
+| Phase 4 — Agentic AI Platform | ⏳ Planned — MCP integration and a general-purpose (not Deep-Research-scoped) tool-execution loop remain the next step after Phase 6 |
 | Phase 5 — Experimentation Platform | ⏳ Planned |
 | Phase 6 — MCP Ecosystem | ⏳ Planned |
 | Phase 7 — Production Platform | ⏳ Planned |
@@ -1987,7 +1988,7 @@ Phase 3.3 — Generation Runtime Platform is now complete, per `generation_runti
 
 Only remaining items nearby:
 
-- Query decomposition, research planning/multi-step loops, and agents — deliberately out of scope for Phase 3.4 per its own PRD Non-Goals; this is the future Research Runtime / Deep Research Runtime / Agent Platform work (see item 11 below)
+- ~~Query decomposition, research planning/multi-step loops~~ ✅ Complete — see Phase 6 / Research Runtime Platform below. General-purpose (non-Research-scoped) agents remain future Agentic AI Platform work.
 - Adaptive/evaluation-driven and budget-aware routing, A/B experimentation (Routing Platform Phase 2+ — explicitly future work, not MVP scope)
 - Wiring Session Cache (L3, implemented) to an actual conversation/research-session caller
 - Test suite for `artifacts/` (`validation/`, `providers/`, `prompts/`, `routing/`, `catalog/`, `caching/`, and core `service.py` now have unit test coverage)
@@ -1998,7 +1999,7 @@ Phase 2.8 — Context Platform is now complete (compression V1-V4, and the LangC
 - Conversation-memory consolidation/context-window optimization beyond the completed, cost-aware Memory Platform; validate live skip/empty/latency/cost targets before further tuning
 - Knowledge Service — unified orchestration API (Phase 2.10)
 - Forward `HybridRetrieveRequest.rerank` from `/retrieve/hybrid` into `RetrievalService.search_hybrid` (currently always uses the service's `rerank=True` default)
-- Multi-query Retrieval (query decomposition moved to the future Research Runtime)
+- ~~Multi-query Retrieval (query decomposition moved to the future Research Runtime)~~ ✅ The Research Runtime's planner does real dependency-wave task decomposition for Deep Research (see Phase 6 below); this specific line was about Linear Research's single retrieval call, which is unchanged by design (`/research` stays one retrieval + one generation call).
 
 The **Guardrails Platform** (Milestone 11.16, see above) is now complete as a standalone MVP foundation and needs no further work to reach its PRD-defined MVP scope — remaining work on it is entirely the future "Generation Integration" wiring phase, not new guardrail logic.
 
@@ -2018,7 +2019,54 @@ Three real bugs were found and fixed via live verification against an actual Lan
 
 A follow-up closed a real, separate gap the same verification surfaced: streamed generations never ran post-generation validation/guardrail scoring at all (only pre-generation input checks) — `GenerationService.score_completed_stream()` now runs the same checks informationally, never blocking. Verified that no guardrail/validator in the codebase actually calls an LLM today, so this currently costs CPU only.
 
-Also surfaced, separately: **Research had no multi-turn conversation memory** at this point — every query was a fully standalone retrieval+generation call, unlike Chat (which persisted history). This was fixed later by the Memory Platform plus the `research_conversations` follow-up: Research now has conversation-thread history and SESSION memory scoped to the research conversation id. Query rewriting/condensation remains future Research Runtime work.
+Also surfaced, separately: **Research had no multi-turn conversation memory** at this point — every query was a fully standalone retrieval+generation call, unlike Chat (which persisted history). This was fixed later by the Memory Platform plus the `research_conversations` follow-up: Research now has conversation-thread history and SESSION memory scoped to the research conversation id. Query rewriting/condensation (for Deep Research specifically, via `rewritten_goal`) shipped as part of Phase 6, below.
+
+## Phase 6 — Research Runtime Platform / Deep Research (✅ complete)
+
+A third, deliberately separate product path alongside Chat (fast, ungrounded) and Linear Research (fast, one-shot, cited): **proposal → approval → asynchronous multi-step LangGraph investigation → human-reviewed report**, now complete end to end with a real frontend, not just an API. `POST /research`/`/research/stream` remain architecturally untouched — no runtime flag routes either through LangGraph.
+
+```text
+POST /research/escalation-check              → optional; classifies a query, suggests Deep
+                                                 Research only when it's actually worth it
+POST /research/proposals                      → memory-aware planner (query rewriting via
+                                                 `rewritten_goal`); no run/retrieval cost
+POST /research/proposals/{id}/approve         → idempotent; creates ResearchRun + outbox dispatch
+  dedicated worker process
+    → Postgres-checkpointed LangGraph: planner → dependency-wave retrieval (Send fan-out)
+      → evidence aggregation → synthesis → deterministic+model review → bounded repair
+      → report-approval interrupt() — a real second human checkpoint
+POST /research/runs/{id}/report-decision      → approve (resumes -> report+PDF) or reject
+GET  /research/runs/{id}/events (SSE)         → live-consumed by the Research UI
+GET  /research/runs/{id}/report               → presigned PDF download URL
+```
+
+Built and hardened same-day (2026-07-23): a readiness audit found and fixed a batch of
+operational gaps (checkpoint provisioning, budget enforcement, cancellation, crash-resume,
+logging — see `AI_ENGINEERING_AUDIT.md` §0.0.0), then a same-day completion pass added
+memory-aware planning (and fixed a real bug where memory extraction from completed runs
+had silently never worked, due to a worker composition-root DI mistake), the report-approval
+`interrupt()`, real per-owner rate limiting across all three product paths (previously a
+total no-op app-wide), a fixed cross-run cache-leakage risk in synthesis/review, and the
+full Research UI Deep Research destination (mode toggle, escalation suggestion, plan
+review, live SSE progress, report-approval, PDF download) — see `AI_ENGINEERING_AUDIT.md`
+§0.0.0a and `PRODUCT_FLOWS_AND_GAPS.md` for complete, code-verified detail.
+
+**Same day, later:** the golden path was manually click-through-verified in a real
+browser for the first time (previously only test/lint/build-verified). This surfaced
+two real worker session-staleness bugs — `apps/worker/research_runtime_main.py` holds
+one `AsyncSession` for its entire process lifetime with `expire_on_commit=False`, so a
+failure could abort the transaction and silently poison every dispatch afterward, and a
+resumed run could read a stale cached `report_decision` even after approving. Both
+fixed and regression-tested — see `PROJECT_STATUS.md` Phase 6's "2026-07-23
+verification pass" and `PRODUCT_FLOWS_AND_GAPS.md` for full detail.
+
+**Not yet built**: plan edits/rejection before approval, horizontal worker
+scaling (single serial process by default — DB-safe to add more, none running), an
+expiry/auto-reject for a run stuck awaiting report approval, and MCP/general-purpose
+agent integration (deferred per ADR-033 until the single-agent runtime proves a limitation
+it can't address). Chat → Deep Research escalation is explicitly out of scope and will not
+be built — Chat is intended to stay a standalone fast conversational surface; do not
+confuse this with the Research-interface Linear → Deep escalation, which is built.
 
 ---
 
@@ -2041,8 +2089,8 @@ This project intentionally prioritizes completing the production AI platform (Ti
 13. ~~Conversation Memory Platform (Phase 2.9)~~ ✅ Complete — Memory Platform is wired into both Research and Chat; its optimized runtime gates LLM extraction, keeps compact session state, shares one embedding across parallel durable searches, and accounts for memory cost separately. Research also has server-backed `research_conversations`. Provider-native multi-message prompts and query rewriting/condensation remain future Research Runtime work; staged live-traffic validation is the remaining operational step.
 14. Knowledge Service (Phase 2.10)
 15. ~~Evaluation Platform expansion — NDCG, Groundedness, Faithfulness, Citation Accuracy, Hallucination Rate, Regression Detection, Cost Metrics~~ ✅ Complete, built into `benchmarks/` per the `evaluation_platform_prd.md` reconciliation (see Engineering Benchmark Platform above and PROJECT_STATUS.md) — End-to-End and Security Evaluation remain future work
-16. Research Runtime — Query Decomposition, Planner, Research Agents, Reviewer, Summarizer, LangGraph (builds on the now-complete Research API Platform)
-17. Agentic AI Platform
+16. ~~Research Runtime — Query Decomposition, Planner, Research Agents, Reviewer, Summarizer, LangGraph~~ ✅ Complete (2026-07-23), with a real frontend — see Phase 6 / Research Runtime Platform above and `PRODUCT_FLOWS_AND_GAPS.md`
+17. Agentic AI Platform — general-purpose (non-Research-scoped) agents, MCP integration; deferred per ADR-033 until the Research Runtime's single-agent design proves a limitation it can't address
 18. Long-Term Platform — Research Sessions, Memory, MCP, Feedback Learning
 19. Advanced Observability (Prometheus/Grafana/OpenTelemetry — explicitly deferred by `oberservability_platform_prd.md` §4 Non-Goals), Experimentation Platform (deferred until the core RAG pipeline is complete)
 

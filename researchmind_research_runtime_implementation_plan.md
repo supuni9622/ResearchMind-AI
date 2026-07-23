@@ -1,6 +1,6 @@
 # ResearchMind Research Runtime — Implementation Plan
 
-**Status:** Ready for implementation  
+**Status:** In implementation — product-routing addendum applied
 **Date:** 2026-07-19  
 **Target:** Phase 6 — Research Runtime  
 **Current product baseline:** Cost-aware Memory Platform implemented; linear `/research` flow implemented; Retrieval, Context, Generation Runtime, Validation, Guardrails, Streaming, Artifacts, Observability, and Evaluation foundations already exist.
@@ -59,6 +59,27 @@ Corrections made by this review:
 - Keep the current linear `/research` path as a feature-flag fallback until the
   graph is evaluated against it.
 
+## 0.1 Product routing addendum — 2026-07-20
+
+The product flow is refined as follows:
+
+1. Keep `POST /research` and `POST /research/stream` as fast, linear APIs.
+   They must never switch to LangGraph solely because an environment flag is
+   enabled.
+2. Chat or linear Research can offer **Research this** when a request needs
+   multi-step, evidence-backed work. This is a suggestion, never an automatic
+   transition.
+3. A proposal request persists a compact owner-scoped goal and validated plan;
+   it does not retrieve evidence, create a research run, or create memory cost.
+4. Only user approval creates a `research_run` and dispatches it to a dedicated
+   asynchronous Research Runtime worker.
+5. The approved run publishes canonical, user-safe events to a replayable SSE
+   stream and finishes with the persisted report/PDF artifacts.
+
+This supersedes wording that described routing ordinary public Research traffic
+through the graph. The linear service remains the compatibility baseline for
+evaluation and rollback; Deep Research is an additive, approval-gated path.
+
 ---
 
 ## 1. Executive Decision
@@ -108,7 +129,8 @@ The delivery strategy is a **walking skeleton first**: prove state, graph execut
 - checkpointing, pause, resume, and optional plan approval
 - canonical research streaming events
 - conversation and memory integration
-- migration of the current linear `/research` flow behind the new runtime
+- additive Deep Research proposal, approval, dispatch, and report flow while
+  preserving the current linear `/research` APIs
 - runtime-specific evaluation and production hardening
 
 ### Out of scope for this phase
@@ -1076,7 +1098,7 @@ tests/evaluation/research/review/
 
 ---
 
-### Milestone 6.9 — Resume, Streaming, and Human Approval
+### Milestone 6.9 — Approved-run execution, resume, streaming, and human approval
 
 **Goal:** Make long-running research operationally reliable and user-visible.
 
@@ -1085,7 +1107,9 @@ tests/evaluation/research/review/
 - implement Postgres checkpointer lifecycle
 - map session/run/thread/checkpoint IDs explicitly
 - support pause and resume
-- add optional plan-approval interrupt
+- create an approved-run dispatcher and dedicated worker; do not use FastAPI
+  background tasks or the document-processing worker
+- add the explicit proposal approval boundary before any graph execution
 - add canonical event adapter and SSE integration
 - support event heartbeat, disconnect handling, and reconnect behavior
 - update public session status at durable lifecycle boundaries
@@ -1122,19 +1146,23 @@ tests/integration/api/test_research_stream_reconnect.py
 
 ---
 
-### Milestone 6.10 — API Migration and Product Integration
+### Milestone 6.10 — Additive API and Product Integration
 
-**Goal:** Route production research traffic through the graph without breaking current clients.
+**Goal:** Add approval-gated Deep Research without breaking or replacing current clients.
 
 #### Work
 
-- preserve existing `POST /research`, `POST /research/stream`, `POST /research/citations`, and `GET /research/{id}` responses
+- preserve existing `POST /research`, `POST /research/stream`, `POST /research/citations`, and `GET /research/{id}` responses as linear APIs
+- add proposal creation, proposal approval/cancellation, run inspection, and
+  run-event endpoints for Deep Research
 - add runtime fields only as backward-compatible optional fields
 - add resume, approval, and cancellation actions
-- connect chat-to-research handoff using a compact conversation summary
+- connect Chat/linear-Research suggestions to proposal creation using a compact
+  conversation summary
 - enable runtime by environment, tenant, or percentage rollout
 - compare graph output against the existing linear implementation
-- remove the linear path only after rollback criteria are satisfied
+- retain the linear path as the ordinary fast experience; it is not a removal
+  candidate in this phase
 
 #### Proposed additive endpoints
 

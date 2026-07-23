@@ -16,21 +16,23 @@ from app.ai.runtime.generation.validation.runtime.validators.dependency import (
     DependencyValidator,
 )
 
-_MIN_STEPS = 1
+_MIN_TASKS = 1
 
 
 class PlannerRuntimeContract(
     BaseRuntimeContract,
 ):
     """
-    Planner Runtime Contract — requires a non-empty `plan` field, at
-    least one `steps` item, and a well-formed dependency graph between
-    steps (every `depends_on` reference resolves to a real step, no
-    circular dependency).
+    Planner Runtime Contract — requires a non-empty `goal` field, at
+    least one `tasks` item, and a well-formed dependency graph between
+    tasks (every `dependencies` reference resolves to a real task, no
+    circular dependency). Field names mirror `ResearchPlan`/
+    `ResearchPlanTask` (`app/ai/runtime/research/planner/models.py`),
+    the actual `output_model` the planner requests.
 
     Entirely composed from the generic runtime validators, same as
-    `ResearchRuntimeContract`: `CompletenessValidator` covers "plan
-    exists"/"steps exist", `DependencyValidator` covers "dependencies
+    `ResearchRuntimeContract`: `CompletenessValidator` covers "goal
+    exists"/"tasks exist", `DependencyValidator` covers "dependencies
     valid".
     """
 
@@ -40,15 +42,16 @@ class PlannerRuntimeContract(
         self._checks: list[OutputValidatorInterface] = [
             CompletenessValidator(
                 required_fields=[
-                    "plan",
+                    "goal",
                 ],
                 list_minimums={
-                    "steps": _MIN_STEPS,
+                    "tasks": _MIN_TASKS,
                 },
             ),
             DependencyValidator(
-                list_field="steps",
-                dependency_key="depends_on",
+                list_field="tasks",
+                id_keys=("task_id",),
+                dependency_key="dependencies",
             ),
         ]
 

@@ -1,6 +1,6 @@
 # ResearchMind AI — Project Status
 
-**Last Updated:** 2026-07-19 (+ persisted Chat history/replay and first-question titles; cursor pagination and deterministic prompt compaction; owner-scoped generation-cost ledger and live dashboard data; Qdrant-backed document statistics; Groq-first durable-memory extraction with OpenAI fallback; runtime/cache accounting and category fixes)
+**Last Updated:** 2026-07-23 (+ Deep Research is now a complete, working, end-to-end single-agent workflow with a real frontend — memory-aware planning, a second human checkpoint via a real LangGraph report-approval `interrupt()`, real per-owner rate limiting across all three product paths, a fixed cross-run cache-leakage risk in synthesis/review, and a full Research-UI Deep Research destination consuming live SSE progress events for the first time since those events were defined. See Phase 6 below and `PRODUCT_FLOWS_AND_GAPS.md` for the code-verified detail and remaining gaps. + Same day, later: the golden path was manually click-through-verified in a real browser for the first time, surfacing and fixing two worker session-staleness bugs — see Phase 6's "2026-07-23 verification pass" below.)
 
 **Current Maturity:** NotebookLM++ + Perplexity Foundation — Hybrid Retrieval, Reranking, Parent Expansion, and Context Guardrails are all in place, putting the platform ahead of NotebookLM and closing in on a Perplexity v1 experience. The Context Platform's Compression stage is now complete end to end (V1-V4 — Token Budget, Embedding Redundancy, LangChain Contextual, and LLM per-chunk summarization — per `context_platform_complexion_prd.md`), with LangChain compression wired into `ContextBuilderService.build()`'s default pipeline behind an opt-in `settings.enable_langchain_compression` flag. A platform-wide Guardrails Platform (input/retrieval/generation/runtime stages, Source Trust, policies, scoring, artifacts) now sits alongside the Validation Platform as a completed foundation layer, and — per `guardrail_integration_prd.md` — is wired directly into both `GenerationService` (input gate before every provider call, full evaluate() report attached to `GenerationResult.guardrails`) and `ContextBuilderService` (retrieval-stage gate before context building). The Generation Platform is now fully complete, per `generation_platform_complexion_prd.md`: Routing Platform (model/provider selection, scored catalog, strategy-weighted fallback chains), Runtime Caching Platform (L1 exact/L2 semantic/L3 session caching, policy resolution, wired into `GenerationService`), Streaming Platform (canonical event protocol, SSE + WebSocket transports, `stream_generate()`, cache-hit replay), five per-runtime Validation Contracts (Research/Planner/Reviewer/Agent/MCP), a Validation Policy Layer, every PRD output validator, and Runtime Metrics Integration are all done. Critically, the Generation Platform is now reachable over HTTP for the first time — `POST /api/v1/chat/stream` (SSE) and `/api/v1/chat/ws` (WebSocket) are live, backed by a new minimal Conversation/Message persistence layer. A new, centralized Artifact Platform (`app/ai/artifacts/`, per `artifacts_platform_prd.md`) now persists every generation call, completed stream, and conversation turn as an immutable, versioned, policy-gated artifact in S3 — the canonical execution history layer the ingestion side has always had, now extended to the runtime side. A thin Generation Runtime Platform (`app/ai/runtime/generation/orchestration/`, per `generation_runtime_platform_prd.md`) then gave every future caller one canonical entrypoint, `execute_generation()`, into that already-complete `GenerationService.generate()` flow instead of reaching into `GenerationService` directly — and that entrypoint now has its first real caller: the new Research API Platform (Phase 4, per `research_api_prd.md`) is ResearchMind's **first live, end-to-end product surface** — `POST /api/v1/research` (plus `/research/stream`, `/research/citations`, `GET /research/{research_id}`) lets a user upload documents, ask a question, and get back a grounded, cited, streamable answer, via a new `ResearchService` composing Retrieval (hybrid search + rerank) + Context (dedup/expand/merge/compress/cite) + Generation Runtime + Streaming + best-effort Artifact persistence. This is also the first live code exercising `RuntimeType.RESEARCH` and `ArtifactRuntime.RESEARCH` — previously reserved-but-unused enum values — and the first live caller of the previously scaffold-only Research Artifact writer. Session/Agent/Evaluation artifacts remain built but scaffold-only, since those runtimes still don't exist yet. Most recently, an **AI Runtime Observability Platform** (`oberservability_platform_prd.md`, Phase 3.9) shipped and was hardened through several rounds of real-world verification against a live LangSmith account and S3 bucket: canonical metrics/statistics/report-builder subpackages under a new `app/ai/observability/`, real (not stubbed) LangSmith tracing + artifact persistence wired into **both** Generation entry points — `generate()` and, after a bug found via live testing, `stream_generate()` too (meaning Research, Chat, and any future streaming caller all get it "for free") — plus the Knowledge Processing pipeline (parse/chunk/embed/index, no LLM call, so metrics/report only, no trace). Three real bugs were found and fixed by testing against the actual frontend rather than trusting the initial implementation: (1) tracing/artifacts were wired into `generate()` only, silently dark for every streamed request; (2) a missing `(RESEARCH, OBSERVABILITY)` artifact policy rule silently skipped every research artifact write even with tracing working; (3) the tracer only ever sent metadata tags as LangSmith's "input" and never sent an "output" at all. A follow-up closed a real product gap surfaced by the same verification: streamed generations never ran post-generation validation/guardrail scoring at all (only pre-generation input checks) — `GenerationService.score_completed_stream()` now runs the same checks `generate()` does, informationally, never blocking (there's nothing left to stop once tokens reached the client). Separately, verifying the Research feature surfaced an unrelated, real product gap: **Research has no multi-turn conversation memory at all** — every query is a fully standalone retrieval + generation call with no history, no query rewriting, and no session continuity, unlike Chat (which has persisted history, just flattened at the provider boundary). See `AI_ENGINEERING_AUDIT.md` for the full write-up. Most recently, `evaluation_platform_prd.md` (Phase 4.1 in its own header, a number already taken in this file by Research Frontend Integration) asked for a full new Evaluation Platform — datasets/evaluators/benchmarks/experiments/regression/reports under a new `app/ai/evaluation/`. Investigation found that would have duplicated two things that already exist under different names: the "Engineering Benchmarks" layer described in `docs/architecture/evaluation-strategy.md` is already real, working code at repo-root `benchmarks/` (not the empty `app/ai/quality/` scaffold the PRD's folder layout would have paralleled), and the "Runtime Evaluation" layer described in `docs/architecture/evaluation-platform.md` is already implemented as the AI Runtime Observability Platform above — confirmed by `STRUCTURE.md`'s own annotation on that doc's sibling. The PRD's Experiment Platform section was also deferred, since it would have forked the separately-designed, not-yet-built async Experimentation Platform before it exists. What was real and missing — Generation evaluation and Regression Detection — was built directly into `benchmarks/` instead; see the Engineering Benchmark Platform section below for detail, including a real citation-accuracy bug found and fixed via live verification against Groq/OpenAI/Claude. Since then, the Retrieval Platform closed its last two tracked gaps (see "Recently Completed" below): **Parent/Child Retrieval** now has a real producer (`HierarchicalChunkingProvider`) feeding the previously-orphaned `ParentExpansionService`, and **Parallel Retrieval** grew from a dense+sparse 2-way `asyncio.gather()` to a 3-way one with a new filter-only Metadata branch. Most recently, a new **Memory Platform** (`app/ai/memory/`, per `memory_platform_prd.md`) closed the multi-turn conversation memory gap flagged earlier in this file — SESSION (Valkey)/USER+SEMANTIC+RESEARCH (Postgres+Qdrant) storage, a `MemoryService` orchestrator, and a new `/memory` API, extended same-session against a follow-up 5-pipeline architecture review (Reciprocal Rank Fusion search, LLM-driven extraction, a lifecycle sweep), then wired into **both** live surfaces via Runtime Memory Injection — `ResearchService` first, then `chat.py` in a further follow-up. Wiring Chat to memory surfaced that `chat.py` was actually crashing on **every single message, unconditionally** (`GenerationService._validate()` hard-rejected the empty `PromptContext.context` every unretrieval-backed chat request always had) — fixed, along with a second, independent latent bug where `GenerationRequest.output_model` couldn't be serialized for artifact persistence. Separately, the Routing Platform's `AUTO` strategy now hard-defaults to Groq instead of the scoring engine's own top pick (previously claude-sonnet-5 essentially always), per explicit request. See Milestone 12 and the Milestone 2.9.7 Addendum below for full detail. Most recently, **Chat got its own frontend surface** (Phase 4.2, `apps/web`'s new `/chat` page) — closing the product-IA gap flagged at the end of Phase 4.1: Chat (user knows the question — fast, interactive, ungrounded) and Research (user knows the goal — slow, cited, report-generating) are now two visibly separate surfaces instead of Chat existing only as a backend API with no way to reach it. This needed one small but load-bearing backend fix first: `chat.py` never populated `GenerationRequest.session_id`, so a client starting a new conversation had no way to learn the server-assigned `conversation_id` from the stream after turn 1 (`ConversationService.get_or_create()` 404s on an unknown client-supplied id rather than creating one, so the frontend can't just mint its own) — permanently blocking multi-turn chat from a fresh session. Fixed with `session_id=conversation_id`, the exact pattern `ResearchService` already used for the same reason. See Phase 4.2 below for full detail. Maturity ladder: `NotebookLM++ → Perplexity v1 (reached) → Open Deep Research → Manus / Glean`.
 
@@ -519,7 +519,7 @@ Implemented
 - ✅ Metadata retrieval — `QdrantRetrievalProvider.search_metadata()`, a pure filter-only `scroll()` lookup with no vector similarity; short-circuits to an empty result when no filters are present (an unfiltered scroll would ignore tenant/`owner_id` scoping)
 - ✅ Parallel retrieval — dense + sparse + metadata search all executed concurrently via a single `asyncio.gather()` in `search_hybrid()` (was 2-way dense+sparse; metadata added this session), then fused together by RRF. `RetrievalStatistics.metadata_latency_ms` added alongside `dense_latency_ms`/`sparse_latency_ms`
 - ✅ Parent/Child retrieval — reclassified out of the Retrieval Platform into the Context Platform (see Milestone 2.8 below); implemented there as Parent Expansion + Adjacent Merge. Now genuinely end-to-end: the Chunking Platform's new `HierarchicalChunkingProvider` (Milestone 2.2/2.3) is the producer that was previously missing — it generates parent sections + child chunks (children carry `structure.parent_chunk_id`; parents are excluded from embedding/indexing by `EmbeddingService` but persisted in the `ChunkArtifact` for Parent Expansion to resolve against)
-- ❌ Query decomposition — moved to the future Research Runtime (Phase 7)
+- ✅ Query decomposition — moved to the Research Runtime (Phase 6, see below); implemented there as DAG-validated dependency-wave scheduling, not in this Milestone 2.7 retrieval path
 
 ## Result Processing
 
@@ -1330,6 +1330,199 @@ Live rollout remains a separate operational verification step: collect staging/p
 
 ---
 
+# Phase 6 — Research Runtime Platform
+
+**Status:** ✅ Complete, working, end-to-end single-agent Deep Research workflow
+— backend *and* a real frontend, clickable start to finish (proposal → plan
+review → approval → live-streamed multi-wave run → report-approval → PDF).
+
+**Source docs:** `researchmind_research_runtime_implementation_plan.md`, `research_runtime_prd.md`, tracked milestone-by-milestone in `RESEARCH_RUNTIME_IMPLEMENTATION_TRACKER.md`. Architecture decisions in ADR-031 (runtime boundary), ADR-032 (checkpointing/events), ADR-033 (single-agent vs. multi-agent — single-agent chosen), ADR-034 (product routing — the proposal/approval/dispatch flow below). **Code-verified flow-by-flow reference (Chat/Linear/Deep, with a real loophole/gap audit)**: `PRODUCT_FLOWS_AND_GAPS.md` — check that file before this one for anything performance/cost/correctness-related; it's re-verified against the current code on every change, this section is a higher-level summary.
+
+Phase 1 (the disabled `START → initialize → complete → END` walking skeleton this file previously described under the Memory Platform roadmap stub) has grown into a real, additive Deep Research product surface, built in an uncommitted session and then hardened in a same-day follow-up. The three product paths stay deliberately separate, verified by direct code read, not just design intent:
+
+```text
+Chat            → fast conversation, ungrounded
+Linear Research → POST /research, /research/stream — fast, cited, never touches LangGraph
+Deep Research   → proposal → approval → asynchronous multi-step investigation → report
+```
+
+`POST /research` and `POST /research/stream` are architecturally untouched: no runtime flag ever routes either through LangGraph, and the one DI provider that could (`get_research_runtime_execution_service`) has zero route callers.
+
+## What works end to end today
+
+```text
+POST /research/escalation-check                 → optional; classifies a query, persists a
+                                                    proposal only if it's worth suggesting
+POST /research/proposals                        → planner-only (memory-aware, query-rewriting),
+                                                    no run/retrieval cost
+POST /research/proposals/{id}/approve            → idempotent; creates ResearchRun + outbox dispatch
+  dedicated worker (apps/worker/research_runtime_main.py, own process)
+    → Postgres-checkpointed LangGraph: planner → dependency-wave retrieval (Send fan-out)
+      → evidence aggregation → synthesis → deterministic+model review → bounded repair
+      → report-approval interrupt() — graph pauses for a real human checkpoint
+POST /research/runs/{id}/report-decision         → approve (resumes -> final report + PDF)
+                                                    or reject-with-reason (terminal failure)
+GET  /research/runs/{id}                         → owner-scoped lifecycle status
+GET  /research/runs/{id}/events                  → owner-scoped SSE progress replay (live-
+                                                    consumed by the Research UI, not just API)
+GET  /research/runs/{id}/report                  → owner-scoped 5-minute presigned PDF URL
+POST /research/runs/{id}/cancel                  → cooperative cancellation (not rate-limited —
+                                                    a safety valve)
+```
+
+**Frontend** (`apps/web/src/features/research/`, `apps/web/src/app/(app)/research/page.tsx`) —
+a real, working state machine, not a stub: Linear/Deep mode toggle (Linear default) →
+optional escalation suggestion banner → plan review card (goal/tasks/complexity/budget) →
+live SSE-streamed progress card (the actual "Planning research" / "Searching selected
+sources" / "Analyzing evidence" / etc. labels below, not polled) → report-approval card
+(approve/reject+reason) → completed card with a PDF download link. Known, disclosed scope
+trims: the citations/sources side panel is still Linear-Research-only, and conversation-
+history replay doesn't reconstruct the Deep Research card treatment for old runs.
+
+- **Memory-aware planning** (`proposal_service.py`) — best-effort session/semantic/research memory retrieval feeds the planner, which can emit a `rewritten_goal` resolving references like "compare it with X" using that context. Fail-open: a memory outage never blocks planning.
+- **Planner** (`runtime/research/planner/`) — Generation Runtime-only structured planning, complexity classification (SIMPLE/MODERATE/COMPLEX), per-complexity policy ceilings (task count, review iterations, duration, cost).
+- **Decomposition** (`runtime/research/decomposition/`) — DAG validation, topological dependency-wave scheduling.
+- **Multi-wave graph** (`runtime/research/workflows/multi_wave_research.py`) — `StateGraph` with `Send()`-based parallel fan-out per wave, bounded concurrency (semaphore on the retrieval service itself), evidence aggregation, synthesis, deterministic + model-based review, decision-specific bounded repair (one synthesis revision, one targeted gap-research round — budget-enforced per plan complexity, not hardcoded), and a real `interrupt()` before the final report is ever persisted.
+- **Report-approval checkpoint** — the graph pauses (LangGraph `interrupt()`) after review passes, publishing `RESEARCH_AWAITING_APPROVAL`; a fresh dispatch (`ResearchRunDispatchRepository.reopen`) wakes the worker once a decision is recorded, resuming the *same* graph thread via `Command(resume=...)` rather than restarting. Rejection is a real terminal `failed` state, not silently ignored.
+- **Run lifecycle** (`lifecycle.py`) — a validated status state machine (`created → planning → researching → reviewing → synthesizing → awaiting_approval → completed/completed_with_limitations/cancelled/failed`), persisted on `research_runs`, distinct from the completed-turn `research_sessions` table.
+- **Dispatch** (`repositories/research_run_dispatch.py`, `apps/worker/research_runtime_worker.py`) — a PostgreSQL transactional outbox (`SELECT ... FOR UPDATE SKIP LOCKED`, leased claims with expiry-based re-delivery), run by a worker process dedicated to Research Runtime — never the document-processing worker, never FastAPI background tasks. Single process by default (see Not Yet Built).
+- **Cancellation and crash-resume** — cooperative cancellation checked at bounded graph checkpoints (before each wave, before each synthesis attempt, and before resuming from the report-approval pause); a run interrupted mid-execution (worker crash, OOM) resumes from its last LangGraph checkpoint rather than restarting, gated to the outbox-protected worker path only.
+- **Budgets** — real, not aspirational: per-complexity max tasks/review-iterations/duration/cost, an explicit graph `recursion_limit`, and a real (ledger-backed, not estimated) running-cost check before allowing another repair loop.
+- **Rate limiting** — real, Valkey-backed, per-owner: proposals + escalation-checks share a 5 req/60s bucket, approvals get their own stricter 5 req/600s bucket (the most expensive action in the product). Same mechanism now also covers Chat and Linear Research.
+- **Reports** — final report JSON + rendered PDF, idempotent per run, downloadable via a short-lived owner-scoped presigned URL.
+
+## 2026-07-23 hardening pass
+
+A same-day readiness audit (before enabling `research_runtime_v1_graph_enabled` for real) found and fixed a batch of real gaps — full detail in `AI_ENGINEERING_AUDIT.md` §0.0.0 and ADR-034's "Resolved since first written" section:
+
+- Postgres checkpoint tables didn't exist in the real database (only ever provisioned against a separate test DB) — added a one-time `scripts/provision_research_runtime_checkpoints.py`, run against dev.
+- A disabled-flag misconfiguration produced a silently stuck run instead of a visible failure — fixed.
+- `max_review_iterations` was computed per plan complexity but never actually enforced by the graph (hardcoded to allow 1 regardless) — now wired through.
+- No duration or cost ceiling existed — added real ones (`asyncio.wait_for` + a `generation_usage`-ledger cost check).
+- No explicit `recursion_limit` — added (`Settings.research_runtime_graph_recursion_limit`).
+- A declared retrieval concurrency cap was dead code (never actually called) — fixed.
+- A single malformed synthesis response killed the whole run instead of using the existing repair-loop machinery — fixed with one bounded inline retry.
+- No cancellation or crash-resume existed despite `cancellation_requested` being a real, API-visible column — both added.
+- The SSE progress endpoint shared chat/generation's 5-minute ceiling, too short for a real research run — given its own 30-minute ceiling.
+- Near-zero operational logging across the whole runtime — added throughout.
+
+Verified: full repo suite **1247 passed**, ruff/mypy clean across `apps`, worker starts/stops cleanly with no orphaned processes or connections.
+
+## 2026-07-23 completion pass (same day, later) — memory, human checkpoints, rate limiting, frontend
+
+Follow-up work that took this from "hardened backend slice" to "complete, working,
+end-to-end single-agent workflow with a real frontend." Full detail and severity-rated
+remaining gaps in `PRODUCT_FLOWS_AND_GAPS.md`.
+
+- **Memory Platform wired into planning** — `ResearchProposalService` now retrieves
+  session/semantic/research memory (best-effort, fail-open) and feeds it to the planner,
+  which can emit a `rewritten_goal`. Previously the Deep Research planner received the raw
+  query string only, despite the Memory Platform being live for Chat/Linear Research since
+  Phase 11.23. Also fixed the actual root cause: the worker's own composition root
+  (`bootstrap/worker.py`) was constructing `MemoryService` via FastAPI `Depends`-only
+  factories called outside FastAPI's resolution, silently producing broken sentinel
+  objects — memory extraction from completed Deep Research runs had never actually worked.
+- **Report-approval interrupt** — a real second human checkpoint, not just plan approval:
+  the graph now pauses via LangGraph `interrupt()` after review passes, before the report
+  is persisted. `POST /research/runs/{id}/report-decision` resumes (approve) or terminally
+  fails (reject-with-reason) the *same* graph thread — no re-planning, no lost work.
+  Required one lifecycle-FSM transition addition and a dispatch-outbox `reopen()` method
+  (1:1 run↔dispatch invariant, so re-queuing reuses the existing row).
+- **Rate limiting, all three paths** — previously `RateLimitGuardrail` was a permanent
+  no-op (confirmed by reading it, not inferred) and nothing else in the app throttled
+  anything. Added a real Valkey-backed per-owner limiter (`ValkeyRateLimiter`, fixed-window
+  `INCR`+`EXPIRE`) in front of every cost-generating route: Chat (20/60s), Linear Research
+  (15/60s, shared across `/research`+`/stream`+`/citations`), Deep Research proposals +
+  escalation-checks (5/60s), Deep Research approvals (5/600s — the single most expensive
+  action in the product). `GET` routes, cancel, and report-decision stay unlimited on
+  purpose.
+- **Escalation-check + Deep Research frontend** — `POST /research/escalation-check`
+  classifies a query without committing to it (persists a proposal only when the plan
+  comes back `MODERATE`/`COMPLEX`, so accepting costs no second planner call). The Research
+  UI got a full Deep Research destination: mode toggle, suggestion banner, plan review,
+  live SSE-streamed progress (the canonical safe labels — "Planning research," "Searching
+  selected sources," etc. — defined earlier but never actually consumed by any UI until
+  now), report-approval, PDF download.
+- **Cache-leakage fix** — synthesis and review generation calls were tagged
+  `CacheRuntime.RESEARCH` (same `AUTO`/semantic-matched namespace as ordinary Linear
+  Research answers), so a semantic-cache hit could have silently substituted report content
+  generated for a *different* run's evidence bundle. Moved both to `CacheRuntime.REVIEWER`
+  (`CachePolicy.NEVER`), regression-tested.
+
+Verified: full repo suite **1286 passed**, ruff/mypy clean; frontend `tsc --noEmit`/
+`next lint`/`next build` clean, plus an HTTP smoke test of the built page. **Not
+verified at the time**: no browser automation was available in this environment, so
+no actual manual click-through of the frontend flow had been performed — disclosed,
+not hidden. **Superseded below** — a manual click-through was completed the same day.
+
+## 2026-07-23 verification pass — browser click-through + worker session-staleness fixes
+
+The manual click-through flagged as outstanding above was performed by hand at
+`localhost:3000/research`: DEEP mode toggle → submitting a COMPLEX query → live
+SSE progress through every canonical stage → the report-approval card → a
+completed run with a working PDF download. The golden path works end to end in
+a real browser, not just via API/test coverage.
+
+This surfaced two real bugs invisible to the existing test suite (which always
+constructs a fresh session per test), both stemming from
+`apps/worker/research_runtime_main.py` holding one `AsyncSession` open for the
+worker's **entire process lifetime**, combined with `SessionFactory`'s
+`expire_on_commit=False` (`db/session.py`):
+
+- **Aborted-transaction poisoning.** Any dispatch failure that aborted the
+  session's transaction *before* its first commit (e.g. the disabled-V1-graph
+  `RuntimeError` from the hardening pass above) left every subsequent dispatch
+  on that same session failing silently — the worker had to be manually
+  restarted to recover. Fixed: `ResearchRuntimeWorker.run_once` now calls
+  `session.rollback()` in its failure path (`research_runtime_worker.py`,
+  `bootstrap/worker.py`).
+- **Stale identity-mapped `report_decision` read.** `execute_approved_run`'s
+  resume-after-approval branch read `run.budget_usage` off a `ResearchRun`
+  object the worker's session had already loaded earlier in that same run's
+  lifecycle — before a separate, short-lived API-request session committed the
+  approval decision. Since nothing ever invalidates a cached object under
+  `expire_on_commit=False`, the resume attempt saw the pre-decision snapshot
+  and failed with "awaiting a report decision that was never recorded," even
+  immediately after approving. This is the same staleness hazard
+  `ResearchRunRepository.is_cancellation_requested` was already written to
+  guard against, just not applied here too. Fixed with
+  `await self._session.refresh(run)` immediately after the worker loads the
+  run, before any branch reads its fields (`execution.py`) — refreshing the
+  object in place rather than a column-only re-read, since a later
+  read-modify-write on `run.budget_usage` in the same method would otherwise
+  silently re-drop the decision on its next commit.
+
+Both fixes are regression-tested (`test_research_runtime_worker.py`,
+`test_execution.py`), including a test that fakes `session.refresh` to
+simulate a real DB refresh picking up the decision, proving the resume only
+succeeds because that refresh happens. Full repo suite **1212 passed** after
+these fixes. The underlying single-session-per-process design is a known,
+tracked limitation (see "Not Yet Built" below, horizontal worker scaling) —
+these are correctness fixes within that design, not a redesign of it.
+
+## Not Yet Built
+
+- ⛔ Chat → Deep Research escalation ("Research this" suggestion + handoff) — **out of
+  scope, will not be built.** The Research-interface equivalent (Linear → Deep) is built
+  and is a distinct surface (see above); Chat is intended to stay a standalone fast
+  conversational surface with no path into Deep Research.
+- ❌ Proposal rejection/expiry, or plan edits before approval (the report-approval
+  checkpoint is new; the earlier *plan*-approval step still has no edit/reject UX beyond
+  simply not approving it).
+- ❌ Horizontal worker scaling — single serial process by default; the claim query
+  (`SELECT ... FOR UPDATE SKIP LOCKED`) is already safe for multiple processes, nothing
+  currently runs more than one. Under concurrent load, later runs queue behind earlier ones
+  for their full duration (up to 10 minutes for COMPLEX plans).
+- ❌ No expiry/auto-reject for a run stuck in `awaiting_approval` — if a user never submits
+  a report decision, the run just sits there indefinitely.
+- 🟡 The Research UI's default (Linear-mode) submission path now waits on a full
+  escalation-check planner call before running Linear Research — a deliberate, requested
+  tradeoff, not a bug, but it means the UI's "fast path" is slower than the raw
+  `POST /research` API. Parallelizing instead of gating is a documented follow-up.
+- ❌ MCP integration, multi-agent orchestration — explicitly deferred per ADR-033 until the single-agent runtime proves a measurable limitation it can't address.
+
+---
+
 # Current Production Knowledge Pipeline
 
 ```
@@ -1719,8 +1912,11 @@ Evaluation Platform Expansion — NDCG ✅, Groundedness ✅, Faithfulness ✅, 
 
 ↓
 
-Research Runtime (Query Decomposition, Planner, Agents, Reviewer, Summarizer, LangGraph) — builds on top of the now-live, deliberately linear Research API Platform above
-  Multi-turn conversation memory for Research ✅ foundation landed after the 2026-07-18 audit gap: `research_conversations` groups turns, prior turns are folded into prompts, and SESSION memory is scoped to the conversation id. Remaining work: query rewriting/condensation, planner/decomposition, resumable LangGraph state, human approval, and report/version artifacts.
+Research Runtime (Query Decomposition, Planner, Agents, Reviewer, Summarizer, LangGraph) — builds on top of the now-live, deliberately linear Research API Platform above. **Superseded — see Phase 6 above for full current detail; this entry is kept only as a historical trail.**
+  Phase 1 foundation ✅ — direct LangGraph 1.2.9 ownership, compact JSON-safe state, deterministic reducers, disabled walking-skeleton graph, in-memory interrupt/resume test, canonical event adapter, and ADR-031/032 are complete.
+  Phase 2 lifecycle/checkpoint spike ✅ — `research_runs` separates owner-scoped graph lifecycle from completed replay sessions; migration, status-transition policy, Postgres checkpointer dependency, and interrupt/resume test are in place.
+  Multi-turn conversation memory for Research ✅ — `research_conversations` groups turns, prior turns are folded into prompts, SESSION memory is scoped to the conversation id.
+  Planner, decomposition, multi-wave retrieval, evidence, synthesis, review, bounded repair, budgets, PDF reports, cancellation, and crash-resume ✅ — a real, working (if frontend-less) Deep Research product surface. See Phase 6 above.
 
 ↓
 

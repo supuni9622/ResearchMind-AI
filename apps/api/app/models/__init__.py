@@ -10,6 +10,10 @@ from app.models.document import Document
 from app.models.generation_usage import GenerationUsage
 from app.models.memory import Memory
 from app.models.research import ResearchSession
+from app.models.research_proposal import ResearchProposal
+from app.models.research_run import ResearchRun
+from app.models.research_run_dispatch import ResearchRunDispatch
+from app.models.research_run_event import ResearchRunEvent
 from app.models.user import User
 
 __all__ = [
@@ -18,6 +22,10 @@ __all__ = [
     "Conversation",
     "Message",
     "ResearchSession",
+    "ResearchRun",
+    "ResearchProposal",
+    "ResearchRunDispatch",
+    "ResearchRunEvent",
     "Memory",
     "GenerationUsage",
 ]

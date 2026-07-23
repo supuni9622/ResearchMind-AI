@@ -49,6 +49,18 @@ class GenerationUsageRepository:
             .on_conflict_do_nothing(index_elements=[GenerationUsage.request_id])
         )
 
+    async def sum_cost_for_session(self, session_id: UUID) -> float:
+        """Sum estimated cost recorded so far for one runtime session (e.g. a research run).
+
+        Used for soft, best-effort budget checks; usage recording is itself
+        best-effort/fail-open, so this is an estimate, not an exact ceiling.
+        """
+
+        statement = select(func.coalesce(func.sum(GenerationUsage.estimated_cost_usd), 0)).where(
+            GenerationUsage.session_id == session_id,
+        )
+        return float((await self._session.execute(statement)).scalar_one())
+
     async def summary_for_owner(
         self,
         owner_id: UUID,

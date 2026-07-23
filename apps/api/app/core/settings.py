@@ -131,6 +131,8 @@ class Settings(BaseSettings):
 
     sparse_embedding_model: str = "prithivida/Splade_PP_en_v1"
 
+    sparse_embedding_cache_dir: str = os.path.expanduser("~/.cache/researchmind/fastembed")
+
     # ==========================================================================
     # Reranking
     # ==========================================================================
@@ -222,6 +224,41 @@ class Settings(BaseSettings):
     chat_history_page_max_size: int = 100
     chat_prompt_recent_message_limit: int = 12
     chat_prompt_summary_max_characters: int = 4_000
+
+    # Per-owner fixed-window request cap on /chat/stream and /chat/ws --
+    # each new chat turn is a real provider-cost call, and nothing else in
+    # the request path bounds how many a single account can start.
+    chat_rate_limit_requests: int = 20
+    chat_rate_limit_window_seconds: int = 60
+
+    # Linear Research (/research, /research/stream, /research/citations) --
+    # each call is a retrieval + (for the first two) generation cost, so a
+    # tighter default than chat.
+    research_rate_limit_requests: int = 15
+    research_rate_limit_window_seconds: int = 60
+
+    # Deep Research proposals -- each is an uncached planner LLM call.
+    deep_research_proposal_rate_limit_requests: int = 5
+    deep_research_proposal_rate_limit_window_seconds: int = 60
+
+    # Deep Research approvals -- the most expensive action in the product:
+    # each one queues a real multi-step, multi-LLM-call run (up to $5 /
+    # 10 minutes of compute per COMPLEX plan) behind the runtime worker.
+    # Deliberately a longer window with a low ceiling.
+    deep_research_approval_rate_limit_requests: int = 5
+    deep_research_approval_rate_limit_window_seconds: int = 600
+
+    # Research Runtime foundation. The LangGraph workflow is intentionally
+    # unavailable to production traffic until durable checkpoint storage and
+    # run lifecycle persistence are implemented and verified.
+    research_runtime_enabled: bool = False
+    research_runtime_postgres_checkpointing_enabled: bool = False
+    # Enables the bounded V1 planner -> retrieval waves -> synthesis path.
+    # Keep disabled until its canary and resume/replay tests are green.
+    research_runtime_v1_graph_enabled: bool = False
+    # LangGraph super-step ceiling; a final safety net, not the primary loop
+    # control (budgets/iteration caps enforce that). See PRD §25.
+    research_runtime_graph_recursion_limit: int = 20
 
     # Importance scoring (PRD §16)
     memory_importance_threshold: float = 0.1

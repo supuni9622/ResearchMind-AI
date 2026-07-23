@@ -44,6 +44,15 @@ class FastEmbedSparseEmbeddingConfig(BaseModel):
         description="FastEmbed SPLADE model identifier.",
     )
 
+    cache_dir: str | None = Field(
+        default=None,
+        description=(
+            "Directory used to cache downloaded FastEmbed model weights. "
+            "Defaults to FastEmbed's own default (the OS temp directory) "
+            "when not set, which is not persistent across reboots/cleanup."
+        ),
+    )
+
     batch_size: int = Field(
         default=32,
         ge=1,
@@ -62,7 +71,10 @@ class FastEmbedSparseEmbeddingProvider:
         model: SparseTextEmbedding | None = None,
     ) -> None:
         self._config = config
-        self._model = model or SparseTextEmbedding(model_name=config.model_name)
+        self._model = model or SparseTextEmbedding(
+            model_name=config.model_name,
+            cache_dir=config.cache_dir,
+        )
 
         self._configuration_fingerprint = hashlib.sha256(
             self._config.model_dump_json().encode("utf-8")

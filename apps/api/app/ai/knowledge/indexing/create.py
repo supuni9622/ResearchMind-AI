@@ -47,6 +47,7 @@ def create_sparse_embedding_provider() -> FastEmbedSparseEmbeddingProvider:
     return FastEmbedSparseEmbeddingProvider(
         config=FastEmbedSparseEmbeddingConfig(
             model_name=settings.sparse_embedding_model,
+            cache_dir=settings.sparse_embedding_cache_dir,
         ),
     )
 

@@ -74,3 +74,19 @@ class UnauthorizedException(AppException):
             code="UNAUTHORIZED",
             status_code=status.HTTP_401_UNAUTHORIZED,
         )
+
+
+class RateLimitExceededException(AppException):
+    def __init__(
+        self,
+        *,
+        retry_after_seconds: int,
+        message: str = "Rate limit exceeded. Please slow down.",
+    ):
+        self.retry_after_seconds = retry_after_seconds
+        super().__init__(
+            message=message,
+            code="RATE_LIMIT_EXCEEDED",
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            details={"retry_after_seconds": retry_after_seconds},
+        )

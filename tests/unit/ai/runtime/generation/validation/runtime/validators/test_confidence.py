@@ -72,3 +72,14 @@ async def test_missing_confidence_means_nothing_to_check() -> None:
 
     assert outcome.issues == []
     assert outcome.score is None
+
+
+async def test_field_name_is_configurable_for_contracts_with_a_different_score_field() -> None:
+    validator = ConfidenceValidator(field_name="quality_score")
+
+    result = make_result(parsed_output={"quality_score": 0.6, "confidence": 1.5})
+
+    outcome = await validator.validate(result)
+
+    assert outcome.issues == []
+    assert outcome.score == 0.6

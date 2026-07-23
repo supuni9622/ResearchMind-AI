@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+import json
+
+from app.ai.runtime.generation.enums import (
+    ResponseFormat,
+)
 from app.ai.runtime.generation.models import (
     GenerationRequest,
 )
@@ -54,10 +59,26 @@ def build_chat_messages(
             }
         )
 
+    user_content = request.prompt_context.context + "\n\n" + request.user_prompt
+
+    #
+    # Providers reached via `build_chat_messages` don't all get
+    # schema-constrained decoding (e.g. Groq's `llama-3.3-70b-versatile`
+    # falls back to plain `json_object` mode -- see
+    # `build_groq_response_format`), so the schema must be spelled out
+    # in the prompt itself or the model has nothing to conform to.
+    #
+
+    if request.response_format == ResponseFormat.STRUCTURED and request.output_schema:
+        user_content += (
+            "\n\nRespond with JSON matching exactly this schema (no extra "
+            f"or missing keys):\n{json.dumps(request.output_schema)}"
+        )
+
     messages.append(
         {
             "role": "user",
-            "content": (request.prompt_context.context + "\n\n" + request.user_prompt),
+            "content": user_content,
         }
     )
 

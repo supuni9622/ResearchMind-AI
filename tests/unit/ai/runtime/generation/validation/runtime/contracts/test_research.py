@@ -3,14 +3,16 @@ Unit tests for ResearchRuntimeContract.
 
 Covers:
 - A fully compliant research output is valid with no issues
-- A response with no citations, no evidence, and no sections produces
-  the errors described by PRD §15's example ("no citations", "no
-  evidence", "incomplete") -- reproducing the PRD §3 motivating example
-  ({"summary": "AI is important."})
+- A response with no findings and no cited sources produces the
+  expected errors (reproducing the PRD §3 motivating example,
+  {"abstract": "AI is important."})
 - Every issue is tagged with the contract's own name, not the
   underlying check's name (PRD §21's report example)
-- A valid output's confidence score is reflected in the outcome score
 - runtime/contract_name/name expose RuntimeType.RESEARCH / "research_contract"
+
+Field names mirror `ResearchDraft`/`ResearchDraftSection`
+(`app/ai/runtime/research/synthesis/models.py`), the actual
+`output_model` the synthesis step requests.
 """
 
 from __future__ import annotations
@@ -30,14 +32,12 @@ from tests.unit.ai.runtime.generation.validation.factories import (
 )
 
 _COMPLIANT_PAYLOAD = {
-    "summary": "This is a sufficiently long research summary for the contract.",
-    "sections": [
-        {"id": "sec-1", "title": "Background"},
-        {"id": "sec-2", "title": "Findings"},
+    "abstract": "This is a sufficiently long research abstract for the contract.",
+    "findings": [
+        {"heading": "Background", "content": "supports the claim", "citation_ids": ["S1"]},
+        {"heading": "Findings", "content": "supports the claim", "citation_ids": ["S1"]},
     ],
-    "citations": ["S1"],
-    "evidence": [{"content": "supports the claim", "citation_id": "S1", "section_id": "sec-2"}],
-    "confidence": 0.8,
+    "citation_ids": ["S1"],
 }
 
 
@@ -63,24 +63,21 @@ async def test_fully_compliant_output_is_valid() -> None:
     outcome = await contract.validate(result)
 
     assert outcome.issues == []
-    assert outcome.score == 0.8
 
 
 async def test_trivial_output_fails_on_every_missing_requirement() -> None:
     contract = ResearchRuntimeContract()
 
     request = _request_with_known_citation()
-    result = make_result(request=request, parsed_output={"summary": "AI is important."})
+    result = make_result(request=request, parsed_output={"abstract": "AI is important."})
 
     outcome = await contract.validate(result)
 
     assert outcome.issues != []
     messages = " ".join(issue.message for issue in outcome.issues)
 
-    assert "sections" in messages
-    assert "citations" in messages
-    assert "evidence" in messages
-    assert "confidence" in messages
+    assert "findings" in messages
+    assert "citation_ids" in messages
 
 
 async def test_every_issue_is_tagged_with_the_contract_name() -> None:

@@ -1,0 +1,514 @@
+from __future__ import annotations
+
+from unittest.mock import AsyncMock
+from uuid import uuid4
+
+import pytest
+from app.ai.runtime.research.evidence_artifact import ResearchEvidenceArtifactWriter
+from app.ai.runtime.research.exceptions import (
+    ResearchReportRejectedError,
+    ResearchRunCancelledError,
+)
+from app.ai.runtime.research.planner.models import ResearchPlanTask
+from app.ai.runtime.research.report_artifact import (
+    ResearchFinalReportArtifactWriter,
+    ResearchFinalReportReferences,
+)
+from app.ai.runtime.research.retrieval.models import ResearchTaskResult, ResearchTaskStatus
+from app.ai.runtime.research.review import ResearchReview, ResearchReviewService, ReviewDecision
+from app.ai.runtime.research.synthesis.models import ResearchDraft, ResearchDraftSection
+from app.ai.runtime.research.synthesis.service import (
+    ResearchSynthesisError,
+    ResearchSynthesisService,
+)
+from app.ai.runtime.research.workflows.multi_wave_research import compile_multi_wave_research_graph
+from langgraph.checkpoint.memory import InMemorySaver
+from langgraph.types import Command
+
+
+@pytest.mark.asyncio
+async def test_multi_wave_graph_waits_for_dependencies_before_aggregation() -> None:
+    run_id, owner_id = uuid4(), uuid4()
+    retrieval = AsyncMock()
+    calls: list[str] = []
+
+    async def execute_task(*, task, **_kwargs) -> ResearchTaskResult:
+        calls.append(task.task_id)
+        return ResearchTaskResult(task_id=task.task_id, status=ResearchTaskStatus.COMPLETED)
+
+    retrieval.execute_task.side_effect = execute_task
+    writer = AsyncMock(spec=ResearchEvidenceArtifactWriter)
+    writer.write.return_value = "artifacts/research-runs/evidence.json"
+    synthesis = AsyncMock(spec=ResearchSynthesisService)
+    synthesis.synthesize.return_value = ResearchDraft(
+        title="Report",
+        abstract="Abstract.",
+        methodology="Methodology.",
+        findings=[ResearchDraftSection(heading="Finding", content="Grounded finding.")],
+        discussion="Discussion.",
+        conclusion="Conclusion.",
+    )
+    final_report_writer = AsyncMock(spec=ResearchFinalReportArtifactWriter)
+    final_report_writer.write.return_value = ResearchFinalReportReferences(
+        report_ref="artifacts/research-runs/final-report.json",
+        pdf_ref="artifacts/research-runs/final-report.pdf",
+    )
+    graph = compile_multi_wave_research_graph(
+        checkpointer=InMemorySaver(),
+        task_retrieval=retrieval,
+        evidence_writer=writer,
+        synthesis=synthesis,
+        final_report_writer=final_report_writer,
+    )
+    first = ResearchPlanTask(task_id="first", question="first")
+    parallel = ResearchPlanTask(task_id="parallel", question="parallel")
+    second = ResearchPlanTask(task_id="second", question="second", dependencies=["first"])
+
+    config = {"configurable": {"thread_id": str(run_id)}}
+    paused = await graph.ainvoke(
+        {
+            "research_run_id": str(run_id),
+            "owner_id": str(owner_id),
+            "plan": {"goal": "q", "complexity": "moderate"},
+            "waves": [
+                [first.model_dump(mode="json"), parallel.model_dump(mode="json")],
+                [second.model_dump(mode="json")],
+            ],
+            "filters": {},
+            "top_k": 5,
+            "task_results": {},
+        },
+        config=config,
+    )
+
+    assert "__interrupt__" in paused
+    assert final_report_writer.write.await_count == 0
+
+    result = await graph.ainvoke(Command(resume={"decision": "approved"}), config=config)
+
+    assert set(calls[:2]) == {"first", "parallel"}
+    assert calls[-1] == "second"
+    assert set(result["task_results"]) == {"first", "parallel", "second"}
+    assert result["evidence_bundle"]["completed_task_count"] == 3
+    assert writer.write.await_count == 1
+    assert synthesis.synthesize.await_count == 1
+    assert result["final_report_pdf_ref"].endswith("final-report.pdf")
+    assert final_report_writer.write.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_multi_wave_graph_runs_one_targeted_gap_retrieval_then_finalizes_limited() -> None:
+    run_id, owner_id = uuid4(), uuid4()
+    retrieval = AsyncMock()
+
+    async def execute_task(*, task, **_kwargs) -> ResearchTaskResult:
+        citation_id = "c2" if task.task_id == "gap-1" else "c1"
+        return ResearchTaskResult(
+            task_id=task.task_id,
+            status=ResearchTaskStatus.COMPLETED,
+            citation_ids=[citation_id],
+        )
+
+    retrieval.execute_task.side_effect = execute_task
+    writer = AsyncMock(spec=ResearchEvidenceArtifactWriter)
+    writer.write.return_value = "artifacts/research-runs/evidence.json"
+    synthesis = AsyncMock(spec=ResearchSynthesisService)
+    synthesis.synthesize.return_value = ResearchDraft(
+        title="Report",
+        abstract="Abstract.",
+        methodology="Methodology.",
+        findings=[ResearchDraftSection(heading="Finding", content="Grounded finding.")],
+        discussion="Discussion.",
+        conclusion="Conclusion.",
+    )
+    reviewer = AsyncMock(spec=ResearchReviewService)
+    reviewer.review.side_effect = [
+        ResearchReview(
+            decision=ReviewDecision.RESEARCH_GAPS,
+            citation_integrity_score=1,
+            completeness_score=0.5,
+            gap_questions=["What comparative benchmark evidence is available?"],
+        ),
+        ResearchReview(
+            decision=ReviewDecision.RESEARCH_GAPS,
+            citation_integrity_score=1,
+            completeness_score=0.8,
+            gap_questions=["What comparative benchmark evidence is available?"],
+        ),
+    ]
+    final_report_writer = AsyncMock(spec=ResearchFinalReportArtifactWriter)
+    final_report_writer.write.return_value = ResearchFinalReportReferences(
+        report_ref="artifacts/research-runs/final-report.json",
+        pdf_ref="artifacts/research-runs/final-report.pdf",
+    )
+    graph = compile_multi_wave_research_graph(
+        checkpointer=InMemorySaver(),
+        task_retrieval=retrieval,
+        evidence_writer=writer,
+        synthesis=synthesis,
+        final_report_writer=final_report_writer,
+        reviewer=reviewer,
+    )
+    initial = ResearchPlanTask(task_id="initial", question="initial")
+
+    result = await graph.ainvoke(
+        {
+            "research_run_id": str(run_id),
+            "owner_id": str(owner_id),
+            "plan": {"goal": "q", "complexity": "moderate"},
+            "waves": [[initial.model_dump(mode="json")]],
+            "filters": {},
+            "top_k": 5,
+            "task_results": {},
+        },
+        config={"configurable": {"thread_id": str(run_id)}},
+    )
+
+    assert set(result["task_results"]) == {"initial", "gap-1"}
+    assert result["gap_research_count"] == 1
+    assert result["plan_version"] == 2
+    assert synthesis.synthesize.await_count == 2
+    assert result["review"]["decision"] == ReviewDecision.FINALIZE_WITH_LIMITATIONS.value
+    assert writer.write.await_args_list[-1].kwargs["version"] == 2
+
+
+@pytest.mark.asyncio
+async def test_multi_wave_graph_stops_at_the_next_checkpoint_once_cancelled() -> None:
+    run_id, owner_id = uuid4(), uuid4()
+    retrieval = AsyncMock()
+    retrieval.execute_task.return_value = ResearchTaskResult(
+        task_id="initial", status=ResearchTaskStatus.COMPLETED
+    )
+    writer = AsyncMock(spec=ResearchEvidenceArtifactWriter)
+    synthesis = AsyncMock(spec=ResearchSynthesisService)
+    final_report_writer = AsyncMock(spec=ResearchFinalReportArtifactWriter)
+    graph = compile_multi_wave_research_graph(
+        checkpointer=InMemorySaver(),
+        task_retrieval=retrieval,
+        evidence_writer=writer,
+        synthesis=synthesis,
+        final_report_writer=final_report_writer,
+        cancellation_check=AsyncMock(return_value=True),
+    )
+    initial = ResearchPlanTask(task_id="initial", question="initial")
+
+    with pytest.raises(ResearchRunCancelledError):
+        await graph.ainvoke(
+            {
+                "research_run_id": str(run_id),
+                "owner_id": str(owner_id),
+                "plan": {"goal": "q", "complexity": "moderate"},
+                "waves": [[initial.model_dump(mode="json")]],
+                "filters": {},
+                "top_k": 5,
+                "task_results": {},
+            },
+            config={"configurable": {"thread_id": str(run_id)}},
+        )
+
+    retrieval.execute_task.assert_not_awaited()
+    synthesis.synthesize.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_multi_wave_graph_never_repairs_a_simple_plan() -> None:
+    """A SIMPLE plan's max_review_iterations=0 must skip the repair loop entirely."""
+
+    run_id, owner_id = uuid4(), uuid4()
+    retrieval = AsyncMock()
+    retrieval.execute_task.return_value = ResearchTaskResult(
+        task_id="initial", status=ResearchTaskStatus.COMPLETED, citation_ids=["c1"]
+    )
+    writer = AsyncMock(spec=ResearchEvidenceArtifactWriter)
+    writer.write.return_value = "artifacts/research-runs/evidence.json"
+    synthesis = AsyncMock(spec=ResearchSynthesisService)
+    synthesis.synthesize.return_value = ResearchDraft(
+        title="Report",
+        abstract="Abstract.",
+        methodology="Methodology.",
+        findings=[ResearchDraftSection(heading="Finding", content="Grounded finding.")],
+        discussion="Discussion.",
+        conclusion="Conclusion.",
+    )
+    reviewer = AsyncMock(spec=ResearchReviewService)
+    reviewer.review.return_value = ResearchReview(
+        decision=ReviewDecision.RESEARCH_GAPS,
+        citation_integrity_score=1,
+        completeness_score=0.5,
+        gap_questions=["What comparative benchmark evidence is available?"],
+    )
+    final_report_writer = AsyncMock(spec=ResearchFinalReportArtifactWriter)
+    final_report_writer.write.return_value = ResearchFinalReportReferences(
+        report_ref="artifacts/research-runs/final-report.json",
+        pdf_ref="artifacts/research-runs/final-report.pdf",
+    )
+    graph = compile_multi_wave_research_graph(
+        checkpointer=InMemorySaver(),
+        task_retrieval=retrieval,
+        evidence_writer=writer,
+        synthesis=synthesis,
+        final_report_writer=final_report_writer,
+        reviewer=reviewer,
+    )
+    initial = ResearchPlanTask(task_id="initial", question="initial")
+
+    result = await graph.ainvoke(
+        {
+            "research_run_id": str(run_id),
+            "owner_id": str(owner_id),
+            "plan": {"goal": "q", "complexity": "simple"},
+            "waves": [[initial.model_dump(mode="json")]],
+            "filters": {},
+            "top_k": 5,
+            "task_results": {},
+        },
+        config={"configurable": {"thread_id": str(run_id)}},
+    )
+
+    assert reviewer.review.await_count == 1
+    assert result["review"]["decision"] == ReviewDecision.FINALIZE_WITH_LIMITATIONS.value
+
+
+@pytest.mark.asyncio
+async def test_multi_wave_graph_stops_repair_once_cost_budget_exhausted() -> None:
+    """A MODERATE plan allows one repair round by iteration count alone, but an
+
+    exhausted cost budget must still block it.
+    """
+
+    run_id, owner_id = uuid4(), uuid4()
+    retrieval = AsyncMock()
+    retrieval.execute_task.return_value = ResearchTaskResult(
+        task_id="initial", status=ResearchTaskStatus.COMPLETED, citation_ids=["c1"]
+    )
+    writer = AsyncMock(spec=ResearchEvidenceArtifactWriter)
+    writer.write.return_value = "artifacts/research-runs/evidence.json"
+    synthesis = AsyncMock(spec=ResearchSynthesisService)
+    synthesis.synthesize.return_value = ResearchDraft(
+        title="Report",
+        abstract="Abstract.",
+        methodology="Methodology.",
+        findings=[ResearchDraftSection(heading="Finding", content="Grounded finding.")],
+        discussion="Discussion.",
+        conclusion="Conclusion.",
+    )
+    reviewer = AsyncMock(spec=ResearchReviewService)
+    reviewer.review.return_value = ResearchReview(
+        decision=ReviewDecision.RESEARCH_GAPS,
+        citation_integrity_score=1,
+        completeness_score=0.5,
+        gap_questions=["What comparative benchmark evidence is available?"],
+    )
+    final_report_writer = AsyncMock(spec=ResearchFinalReportArtifactWriter)
+    final_report_writer.write.return_value = ResearchFinalReportReferences(
+        report_ref="artifacts/research-runs/final-report.json",
+        pdf_ref="artifacts/research-runs/final-report.pdf",
+    )
+    graph = compile_multi_wave_research_graph(
+        checkpointer=InMemorySaver(),
+        task_retrieval=retrieval,
+        evidence_writer=writer,
+        synthesis=synthesis,
+        final_report_writer=final_report_writer,
+        reviewer=reviewer,
+        cost_lookup=AsyncMock(return_value=999.0),
+    )
+    initial = ResearchPlanTask(task_id="initial", question="initial")
+
+    result = await graph.ainvoke(
+        {
+            "research_run_id": str(run_id),
+            "owner_id": str(owner_id),
+            "plan": {"goal": "q", "complexity": "moderate"},
+            "waves": [[initial.model_dump(mode="json")]],
+            "filters": {},
+            "top_k": 5,
+            "task_results": {},
+        },
+        config={"configurable": {"thread_id": str(run_id)}},
+    )
+
+    assert reviewer.review.await_count == 1
+    assert result["review"]["decision"] == ReviewDecision.FINALIZE_WITH_LIMITATIONS.value
+
+
+@pytest.mark.asyncio
+async def test_multi_wave_graph_retries_synthesis_once_after_a_schema_failure() -> None:
+    run_id, owner_id = uuid4(), uuid4()
+    retrieval = AsyncMock()
+    retrieval.execute_task.return_value = ResearchTaskResult(
+        task_id="initial", status=ResearchTaskStatus.COMPLETED
+    )
+    writer = AsyncMock(spec=ResearchEvidenceArtifactWriter)
+    writer.write.return_value = "artifacts/research-runs/evidence.json"
+    draft = ResearchDraft(
+        title="Report",
+        abstract="Abstract.",
+        methodology="Methodology.",
+        findings=[ResearchDraftSection(heading="Finding", content="Grounded finding.")],
+        discussion="Discussion.",
+        conclusion="Conclusion.",
+    )
+    synthesis = AsyncMock(spec=ResearchSynthesisService)
+    synthesis.synthesize.side_effect = [
+        ResearchSynthesisError("Draft referenced unknown citation IDs."),
+        draft,
+    ]
+    final_report_writer = AsyncMock(spec=ResearchFinalReportArtifactWriter)
+    final_report_writer.write.return_value = ResearchFinalReportReferences(
+        report_ref="artifacts/research-runs/final-report.json",
+        pdf_ref="artifacts/research-runs/final-report.pdf",
+    )
+    graph = compile_multi_wave_research_graph(
+        checkpointer=InMemorySaver(),
+        task_retrieval=retrieval,
+        evidence_writer=writer,
+        synthesis=synthesis,
+        final_report_writer=final_report_writer,
+    )
+    initial = ResearchPlanTask(task_id="initial", question="initial")
+
+    result = await graph.ainvoke(
+        {
+            "research_run_id": str(run_id),
+            "owner_id": str(owner_id),
+            "plan": {"goal": "q", "complexity": "moderate"},
+            "waves": [[initial.model_dump(mode="json")]],
+            "filters": {},
+            "top_k": 5,
+            "task_results": {},
+        },
+        config={"configurable": {"thread_id": str(run_id)}},
+    )
+
+    assert synthesis.synthesize.await_count == 2
+    assert result["synthesis_revision_count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_multi_wave_graph_synthesizes_and_reviews_against_the_rewritten_goal() -> None:
+    run_id, owner_id = uuid4(), uuid4()
+    retrieval = AsyncMock()
+    retrieval.execute_task.return_value = ResearchTaskResult(
+        task_id="only", status=ResearchTaskStatus.COMPLETED
+    )
+    writer = AsyncMock(spec=ResearchEvidenceArtifactWriter)
+    writer.write.return_value = "artifacts/research-runs/evidence.json"
+    synthesis = AsyncMock(spec=ResearchSynthesisService)
+    synthesis.synthesize.return_value = ResearchDraft(
+        title="Report",
+        abstract="Abstract.",
+        methodology="Methodology.",
+        findings=[ResearchDraftSection(heading="Finding", content="Grounded finding.")],
+        discussion="Discussion.",
+        conclusion="Conclusion.",
+    )
+    reviewer = AsyncMock(spec=ResearchReviewService)
+    reviewer.review.return_value = ResearchReview(
+        decision=ReviewDecision.PASS,
+        citation_integrity_score=1.0,
+        completeness_score=1.0,
+    )
+    final_report_writer = AsyncMock(spec=ResearchFinalReportArtifactWriter)
+    final_report_writer.write.return_value = ResearchFinalReportReferences(
+        report_ref="artifacts/research-runs/final-report.json",
+        pdf_ref="artifacts/research-runs/final-report.pdf",
+    )
+    graph = compile_multi_wave_research_graph(
+        checkpointer=InMemorySaver(),
+        task_retrieval=retrieval,
+        evidence_writer=writer,
+        synthesis=synthesis,
+        final_report_writer=final_report_writer,
+        reviewer=reviewer,
+    )
+    only = ResearchPlanTask(task_id="only", question="only")
+    config = {"configurable": {"thread_id": str(run_id)}}
+
+    paused = await graph.ainvoke(
+        {
+            "research_run_id": str(run_id),
+            "owner_id": str(owner_id),
+            "plan": {
+                "goal": "compare it with QLoRA",
+                "rewritten_goal": "compare LoRA with QLoRA",
+                "complexity": "simple",
+            },
+            "waves": [[only.model_dump(mode="json")]],
+            "filters": {},
+            "top_k": 5,
+            "task_results": {},
+        },
+        config=config,
+    )
+    assert "__interrupt__" in paused
+
+    result = await graph.ainvoke(Command(resume={"decision": "approved"}), config=config)
+
+    assert synthesis.synthesize.await_args.kwargs["goal"] == "compare LoRA with QLoRA"
+    assert reviewer.review.await_args.kwargs["goal"] == "compare LoRA with QLoRA"
+    assert result["final_report_pdf_ref"].endswith("final-report.pdf")
+
+
+@pytest.mark.asyncio
+async def test_multi_wave_graph_rejects_final_report_when_the_user_declines() -> None:
+    run_id, owner_id = uuid4(), uuid4()
+    retrieval = AsyncMock()
+    retrieval.execute_task.return_value = ResearchTaskResult(
+        task_id="only", status=ResearchTaskStatus.COMPLETED
+    )
+    writer = AsyncMock(spec=ResearchEvidenceArtifactWriter)
+    writer.write.return_value = "artifacts/research-runs/evidence.json"
+    synthesis = AsyncMock(spec=ResearchSynthesisService)
+    synthesis.synthesize.return_value = ResearchDraft(
+        title="Report",
+        abstract="Abstract.",
+        methodology="Methodology.",
+        findings=[ResearchDraftSection(heading="Finding", content="Grounded finding.")],
+        discussion="Discussion.",
+        conclusion="Conclusion.",
+    )
+    reviewer = AsyncMock(spec=ResearchReviewService)
+    reviewer.review.return_value = ResearchReview(
+        decision=ReviewDecision.PASS,
+        citation_integrity_score=1.0,
+        completeness_score=1.0,
+    )
+    final_report_writer = AsyncMock(spec=ResearchFinalReportArtifactWriter)
+    final_report_writer.write.return_value = ResearchFinalReportReferences(
+        report_ref="artifacts/research-runs/final-report.json",
+        pdf_ref="artifacts/research-runs/final-report.pdf",
+    )
+    graph = compile_multi_wave_research_graph(
+        checkpointer=InMemorySaver(),
+        task_retrieval=retrieval,
+        evidence_writer=writer,
+        synthesis=synthesis,
+        final_report_writer=final_report_writer,
+        reviewer=reviewer,
+    )
+    only = ResearchPlanTask(task_id="only", question="only")
+    config = {"configurable": {"thread_id": str(run_id)}}
+
+    paused = await graph.ainvoke(
+        {
+            "research_run_id": str(run_id),
+            "owner_id": str(owner_id),
+            "plan": {"goal": "q", "complexity": "simple"},
+            "waves": [[only.model_dump(mode="json")]],
+            "filters": {},
+            "top_k": 5,
+            "task_results": {},
+        },
+        config=config,
+    )
+
+    assert "__interrupt__" in paused
+    final_report_writer.write.assert_not_awaited()
+
+    with pytest.raises(ResearchReportRejectedError, match="not accurate"):
+        await graph.ainvoke(
+            Command(resume={"decision": "rejected", "reason": "not accurate"}), config=config
+        )
+
+    final_report_writer.write.assert_not_awaited()

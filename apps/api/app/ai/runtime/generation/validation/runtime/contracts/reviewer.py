@@ -16,22 +16,22 @@ from app.ai.runtime.generation.validation.runtime.validators.confidence import (
     ConfidenceValidator,
 )
 
-_MIN_RECOMMENDATIONS = 1
-
 
 class ReviewerRuntimeContract(
     BaseRuntimeContract,
 ):
     """
-    Reviewer Runtime Contract — requires a non-empty `critique` field,
-    a numeric `confidence` in `[0, 1]`, and at least one
-    `recommendations` item.
+    Reviewer Runtime Contract — requires a numeric `quality_score` in
+    `[0, 1]`. Field name mirrors `ModelReviewAssessment`
+    (`app/ai/runtime/research/review.py`), the actual `output_model`
+    the reviewer step requests: its other fields, `gap_questions` and
+    `concerns`, are legitimately optional (an empty list means "no
+    concerns found", not a malformed output), so unlike the original
+    PRD §15 sketch there's no minimum-count check to make here.
 
-    Entirely composed from the generic runtime validators, same as
-    `ResearchRuntimeContract`: `CompletenessValidator` covers "critique
-    exists"/"confidence score exists"/"recommendations exist" (its
-    existence check), `ConfidenceValidator` covers the numeric range
-    check on top of that.
+    `CompletenessValidator` covers "quality_score exists",
+    `ConfidenceValidator` covers the numeric range check on top of
+    that.
     """
 
     def __init__(
@@ -40,14 +40,12 @@ class ReviewerRuntimeContract(
         self._checks: list[OutputValidatorInterface] = [
             CompletenessValidator(
                 required_fields=[
-                    "critique",
-                    "confidence",
+                    "quality_score",
                 ],
-                list_minimums={
-                    "recommendations": _MIN_RECOMMENDATIONS,
-                },
             ),
-            ConfidenceValidator(),
+            ConfidenceValidator(
+                field_name="quality_score",
+            ),
         ]
 
     @property

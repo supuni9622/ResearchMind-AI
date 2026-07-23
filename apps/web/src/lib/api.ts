@@ -147,6 +147,88 @@ export interface ResearchConversationResponse {
   turns: ResearchSessionResponse[];
 }
 
+// Matches `app/schemas/research.py::ResearchReportDownloadResponse`.
+export interface ResearchReportDownloadResponse {
+  research_run_id: string;
+  download_url: string;
+  expires_in_seconds: number;
+}
+
+// Matches `app/ai/runtime/research/planner/models.py::ResearchComplexity`.
+export type ResearchComplexity = 'simple' | 'moderate' | 'complex';
+
+// Matches `app/ai/runtime/research/planner/models.py::ResearchPlanTask`.
+export interface DeepResearchPlanTask {
+  task_id: string;
+  question: string;
+  dependencies: string[];
+  priority: number;
+}
+
+// Matches `app/ai/runtime/research/planner/models.py::ResearchPlan`.
+export interface DeepResearchPlan {
+  schema_version: number;
+  goal: string;
+  rewritten_goal: string | null;
+  complexity: ResearchComplexity;
+  execution_strategy: 'focused' | 'decomposed';
+  tasks: DeepResearchPlanTask[];
+  approval_required: boolean;
+  clarification_question: string | null;
+  limitations: string[];
+}
+
+// Matches `app/schemas/research.py::ResearchProposalResponse`.
+export interface DeepResearchProposal {
+  proposal_id: string;
+  status: 'proposing' | 'awaiting_approval' | 'approved' | 'cancelled';
+  conversation_id: string | null;
+  plan: DeepResearchPlan;
+  created_at: string;
+}
+
+// Matches `app/schemas/research.py::ResearchEscalationCheckResponse`.
+export interface ResearchEscalationCheck {
+  suggested: boolean;
+  complexity: ResearchComplexity;
+  reason: string;
+  proposal: DeepResearchProposal | null;
+}
+
+// Matches `app/ai/runtime/research/types.py::ResearchRunStatus`.
+export type DeepResearchRunStatus =
+  | 'created'
+  | 'planning'
+  | 'researching'
+  | 'reviewing'
+  | 'synthesizing'
+  | 'paused'
+  | 'awaiting_approval'
+  | 'completed'
+  | 'completed_with_limitations'
+  | 'cancelled'
+  | 'failed';
+
+// Matches `app/schemas/research.py::ResearchRunResponse`.
+export interface DeepResearchRun {
+  research_run_id: string;
+  status: DeepResearchRunStatus;
+  current_phase: string | null;
+  attempt_count: number;
+  cancellation_requested: boolean;
+  research_id: string | null;
+  conversation_id: string | null;
+  started_at: string | null;
+  completed_at: string | null;
+}
+
+export interface DeepResearchAskOptions {
+  topK?: number;
+  filters?: Record<string, unknown>;
+  provider?: GenerationProvider;
+  conversationId?: string;
+}
+
 // Matches `app/ai/runtime/events/models.py::StreamEvent`, as sent over SSE
 // by both the Research and Chat runtimes (a shared canonical shape — see
 // ADR-028's "Layer 2 — Canonical Stream Events").
@@ -213,6 +295,42 @@ async function* streamResearch(
   }
 
   yield* parseSSEStream<ResearchStreamEvent>(res.body);
+}
+
+// Matches `app/api/v1/research.py`'s `GET /research/runs/{id}/events` --
+// durable, cursor-replayable progress events for one Deep Research run
+// (planning/retrieval/synthesis/review/report milestones, plus the
+// report-approval pause/resume). `after` resumes from a given event
+// cursor rather than replaying from the start -- used both for the
+// initial connection (`after=0`) and for reconnecting after a dropped
+// stream (`after=<last seen cursor>`).
+async function* streamResearchRunEvents(
+  runId: string,
+  after: number = 0,
+  signal?: AbortSignal
+): AsyncGenerator<SSEEvent<RuntimeStreamEvent>> {
+  const token = getStoredToken();
+
+  let res: Response;
+  try {
+    res = await fetch(`${BASE}/api/v1/research/runs/${runId}/events?after=${after}`, {
+      headers: {
+        Accept: 'text/event-stream',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      signal,
+    });
+  } catch (err) {
+    if (signal?.aborted) throw err;
+    throw new Error('Could not reach the server. Is the backend running?');
+  }
+
+  if (!res.ok || !res.body) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(extractErrorMessage(body, `Research run events stream failed (${res.status})`));
+  }
+
+  yield* parseSSEStream<RuntimeStreamEvent>(res.body);
 }
 
 export interface ChatStreamOptions {
@@ -327,6 +445,47 @@ export const api = {
       request<ResearchConversationListResponse>('/api/v1/research/conversations'),
     getConversation: (conversationId: string) =>
       request<ResearchConversationResponse>(`/api/v1/research/conversations/${conversationId}`),
+    // Deep Research (research_runtime_prd.md) -- explicit-consent escalation
+    // from Linear Research, or a manual mode selection. See
+    // RESEARCH_RUNTIME_IMPLEMENTATION_TRACKER.md's "Chat-to-Research
+    // escalation" item (this backs the Research-interface equivalent).
+    checkEscalation: (query: string, options: DeepResearchAskOptions = {}) =>
+      request<ResearchEscalationCheck>('/api/v1/research/escalation-check', {
+        method: 'POST',
+        body: JSON.stringify({
+          query,
+          top_k: options.topK ?? 10,
+          filters: options.filters ?? {},
+          provider: options.provider ?? null,
+          conversation_id: options.conversationId ?? null,
+        }),
+      }),
+    createProposal: (query: string, options: DeepResearchAskOptions = {}) =>
+      request<DeepResearchProposal>('/api/v1/research/proposals', {
+        method: 'POST',
+        body: JSON.stringify({
+          query,
+          top_k: options.topK ?? 10,
+          filters: options.filters ?? {},
+          provider: options.provider ?? null,
+          conversation_id: options.conversationId ?? null,
+        }),
+      }),
+    approveProposal: (proposalId: string) =>
+      request<DeepResearchRun>(`/api/v1/research/proposals/${proposalId}/approve`, {
+        method: 'POST',
+      }),
+    getRun: (runId: string) => request<DeepResearchRun>(`/api/v1/research/runs/${runId}`),
+    cancelRun: (runId: string) =>
+      request<DeepResearchRun>(`/api/v1/research/runs/${runId}/cancel`, { method: 'POST' }),
+    submitReportDecision: (runId: string, approved: boolean, reason?: string) =>
+      request<DeepResearchRun>(`/api/v1/research/runs/${runId}/report-decision`, {
+        method: 'POST',
+        body: JSON.stringify({ approved, reason: reason ?? null }),
+      }),
+    getReportDownload: (runId: string) =>
+      request<ResearchReportDownloadResponse>(`/api/v1/research/runs/${runId}/report`),
+    streamRunEvents: streamResearchRunEvents,
   },
   documents: {
     list: () => request<Document[]>('/api/v1/documents'),

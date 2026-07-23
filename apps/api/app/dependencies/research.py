@@ -4,6 +4,7 @@ Research API platform dependencies (research_api_prd.md).
 
 from __future__ import annotations
 
+from collections.abc import AsyncGenerator
 from functools import lru_cache
 
 from fastapi import Depends
@@ -22,12 +23,21 @@ from app.ai.memory.services.memory_service import MemoryService
 from app.ai.research.service import ResearchService
 from app.ai.runtime.generation.orchestration.orchestrator import GenerationRuntime
 from app.ai.runtime.generation.streaming.service import StreamingService
-from app.db.session import get_db
+from app.ai.runtime.research.execution import ResearchRuntimeExecutionService
+from app.ai.runtime.research.proposal_service import ResearchProposalService
+from app.ai.runtime.research.report_download import ResearchReportDownloadService
+from app.ai.runtime.research.run_service import ResearchRunService
+from app.core.settings import settings
+from app.db.session import SessionFactory, get_db
 from app.dependencies.context import get_context_builder
 from app.dependencies.generation import get_generation_runtime, get_streaming_service
 from app.dependencies.memory import get_memory_extraction_service, get_memory_service
 from app.dependencies.retrieval import get_retrieval_service
+from app.dependencies.upload import get_document_storage
+from app.infrastructure.storage.interfaces import DocumentStorage
 from app.repositories.research import ResearchRepository
+from app.repositories.research_run import ResearchRunRepository
+from app.repositories.research_run_event import ResearchRunEventRepository
 from app.services.research_conversation import ResearchConversationService
 
 
@@ -80,6 +90,49 @@ def get_research_conversation_service(
     return ResearchConversationService(session)
 
 
+def get_research_run_repository(
+    session: AsyncSession = Depends(get_db),
+) -> ResearchRunRepository:
+    """Return a request-scoped, owner-scoped runtime-run repository."""
+
+    return ResearchRunRepository(session)
+
+
+def get_research_run_event_repository(
+    session: AsyncSession = Depends(get_db),
+) -> ResearchRunEventRepository:
+    return ResearchRunEventRepository(session)
+
+
+def get_research_run_service(
+    session: AsyncSession = Depends(get_db),
+) -> ResearchRunService:
+    """Return a request-scoped service for lifecycle actions (e.g. cancellation)."""
+
+    return ResearchRunService(session)
+
+
+def get_research_proposal_service(
+    session: AsyncSession = Depends(get_db),
+    generation_runtime: GenerationRuntime = Depends(get_generation_runtime),
+    memory_service: MemoryService = Depends(get_memory_service),
+) -> ResearchProposalService:
+    return ResearchProposalService(
+        session=session,
+        generation_runtime=generation_runtime,
+        memory_service=memory_service,
+    )
+
+
+def get_research_report_download_service(
+    runs: ResearchRunRepository = Depends(get_research_run_repository),
+    storage: DocumentStorage = Depends(get_document_storage),
+) -> ResearchReportDownloadService:
+    """Authorize short-lived download URLs without exposing storage keys."""
+
+    return ResearchReportDownloadService(runs=runs, storage=storage)
+
+
 def get_research_service(
     session: AsyncSession = Depends(get_db),
     retrieval_service: RetrievalService = Depends(get_retrieval_service),
@@ -110,3 +163,34 @@ def get_research_service(
         memory_service=memory_service,
         memory_extraction_service=memory_extraction_service,
     )
+
+
+async def get_research_runtime_execution_service(
+    research_service: ResearchService = Depends(get_research_service),
+    generation_runtime: GenerationRuntime = Depends(get_generation_runtime),
+    retrieval_service: RetrievalService = Depends(get_retrieval_service),
+    context_builder: ContextBuilderService = Depends(get_context_builder),
+    storage: DocumentStorage = Depends(get_document_storage),
+    memory_service: MemoryService = Depends(get_memory_service),
+) -> AsyncGenerator[ResearchRuntimeExecutionService | None, None]:
+    """Construct the bridge only for the explicitly enabled durable path."""
+
+    if not (
+        settings.research_runtime_enabled
+        and settings.research_runtime_postgres_checkpointing_enabled
+    ):
+        yield None
+        return
+
+    async with SessionFactory() as session:
+        yield ResearchRuntimeExecutionService(
+            session=session,
+            research_service=research_service,
+            database_url=settings.database_url,
+            generation_runtime=generation_runtime,
+            retrieval_service=retrieval_service,
+            context_builder=context_builder,
+            storage=storage,
+            v1_graph_enabled=settings.research_runtime_v1_graph_enabled,
+            memory_service=memory_service,
+        )

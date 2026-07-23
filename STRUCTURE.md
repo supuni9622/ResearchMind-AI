@@ -367,9 +367,7 @@ ResearchMind-AI/
 │   │       │   │   ├── prompts.py           # Prompt template registry
 │   │       │   │   ├── providers.py         # LLM provider registry
 │   │       │   │   └── rerankers.py         # Reranker registry
-│   │       │   ├── runtime/                 # Implemented — Generation Platform (complete, per generation_platform_complexion_prd.md) + Streaming Platform
-│   │       │   │   ├── routing/__init__.py        # (empty) — vestigial, superseded by generation/routing/
-│   │       │   │   ├── streaming/__init__.py      # (empty) — vestigial top-level scaffold, unrelated to (and untouched by) the now-implemented generation/streaming/ and events/ below — coincidental name overlap
+│   │       │   ├── runtime/                 # Implemented — Generation Platform (complete, per generation_platform_complexion_prd.md) + Streaming Platform + Research Runtime Platform
 │   │       │   │   ├── events/                     # Runtime Event Platform (Streaming Platform Milestone 2.9.10, streaming_platform_prd.md/ADR-028)
 │   │       │   │   │   ├── enums.py                # EventCategory, CoreEventType — the only enum StreamEvent depends on
 │   │       │   │   │   ├── models.py               # StreamEvent (event_id/session_id/request_id/parent_event_id/category/type: str/timestamp/content/metadata)
@@ -377,10 +375,10 @@ ResearchMind-AI/
 │   │       │   │   │   ├── create.py               # get_event_adapter() — @lru_cache'd factory
 │   │       │   │   │   ├── adapters/base.py        # GenericStreamChunkAdapter — one shared adapter for every provider (StreamChunk already normalized per-provider)
 │   │       │   │   │   ├── provider/models.py      # ProviderEventMetadataKeys — well-known metadata keys, no behavior
-│   │       │   │   │   ├── research/models.py      # ResearchEventType — reserved for the future Research Runtime, unused today
+│   │       │   │   │   ├── research/models.py      # ResearchEventType — live as of 2026-07-23, emitted throughout ai/runtime/research/ (see below)
 │   │       │   │   │   ├── agent/models.py         # AgentEventType — reserved for the future Agent Runtime, unused today
 │   │       │   │   │   └── tool/models.py          # ToolEventType — reserved for the future Tool Runtime, unused today
-│   │       │   │   └── generation/                # Generation Platform — see docs/architecture/structured-output-platform.md
+│   │       │   │   ├── generation/                # Generation Platform — see docs/architecture/structured-output-platform.md
 │   │       │   │       ├── models.py               # GenerationRequest (output_schema/output_model/max_regeneration_attempts/runtime: RuntimeType | None/...), GenerationResult (parsed_output/validation/regeneration_attempts), ProviderCapabilities
 │   │       │   │       ├── interfaces.py           # GenerationProviderInterface ABC — generate()/generate_structured()/stream(), supports_* capability accessors
 │   │       │   │       ├── enums.py                # GenerationProvider, ResponseFormat (incl. xml)
@@ -495,6 +493,27 @@ ResearchMind-AI/
 │   │       │   │       │   ├── transports/         # sse.py (StreamingResponse, heartbeat, max-duration ceiling), websocket.py (JSON frames, disconnect cancels the generator)
 │   │       │   │       │   └── serializers/        # sse.py (event:/data: wire format), json.py (StreamEvent.model_dump)
 │   │       │   │       └── observability/           # Implemented — Runtime Metrics Integration (generation_platform_complexion_prd.md): models.py (GenerationMetricsSnapshot), service.py (GenerationMetricsService), token_counter.py; cost_tracker.py/latency_tracker.py/metrics_collector.py/token_tracker.py deliberately left as empty scaffolds (token/cost accounting lives on GenerationResult.statistics)
+│   │       │   │   └── research/            # Implemented, complete, end-to-end with a frontend — Research Runtime Platform, additive to ai/research/ below; per researchmind_research_runtime_implementation_plan.md, research_runtime_prd.md, ADR-031–034. See AI_ENGINEERING_AUDIT.md §0.0.0 (2026-07-23 hardening pass) and §0.0.0a (2026-07-23, later — memory, report-approval interrupt, rate limiting, frontend, cache fix)
+│   │       │   │       ├── types.py              # ResearchRunStatus (real lifecycle enum), TERMINAL_RESEARCH_RUN_STATUSES, ResearchProposalStatus, ResearchRunDispatchStatus, ResearchRuntimeRequest, + Phase-1 ResearchRuntimeStatus
+│   │       │   │       ├── state.py / graph.py   # Phase 1 walking-skeleton state + START→initialize→complete→END graph — proved checkpoint/interrupt/resume mechanics; superseded for real execution by workflows/multi_wave_research.py below
+│   │       │   │       ├── reducers.py           # Deterministic, idempotent, stable-ID-keyed state reducers
+│   │       │   │       ├── checkpointing.py      # postgres_checkpointer(), provision_postgres_checkpoints() (never called implicitly — see scripts/provision_research_runtime_checkpoints.py)
+│   │       │   │       ├── events.py / event_journal.py  # LangGraphResearchEventAdapter (canonical, user-safe labels) + ResearchRuntimeEventJournal (durable publish, backs SSE replay — now live-consumed by the Research UI, 2026-07-23 later)
+│   │       │   │       ├── exceptions.py         # ResearchRunCancelledError, ResearchRunBudgetExceededError (2026-07-23), ResearchReportRejectedError (2026-07-23, later)
+│   │       │   │       ├── lifecycle.py          # transition_run() — validated ResearchRunStatus state machine; RESEARCHING→AWAITING_APPROVAL added 2026-07-23 later for the report-approval pause
+│   │       │   │       ├── evidence.py / evidence_artifact.py    # Deterministic chunk-identity evidence aggregation + versioned artifact persistence
+│   │       │   │       ├── report_artifact.py / report_download.py  # Idempotent final report JSON+PDF writer + owner-scoped 5-min presigned download
+│   │       │   │       ├── review.py / review_artifact.py        # Deterministic + bounded model-based review (fails open to deterministic-only), durable per-iteration persistence; model-review calls now tag cache_runtime=CacheRuntime.REVIEWER (2026-07-23 later — was RESEARCH, a cross-run cache-leakage risk)
+│   │       │   │       ├── run_service.py        # ResearchRunService — idempotent create_or_get, request_cancellation()/is_cancellation_requested() (2026-07-23), record_report_decision() (2026-07-23 later — persists the report decision + reopens the dispatch atomically)
+│   │       │   │       ├── proposal_service.py   # ResearchProposalService — memory-aware planner-only propose() (2026-07-23 later), idempotent approve() (creates run + outbox dispatch atomically), check_escalation() (2026-07-23 later — persists a proposal only when worth suggesting)
+│   │       │   │       ├── service.py            # Phase 1 ResearchRuntimeService wrapper — superseded by execution.py for real execution
+│   │       │   │       ├── execution.py          # ResearchRuntimeExecutionService — execute_approved_run() (the real worker-driven path: resume-aware, budget/recursion-limit-bounded, classified exception handling incl. report rejection); execute() (sync in-request path, zero production callers). _finalize_or_pause()/_resume_v1_graph_after_report_approval() added 2026-07-23 later for the report-approval interrupt
+│   │       │   │       ├── planner/              # models.py (ResearchComplexity/ResearchPlan/ResearchPlanTask/rewritten_goal+effective_goal, 2026-07-23 later), policies.py (ResearchPlanningPolicy — per-complexity max_tasks/max_review_iterations/max_duration_seconds/max_estimated_cost_usd), prompts.py, service.py (ResearchPlanner, takes optional memory_context)
+│   │       │   │       ├── decomposition/        # scheduler.py (dependency_waves — topological), validators.py (validate_plan — DAG/cycle/budget)
+│   │       │   │       ├── retrieval/            # models.py, service.py (ResearchTaskRetrievalService — concurrency-bounded via a semaphore on execute_task itself)
+│   │       │   │       ├── synthesis/            # models.py (ResearchDraft), service.py (ResearchSynthesisError, ResearchSynthesisService — cache_runtime=CacheRuntime.REVIEWER since 2026-07-23 later, see review.py note)
+│   │       │   │       ├── reporting/pdf.py      # render_research_report_pdf()
+│   │       │   │       └── workflows/            # multi_wave_research.py (the real production StateGraph — Send() parallel fan-out, budget-aware bounded repair routing, cooperative cancellation checks, a real interrupt()-based await_report_approval node added 2026-07-23 later), task_research.py (single-task variant)
 │   │       │   └── shared/                  # Shared AI types and interfaces
 │   │       │       ├── exceptions.py        # (empty)
 │   │       │       ├── interfaces.py        # (empty)
@@ -542,20 +561,21 @@ ResearchMind-AI/
 │   │       │   ├── session.py           # Async session factory
 │   │       │   └── valkey.py            # Valkey/Redis client
 │   │       │
-│   │       ├── dependencies/    # FastAPI dependency providers
+│   │       ├── dependencies/    # FastAPI dependency providers (this list predates and doesn't yet include memory.py/research.py/retrieval.py/context.py — a pre-existing gap, not introduced 2026-07-23)
 │   │       │   ├── cache.py             # Cache dependency
 │   │       │   ├── database.py          # DB session dependency
 │   │       │   ├── generation.py        # get_generation_service()/get_streaming_service() (cached singletons), get_conversation_service(session) (request-scoped) — Streaming Platform, Milestone 2.9.10; get_conversation_artifact_writer()/get_artifact_policy_service_dependency() (cached singletons) — Artifact Platform, Milestone 3.10
 │   │       │   ├── generation_usage.py  # Generation usage summary repository dependency
+│   │       │   ├── rate_limiting.py     # (new 2026-07-23) get_rate_limiter() (cached ValkeyRateLimiter singleton), enforce_rate_limit() (shared check-and-raise helper, used by chat.py + research.py routes)
 │   │       │   ├── settings.py          # Settings dependency
 │   │       │   ├── upload.py            # Upload/processing service dependencies (incl. processing queue, worker, chunking/embedding/indexing service/artifact builder/writer)
 │   │       │   └── vector_store.py      # Cached vector-store service dependency
 │   │       │
 │   │       ├── exceptions/      # Exception hierarchy and handlers
 │   │       │   ├── auth.py              # Auth-specific exceptions
-│   │       │   ├── base.py              # Base AppException class
+│   │       │   ├── base.py              # Base AppException class — RateLimitExceededException (new 2026-07-23, ->429 + Retry-After) added alongside NotFound/Validation/Conflict/Unauthorized
 │   │       │   ├── document.py          # Document exceptions
-│   │       │   ├── handlers.py          # Global exception handlers (FastAPI)
+│   │       │   ├── handlers.py          # Global exception handlers (FastAPI) — sets a Retry-After header when the raised AppException carries retry_after_seconds (new 2026-07-23)
 │   │       │   ├── health.py            # Health check exceptions
 │   │       │   └── research.py          # Research exceptions
 │   │       │
@@ -571,6 +591,7 @@ ResearchMind-AI/
 │   │       │   │   ├── models.py        # Metrics data models
 │   │       │   │   ├── noop.py          # No-op metrics collector
 │   │       │   │   └── upload.py        # Upload-specific metrics
+│   │       │   ├── rate_limiting.py     # ValkeyRateLimiter (new 2026-07-23) — fixed-window INCR+EXPIRE, one shared instance backs Chat/Linear Research/Deep Research
 │   │       │   ├── queue/               # Async queue abstraction (ADR-011, ADR-012)
 │   │       │   │   ├── providers/
 │   │       │   │   │   ├── sqs.py       # SQSQueue — boto3 via asyncio.to_thread; redrive-policy dead-lettering
@@ -602,9 +623,10 @@ ResearchMind-AI/
 │   │       │   ├── enums.py             # DocumentUploadStatus, DocumentProcessingStatus (split lifecycle), MessageRole
 │   │       │   └── user.py              # User model
 │   │       │
-│   │       ├── repositories/    # Data access layer
+│   │       ├── repositories/    # Data access layer (note: research_run/research_proposal/research_run_dispatch/research_run_event repositories also live here, undocumented below — pre-existing gap, not specific to this session)
 │   │       │   ├── conversation.py      # ConversationRepository — owner-scoped cursor-paginated replay, prompt-history reads/updates, first-user lookup, title update, deterministic ordering
 │   │       │   ├── document.py          # DocumentRepository (CRUD operations)
+│   │       │   ├── research_run_dispatch.py  # ResearchRunDispatchRepository — transactional-outbox claim (SELECT...FOR UPDATE SKIP LOCKED), create(), reopen() (2026-07-23 later — re-dispatch after report-approval resume, respects the run_id-as-primary-key 1:1 invariant)
 │   │       │   └── user.py              # UserRepository (CRUD operations)
 │   │       │
 │   │       ├── schemas/         # Pydantic request/response schemas
@@ -637,7 +659,7 @@ ResearchMind-AI/
 │   │   │   │   │   ├── chat/
 │   │   │   │   │   │   └── page.tsx         # Server-backed Chat conversation interface
 │   │   │   │   │   ├── research/
-│   │   │   │   │   │   └── page.tsx         # Research chat interface
+│   │   │   │   │   │   └── page.tsx         # Research interface — Linear (default) + Deep Research modes via a manual toggle, escalation-suggestion banner (accept/reject), live SSE event stream + report-approval UI for Deep Research (2026-07-23 later). Logic lives in src/features/research/ (use-deep-research.ts, components/deep-research-block.tsx, components/escalation-suggestion.tsx, types.ts) — this directory is not itemized below; see FILES.md for the authoritative per-file breakdown, a pre-existing gap in this doc's frontend coverage, not specific to this session
 │   │   │   │   │   └── layout.tsx           # AppShell — auth guard, redirects unauthenticated users
 │   │   │   │   ├── auth/
 │   │   │   │   │   └── callback/
@@ -666,10 +688,12 @@ ResearchMind-AI/
 │   │   ├── tsconfig.json                    # TypeScript configuration
 │   │   └── README.md                        # Setup instructions and auth flow diagram
 │   │
-│   └── worker/                  # Background document processing worker (ADR-012)
+│   └── worker/                  # Background document processing worker (ADR-012) + dedicated Research Runtime worker (2026-07-23)
 │       ├── main.py              # Entry point — signal handling (SIGINT/SIGTERM) for graceful shutdown
 │       ├── metrics.py           # WorkerMetrics — in-memory job counters, logged periodically
-│       └── processing_worker.py # ProcessingWorker — poll/process/retry/dead-letter loop
+│       ├── processing_worker.py # ProcessingWorker — poll/process/retry/dead-letter loop
+│       ├── research_runtime_main.py    # Entry point for the dedicated Research Runtime worker — never shares infra with main.py above
+│       └── research_runtime_worker.py  # ResearchRuntimeWorker — PostgreSQL transactional-outbox poller (SELECT ... FOR UPDATE SKIP LOCKED)
 │
 ├── benchmarks/                  # Engineering Benchmark Platform
 │   ├── chunking/
@@ -1194,6 +1218,7 @@ ResearchMind-AI/
 | Memory Platform | `apps/api/app/ai/memory/` | Provides compact SESSION state, canonical PostgreSQL USER/SEMANTIC/RESEARCH memory, Qdrant search indexing, and bounded context injection for Chat and Research. The original four-memory architecture remains intact; its optimized runtime now short-circuits users with no durable memory, computes one query embedding, searches semantic/research memory concurrently, and fails open per branch. A versioned deterministic extraction policy invokes the LLM only for eligible final user-facing turns. The Generation Usage ledger labels memory-extraction cost separately from answer cost. See `docs/architecture/memory-platform.md` §26 and ADR-029. |
 | Chat History Growth Controls | `apps/api/app/services/conversation.py`, `conversation_compaction.py` | Cursor-pagination provides safe canonical conversation/message replay; a persisted deterministic summary plus the newest 12 messages bounds generation history without an extra LLM call. Defaults are page size 50, page maximum 100, and a 4,000-character summary cap. Canonical rows are retained. See ADR-030. |
 | Streaming Platform | `apps/api/app/ai/runtime/events/`, `apps/api/app/ai/runtime/generation/streaming/` | Real-time execution infrastructure, two independent layers: a Runtime Event Platform (`events/` — canonical `StreamEvent`, layered so future Research/Agent/Tool runtimes each own their event vocabulary rather than a shared enum) and a Generation Streaming Platform (`generation/streaming/` — `StreamingService`, SSE transport with heartbeat/timeout-ceiling, WebSocket transport). On a Runtime Cache hit, replays the content as a synthetic token stream instead of skipping the streaming contract; on a miss, streams live and stores the assembled result on completion. Wired into `POST /api/v1/chat/stream` / `/api/v1/chat/ws` (`apps/api/app/api/v1/chat.py`), backed by a new minimal `Conversation`/`Message` persistence layer. Implemented (Milestone 2.9.10) — see `docs/architecture/streaming-platform.md`, ADR-028 |
+| Research Runtime Platform | `apps/api/app/ai/runtime/research/`, `apps/worker/research_runtime_*.py`, `apps/web/src/features/research/` | LangGraph-based Deep Research workflow, additive to the linear `ai/research/service.py` (`POST /research`/`/research/stream`, which never route through it). Owner-scoped proposal → idempotent approval → durable `research_run` → PostgreSQL transactional-outbox dispatch → a dedicated worker process running a `StateGraph` (memory-aware planner → dependency-wave `Send()` fan-out → evidence → synthesis → deterministic+model review, cache-isolated via `CacheRuntime.REVIEWER` → budget-aware bounded repair → report-approval `interrupt()` pause → finalize/repair on resume) → final report + PDF. Real per-complexity duration/cost/iteration budgets, an explicit `recursion_limit`, cooperative cancellation, and worker-crash resume via LangGraph checkpoint continuation are all implemented (2026-07-23 hardening pass). A same-day-later completion pass added: memory-aware planning (`planner/`, `proposal_service.py`), a human-in-the-loop report-approval checkpoint (`AWAITING_APPROVAL` lifecycle state, `record_report_decision()`, dispatch `reopen()`), fixed-window rate limiting shared with Chat/Linear Research (`infrastructure/rate_limiting.py`), a Linear→Deep Research escalation suggestion (`check_escalation()`), and a full live frontend (mode toggle, escalation banner, real SSE event streaming, report-approval UI) in `apps/web/src/features/research/`. Chat→Research escalation (as opposed to the now-built Linear→Deep escalation) remains unbuilt. See ADR-031–034, `AI_ENGINEERING_AUDIT.md` §0.0.0 and §0.0.0a, and `PRODUCT_FLOWS_AND_GAPS.md` |
 | Guardrails Platform | `apps/api/app/ai/guardrails/` | Standalone, platform-wide policy/safety layer answering "should the system do this?" (Milestone 11.16, `guardrails_platform_prd.md`) — Input (prompt injection/jailbreak, scope, PII), Retrieval (Context Sanitization composing the pre-existing `context/guardrails/`, a new Source Trust Platform, Citation Integrity), Generation (Faithfulness + Schema Enforcement, both reusing Validation Platform validators, PII Leakage), and Runtime (Budget, Loop Detection) guardrails, plus policies/scoring/artifacts. MVP foundation complete and wired directly into `GenerationService` (input gate + full `evaluate()` report on `GenerationResult.guardrails`) and `ContextBuilderService` (retrieval-stage gate) — `guardrail_integration_prd.md` |
 | Artifact Platform | `apps/api/app/ai/artifacts/` | Centralized, cross-cutting canonical persistence/replay layer for AI Runtime executions (Milestone 3.10, `artifacts_platform_prd.md`) — immutable, versioned, policy-gated (`ArtifactPolicyService`). Generation artifacts (wired into `GenerationService.generate()`), Streaming artifacts (wired into `StreamingService._stream_live()`), and Conversation artifacts (wired into `chat.py`, one immutable file per turn) are live; Session/Research/Agent/Evaluation artifacts are built and unit-tested but scaffold-only, since no session/research/agent/evaluation runtime exists yet. `replay/` reconstructs a `GenerationResult` or re-emits a stored `StreamEvent` sequence from persisted artifacts |
 | Upload pipeline | `apps/api/app/ai/knowledge/upload/` | File validation, duplicate detection, S3 upload, checksum hashing, enqueues async processing job |

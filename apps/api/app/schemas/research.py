@@ -12,6 +12,8 @@ from app.ai.knowledge.context.citations.models import Citation
 from app.ai.research.models import ResearchSource
 from app.ai.runtime.generation.enums import GenerationProvider
 from app.ai.runtime.generation.routing.enums import RoutingStrategy
+from app.ai.runtime.research.planner.models import ResearchComplexity, ResearchPlan
+from app.ai.runtime.research.types import ResearchProposalStatus, ResearchRunStatus
 
 # ==========================================================
 # Requests
@@ -52,6 +54,22 @@ class ResearchStreamRequest(ResearchRequest):
     """
 
 
+class ResearchProposalRequest(ResearchRequest):
+    """Explicit request to plan Deep Research; it does not begin a run."""
+
+
+class ResearchReportDecisionRequest(BaseModel):
+    """Body for `POST /research/runs/{id}/report-decision` (the report-approval
+    interrupt checkpoint) -- distinct from `ResearchProposalRequest`'s plan
+    approval, which happens before a run exists at all."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    approved: bool
+
+    reason: str | None = Field(default=None, max_length=1_000)
+
+
 class ResearchCitationsRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -72,6 +90,8 @@ class ResearchResponse(BaseModel):
 
     research_id: UUID
 
+    research_run_id: UUID | None = None
+
     conversation_id: UUID
 
     query: str
@@ -83,6 +103,57 @@ class ResearchResponse(BaseModel):
     sources: list[ResearchSource]
 
     duration_ms: float
+
+
+class ResearchReportDownloadResponse(BaseModel):
+    """Short-lived, owner-authorized URL for a final research-report PDF."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    research_run_id: UUID
+    download_url: str
+    expires_in_seconds: int = 300
+
+
+class ResearchRunResponse(BaseModel):
+    """Owner-safe lifecycle view; graph state and artifact keys stay private."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    research_run_id: UUID
+    status: ResearchRunStatus
+    current_phase: str | None = None
+    attempt_count: int = Field(ge=0)
+    cancellation_requested: bool
+    research_id: UUID | None = None
+    conversation_id: UUID | None = None
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
+
+
+class ResearchProposalResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    proposal_id: UUID
+    status: ResearchProposalStatus
+    conversation_id: UUID | None = None
+    plan: ResearchPlan
+    created_at: datetime
+
+
+class ResearchEscalationCheckResponse(BaseModel):
+    """`POST /research/escalation-check` -- classifies a query without
+    committing to Deep Research. `proposal` is only populated when
+    `suggested` is true (see `ResearchProposalService.check_escalation`);
+    accepting the suggestion approves that same `proposal.proposal_id`
+    rather than creating a new one."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    suggested: bool
+    complexity: ResearchComplexity
+    reason: str
+    proposal: ResearchProposalResponse | None = None
 
 
 class ResearchSessionResponse(BaseModel):

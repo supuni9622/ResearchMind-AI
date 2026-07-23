@@ -35,6 +35,8 @@ from app.dependencies.generation import (
     get_streaming_service,
 )
 from app.dependencies.memory import get_memory_extraction_service, get_memory_service
+from app.dependencies.rate_limiting import get_rate_limiter
+from app.infrastructure.rate_limiting import RateLimitResult
 from app.main import app
 from app.models.conversation import Conversation, Message
 from app.models.enums import MessageRole
@@ -218,6 +220,22 @@ class _FakeMemoryExtractionService:
         return []
 
 
+class _FakeRateLimiter:
+    """Stands in for ValkeyRateLimiter -- allows by default; tests flip `allowed`."""
+
+    def __init__(self, *, allowed: bool = True, retry_after_seconds: int = 0) -> None:
+        self.allowed = allowed
+        self.retry_after_seconds = retry_after_seconds
+        self.calls: list[dict] = []
+
+    async def check(self, *, key: str, limit: int, window_seconds: int) -> RateLimitResult:
+        self.calls.append({"key": key, "limit": limit, "window_seconds": window_seconds})
+        return RateLimitResult(
+            allowed=self.allowed,
+            retry_after_seconds=self.retry_after_seconds,
+        )
+
+
 def _canned_events() -> list[StreamEvent]:
     return [
         StreamEvent(category=EventCategory.GENERATION, type=CoreEventType.START.value),
@@ -244,12 +262,14 @@ def fakes() -> Iterator[
     memory_service = _FakeMemoryService()
     memory_extraction_service = _FakeMemoryExtractionService()
     generation_service = _FakeGenerationService()
+    rate_limiter = _FakeRateLimiter()
 
     app.dependency_overrides[get_streaming_service] = lambda: streaming_service
     app.dependency_overrides[get_generation_service] = lambda: generation_service
     app.dependency_overrides[get_conversation_service] = lambda: conversation_service
     app.dependency_overrides[get_memory_service] = lambda: memory_service
     app.dependency_overrides[get_memory_extraction_service] = lambda: memory_extraction_service
+    app.dependency_overrides[get_rate_limiter] = lambda: rate_limiter
 
     yield streaming_service, conversation_service, generation_service
 
@@ -258,6 +278,7 @@ def fakes() -> Iterator[
     del app.dependency_overrides[get_conversation_service]
     del app.dependency_overrides[get_memory_service]
     del app.dependency_overrides[get_memory_extraction_service]
+    del app.dependency_overrides[get_rate_limiter]
 
 
 def test_stream_chat_requires_authentication(
@@ -386,3 +407,26 @@ def test_chat_history_is_available_over_authenticated_http(
     assert replayed.status_code == 200
     assert [message["role"] for message in replayed.json()["messages"]] == ["user", "assistant"]
     assert replayed.json()["next_cursor"] is None
+
+
+def test_stream_chat_returns_429_when_rate_limited(
+    client: TestClient,
+    fakes: tuple[_FakeStreamingService, _FakeConversationService, _FakeGenerationService],
+) -> None:
+    streaming_service, _, _ = fakes
+    limited = _FakeRateLimiter(allowed=False, retry_after_seconds=42)
+    app.dependency_overrides[get_current_user] = _fake_user
+    # Overwrites (not adds) the `fakes` fixture's own override -- that
+    # fixture's teardown still owns removing this key afterward.
+    app.dependency_overrides[get_rate_limiter] = lambda: limited
+
+    try:
+        response = client.post("/api/v1/chat/stream", json={"user_prompt": "hi there"})
+    finally:
+        del app.dependency_overrides[get_current_user]
+
+    assert response.status_code == 429
+    assert response.headers["retry-after"] == "42"
+    assert response.json()["error"]["code"] == "RATE_LIMIT_EXCEEDED"
+    # The limited request never reached generation -- no cost incurred.
+    assert streaming_service.received_requests == []

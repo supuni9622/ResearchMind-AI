@@ -38,6 +38,18 @@ if config.config_file_name is not None:
 # All models are registered via the bottom import in app/db/base.py.
 target_metadata = Base.metadata
 
+# LangGraph's AsyncPostgresSaver owns and provisions these tables directly
+# (see scripts/provision_research_runtime_checkpoints.py) -- they were never
+# declared as SQLAlchemy models, so autogenerate/`alembic check` would
+# otherwise read their presence in the database as drift to be dropped.
+_LANGGRAPH_CHECKPOINT_TABLES = frozenset(
+    {"checkpoints", "checkpoint_blobs", "checkpoint_writes", "checkpoint_migrations"}
+)
+
+
+def include_object(object, name, type_, reflected, compare_to) -> bool:
+    return not (type_ == "table" and name in _LANGGRAPH_CHECKPOINT_TABLES)
+
 
 def run_migrations_offline() -> None:
     """Run migrations in offline mode."""
@@ -47,6 +59,7 @@ def run_migrations_offline() -> None:
         target_metadata=target_metadata,
         literal_binds=True,
         compare_type=True,
+        include_object=include_object,
         dialect_opts={"paramstyle": "named"},
     )
 
@@ -61,6 +74,7 @@ def do_run_migrations(connection: Connection) -> None:
         connection=connection,
         target_metadata=target_metadata,
         compare_type=True,
+        include_object=include_object,
     )
 
     with context.begin_transaction():

@@ -37,9 +37,13 @@ def register_exception_handlers(app: FastAPI) -> None:
             )
         )
 
+        retry_after_seconds = getattr(exc, "retry_after_seconds", None)
+        headers = {"Retry-After": str(retry_after_seconds)} if retry_after_seconds else None
+
         return JSONResponse(
             status_code=exc.status_code,
             content=response.model_dump(),
+            headers=headers,
         )
 
     @app.exception_handler(RequestValidationError)

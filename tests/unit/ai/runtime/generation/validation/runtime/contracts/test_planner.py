@@ -3,8 +3,8 @@ Unit tests for PlannerRuntimeContract.
 
 Covers:
 - A fully compliant plan output is valid with no issues
-- A missing plan/steps produces the expected errors
-- An unresolvable step dependency is an error
+- A missing goal/tasks produces the expected errors
+- An unresolvable task dependency is an error
 - runtime/contract_name/name identity
 """
 
@@ -18,10 +18,10 @@ from app.ai.runtime.generation.validation.runtime.enums import RuntimeType
 from tests.unit.ai.runtime.generation.validation.factories import make_result
 
 _COMPLIANT_PAYLOAD = {
-    "plan": "Investigate the topic and produce a report.",
-    "steps": [
-        {"id": "step-1", "depends_on": []},
-        {"id": "step-2", "depends_on": ["step-1"]},
+    "goal": "Investigate the topic and produce a report.",
+    "tasks": [
+        {"task_id": "task-1", "dependencies": []},
+        {"task_id": "task-2", "dependencies": ["task-1"]},
     ],
 }
 
@@ -44,7 +44,7 @@ async def test_fully_compliant_output_is_valid() -> None:
     assert outcome.issues == []
 
 
-async def test_missing_plan_and_steps_are_errors() -> None:
+async def test_missing_goal_and_tasks_are_errors() -> None:
     contract = PlannerRuntimeContract()
 
     result = make_result(parsed_output={})
@@ -53,8 +53,8 @@ async def test_missing_plan_and_steps_are_errors() -> None:
 
     messages = " ".join(issue.message for issue in outcome.issues)
 
-    assert "plan" in messages
-    assert "steps" in messages
+    assert "goal" in messages
+    assert "tasks" in messages
 
 
 async def test_unresolvable_dependency_is_an_error() -> None:
@@ -62,14 +62,14 @@ async def test_unresolvable_dependency_is_an_error() -> None:
 
     result = make_result(
         parsed_output={
-            "plan": "Investigate the topic.",
-            "steps": [{"id": "step-1", "depends_on": ["step-missing"]}],
+            "goal": "Investigate the topic.",
+            "tasks": [{"task_id": "task-1", "dependencies": ["task-missing"]}],
         }
     )
 
     outcome = await contract.validate(result)
 
-    assert any("step-missing" in issue.message for issue in outcome.issues)
+    assert any("task-missing" in issue.message for issue in outcome.issues)
 
 
 async def test_every_issue_is_tagged_with_the_contract_name() -> None:

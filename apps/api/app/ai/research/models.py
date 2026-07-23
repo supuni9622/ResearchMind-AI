@@ -47,6 +47,8 @@ class ResearchOutcome(BaseModel):
 
     research_id: UUID
 
+    research_run_id: UUID | None = None
+
     conversation_id: UUID
 
     query: str

@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
+from typing import Any, cast
 from uuid import UUID, uuid4
 
 import structlog
@@ -10,6 +12,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.runtime.events.research.models import ResearchEventType
+from app.ai.runtime.research.draft_inspection import ResearchDraftInspectionService
 from app.ai.runtime.research.event_journal import ResearchRuntimeEventJournal
 from app.ai.runtime.research.lifecycle import transition_run
 from app.ai.runtime.research.types import TERMINAL_RESEARCH_RUN_STATUSES, ResearchRunStatus
@@ -128,24 +131,61 @@ class ResearchRunService:
         owner_id: UUID,
         approved: bool,
         reason: str | None = None,
+        edited_draft: Mapping[str, object] | None = None,
+        draft_inspection: ResearchDraftInspectionService | None = None,
     ) -> ResearchRun | None:
         """Record the report-approval decision and re-queue the run's dispatch
         in one transaction -- both must land together, or neither does,
         otherwise a committed decision with no dispatch would strand the run
-        in `awaiting_approval` forever."""
+        in `awaiting_approval` forever.
+
+        `edited_draft` (only meaningful when `approved`) carries the
+        reviewer's free-text edits (`ResearchDraftEdit.model_dump()`) --
+        it's merged onto the original checkpointed draft here (filling in
+        `citation_ids`/`schema_version`/`limitations` unchanged) so
+        `await_report_approval` can hand the graph a fully valid
+        `ResearchDraft` to publish, without the graph node itself needing
+        to know how to read a checkpoint.
+        """
 
         run = await self._repository.get_by_id_for_owner(run_id=run_id, owner_id=owner_id)
         if run is None:
             return None
         if run.status != ResearchRunStatus.AWAITING_APPROVAL.value:
             raise ValueError(f"Research run '{run.id}' is not awaiting a report decision.")
-        run.budget_usage = {
-            **(run.budget_usage or {}),
-            "report_decision": {
-                "decision": "approved" if approved else "rejected",
-                "reason": reason,
-            },
+
+        decision: dict[str, object] = {
+            "decision": "approved" if approved else "rejected",
+            "reason": reason,
         }
+        if approved and edited_draft is not None:
+            if draft_inspection is None:
+                raise RuntimeError("Recording an edited draft requires a draft inspection service.")
+            pending = await draft_inspection.get_pending_draft(run)
+            original_findings = pending.draft.findings
+            edited_findings = cast("list[Mapping[str, Any]]", edited_draft["findings"])
+            if len(edited_findings) != len(original_findings):
+                raise ValueError(
+                    "Edited draft must keep the same number of findings as the original."
+                )
+            merged = pending.draft.model_copy(
+                update={
+                    "title": edited_draft["title"],
+                    "abstract": edited_draft["abstract"],
+                    "methodology": edited_draft["methodology"],
+                    "findings": [
+                        finding.model_copy(
+                            update={"heading": edit["heading"], "content": edit["content"]}
+                        )
+                        for finding, edit in zip(original_findings, edited_findings, strict=True)
+                    ],
+                    "discussion": edited_draft["discussion"],
+                    "conclusion": edited_draft["conclusion"],
+                }
+            )
+            decision["edited_draft"] = merged.model_dump(mode="json")
+
+        run.budget_usage = {**(run.budget_usage or {}), "report_decision": decision}
         await self._dispatches.reopen(run_id=run.id)
         await self._session.commit()
         logger.info(
@@ -153,6 +193,7 @@ class ResearchRunService:
             research_run_id=str(run.id),
             owner_id=str(owner_id),
             approved=approved,
+            edited=edited_draft is not None,
         )
         return run
 

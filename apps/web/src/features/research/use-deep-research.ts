@@ -1,7 +1,13 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { api, type DeepResearchAskOptions, type DeepResearchProposal, type DeepResearchRun } from '@/lib/api';
+import {
+  api,
+  type DeepResearchAskOptions,
+  type DeepResearchDraftEdit,
+  type DeepResearchProposal,
+  type DeepResearchRun,
+} from '@/lib/api';
 import type { DeepResearchStage, DeepResearchTurn } from '@/features/research/types';
 
 const TERMINAL_RUN_STATUSES = new Set<DeepResearchRun['status']>([
@@ -35,7 +41,20 @@ function turnFromProposal(query: string, proposal: DeepResearchProposal): DeepRe
     run: null,
     stage: 'plan_review',
     events: [],
+    draft: null,
     reportDownloadUrl: null,
+    linearAnswer: null,
+  };
+}
+
+/** Reconstructs a turn for a run that already exists server-side (conversation
+ * replay after a refresh) -- unlike `turnFromProposal`, this starts from the
+ * run's actual persisted status rather than assuming a fresh `plan_review`. */
+function turnFromRun(proposal: DeepResearchProposal, run: DeepResearchRun): DeepResearchTurn {
+  return {
+    ...turnFromProposal(proposal.query, proposal),
+    run,
+    stage: stageForRun(run),
   };
 }
 
@@ -53,9 +72,29 @@ function errorMessage(err: unknown, fallback: string): string {
   return err instanceof Error ? err.message : fallback;
 }
 
-export function useDeepResearch() {
+/**
+ * `onConversationLearned` threads a `conversation_id` a Deep Research call
+ * reveals back up to the shared conversation state in `page.tsx` -- without
+ * it, Deep Research turns always start (and stay in) their own conversation,
+ * separate from any Linear Research turns in the same session (see
+ * `ResearchConversation`'s FK from `ResearchRun`/`ResearchProposal`/
+ * `ResearchSession`, which already supports mixing both turn types; the gap
+ * was purely that the frontend never learned/reused the id). A brand new
+ * Deep Research conversation's id isn't known until the run actually
+ * publishes (`ResearchService.publish_runtime_report` is the only place a
+ * `ResearchConversation` row gets created for a fresh thread) -- so this
+ * fires mainly from `finalizeRun`, not from `createProposal`/`approve`.
+ */
+export function useDeepResearch(onConversationLearned?: (conversationId: string) => void) {
   const [turns, setTurns] = useState<DeepResearchTurn[]>([]);
   const activeStreams = useRef<Record<string, AbortController>>({});
+
+  const learnConversationId = useCallback(
+    (conversationId: string | null) => {
+      if (conversationId) onConversationLearned?.(conversationId);
+    },
+    [onConversationLearned]
+  );
 
   const stopStream = useCallback((localId: string) => {
     const controller = activeStreams.current[localId];
@@ -82,6 +121,39 @@ export function useDeepResearch() {
     }
   }, []);
 
+  /** Fetches the draft awaiting review once a run pauses at the
+   * report-approval interrupt -- the only point it's readable at all (see
+   * `ResearchDraftInspectionService`, which reads it straight out of the
+   * paused run's LangGraph checkpoint). */
+  const fetchDraft = useCallback(async (localId: string, runId: string) => {
+    try {
+      const draft = await api.research.getDraft(runId);
+      setTurns((prev) => patchTurn(prev, localId, { draft }));
+    } catch {
+      // Best-effort -- the review card still renders the approve/reject
+      // buttons without the draft preview if this fetch fails.
+    }
+  }, []);
+
+  /** A rejected report never gets a PDF (`persist_final_report` was
+   * skipped) -- fetch the plain-text answer/citations the run still
+   * published instead, via the same session-replay endpoint Linear
+   * Research turns use. */
+  const fetchLinearAnswer = useCallback(async (localId: string, researchId: string) => {
+    try {
+      const session = await api.research.get(researchId);
+      setTurns((prev) =>
+        patchTurn(prev, localId, {
+          linearAnswer: { answer: session.answer, citations: session.citations },
+        })
+      );
+    } catch {
+      // Best-effort, mirrors `fetchReportDownload` -- the completed-run
+      // card still renders correctly (just without the answer text) if
+      // this fetch fails.
+    }
+  }, []);
+
   /** Authoritative final state once the live event stream reports a terminal event -- the
    * stream's own labels never carry `status` (only safe milestone text), so this is the
    * one point where we still fetch `GET /research/runs/{id}` directly. */
@@ -90,8 +162,13 @@ export function useDeepResearch() {
       try {
         const run = await api.research.getRun(runId);
         setTurns((prev) => patchTurn(prev, localId, { run, stage: stageForRun(run) }));
+        learnConversationId(run.conversation_id);
         if (run.status === 'completed' || run.status === 'completed_with_limitations') {
-          void fetchReportDownload(localId, runId);
+          if (run.terminal_reason === 'report_rejected_returned_as_answer' && run.research_id) {
+            void fetchLinearAnswer(localId, run.research_id);
+          } else {
+            void fetchReportDownload(localId, runId);
+          }
         }
       } catch (err) {
         setTurns((prev) =>
@@ -102,7 +179,7 @@ export function useDeepResearch() {
         );
       }
     },
-    [fetchReportDownload]
+    [fetchReportDownload, fetchLinearAnswer, learnConversationId]
   );
 
   /**
@@ -144,6 +221,7 @@ export function useDeepResearch() {
 
               if (event.type === 'research_awaiting_approval') {
                 setTurns((prev) => patchTurn(prev, localId, { stage: 'report_review' }));
+                void fetchDraft(localId, runId);
               }
 
               if (TERMINAL_EVENT_TYPES.has(event.type)) {
@@ -172,7 +250,7 @@ export function useDeepResearch() {
         }
       })();
     },
-    [stopStream, finalizeRun]
+    [stopStream, finalizeRun, fetchDraft]
   );
 
   /** Manual "Deep Research" mode submission -- creates and shows a fresh proposal. */
@@ -182,26 +260,32 @@ export function useDeepResearch() {
         const proposal = await api.research.createProposal(query, options);
         const turn = turnFromProposal(query, proposal);
         setTurns((prev) => [...prev, turn]);
+        learnConversationId(proposal.conversation_id);
         return turn.localId;
       } catch {
         return null;
       }
     },
-    []
+    [learnConversationId]
   );
 
   /** Escalation-suggestion acceptance -- reuses the proposal the check already persisted, no second planner call. */
-  const startFromProposal = useCallback((query: string, proposal: DeepResearchProposal): string => {
-    const turn = turnFromProposal(query, proposal);
-    setTurns((prev) => [...prev, turn]);
-    return turn.localId;
-  }, []);
+  const startFromProposal = useCallback(
+    (query: string, proposal: DeepResearchProposal): string => {
+      const turn = turnFromProposal(query, proposal);
+      setTurns((prev) => [...prev, turn]);
+      learnConversationId(proposal.conversation_id);
+      return turn.localId;
+    },
+    [learnConversationId]
+  );
 
   const approve = useCallback(
     async (localId: string, proposalId: string) => {
       try {
         const run = await api.research.approveProposal(proposalId);
         setTurns((prev) => patchTurn(prev, localId, { run, stage: stageForRun(run) }));
+        learnConversationId(run.conversation_id);
         streamRun(localId, run.research_run_id);
       } catch (err) {
         setTurns((prev) =>
@@ -212,19 +296,26 @@ export function useDeepResearch() {
         );
       }
     },
-    [streamRun]
+    [streamRun, learnConversationId]
   );
 
   const submitReportDecision = useCallback(
-    async (localId: string, runId: string, approved: boolean, reason?: string) => {
+    async (
+      localId: string,
+      runId: string,
+      approved: boolean,
+      reason?: string,
+      editedDraft?: DeepResearchDraftEdit
+    ) => {
       try {
-        const run = await api.research.submitReportDecision(runId, approved, reason);
+        const run = await api.research.submitReportDecision(runId, approved, reason, editedDraft);
         // Optimistic: the run itself is still `awaiting_approval` at this
         // point (the worker hasn't resumed the graph yet) -- flip to
         // `running` immediately so the approve/reject buttons disappear
         // right away, rather than waiting for the next stream event. The
         // still-open event stream from `approve()` carries the rest.
         setTurns((prev) => patchTurn(prev, localId, { run, stage: 'running' }));
+        learnConversationId(run.conversation_id);
       } catch (err) {
         setTurns((prev) =>
           patchTurn(prev, localId, {
@@ -234,7 +325,7 @@ export function useDeepResearch() {
         );
       }
     },
-    []
+    [learnConversationId]
   );
 
   const cancel = useCallback(async (localId: string, runId: string) => {
@@ -254,6 +345,47 @@ export function useDeepResearch() {
       );
     }
   }, []);
+
+  /**
+   * Reconstructs every Deep Research turn in a conversation thread -- the
+   * counterpart to `useResearch()`'s `selectConversation`, called alongside
+   * it so a page refresh (or switching to a past conversation) restores
+   * both turn types instead of only Linear Research ones. For any run
+   * that isn't terminal yet, resumes its live event stream from cursor 0,
+   * which replays the full persisted history before following live (see
+   * `GET /research/runs/{id}/events`'s replay loop) -- so the step log
+   * comes back too, not just the current stage.
+   */
+  const hydrateFromConversation = useCallback(
+    async (conversationId: string) => {
+      try {
+        const conversation = await api.research.getConversation(conversationId);
+        const hydrated = conversation.deep_research_runs.map(({ proposal, run }) =>
+          turnFromRun(proposal, run)
+        );
+        setTurns(hydrated);
+        for (const turn of hydrated) {
+          if (!turn.run) continue;
+          if (TERMINAL_RUN_STATUSES.has(turn.run.status)) {
+            if (turn.run.status === 'completed' || turn.run.status === 'completed_with_limitations') {
+              if (turn.run.terminal_reason === 'report_rejected_returned_as_answer' && turn.run.research_id) {
+                void fetchLinearAnswer(turn.localId, turn.run.research_id);
+              } else {
+                void fetchReportDownload(turn.localId, turn.run.research_run_id);
+              }
+            }
+          } else {
+            streamRun(turn.localId, turn.run.research_run_id);
+          }
+        }
+      } catch {
+        // Best-effort, mirrors `selectConversation` -- a failed hydration
+        // just leaves Deep Research turns empty rather than blocking the
+        // rest of the conversation from loading.
+      }
+    },
+    [fetchReportDownload, fetchLinearAnswer, streamRun]
+  );
 
   const dismiss = useCallback(
     (localId: string) => {
@@ -275,6 +407,7 @@ export function useDeepResearch() {
     startFromProposal,
     approve,
     submitReportDecision,
+    hydrateFromConversation,
     reset,
     cancel,
     dismiss,

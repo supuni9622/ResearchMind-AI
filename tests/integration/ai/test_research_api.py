@@ -29,10 +29,27 @@ from app.ai.research.models import ResearchOutcome, ResearchSource
 from app.ai.runtime.events.enums import CoreEventType, EventCategory
 from app.ai.runtime.events.models import StreamEvent
 from app.ai.runtime.events.research.models import ResearchEventType
+from app.ai.runtime.research.draft_inspection import (
+    PendingDraftSnapshot,
+    PendingDraftUnavailableError,
+)
+from app.ai.runtime.research.evidence import ResearchEvidenceBundle
+from app.ai.runtime.research.planner.models import (
+    ResearchComplexity,
+    ResearchExecutionStrategy,
+    ResearchPlan,
+    ResearchPlanTask,
+)
 from app.ai.runtime.research.report_download import ResearchReportDownloadService
+from app.ai.runtime.research.retrieval.models import ResearchEvidenceReference
+from app.ai.runtime.research.review import ResearchReview, ReviewDecision
+from app.ai.runtime.research.synthesis.models import ResearchDraft, ResearchDraftSection
 from app.auth.dependencies import get_current_user
 from app.dependencies.rate_limiting import get_rate_limiter
 from app.dependencies.research import (
+    get_research_conversation_service,
+    get_research_draft_inspection_service,
+    get_research_proposal_repository,
     get_research_proposal_service,
     get_research_report_download_service,
     get_research_repository,
@@ -42,7 +59,8 @@ from app.dependencies.research import (
 )
 from app.infrastructure.rate_limiting import RateLimitResult
 from app.main import app
-from app.models.research import ResearchSession
+from app.models.research import ResearchConversation, ResearchSession
+from app.models.research_proposal import ResearchProposal
 from app.models.research_run import ResearchRun
 from app.models.user import User
 from fastapi.testclient import TestClient
@@ -132,6 +150,13 @@ class _FakeResearchRepository:
 
         return session
 
+    async def list_sessions_for_conversation(self, *, conversation_id, owner_id, limit=50):
+        return [
+            session
+            for session in self._sessions.values()
+            if session.conversation_id == conversation_id and session.owner_id == owner_id
+        ]
+
 
 class _FakeResearchRunRepository:
     def __init__(self, runs: dict[uuid.UUID, ResearchRun]) -> None:
@@ -142,6 +167,13 @@ class _FakeResearchRunRepository:
         if run is None or run.owner_id != owner_id:
             return None
         return run
+
+    async def list_for_conversation(self, *, conversation_id, owner_id):
+        return [
+            run
+            for run in self._runs.values()
+            if run.conversation_id == conversation_id and run.owner_id == owner_id
+        ]
 
 
 class _FakeResearchRunService:
@@ -158,7 +190,9 @@ class _FakeResearchRunService:
             run.cancellation_requested = True
         return run
 
-    async def record_report_decision(self, *, run_id, owner_id, approved, reason=None):
+    async def record_report_decision(
+        self, *, run_id, owner_id, approved, reason=None, edited_draft=None, draft_inspection=None
+    ):
         run = self._runs.get(run_id)
         if run is None or run.owner_id != owner_id:
             return None
@@ -172,6 +206,73 @@ class _FakeResearchRunService:
             },
         }
         return run
+
+
+class _FakeResearchConversationService:
+    def __init__(self, conversations: dict[uuid.UUID, ResearchConversation]) -> None:
+        self._conversations = conversations
+
+    async def get_or_create(self, *, conversation_id, owner_id):
+        return self._conversations[conversation_id]
+
+
+class _FakeResearchProposalRepository:
+    def __init__(self, proposals_by_run: dict[uuid.UUID, ResearchProposal]) -> None:
+        self._proposals_by_run = proposals_by_run
+
+    async def get_by_run_id(self, *, run_id):
+        return self._proposals_by_run.get(run_id)
+
+
+class _FakeResearchDraftInspectionService:
+    def __init__(self, snapshot: PendingDraftSnapshot | Exception) -> None:
+        self._snapshot = snapshot
+
+    async def get_pending_draft(self, run):
+        if isinstance(self._snapshot, Exception):
+            raise self._snapshot
+        return self._snapshot
+
+
+def _pending_draft_snapshot() -> PendingDraftSnapshot:
+    return PendingDraftSnapshot(
+        draft=ResearchDraft(
+            title="Music and Mood",
+            abstract="A bounded report on music and mood regulation.",
+            methodology="Evidence-based retrieval and synthesis.",
+            findings=[
+                ResearchDraftSection(
+                    heading="Findings",
+                    content="Music listening is associated with mood regulation.",
+                    citation_ids=["S1"],
+                )
+            ],
+            discussion="Discussion.",
+            conclusion="Conclusion.",
+            citation_ids=["S1"],
+            limitations=["Small sample size."],
+        ),
+        evidence=ResearchEvidenceBundle(
+            evidence=[
+                ResearchEvidenceReference(
+                    document_id=str(uuid.uuid4()),
+                    chunk_id=str(uuid.uuid4()),
+                    filename="music_and_mood.pdf",
+                    citation_id="S1",
+                    score=0.9,
+                    excerpt="Music listening is associated with mood regulation.",
+                )
+            ],
+            citation_ids=["S1"],
+            completed_task_count=1,
+            failed_task_count=0,
+        ),
+        review=ResearchReview(
+            decision=ReviewDecision.PASS,
+            citation_integrity_score=1.0,
+            completeness_score=1.0,
+        ),
+    )
 
 
 class _FakeRateLimiter:
@@ -301,6 +402,126 @@ def test_final_report_download_returns_owner_scoped_presigned_url(
         research_run_id=run_id,
         owner_id=_OWNER_ID,
     )
+
+
+def test_get_research_run_draft_returns_the_pending_draft_with_resolved_citations(
+    client: TestClient,
+    fakes: tuple[_FakeResearchService, dict],
+) -> None:
+    run_id = uuid.uuid4()
+    runs = {
+        run_id: ResearchRun(
+            id=run_id,
+            owner_id=_OWNER_ID,
+            graph_thread_id=str(uuid.uuid4()),
+            status="awaiting_approval",
+            attempt_count=1,
+            cancellation_requested=False,
+            budget_profile={},
+            budget_usage={},
+            error_summary={},
+        )
+    }
+    app.dependency_overrides[get_current_user] = _fake_user
+    app.dependency_overrides[get_research_run_repository] = lambda: _FakeResearchRunRepository(runs)
+    app.dependency_overrides[get_research_draft_inspection_service] = lambda: (
+        _FakeResearchDraftInspectionService(_pending_draft_snapshot())
+    )
+
+    try:
+        response = client.get(f"/api/v1/research/runs/{run_id}/draft")
+    finally:
+        del app.dependency_overrides[get_current_user]
+        del app.dependency_overrides[get_research_run_repository]
+        del app.dependency_overrides[get_research_draft_inspection_service]
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["title"] == "Music and Mood"
+    assert body["findings"][0]["heading"] == "Findings"
+    # The citation resolves to the document's filename, not its UUID (same
+    # fix as `pdf.py::_append_references` -- see item 2 of the fix list).
+    assert body["citations"] == [
+        {
+            "citation_id": "S1",
+            "filename": "music_and_mood.pdf",
+            "excerpt": "Music listening is associated with mood regulation.",
+            "score": 0.9,
+        }
+    ]
+    assert body["review"]["decision"] == "pass"
+
+
+def test_get_research_run_draft_returns_409_when_not_awaiting_approval(
+    client: TestClient,
+    fakes: tuple[_FakeResearchService, dict],
+) -> None:
+    run_id = uuid.uuid4()
+    runs = {
+        run_id: ResearchRun(
+            id=run_id,
+            owner_id=_OWNER_ID,
+            graph_thread_id=str(uuid.uuid4()),
+            status="researching",
+            attempt_count=1,
+            cancellation_requested=False,
+            budget_profile={},
+            budget_usage={},
+            error_summary={},
+        )
+    }
+    app.dependency_overrides[get_current_user] = _fake_user
+    app.dependency_overrides[get_research_run_repository] = lambda: _FakeResearchRunRepository(runs)
+    app.dependency_overrides[get_research_draft_inspection_service] = lambda: (
+        _FakeResearchDraftInspectionService(_pending_draft_snapshot())
+    )
+
+    try:
+        response = client.get(f"/api/v1/research/runs/{run_id}/draft")
+    finally:
+        del app.dependency_overrides[get_current_user]
+        del app.dependency_overrides[get_research_run_repository]
+        del app.dependency_overrides[get_research_draft_inspection_service]
+
+    assert response.status_code == 409
+
+
+def test_get_research_run_draft_returns_409_when_the_checkpoint_has_no_draft_yet(
+    client: TestClient,
+    fakes: tuple[_FakeResearchService, dict],
+) -> None:
+    run_id = uuid.uuid4()
+    runs = {
+        run_id: ResearchRun(
+            id=run_id,
+            owner_id=_OWNER_ID,
+            graph_thread_id=str(uuid.uuid4()),
+            status="awaiting_approval",
+            attempt_count=1,
+            cancellation_requested=False,
+            budget_profile={},
+            budget_usage={},
+            error_summary={},
+        )
+    }
+    app.dependency_overrides[get_current_user] = _fake_user
+    app.dependency_overrides[get_research_run_repository] = lambda: _FakeResearchRunRepository(runs)
+    app.dependency_overrides[get_research_draft_inspection_service] = lambda: (
+        _FakeResearchDraftInspectionService(
+            PendingDraftUnavailableError(
+                f"Research run '{run_id}' has no draft awaiting review yet."
+            )
+        )
+    )
+
+    try:
+        response = client.get(f"/api/v1/research/runs/{run_id}/draft")
+    finally:
+        del app.dependency_overrides[get_current_user]
+        del app.dependency_overrides[get_research_run_repository]
+        del app.dependency_overrides[get_research_draft_inspection_service]
+
+    assert response.status_code == 409
 
 
 def test_get_research_run_returns_only_the_owners_lifecycle_view(
@@ -664,6 +885,96 @@ def test_get_research_replays_the_owners_session(
     assert body["research_id"] == str(research_id)
     assert body["query"] == "How does RAG work?"
     assert body["citations"][0]["filename"] == "paper.pdf"
+
+
+def test_get_research_conversation_includes_deep_research_runs(
+    client: TestClient,
+    fakes: tuple[_FakeResearchService, dict],
+) -> None:
+    """A conversation thread mixing a Linear Research turn and a Deep
+    Research run should replay both -- `turns` for the former,
+    `deep_research_runs` for the latter (see `use-deep-research.ts`'s
+    `hydrateFromConversation`, which reconstructs a refreshed page from
+    exactly this shape)."""
+
+    _, sessions = fakes
+
+    conversation_id = uuid.uuid4()
+    conversation = ResearchConversation(
+        id=conversation_id, owner_id=_OWNER_ID, title="Music and mood"
+    )
+
+    research_id = uuid.uuid4()
+    sessions[research_id] = ResearchSession(
+        id=research_id,
+        owner_id=_OWNER_ID,
+        conversation_id=conversation_id,
+        query="How can music help with mental health?",
+        answer="Music listening is associated with mood regulation.",
+        citations=[],
+        sources=[],
+        runtime_metadata={},
+        created_at=datetime.now(UTC),
+    )
+
+    run_id = uuid.uuid4()
+    run = ResearchRun(
+        id=run_id,
+        owner_id=_OWNER_ID,
+        conversation_id=conversation_id,
+        graph_thread_id=str(uuid.uuid4()),
+        status="awaiting_approval",
+        attempt_count=1,
+        cancellation_requested=False,
+        budget_profile={},
+        budget_usage={},
+        error_summary={},
+    )
+    proposal = ResearchProposal(
+        id=uuid.uuid4(),
+        owner_id=_OWNER_ID,
+        conversation_id=conversation_id,
+        status="approved",
+        research_run_id=run_id,
+        created_at=datetime.now(UTC),
+        request={"query": "What genres suit sad vs. happy moods?", "top_k": 10, "filters": {}},
+        plan=ResearchPlan(
+            goal="What genres suit sad vs. happy moods?",
+            complexity=ResearchComplexity.MODERATE,
+            execution_strategy=ResearchExecutionStrategy.DECOMPOSED,
+            tasks=[ResearchPlanTask(task_id="genres", question="Which genres suit each mood?")],
+        ).model_dump(mode="json"),
+    )
+
+    app.dependency_overrides[get_current_user] = _fake_user
+    app.dependency_overrides[get_research_conversation_service] = lambda: (
+        _FakeResearchConversationService({conversation_id: conversation})
+    )
+    app.dependency_overrides[get_research_run_repository] = lambda: _FakeResearchRunRepository(
+        {run_id: run}
+    )
+    app.dependency_overrides[get_research_proposal_repository] = lambda: (
+        _FakeResearchProposalRepository({run_id: proposal})
+    )
+
+    try:
+        response = client.get(f"/api/v1/research/conversations/{conversation_id}")
+    finally:
+        del app.dependency_overrides[get_current_user]
+        del app.dependency_overrides[get_research_conversation_service]
+        del app.dependency_overrides[get_research_run_repository]
+        del app.dependency_overrides[get_research_proposal_repository]
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["conversation_id"] == str(conversation_id)
+    assert len(body["turns"]) == 1
+    assert body["turns"][0]["research_id"] == str(research_id)
+    assert len(body["deep_research_runs"]) == 1
+    deep_turn = body["deep_research_runs"][0]
+    assert deep_turn["run"]["research_run_id"] == str(run_id)
+    assert deep_turn["run"]["status"] == "awaiting_approval"
+    assert deep_turn["proposal"]["plan"]["goal"] == "What genres suit sad vs. happy moods?"
 
 
 def test_create_research_returns_429_when_rate_limited(

@@ -208,7 +208,13 @@ class ResearchRuntimeExecutionService:
                     plan=plan,
                 )
         except ResearchReportRejectedError as exc:
-            await self._mark_failed(run, exc, reason="report_rejected_by_user")
+            # A genuine user rejection no longer raises this -- it routes to
+            # `END` inside the graph and completes normally (see
+            # `await_report_approval`/`route_after_report_approval` in
+            # `multi_wave_research.py`, and `_complete_run` above). This is
+            # now only reachable for a malformed `interrupt()` resume
+            # payload, which nothing downstream can recover from.
+            await self._mark_failed(run, exc, reason="report_decision_payload_invalid")
             await self._event_journal.publish(
                 run_id=run.id, event_type=ResearchEventType.RESEARCH_FAILED
             )
@@ -318,7 +324,10 @@ class ResearchRuntimeExecutionService:
                     conversation_id=conversation_id,
                 )
         except ResearchReportRejectedError as exc:
-            await self._mark_failed(run, exc, reason="report_rejected_by_user")
+            # See the matching handler in `execute_approved_run` -- only
+            # reachable for a malformed decision payload now, not a normal
+            # user rejection.
+            await self._mark_failed(run, exc, reason="report_decision_payload_invalid")
             raise
         except ResearchRunCancelledError:
             await self._mark_terminal(run, ResearchRunStatus.CANCELLED, "user_cancelled")
@@ -347,12 +356,23 @@ class ResearchRuntimeExecutionService:
         run.conversation_id = outcome.conversation_id
         outcome.research_run_id = run.id
         if self._v1_graph_enabled:
+            report_rejected = ((run.budget_usage or {}).get("report_decision") or {}).get(
+                "decision"
+            ) == "rejected"
             terminal_status = (
                 ResearchRunStatus.COMPLETED_WITH_LIMITATIONS
-                if (run.budget_usage or {}).get("review_decision")
+                if report_rejected
+                or (run.budget_usage or {}).get("review_decision")
                 == ReviewDecision.FINALIZE_WITH_LIMITATIONS.value
                 else ResearchRunStatus.COMPLETED
             )
+            if report_rejected:
+                # The user rejected the polished PDF report -- the run still
+                # completed (the draft was still published as a plain answer
+                # via `publish_runtime_report`), just without that artifact.
+                # Distinct from `ResearchReportRejectedError`'s old FAILED
+                # outcome, which discarded the synthesized content entirely.
+                run.terminal_reason = "report_rejected_returned_as_answer"
             transition_run(run, target=terminal_status, phase="runtime_report_published")
         else:
             transition_run(run, target=ResearchRunStatus.REVIEWING, phase="compatibility_review")

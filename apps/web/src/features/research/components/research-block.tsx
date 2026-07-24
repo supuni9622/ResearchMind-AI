@@ -8,7 +8,9 @@ import { StreamingStatus } from '@/features/research/components/streaming-status
 
 const CITATION_TOKEN = /\[?(S\d+)\]?/g;
 
-function renderAnswer(answer: string, citations: Citation[]): ReactNode[] {
+/** Shared with `DeepResearchBlock` for rendering a rejected report's
+ * plain-text answer the same way a Linear Research turn's is rendered. */
+export function renderAnswer(answer: string, citations: Citation[]): ReactNode[] {
   const knownIds = new Set(citations.map((c) => c.citation_id));
   if (knownIds.size === 0) return [answer];
 

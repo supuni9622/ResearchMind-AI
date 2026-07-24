@@ -11,6 +11,10 @@ from app.ai.research.service import ResearchService
 from app.ai.runtime.events.enums import EventCategory
 from app.ai.runtime.events.models import StreamEvent
 from app.ai.runtime.generation.streaming.transports.sse import sse_stream_response
+from app.ai.runtime.research.draft_inspection import (
+    PendingDraftUnavailableError,
+    ResearchDraftInspectionService,
+)
 from app.ai.runtime.research.planner.models import ResearchComplexity, ResearchPlan
 from app.ai.runtime.research.proposal_service import ResearchProposalService
 from app.ai.runtime.research.report_download import ResearchReportDownloadService
@@ -21,6 +25,8 @@ from app.core.settings import settings
 from app.dependencies.rate_limiting import enforce_rate_limit, get_rate_limiter
 from app.dependencies.research import (
     get_research_conversation_service,
+    get_research_draft_inspection_service,
+    get_research_proposal_repository,
     get_research_proposal_service,
     get_research_report_download_service,
     get_research_repository,
@@ -36,14 +42,20 @@ from app.models.research_proposal import ResearchProposal
 from app.models.research_run import ResearchRun
 from app.models.user import User
 from app.repositories.research import ResearchRepository
+from app.repositories.research_proposal import ResearchProposalRepository
 from app.repositories.research_run import ResearchRunRepository
 from app.repositories.research_run_event import ResearchRunEventRepository
 from app.schemas.research import (
+    DeepResearchTurnResponse,
     ResearchCitationsRequest,
     ResearchCitationsResponse,
     ResearchConversationListResponse,
     ResearchConversationResponse,
     ResearchConversationSummary,
+    ResearchDraftCitationResponse,
+    ResearchDraftFindingResponse,
+    ResearchDraftResponse,
+    ResearchDraftReviewSummary,
     ResearchEscalationCheckResponse,
     ResearchProposalRequest,
     ResearchProposalResponse,
@@ -94,6 +106,7 @@ def _run_response(run: ResearchRun) -> ResearchRunResponse:
         conversation_id=run.conversation_id,
         started_at=run.started_at,
         completed_at=run.completed_at,
+        terminal_reason=run.terminal_reason,
     )
 
 
@@ -102,6 +115,7 @@ def _proposal_response(proposal: ResearchProposal) -> ResearchProposalResponse:
         proposal_id=proposal.id,
         status=ResearchProposalStatus(proposal.status),
         conversation_id=proposal.conversation_id,
+        query=str(proposal.request["query"]),
         plan=ResearchProposalService.plan(proposal),
         created_at=proposal.created_at,
     )
@@ -353,6 +367,8 @@ async def get_research_conversation(
     current_user: User = Depends(get_current_user),
     repository: ResearchRepository = Depends(get_research_repository),
     conversation_service: ResearchConversationService = Depends(get_research_conversation_service),
+    runs: ResearchRunRepository = Depends(get_research_run_repository),
+    proposals: ResearchProposalRepository = Depends(get_research_proposal_repository),
 ) -> ResearchConversationResponse:
     conversation = await conversation_service.get_or_create(
         conversation_id=conversation_id,
@@ -363,11 +379,30 @@ async def get_research_conversation(
         conversation_id=conversation.id,
         owner_id=current_user.id,
     )
+    conversation_runs = await runs.list_for_conversation(
+        conversation_id=conversation.id,
+        owner_id=current_user.id,
+    )
+    deep_research_turns: list[DeepResearchTurnResponse] = []
+    for run in conversation_runs:
+        proposal = await proposals.get_by_run_id(run_id=run.id)
+        if proposal is None:
+            # A run without its proposal is unreconstructable client-side
+            # (no query/plan to show) -- skip rather than error the whole
+            # conversation replay over one orphaned row.
+            continue
+        deep_research_turns.append(
+            DeepResearchTurnResponse(
+                proposal=_proposal_response(proposal),
+                run=_run_response(run),
+            )
+        )
 
     return ResearchConversationResponse(
         conversation_id=conversation.id,
         title=conversation.title,
         turns=[_session_response(session) for session in sessions],
+        deep_research_runs=deep_research_turns,
     )
 
 
@@ -432,6 +467,86 @@ async def cancel_research_run(
     return _run_response(run)
 
 
+@router.get(
+    "/runs/{research_run_id}/draft",
+    response_model=ResearchDraftResponse,
+    summary="Inspect the draft report awaiting approval before deciding",
+)
+async def get_research_run_draft(
+    research_run_id: UUID,
+    current_user: User = Depends(get_current_user),
+    runs: ResearchRunRepository = Depends(get_research_run_repository),
+    draft_inspection: ResearchDraftInspectionService = Depends(
+        get_research_draft_inspection_service
+    ),
+) -> ResearchDraftResponse:
+    """Reads the pending draft straight out of the paused run's LangGraph
+    checkpoint (see `ResearchDraftInspectionService`) -- there's no other
+    durable copy of it until `persist_final_report` runs, which only
+    happens after approval."""
+
+    run = await runs.get_by_id_for_owner(run_id=research_run_id, owner_id=current_user.id)
+    if run is None:
+        raise NotFoundException(message=f"Research run '{research_run_id}' was not found.")
+    if run.status != ResearchRunStatus.AWAITING_APPROVAL.value:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Research run '{research_run_id}' is not awaiting a report decision.",
+        )
+    try:
+        pending = await draft_inspection.get_pending_draft(run)
+    except PendingDraftUnavailableError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+
+    evidence_by_citation = {item.citation_id: item for item in pending.evidence.evidence}
+    used_citation_ids = set(pending.draft.citation_ids)
+    for finding in pending.draft.findings:
+        used_citation_ids.update(finding.citation_ids)
+    citations = [
+        (
+            ResearchDraftCitationResponse(
+                citation_id=citation_id,
+                filename=item.filename,
+                excerpt=item.excerpt,
+                score=item.score,
+            )
+            if (item := evidence_by_citation.get(citation_id)) is not None
+            else ResearchDraftCitationResponse(
+                citation_id=citation_id,
+                filename="Evidence reference unavailable",
+                excerpt="",
+                score=0.0,
+            )
+        )
+        for citation_id in sorted(used_citation_ids)
+    ]
+
+    return ResearchDraftResponse(
+        research_run_id=run.id,
+        title=pending.draft.title,
+        abstract=pending.draft.abstract,
+        methodology=pending.draft.methodology,
+        findings=[
+            ResearchDraftFindingResponse(
+                heading=finding.heading,
+                content=finding.content,
+                citation_ids=finding.citation_ids,
+            )
+            for finding in pending.draft.findings
+        ],
+        discussion=pending.draft.discussion,
+        conclusion=pending.draft.conclusion,
+        limitations=pending.draft.limitations,
+        citations=citations,
+        review=ResearchDraftReviewSummary(
+            decision=pending.review.decision.value,
+            citation_integrity_score=pending.review.citation_integrity_score,
+            completeness_score=pending.review.completeness_score,
+            limitations=pending.review.limitations,
+        ),
+    )
+
+
 @router.post(
     "/runs/{research_run_id}/report-decision",
     response_model=ResearchRunResponse,
@@ -442,6 +557,9 @@ async def submit_research_report_decision(
     payload: ResearchReportDecisionRequest,
     current_user: User = Depends(get_current_user),
     runs: ResearchRunService = Depends(get_research_run_service),
+    draft_inspection: ResearchDraftInspectionService = Depends(
+        get_research_draft_inspection_service
+    ),
 ) -> ResearchRunResponse:
     """Resolve the graph's report-approval `interrupt()`.
 
@@ -457,8 +575,12 @@ async def submit_research_report_decision(
             owner_id=current_user.id,
             approved=payload.approved,
             reason=payload.reason,
+            edited_draft=(
+                payload.edited_draft.model_dump() if payload.edited_draft is not None else None
+            ),
+            draft_inspection=draft_inspection,
         )
-    except ValueError as exc:
+    except (ValueError, PendingDraftUnavailableError) as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     if run is None:
         raise NotFoundException(message=f"Research run '{research_run_id}' was not found.")

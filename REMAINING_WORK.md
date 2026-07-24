@@ -1,7 +1,7 @@
 # Remaining Work
 
-**Last updated:** 2026-07-23
-**Scope:** Consolidated, standalone punch list of everything not yet built or verified, as of the completion of the end-to-end single-agent Deep Research workflow (backend + frontend). This file exists so "what's left" doesn't have to be reconstructed by diffing `PROJECT_STATUS.md`, `AI_ENGINEERING_AUDIT.md`, `ROADMAP.md`, and `RESEARCH_RUNTIME_IMPLEMENTATION_TRACKER.md` against each other. Those documents remain the authoritative sources for *why* each item is the way it is; this file is the flat "next" list.
+**Last updated:** 2026-07-24
+**Scope:** Consolidated, standalone punch list of everything not yet built or verified, as of the completion of the end-to-end single-agent Deep Research workflow (backend + frontend) and a follow-up user-testing pass against that frontend (2026-07-24, six real gaps found and fixed — see below). This file exists so "what's left" doesn't have to be reconstructed by diffing `PROJECT_STATUS.md`, `AI_ENGINEERING_AUDIT.md`, `ROADMAP.md`, and `RESEARCH_RUNTIME_IMPLEMENTATION_TRACKER.md` against each other. Those documents remain the authoritative sources for *why* each item is the way it is; this file is the flat "next" list.
 
 For the full loophole/flow inventory (including already-fixed items like D1's cache-leakage risk), see `PRODUCT_FLOWS_AND_GAPS.md`. For the fine-grained implementation checklist, see `RESEARCH_RUNTIME_IMPLEMENTATION_TRACKER.md`.
 
@@ -17,11 +17,11 @@ For the full loophole/flow inventory (including already-fixed items like D1's ca
 
 ## Medium priority
 
-4. **No plan editing or rejection before approval.** Once a plan is proposed, the user can only approve it or implicitly abandon it (never call approve). There's no UI or API to edit scope/tasks, or to explicitly reject with a reason, before a run is created. Affects: `apps/api/app/ai/runtime/research/proposal_service.py`, `apps/web/src/features/research/`.
+4. **No *plan* editing or rejection-with-reason before approval.** Once a plan is proposed, the user can only approve it or implicitly abandon it (never call approve) — there's no UI or API to edit scope/tasks, or to explicitly reject with a reason, before a run is created. Affects: `apps/api/app/ai/runtime/research/proposal_service.py`, `apps/web/src/features/research/`. **Not the same gap as report editing**, which was built 2026-07-24 — the *later* report-approval checkpoint now lets a reviewer see and edit the draft's text (title/abstract/findings/discussion/conclusion, citation-safely) before approving, and reject-with-reason at that step no longer discards the synthesized content (see the "Explicitly NOT remaining" section below). This item is specifically about the earlier plan-approval step still lacking the same treatment.
 
 5. **MCP / multi-agent orchestration remains out of scope.** The Research Runtime is a complete single-agent workflow; the broader multi-agent/MCP vision described in `ResearchMind-Roadmap-v2.md` (Phase 5) is intentionally deferred and not started.
 
-6. **No dedicated run-history browser.** Past Deep Research runs are queryable via `GET /research/{id}` but there's no UI surface for listing/browsing a user's run history — the tracker marks this "Partial," not done.
+6. **No dedicated run-history browser.** ~~Past Deep Research runs are queryable via `GET /research/{id}` but there's no UI surface for listing/browsing a user's run history~~ — **substantially addressed 2026-07-24**: `GET /research/conversations/{id}` now returns `deep_research_runs` alongside Linear turns, and the frontend's History sidebar (which already lists conversations, not individual questions) reconstructs the full Deep Research card — including a still-running or awaiting-approval run's live state — for any run that's part of a conversation thread. What's still missing: a dedicated cross-conversation view listing *every* run a user has ever started, independent of which conversation it's in (today's browsing path is "pick a conversation, see its runs," not "see all runs").
 
 ## Lower priority / disclosed, not blocking
 
@@ -43,3 +43,12 @@ For the full loophole/flow inventory (including already-fixed items like D1's ca
 - Live SSE event streaming in the Deep Research frontend (planning/checking-sources/etc. progress) — implemented 2026-07-23, replacing the earlier polling-only UI.
 - Rate limiting across Chat, Linear Research, and Deep Research — implemented (per-owner; see item 3 above for the residual gap).
 - **Browser click-through verification of the Deep Research golden path — done 2026-07-23.** Manually exercised end-to-end at `localhost:3000/research`: DEEP mode toggle, submitting a complex query, live SSE progress steps (planning → source search → evidence analysis → report draft → citation review → awaiting approval), the report-approval UI (Approve/Reject), and the completed state with a working PDF download. Two real bugs surfaced only through this manual pass and are now fixed: a long-lived worker session serving stale identity-mapped `ResearchRun` data across dispatches (aborted-transaction poisoning on failure, and a stale `report_decision` read after approval — see `apps/worker/research_runtime_worker.py`, `apps/api/app/ai/runtime/research/execution.py`). Not yet covered by this pass: the Linear → Deep Research escalation banner specifically (a different UI surface from the Deep Research tab tested here).
+- **User-testing pass on the Deep Research frontend — six gaps found and fixed 2026-07-24** (see `PRODUCT_FLOWS_AND_GAPS.md` D8–D13 for full detail):
+  - Progress-step log disappearing once a run left the `running` stage — now stays visible through `report_review`/`done`/`failed`.
+  - PDF report citations showing raw document UUIDs instead of filenames — one-line fix in `reporting/pdf.py`.
+  - Linear and Deep Research turns never sharing one conversation (History fragmenting one row per question was a symptom of this) — fixed by threading a learned `conversation_id` both ways between `use-research.ts` and `use-deep-research.ts`.
+  - Deep Research state lost on page refresh — `GET /research/conversations/{id}` now also returns `deep_research_runs`; the frontend reconstructs and re-subscribes to any non-terminal run.
+  - Report rejection discarding the synthesized draft as a terminal `FAILED` run — the graph now routes a rejection straight to `END` (skipping only the PDF-writing node), so the run still completes and still publishes the draft as a plain answer.
+  - Report approval being blind (no way to see or edit the draft before deciding) — new `GET /research/runs/{id}/draft` (reading the paused run's LangGraph checkpoint) plus an optional, citation-safe `edited_draft` on the approval decision.
+  - A seventh reported issue (Deep Research seemingly not caching) was investigated and found to already be D1's fix working as intended, not a bug — no change made.
+  - User re-tested the full flow in the browser after these fixes and confirmed all six work correctly.

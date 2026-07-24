@@ -5,7 +5,11 @@ from unittest.mock import AsyncMock
 from uuid import uuid4
 
 import pytest
+from app.ai.runtime.research.draft_inspection import PendingDraftSnapshot
+from app.ai.runtime.research.evidence import ResearchEvidenceBundle
+from app.ai.runtime.research.review import ResearchReview, ReviewDecision
 from app.ai.runtime.research.run_service import ResearchRunService
+from app.ai.runtime.research.synthesis.models import ResearchDraft, ResearchDraftSection
 from app.ai.runtime.research.types import ResearchRunStatus
 from app.models.research_run import ResearchRun
 
@@ -116,6 +120,134 @@ async def test_record_report_decision_persists_rejection_with_a_reason() -> None
         "decision": "rejected",
         "reason": "Missing a key citation.",
     }
+
+
+def _pending_draft() -> PendingDraftSnapshot:
+    return PendingDraftSnapshot(
+        draft=ResearchDraft(
+            title="Original title",
+            abstract="Original abstract.",
+            methodology="Original methodology.",
+            findings=[
+                ResearchDraftSection(
+                    heading="Original heading",
+                    content="Original content.",
+                    citation_ids=["S1"],
+                )
+            ],
+            discussion="Original discussion.",
+            conclusion="Original conclusion.",
+            citation_ids=["S1"],
+            limitations=["Small sample size."],
+        ),
+        evidence=ResearchEvidenceBundle(
+            citation_ids=["S1"], completed_task_count=1, failed_task_count=0
+        ),
+        review=ResearchReview(
+            decision=ReviewDecision.PASS, citation_integrity_score=1.0, completeness_score=1.0
+        ),
+    )
+
+
+@pytest.mark.asyncio
+async def test_record_report_decision_merges_an_edited_draft_onto_the_original() -> None:
+    run = _run(status=ResearchRunStatus.AWAITING_APPROVAL)
+    session = AsyncMock()
+    service = ResearchRunService(session)
+    service._repository.get_by_id_for_owner = AsyncMock(return_value=run)  # type: ignore[method-assign]
+    service._dispatches.reopen = AsyncMock()  # type: ignore[method-assign]
+    draft_inspection = AsyncMock()
+    draft_inspection.get_pending_draft.return_value = _pending_draft()
+
+    edited_draft = {
+        "title": "Edited title",
+        "abstract": "Edited abstract.",
+        "methodology": "Edited methodology.",
+        "findings": [{"heading": "Edited heading", "content": "Edited content."}],
+        "discussion": "Edited discussion.",
+        "conclusion": "Edited conclusion.",
+    }
+
+    result = await service.record_report_decision(
+        run_id=run.id,
+        owner_id=run.owner_id,
+        approved=True,
+        edited_draft=edited_draft,
+        draft_inspection=draft_inspection,
+    )
+
+    assert result is run
+    stored = run.budget_usage["report_decision"]["edited_draft"]
+    # Edited free-text fields land as given...
+    assert stored["title"] == "Edited title"
+    assert stored["findings"][0]["heading"] == "Edited heading"
+    assert stored["findings"][0]["content"] == "Edited content."
+    # ...while fields the reviewer can't edit are carried over from the original,
+    # so citation integrity can't be broken by an edit.
+    assert stored["citation_ids"] == ["S1"]
+    assert stored["findings"][0]["citation_ids"] == ["S1"]
+    assert stored["limitations"] == ["Small sample size."]
+
+
+@pytest.mark.asyncio
+async def test_record_report_decision_rejects_an_edited_draft_with_a_different_finding_count() -> (
+    None
+):
+    run = _run(status=ResearchRunStatus.AWAITING_APPROVAL)
+    session = AsyncMock()
+    service = ResearchRunService(session)
+    service._repository.get_by_id_for_owner = AsyncMock(return_value=run)  # type: ignore[method-assign]
+    draft_inspection = AsyncMock()
+    draft_inspection.get_pending_draft.return_value = _pending_draft()
+
+    edited_draft = {
+        "title": "Edited title",
+        "abstract": "Edited abstract.",
+        "methodology": "Edited methodology.",
+        "findings": [
+            {"heading": "One", "content": "First."},
+            {"heading": "Two", "content": "Second."},
+        ],
+        "discussion": "Edited discussion.",
+        "conclusion": "Edited conclusion.",
+    }
+
+    with pytest.raises(ValueError, match="same number of findings"):
+        await service.record_report_decision(
+            run_id=run.id,
+            owner_id=run.owner_id,
+            approved=True,
+            edited_draft=edited_draft,
+            draft_inspection=draft_inspection,
+        )
+
+    session.commit.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_record_report_decision_ignores_an_edited_draft_on_rejection() -> None:
+    """An edit only makes sense alongside approval -- a rejection with a
+    (presumably stale, e.g. left over from switching from Approve to
+    Reject in the UI) `edited_draft` attached should not need a working
+    `draft_inspection` collaborator at all."""
+
+    run = _run(status=ResearchRunStatus.AWAITING_APPROVAL)
+    session = AsyncMock()
+    service = ResearchRunService(session)
+    service._repository.get_by_id_for_owner = AsyncMock(return_value=run)  # type: ignore[method-assign]
+    service._dispatches.reopen = AsyncMock()  # type: ignore[method-assign]
+
+    result = await service.record_report_decision(
+        run_id=run.id,
+        owner_id=run.owner_id,
+        approved=False,
+        reason="not accurate",
+        edited_draft={"title": "should be ignored"},
+        draft_inspection=None,
+    )
+
+    assert result is run
+    assert "edited_draft" not in run.budget_usage["report_decision"]
 
 
 @pytest.mark.asyncio

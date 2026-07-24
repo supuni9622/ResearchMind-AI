@@ -1,6 +1,15 @@
-import type { Citation, DeepResearchProposal, DeepResearchRun, GenerationProvider, ResearchSource } from '@/lib/api';
+import type {
+  Citation,
+  DeepResearchDraft,
+  DeepResearchProposal,
+  DeepResearchRun,
+  GenerationProvider,
+  ResearchSource,
+} from '@/lib/api';
 export { PROVIDER_OPTIONS } from '@/lib/api';
 export type {
+  DeepResearchDraft,
+  DeepResearchDraftEdit,
   DeepResearchPlan,
   DeepResearchPlanTask,
   DeepResearchProposal,
@@ -32,6 +41,14 @@ export interface DeepResearchProgressEvent {
   timestamp: string;
 }
 
+/** The plain-text answer/citations a rejected report still publishes as
+ * (see `run.terminal_reason === 'report_rejected_returned_as_answer'`) --
+ * rejecting only skips the polished PDF, not the synthesized content. */
+export interface DeepResearchLinearAnswer {
+  answer: string;
+  citations: Citation[];
+}
+
 export interface DeepResearchTurn {
   localId: string;
   query: string;
@@ -42,7 +59,11 @@ export interface DeepResearchTurn {
   stage: DeepResearchStage;
   /** Ordered, oldest-first log of safe progress labels streamed live while `stage` is `running`/`report_review`. */
   events: DeepResearchProgressEvent[];
+  /** Fetched once `stage` reaches `report_review` -- the draft the approve/reject decision is about. */
+  draft: DeepResearchDraft | null;
   reportDownloadUrl: string | null;
+  /** Set instead of `reportDownloadUrl` when the report was rejected but still published as a plain answer. */
+  linearAnswer: DeepResearchLinearAnswer | null;
   error?: string;
 }
 

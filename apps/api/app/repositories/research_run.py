@@ -39,6 +39,25 @@ class ResearchRunRepository:
         )
         return result.scalar_one_or_none()
 
+    async def list_for_conversation(
+        self, *, conversation_id: UUID, owner_id: UUID
+    ) -> list[ResearchRun]:
+        """Every Deep Research run in a conversation thread, oldest first --
+        mirrors `ResearchRepository.list_sessions_for_conversation`'s shape,
+        so a conversation replay can interleave both turn types. Scoped to
+        `owner_id` so a caller can never enumerate another user's runs even
+        if they guess a `conversation_id`."""
+
+        result = await self._session.execute(
+            select(ResearchRun)
+            .where(
+                ResearchRun.conversation_id == conversation_id,
+                ResearchRun.owner_id == owner_id,
+            )
+            .order_by(ResearchRun.created_at.asc())
+        )
+        return list(result.scalars().all())
+
     async def list_stale_awaiting_approval(self, *, older_than: datetime) -> list[ResearchRun]:
         """System-wide (not owner-scoped): the expiry sweep runs as an
         operator/ops job, not on behalf of a single request's owner."""

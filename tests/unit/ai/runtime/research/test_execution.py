@@ -438,7 +438,85 @@ async def test_execute_approved_run_resumes_and_completes_after_approval(monkeyp
 
 
 @pytest.mark.asyncio
-async def test_execute_approved_run_marks_failed_when_report_is_rejected(monkeypatch) -> None:
+async def test_execute_approved_run_completes_without_a_pdf_when_report_is_rejected(
+    monkeypatch,
+) -> None:
+    """A rejected report no longer fails the run -- the graph routes to
+    `END` without `persist_final_report` (see `route_after_report_approval`
+    in `multi_wave_research.py`), and the already-synthesized draft still
+    gets published as a plain answer via `publish_runtime_report`."""
+
+    run = _run()
+    run.status = ResearchRunStatus.AWAITING_APPROVAL.value
+    run.budget_usage = {"report_decision": {"decision": "rejected", "reason": "inaccurate"}}
+    proposal = _approved_proposal(run)
+    research_service = AsyncMock()
+    research_service.publish_runtime_report.return_value = _outcome(run.owner_id)
+    execution = _v1_execution(session=AsyncMock(), research_service=research_service)
+    execution._proposals.get_by_run_id = AsyncMock(return_value=proposal)  # type: ignore[method-assign]
+    execution._runs.get_for_owner = AsyncMock(return_value=run)  # type: ignore[method-assign]
+
+    class FakeGraph:
+        async def ainvoke(self, command, *, config) -> dict:
+            assert isinstance(command, Command)
+            assert command.resume == {"decision": "rejected", "reason": "inaccurate"}
+            return {
+                "draft": ResearchDraft(
+                    title="RAG",
+                    abstract="Abstract.",
+                    methodology="Method.",
+                    findings=[ResearchDraftSection(heading="Finding", content="Grounded.")],
+                    discussion="Discussion.",
+                    conclusion="Conclusion.",
+                ).model_dump(mode="json"),
+                "evidence_bundle": {"completed_task_count": 0, "failed_task_count": 0},
+                "review": {
+                    "decision": "pass",
+                    "citation_integrity_score": 1,
+                    "completeness_score": 1,
+                },
+                "report_decision": "rejected",
+                "report_rejection_reason": "inaccurate",
+                # No `final_report_ref`/`final_report_pdf_ref` -- `persist_final_report` never ran.
+            }
+
+    class FakeCheckpointer:
+        async def aget_tuple(self, _config: object) -> None:
+            return None
+
+    @asynccontextmanager
+    async def fake_checkpointer(_: str):
+        yield FakeCheckpointer()
+
+    monkeypatch.setattr(
+        "app.ai.runtime.research.execution.compile_multi_wave_research_graph",
+        lambda **_kwargs: FakeGraph(),
+    )
+    monkeypatch.setattr(
+        "app.ai.runtime.research.execution.postgres_checkpointer", fake_checkpointer
+    )
+
+    outcome = await execution.execute_approved_run(run_id=run.id)
+
+    assert outcome is not None
+    assert run.status == ResearchRunStatus.COMPLETED_WITH_LIMITATIONS.value
+    assert run.terminal_reason == "report_rejected_returned_as_answer"
+    research_service.publish_runtime_report.assert_awaited_once()
+    _publish_mock(execution).assert_any_await(
+        run_id=run.id, event_type=ResearchEventType.RESEARCH_RESUMED
+    )
+
+
+@pytest.mark.asyncio
+async def test_execute_approved_run_marks_failed_on_a_malformed_report_decision(
+    monkeypatch,
+) -> None:
+    """Distinct from a real rejection (see the test above): this only
+    covers the graph's defensive raise for a resume payload it can't even
+    interpret as a decision (see `await_report_approval` in
+    `multi_wave_research.py`) -- that's the one case still routed through
+    the FAILED terminal state."""
+
     run = _run()
     run.status = ResearchRunStatus.AWAITING_APPROVAL.value
     run.budget_usage = {"report_decision": {"decision": "rejected", "reason": "inaccurate"}}
@@ -449,7 +527,9 @@ async def test_execute_approved_run_marks_failed_when_report_is_rejected(monkeyp
 
     class FakeGraph:
         async def ainvoke(self, _command, *, config) -> dict:
-            raise ResearchReportRejectedError("inaccurate")
+            raise ResearchReportRejectedError(
+                "The report-approval interrupt resumed with an invalid decision payload."
+            )
 
     class FakeCheckpointer:
         async def aget_tuple(self, _config: object) -> None:
@@ -471,7 +551,7 @@ async def test_execute_approved_run_marks_failed_when_report_is_rejected(monkeyp
         await execution.execute_approved_run(run_id=run.id)
 
     assert run.status == ResearchRunStatus.FAILED.value
-    assert run.terminal_reason == "report_rejected_by_user"
+    assert run.terminal_reason == "report_decision_payload_invalid"
     _publish_mock(execution).assert_any_await(
         run_id=run.id, event_type=ResearchEventType.RESEARCH_FAILED
     )

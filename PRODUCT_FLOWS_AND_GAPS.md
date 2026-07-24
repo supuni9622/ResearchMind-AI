@@ -24,6 +24,19 @@ review calls sharing a cache namespace with Linear Research answers) is fixed �
 both now use `CacheRuntime.REVIEWER` (`CachePolicy.NEVER`). X3 is resolved as a
 result. This was the highest-severity open item in the doc.
 
+**2026-07-24 update (user-testing pass on the Deep Research frontend):** the
+user hand-tested the flow verified end-to-end the day before and reported
+seven issues from actually using it. Six were real, root-caused gaps and are
+now fixed — D8 (event log disappearing after `running`), D9 (PDF citations
+showing raw document UUIDs instead of filenames), D10 (Linear and Deep
+Research never sharing one conversation, and History showing one row per
+question as a symptom of the same root cause), D11 (Deep Research state lost
+on refresh), D12 (report rejection was a terminal `FAILED` that discarded the
+already-synthesized draft), and D13 (report approval was blind — no way to
+see or edit the draft first). The seventh (perceived lack of caching in Deep
+Research) turned out to already be D1's fix working as intended, not a new
+bug — see D1's entry and the Cost section below.
+
 **2026-07-23 update (browser click-through + worker session-staleness fixes):**
 The Deep Research golden path was manually exercised end to end at
 `localhost:3000/research` for the first time — DEEP mode toggle, submitting a
@@ -249,8 +262,12 @@ review loop. "Linear" is accurate.
 suggestion — see below) → `POST /research/proposals` →
 `POST /research/proposals/{id}/approve` → (async, worker-driven) →
 `GET /research/runs/{id}`, `GET /research/runs/{id}/events` (SSE),
-`POST /research/runs/{id}/cancel`, `POST /research/runs/{id}/report-decision`,
-`GET /research/runs/{id}/report` (PDF download)
+`POST /research/runs/{id}/cancel`, `GET /research/runs/{id}/draft` (new
+2026-07-24 — read the pending draft before deciding),
+`POST /research/runs/{id}/report-decision` (as of 2026-07-24, optionally
+carries an edited draft), `GET /research/runs/{id}/report` (PDF download).
+Also: `GET /research/conversations/{id}` (as of 2026-07-24, replays Deep
+Research turns in a conversation thread too, not just Linear ones — see D11).
 
 Implementation: `apps/api/app/ai/runtime/research/` (proposal_service.py,
 execution.py, workflows/multi_wave_research.py, planner/, retrieval/, synthesis/,
@@ -315,9 +332,26 @@ review.py) + `apps/worker/research_runtime_worker.py` +
            RESEARCH_AWAITING_APPROVAL, return (worker marks THIS dispatch
            attempt complete -- the run itself is not done)
 
-4. POST /research/runs/{id}/report-decision  {"approved": true|false, "reason"}
+3.5 [new 2026-07-24] GET /research/runs/{id}/draft
+     ResearchDraftInspectionService.get_pending_draft()
+       -> reads the paused run's LangGraph checkpoint directly
+          (channel_values["draft"]/["evidence_bundle"]/["review"]) -- the
+          only place this content exists before persist_final_report runs
+       -> returns title/abstract/methodology/findings/discussion/conclusion,
+          citations resolved to filenames (not raw document UUIDs -- see D9),
+          and the review's scores/decision/limitations
+       409s if the run isn't AWAITING_APPROVAL, or the checkpoint has no
+       draft yet
+
+4. POST /research/runs/{id}/report-decision
+     {"approved": true|false, "reason": ..., "edited_draft": {...} | null}
      ResearchRunService.record_report_decision()
        -> persist decision into run.budget_usage.report_decision
+       -> if approved with edited_draft: merge the edited free-text fields
+          onto the original checkpointed draft (citation_ids/schema_version/
+          limitations carried over unchanged -- an edit can never introduce
+          an unsupported citation, so no re-validation against the evidence
+          bundle is needed) and store the merged, fully-valid draft too
        -> reopen the (1:1) dispatch row back to PENDING
        One transaction; nothing runs synchronously in this request either.
 
@@ -325,12 +359,22 @@ review.py) + `apps/worker/research_runtime_worker.py` +
      run.status == AWAITING_APPROVAL -> resume branch
        -> transition AWAITING_APPROVAL -> RESEARCHING
        -> graph.ainvoke(Command(resume=decision), ...)
-       -> approved: persist_final_report (writer.write -> report JSON + PDF
-          artifact refs) -> ResearchService.publish_runtime_report()
-          (persists ResearchSession, triggers memory extraction)
+       -> approved (optionally with an edited draft -- see D13): await_report_
+          approval overwrites state["draft"] with the merged edit, then
+          persist_final_report (writer.write -> report JSON + PDF artifact
+          refs) -> ResearchService.publish_runtime_report() (persists
+          ResearchSession, triggers memory extraction)
           -> run.status = COMPLETED / COMPLETED_WITH_LIMITATIONS
-       -> rejected: ResearchReportRejectedError -> run.status = FAILED,
-          terminal_reason="report_rejected_by_user"
+       -> rejected (fixed 2026-07-24, see D12): route_after_report_approval
+          routes straight to END, SKIPPING persist_final_report only --
+          draft/evidence_bundle/review are already-set, unreduced state
+          channels that survive regardless of which node the graph
+          terminates at, so publish_runtime_report still runs and the
+          synthesized draft still gets published as a plain answer, just
+          without a PDF -> run.status = COMPLETED_WITH_LIMITATIONS,
+          terminal_reason="report_rejected_returned_as_answer" (previously:
+          ResearchReportRejectedError -> run.status = FAILED,
+          terminal_reason="report_rejected_by_user", discarding the draft)
 
 6. GET /research/runs/{id}/report -> 5-minute presigned S3 URL for the PDF
 ```
@@ -352,14 +396,23 @@ plan_review  (goal, tasks, complexity badge, Approve/Dismiss)
     v
 running      (LIVE event feed via GET /research/runs/{id}/events SSE --
     |          one connection per run, from approve() through report
-    |          approval to a terminal event; see below)
+    |          approval to a terminal event; see below. As of 2026-07-24,
+    |          this step log stays visible in every later stage too --
+    |          see D8 -- instead of disappearing once `running` ends.)
     v
-report_review (graph paused at the interrupt -- Approve report / Reject+reason)
+report_review (graph paused at the interrupt -- as of 2026-07-24, shows the
+    |          actual draft (title/abstract/findings/citations/review
+    |          scores) via GET /research/runs/{id}/draft, editable in place
+    |          -- see D13 -- before Approve report / Reject+reason)
     |  (same SSE connection keeps running through this pause -- the
     |   backend's replay loop doesn't close on `awaiting_approval`)
     v
 done / failed (final GET /research/runs/{id} fetch for the authoritative
-               status, then GET /research/runs/{id}/report for the PDF link)
+               status, then GET /research/runs/{id}/report for the PDF link
+               -- or, as of 2026-07-24, if the report was rejected, the
+               synthesized answer rendered inline instead of a PDF link;
+               see D12. `failed` is now reserved for genuine failures, not
+               user rejection.)
 ```
 
 The `running`/`report_review` stages consume the **already-existing** (built
@@ -370,13 +423,17 @@ live, not polled. The stream reconnects (resuming from the last event cursor)
 up to 5 times on a dropped connection before surfacing an error. This resolves
 Loophole D6.
 
-**Known, disclosed scope trims in this pass** (not regressions, never built):
+**Known, disclosed scope trims** (not regressions, never built):
 - The citations/sources side panel stays Linear-Research-only — a focused Deep
-  Research turn shows its empty state there, not the final report's evidence.
-- Conversation-history replay (`GET /research/conversations/{id}`) doesn't
-  reconstruct the Deep Research card treatment for old completed runs — they
-  replay as plain answer turns (that's how `publish_runtime_report` persists
-  them: a normal `ResearchSession` row, same table Linear Research uses).
+  Research turn shows its empty state there, not the final report's evidence
+  (the report-review card does show its own resolved citations inline as of
+  2026-07-24 — see D13 — but the separate side panel doesn't pick them up).
+- **Resolved 2026-07-24 (see D11):** conversation-history replay
+  (`GET /research/conversations/{id}`) now does reconstruct the Deep Research
+  card treatment — including a still-running or awaiting-approval run's live
+  state, not just completed-and-flattened answer turns — via a new
+  `deep_research_runs` field on the response and the frontend's
+  `hydrateFromConversation`.
 - Manual browser click-through of the golden path was performed 2026-07-23
   (see the update note above) — the mode toggle, submission, live SSE
   progress, report-approval UI, and completed-report PDF download all work.
@@ -433,7 +490,12 @@ allowing another repair iteration.
   namespace with Linear Research's one-shot answers. This closes Loophole D1's
   cross-run leakage risk; regression tests assert `cache_runtime !=
   CacheRuntime.RESEARCH` on both call sites (`test_synthesis.py`,
-  `test_review.py`).
+  `test_review.py`). **Re-confirmed 2026-07-24**: the user asked why Deep
+  Research "doesn't seem to cache" — this is that fix working as intended,
+  not a bug. `CachePolicy.NEVER` means Deep Research's synthesis/review calls
+  never hit the cache at all (by design, to prevent a semantic-cache hit from
+  substituting a *different* run's prose into this run's report); only
+  Linear Research's answer generation is cache-eligible. No code change.
 - Full cost accounting exists and is actually enforced mid-run (see Budgets
   above) — this is one of the more mature parts of the platform.
 - Every generation call across planning/retrieval-adjacent/synthesis/review is
@@ -455,10 +517,16 @@ allowing another repair iteration.
 | ~~D1~~ | ~~Synthesis and review generation calls share `CacheRuntime.RESEARCH`~~ — **Fixed 2026-07-23**: both now tag `CacheRuntime.REVIEWER` (`CachePolicy.NEVER`), eliminating the cross-run semantic-cache leakage risk. Regression-tested. | Resolved |
 | D2 | Single serial worker process — no horizontal scaling configured by default; concurrent Deep Research demand queues behind whatever run is currently executing (up to 10 minutes for COMPLEX plans). Confirmed the new frontend degrades sensibly while queued: with zero events yet in the DB, the live event stream just shows "Starting…" indefinitely rather than erroring — correct behavior, but a user has no way to tell "queued behind another run" apart from "about to start" from the UI alone. | Medium-High (scales with adoption) |
 | ~~D3~~ | ~~No rate limiting on proposal creation~~ — **Fixed 2026-07-23**: `POST /research/proposals` is capped at `deep_research_proposal_rate_limit_requests` (default 5/60s) per owner, checked before the planner runs. `POST /research/proposals/{id}/approve` — the more expensive action — has its own, stricter cap: `deep_research_approval_rate_limit_requests` (default 5 per `deep_research_approval_rate_limit_window_seconds`=600s) per owner, checked before run creation/dispatch. Both return `429` with `Retry-After` and never touch `ResearchProposalService` when limited. | Resolved |
-| D4 | No mid-run plan editing / no plan-approval interrupt (documented separately, unchanged by this session's work) | Medium (product gap, known) |
+| D4 | No mid-run *plan* editing / no plan-approval interrupt (documented separately, unchanged by this session's work). **Not the same gap as report editing (D13, fixed 2026-07-24)** — this is specifically about the earlier plan-approval step (goal/tasks/complexity); the later report-approval step now does support viewing and editing the draft's text before deciding. | Medium (product gap, known) |
 | D5 | Report-approval decision has no timeout: a run can sit in `AWAITING_APPROVAL` forever if the user never responds — no expiry, no reminder event, no auto-reject after N hours/days. The run just occupies a `research_runs` row indefinitely. | Low-Medium |
 | ~~D6~~ | ~~`report-decision` endpoint has no frontend consumer yet~~ — **Fixed 2026-07-23**: full frontend built (plan review, live-streaming run status, report-approval, PDF download). See the new Frontend subsection above for what's covered and the disclosed scope trims (citations panel, history replay). | Resolved |
 | D7 | The Research UI's default (Linear-mode) submission path now `await`s a full escalation-check planner call *before* running Linear Research — a deliberate, explicitly-requested design (blocking, not parallel, so a rejected suggestion cleanly "continues" rather than racing an already-started answer). Net effect: the UI's fast path is no longer as fast as the raw `POST /research` API — every default submission pays for one extra uncached LLM call (~1-3s) it wouldn't otherwise need. Not a bug; a known, disclosed tradeoff. **Possible follow-up**: run the check in parallel with Linear Research instead of gating it, showing the suggestion banner alongside/after the answer rather than before it. | Known tradeoff |
+| ~~D8~~ | ~~`DeepResearchBlock` only rendered the progress-step log while `stage === 'running'`~~ — **Fixed 2026-07-24**: the log now also renders (as a completed, non-pulsing list) in `report_review`, `done`, and `failed`. Frontend-only, `deep-research-block.tsx`. Found via user testing. | Resolved |
+| ~~D9~~ | ~~PDF report References section printed `item.document_id` (a raw UUID) instead of `item.filename`~~ — **Fixed 2026-07-24**: one-line fix in `reporting/pdf.py::_append_references`, matching the two sibling call sites (synthesis/review prompts) that already used `.filename`. Regression-tested — the old test's evidence bundle had no `evidence` items, so it couldn't have caught this. Found via user testing. | Resolved |
+| ~~D10~~ | ~~Linear and Deep Research never shared one conversation; History showed one row per question instead of per thread~~ — **Fixed 2026-07-24**: root cause was `activeConversationId` living only in `use-research.ts`, never learned from or contributed to by Deep Research calls, so every Deep Research proposal/run started a *new* `ResearchConversation` even though the schema (`ResearchRun`/`ResearchProposal`/`ResearchSession` all FK to `research_conversations`) already fully supported mixing both turn types. Fixed frontend-only via a new `onConversationLearned` callback threading the id both ways. No backend change needed. Found via user testing. | Resolved |
+| ~~D11~~ | ~~Deep Research state was lost on page refresh~~ — **Fixed 2026-07-24**: `GET /research/conversations/{id}` now also returns `deep_research_runs` (new `ResearchRunRepository.list_for_conversation` + a proposal lookup per run); the frontend's new `hydrateFromConversation` reconstructs every turn and re-subscribes non-terminal runs to the live event stream from cursor 0 (replaying full history, not just the live tail). The active conversation is also now synced into the page URL so a plain refresh finds its way back, not just an explicit `?conversation=` link. Found via user testing. | Resolved |
+| ~~D12~~ | ~~Rejecting a report raised `ResearchReportRejectedError`, which the execution service caught and marked the whole run `FAILED` — discarding a draft that had already passed review~~ — **Fixed 2026-07-24**: `await_report_approval` no longer raises on rejection; a new `route_after_report_approval` conditional edge routes straight to `END`, skipping only `persist_final_report` (the PDF-writing node). `draft`/`evidence_bundle`/`review` are plain, unreduced state channels already set by earlier nodes, so they survive regardless of which node the graph terminates at — the run still completes (`COMPLETED_WITH_LIMITATIONS`, `terminal_reason="report_rejected_returned_as_answer"`) and `publish_runtime_report` still runs, publishing the draft as a plain answer. The frontend renders that answer inline instead of a "failed" card. Found via user testing. | Resolved |
+| ~~D13~~ | ~~Report approval was blind — no way to see or edit the draft before deciding~~ — **Fixed 2026-07-24**: new `ResearchDraftInspectionService` reads a paused run's LangGraph checkpoint directly (`channel_values["draft"]`/`["evidence_bundle"]`/`["review"]`) and a new `GET /research/runs/{id}/draft` endpoint exposes it (citations resolved to filenames, same as D9's fix; 409 if not `AWAITING_APPROVAL`). `ResearchReportDecisionRequest` gained an optional `edited_draft` (free-text fields only — citation ids/schema version/limitations are always carried over from the original, so an edit can never break citation integrity and needs no re-validation). On approval, the edit overwrites `state["draft"]` before both `persist_final_report` and `publish_runtime_report` read it, applying uniformly to the PDF and the plain-answer path. Found via user testing. | Resolved |
 
 ---
 
@@ -557,6 +625,7 @@ context rather than failing the request.
 | ~~✓~~ | X1 | **Done (2026-07-23)** — per-owner `ValkeyRateLimiter` now covers Chat, Linear Research, and Deep Research proposals/approvals/escalation-checks. Remaining: it's per-owner, not global — doesn't bound aggregate demand across many accounts against the single Deep Research worker (see D2). |
 | ~~✓~~ | D6 | **Done (2026-07-23)** — Deep Research got a full working frontend (plan review, live SSE progress, report-approval, PDF download) plus the escalation-check suggestion flow. |
 | ~~✓~~ | D1 | **Done (2026-07-23)** — synthesis/review generation calls moved off `CacheRuntime.RESEARCH` onto `CacheRuntime.REVIEWER` (`CachePolicy.NEVER`), eliminating the cross-run report-content leakage risk. Regression-tested. |
+| ~~✓~~ | D8–D13 | **Done (2026-07-24)** — six gaps found via user testing of the Deep Research frontend: progress-step log disappearing after `running`, PDF citations showing raw UUIDs, Linear/Deep Research not sharing a conversation (and History fragmenting per-question as a symptom), Deep Research state lost on refresh, report rejection destroying the synthesized draft as a terminal failure, and report approval being blind with no preview/edit. All fixed and regression-tested; see each ID's row above for detail. |
 | 1 | D2 | Decide whether Deep Research needs horizontal worker scaling now or can stay single-process at current adoption; if scaling is needed, it's already DB-safe (`SKIP LOCKED`) — just needs more worker processes deployed |
 | 2 | D5 | Add an expiry/auto-reject path for runs stuck in `AWAITING_APPROVAL` |
 | 3 | D7 | Consider parallelizing the escalation-check with Linear Research instead of gating it, so the UI's default path isn't paying a mandatory extra LLM call in serial |

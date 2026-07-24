@@ -1,8 +1,46 @@
 'use client';
 
 import { useState } from 'react';
-import type { DeepResearchTurn } from '@/features/research/types';
+import type {
+  DeepResearchDraftEdit,
+  DeepResearchProgressEvent,
+  DeepResearchTurn,
+} from '@/features/research/types';
 import { AlertIcon, ArrowDownIcon, CheckCircleIcon, TargetIcon } from '@/components/ui/icons';
+import { DraftReview } from '@/features/research/components/draft-review';
+import { renderAnswer } from '@/features/research/components/research-block';
+
+/** Ordered progress-step log, shared by every post-approval-flow stage so the
+ * run's history stays visible instead of disappearing once it moves past
+ * `running` (into `report_review`, `done`, or `failed`). `live` controls
+ * whether the newest entry gets the pulsing "in progress" dot (only while
+ * the run is actually still advancing) or a plain checkmark. */
+function EventLog({ events, live }: { events: DeepResearchProgressEvent[]; live: boolean }) {
+  if (events.length === 0) return null;
+  return (
+    <div className="space-y-1.5 mb-3">
+      {events.map((event, i) => {
+        const isLatest = live && i === events.length - 1;
+        return (
+          <div key={i} className="flex items-center gap-2.5">
+            {isLatest ? (
+              <span className="w-3 h-3 flex-shrink-0 flex items-center justify-center">
+                <span className="w-1.5 h-1.5 rounded-full bg-sage-500 animate-pulse" />
+              </span>
+            ) : (
+              <span className="text-sage-700 flex-shrink-0">
+                <CheckCircleIcon size={12} />
+              </span>
+            )}
+            <span className={`text-[13px] ${isLatest ? 'text-stone-200' : 'text-stone-600'}`}>
+              {event.label}
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
 
 // Mirrors `ResearchPlanningPolicy._BUDGETS`
 // (apps/api/app/ai/runtime/research/planner/policies.py) -- informational
@@ -54,10 +92,11 @@ export function DeepResearchBlock({
   onFocus: () => void;
   onApprove: () => void;
   onCancel: () => void;
-  onReportDecision: (approved: boolean, reason?: string) => void;
+  onReportDecision: (approved: boolean, reason?: string, editedDraft?: DeepResearchDraftEdit) => void;
 }) {
   const [rejectReason, setRejectReason] = useState('');
   const [showRejectInput, setShowRejectInput] = useState(false);
+  const [draftEdit, setDraftEdit] = useState<DeepResearchDraftEdit | null>(null);
   const { plan } = turn.proposal;
   const goal = plan.rewritten_goal ?? plan.goal;
 
@@ -136,38 +175,16 @@ export function DeepResearchBlock({
 
         {turn.stage === 'running' && (
           <div>
-            <div className="space-y-1.5">
-              {turn.events.length === 0 ? (
-                <div className="flex items-center gap-2.5">
-                  <span className="w-3 h-3 flex-shrink-0 flex items-center justify-center">
-                    <span className="w-1.5 h-1.5 rounded-full bg-sage-500 animate-pulse" />
-                  </span>
-                  <span className="text-stone-200 text-[13px]">Starting…</span>
-                </div>
-              ) : (
-                turn.events.map((event, i) => {
-                  const isLatest = i === turn.events.length - 1;
-                  return (
-                    <div key={i} className="flex items-center gap-2.5">
-                      {isLatest ? (
-                        <span className="w-3 h-3 flex-shrink-0 flex items-center justify-center">
-                          <span className="w-1.5 h-1.5 rounded-full bg-sage-500 animate-pulse" />
-                        </span>
-                      ) : (
-                        <span className="text-sage-700 flex-shrink-0">
-                          <CheckCircleIcon size={12} />
-                        </span>
-                      )}
-                      <span
-                        className={`text-[13px] ${isLatest ? 'text-stone-200' : 'text-stone-600'}`}
-                      >
-                        {event.label}
-                      </span>
-                    </div>
-                  );
-                })
-              )}
-            </div>
+            {turn.events.length === 0 ? (
+              <div className="flex items-center gap-2.5">
+                <span className="w-3 h-3 flex-shrink-0 flex items-center justify-center">
+                  <span className="w-1.5 h-1.5 rounded-full bg-sage-500 animate-pulse" />
+                </span>
+                <span className="text-stone-200 text-[13px]">Starting…</span>
+              </div>
+            ) : (
+              <EventLog events={turn.events} live />
+            )}
             {turn.run && (
               <div className="flex justify-end pt-2">
                 <button
@@ -187,6 +204,7 @@ export function DeepResearchBlock({
 
         {turn.stage === 'report_review' && (
           <div>
+            <EventLog events={turn.events} live={false} />
             <div className="flex items-center gap-2.5 mb-3">
               <span className="text-sage-500 flex-shrink-0">
                 <CheckCircleIcon size={13} />
@@ -195,6 +213,11 @@ export function DeepResearchBlock({
                 Your report is ready for review before it&apos;s published.
               </span>
             </div>
+            {turn.draft ? (
+              <DraftReview draft={turn.draft} onEditingChange={setDraftEdit} />
+            ) : (
+              <p className="text-stone-600 text-[12px] mb-3">Loading the draft…</p>
+            )}
             {showRejectInput ? (
               <div onClick={(e) => e.stopPropagation()}>
                 <textarea
@@ -227,7 +250,7 @@ export function DeepResearchBlock({
                   type="button"
                   onClick={(e) => {
                     e.stopPropagation();
-                    onReportDecision(true);
+                    onReportDecision(true, undefined, draftEdit ?? undefined);
                   }}
                   className="px-3 py-1.5 rounded-lg bg-sage-600 hover:bg-sage-500 text-stone-100 text-[12px] font-medium transition-colors duration-150"
                 >
@@ -249,32 +272,63 @@ export function DeepResearchBlock({
         )}
 
         {turn.stage === 'done' && (
-          <div className="flex items-center justify-between pt-1">
-            <span className="flex items-center gap-1.5 text-stone-500 text-[13px]">
-              <CheckCircleIcon size={13} className="text-sage-500" />
-              {turn.run ? (STATUS_LABEL[turn.run.status] ?? turn.run.status) : 'Completed'}
-            </span>
-            {turn.reportDownloadUrl ? (
-              <a
-                href={turn.reportDownloadUrl}
-                target="_blank"
-                rel="noreferrer"
-                onClick={(e) => e.stopPropagation()}
-                className="flex items-center gap-1.5 font-mono text-[11px] text-sage-500 hover:text-sage-400 transition-colors"
-              >
-                <ArrowDownIcon size={11} />
-                Download PDF
-              </a>
+          <div>
+            <EventLog events={turn.events} live={false} />
+            {turn.linearAnswer ? (
+              <div>
+                <p className="text-stone-200 text-sm leading-relaxed mb-3 whitespace-pre-wrap">
+                  {renderAnswer(turn.linearAnswer.answer, turn.linearAnswer.citations)}
+                </p>
+                {turn.linearAnswer.citations.length > 0 && (
+                  <div className="flex items-center gap-1.5 mb-3 flex-wrap">
+                    {turn.linearAnswer.citations.map((c) => (
+                      <span
+                        key={c.citation_id}
+                        title={c.filename}
+                        className="font-mono text-amber-500 text-[11px] px-1.5 py-0.5 rounded border border-amber-800/40 bg-amber-500/5"
+                      >
+                        [{c.citation_id.slice(1)}]
+                      </span>
+                    ))}
+                  </div>
+                )}
+                <p className="flex items-center gap-1.5 text-stone-600 text-[11px] pt-1 border-t border-ink-700">
+                  <AlertIcon size={11} className="flex-shrink-0" />
+                  Report rejected -- shown as a plain answer, no PDF was generated.
+                </p>
+              </div>
             ) : (
-              <span className="font-mono text-[10px] text-stone-700">Preparing PDF…</span>
+              <div className="flex items-center justify-between pt-1">
+                <span className="flex items-center gap-1.5 text-stone-500 text-[13px]">
+                  <CheckCircleIcon size={13} className="text-sage-500" />
+                  {turn.run ? (STATUS_LABEL[turn.run.status] ?? turn.run.status) : 'Completed'}
+                </span>
+                {turn.reportDownloadUrl ? (
+                  <a
+                    href={turn.reportDownloadUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    onClick={(e) => e.stopPropagation()}
+                    className="flex items-center gap-1.5 font-mono text-[11px] text-sage-500 hover:text-sage-400 transition-colors"
+                  >
+                    <ArrowDownIcon size={11} />
+                    Download PDF
+                  </a>
+                ) : (
+                  <span className="font-mono text-[10px] text-stone-700">Preparing PDF…</span>
+                )}
+              </div>
             )}
           </div>
         )}
 
         {turn.stage === 'failed' && (
-          <div className="flex items-center gap-2.5 px-4 py-3 rounded-lg border border-red-800/50 bg-red-900/20 text-red-400 text-[13px]">
-            <AlertIcon size={13} className="flex-shrink-0" />
-            <span>This run {turn.run?.status === 'cancelled' ? 'was cancelled' : 'failed'}.</span>
+          <div>
+            <EventLog events={turn.events} live={false} />
+            <div className="flex items-center gap-2.5 px-4 py-3 rounded-lg border border-red-800/50 bg-red-900/20 text-red-400 text-[13px]">
+              <AlertIcon size={13} className="flex-shrink-0" />
+              <span>This run {turn.run?.status === 'cancelled' ? 'was cancelled' : 'failed'}.</span>
+            </div>
           </div>
         )}
       </div>

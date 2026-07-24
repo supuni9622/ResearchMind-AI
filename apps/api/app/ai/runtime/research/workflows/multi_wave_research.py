@@ -68,6 +68,8 @@ class MultiWaveResearchState(TypedDict):
     review_artifact_refs: list[str]
     final_report_ref: str
     final_report_pdf_ref: str
+    report_decision: str
+    report_rejection_reason: str | None
 
 
 def compile_multi_wave_research_graph(
@@ -291,22 +293,48 @@ def compile_multi_wave_research_graph(
         replaying anything ahead of the call -- the `RESEARCH_AWAITING_
         APPROVAL`/`RESEARCH_RESUMED` events are emitted by the execution
         service around each `ainvoke()` call instead, exactly once each.
+
+        Rejection does not fail the run: `route_after_report_approval` sends
+        it straight to `END`, skipping `persist_final_report` (the PDF-
+        writing node) rather than raising. `draft`/`evidence_bundle`/
+        `review` are already set in state by earlier nodes and survive
+        regardless of which node the graph terminates at, so the execution
+        service can still publish the already-synthesized draft as a plain
+        answer (`ResearchService.publish_runtime_report` only needs
+        `draft`/`evidence_bundle` -- never the PDF) -- only the polished PDF
+        report is skipped, not the whole run.
+
+        An approval can carry `edited_draft` (a fully valid, already-merged
+        `ResearchDraft` dict -- see `ResearchRunService.
+        record_report_decision`), overwriting `state["draft"]` before
+        `persist_final_report`/`publish_runtime_report` read it, so a
+        reviewer's edits apply to both the PDF and the plain-answer path
+        uniformly.
         """
 
         decision = interrupt(
             {"kind": "report_approval", "research_run_id": state["research_run_id"]}
         )
-        if not isinstance(decision, dict) or decision.get("decision") != "approved":
-            reason = decision.get("reason") if isinstance(decision, dict) else None
+        if not isinstance(decision, dict):
+            # Not a rejection -- a genuinely malformed resume payload (e.g. a
+            # bug upstream of this node), which nothing downstream can
+            # recover from.
+            raise ResearchReportRejectedError(
+                "The report-approval interrupt resumed with an invalid decision payload."
+            )
+        if decision.get("decision") != "approved":
+            reason = decision.get("reason")
             logger.info(
                 "research_runtime.graph.report_rejected",
                 research_run_id=state["research_run_id"],
                 reason=reason,
             )
-            raise ResearchReportRejectedError(
-                reason or "The user rejected the final report before publication."
-            )
-        return {}
+            return {"report_decision": "rejected", "report_rejection_reason": reason}
+        update: dict[str, object] = {"report_decision": "approved"}
+        edited_draft = decision.get("edited_draft")
+        if isinstance(edited_draft, dict):
+            update["draft"] = edited_draft
+        return update
 
     def prepare_synthesis_revision(state: MultiWaveResearchState) -> dict[str, object]:
         review_result = ResearchReview.model_validate(state["review"])
@@ -451,6 +479,13 @@ def compile_multi_wave_research_graph(
         )
         raise RuntimeError("Research review failed: " + "; ".join(review_result.limitations))
 
+    def route_after_report_approval(
+        state: MultiWaveResearchState,
+    ) -> Literal["persist_final_report", "__end__"]:
+        if state.get("report_decision") == "rejected":
+            return "__end__"
+        return "persist_final_report"
+
     async def persist_final_report(state: MultiWaveResearchState) -> dict[str, object]:
         await emit(ResearchEventType.REPORT_STARTED)
         draft = ResearchDraft.model_validate(state["draft"])
@@ -502,7 +537,7 @@ def compile_multi_wave_research_graph(
     graph.add_edge("retrieve_gap_task", "aggregate_gap_evidence")
     graph.add_edge("aggregate_gap_evidence", "synthesize")
     graph.add_edge("finalize_gap_limitations", "await_report_approval")
-    graph.add_edge("await_report_approval", "persist_final_report")
+    graph.add_conditional_edges("await_report_approval", route_after_report_approval)
     graph.add_edge("persist_final_report", END)
     graph.add_edge("fail", END)
     return graph.compile(checkpointer=checkpointer)

@@ -4,6 +4,7 @@ from uuid import uuid4
 import pytest
 from app.ai.runtime.research.evidence import ResearchEvidenceBundle
 from app.ai.runtime.research.report_artifact import ResearchFinalReportArtifactWriter
+from app.ai.runtime.research.retrieval.models import ResearchEvidenceReference
 from app.ai.runtime.research.review import ResearchReview, ReviewDecision
 from app.ai.runtime.research.synthesis.models import ResearchDraft, ResearchDraftSection
 from pypdf import PdfReader
@@ -32,6 +33,16 @@ def _draft() -> ResearchDraft:
 
 def _evidence() -> ResearchEvidenceBundle:
     return ResearchEvidenceBundle(
+        evidence=[
+            ResearchEvidenceReference(
+                document_id=str(uuid4()),
+                chunk_id=str(uuid4()),
+                filename="the impact of music on mood regulation.pdf",
+                citation_id="citation-1",
+                score=0.9,
+                excerpt="Music listening is associated with mood regulation.",
+            )
+        ],
         citation_ids=["citation-1"],
         completed_task_count=1,
         failed_task_count=0,
@@ -70,4 +81,5 @@ async def test_final_report_writer_persists_downloadable_pdf_idempotently() -> N
     assert "Methodology" in text
     assert "References" in text
     assert "citation-1" in text
+    assert "the impact of music on mood regulation.pdf" in text
     assert set(storage.uploads) == {first.report_ref, first.pdf_ref}

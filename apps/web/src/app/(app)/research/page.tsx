@@ -18,9 +18,32 @@ type FeedItem =
   | { type: 'deep'; turn: DeepResearchTurn };
 
 export default function ResearchPage() {
-  const { turns, conversations, activeConversationId, ask, selectConversation, loadFromHistory, newConversation } =
-    useResearch();
-  const deepResearch = useDeepResearch();
+  const {
+    turns,
+    conversations,
+    activeConversationId,
+    setActiveConversationId,
+    refreshConversations,
+    ask,
+    selectConversation,
+    loadFromHistory,
+    newConversation,
+  } = useResearch();
+  // Deep Research proposals/runs can reveal a `conversation_id` (their own,
+  // or one already known from a Linear Research turn) -- feed it back into
+  // the same shared conversation state so a session mixing both turn types
+  // stays one conversation instead of forking a new one every deep-research
+  // call (see `use-deep-research.ts`'s `learnConversationId`). Memoized so
+  // `useDeepResearch`'s callbacks that depend on it don't get torn down and
+  // rebuilt on every render.
+  const onDeepResearchConversationLearned = useCallback(
+    (conversationId: string) => {
+      setActiveConversationId(conversationId);
+      void refreshConversations();
+    },
+    [setActiveConversationId, refreshConversations]
+  );
+  const deepResearch = useDeepResearch(onDeepResearchConversationLearned);
   const [focusedTurnId, setFocusedTurnId] = useState<string | null>(null);
   const [input, setInput] = useState('');
   const [provider, setProvider] = useState<GenerationProvider | 'auto'>('auto');
@@ -50,10 +73,26 @@ export default function ResearchPage() {
       selectConversation(conversationParam).then((mapped) => {
         setFocusedTurnId(mapped[mapped.length - 1]?.localId ?? null);
       });
+      void deepResearch.hydrateFromConversation(conversationParam);
     }
     // Only ever run once, on mount — replaying a URL param shouldn't refire on state changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Keep the URL in sync with whichever conversation is active so a plain
+  // refresh (not just an explicit `?conversation=` link) reloads via the
+  // mount effect above instead of landing on an empty workspace -- this is
+  // what makes a Deep Research run (or a mixed linear+deep session) survive
+  // a refresh in the common case, not just when the URL already names it.
+  useEffect(() => {
+    if (!activeConversationId) return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('conversation') === activeConversationId) return;
+    params.set('conversation', activeConversationId);
+    params.delete('session');
+    params.delete('q');
+    window.history.replaceState(null, '', `${window.location.pathname}?${params.toString()}`);
+  }, [activeConversationId]);
 
   const feed = useMemo<FeedItem[]>(() => {
     const items: FeedItem[] = [
@@ -145,6 +184,7 @@ export default function ResearchPage() {
     selectConversation(conversationId).then((mapped) => {
       setFocusedTurnId(mapped[mapped.length - 1]?.localId ?? null);
     });
+    void deepResearch.hydrateFromConversation(conversationId);
   }
 
   return (
@@ -159,6 +199,12 @@ export default function ResearchPage() {
           setPendingEscalation(null);
           setSubmitError(null);
           setFocusedTurnId(null);
+          const params = new URLSearchParams(window.location.search);
+          params.delete('conversation');
+          params.delete('session');
+          params.delete('q');
+          const query = params.toString();
+          window.history.replaceState(null, '', query ? `${window.location.pathname}?${query}` : window.location.pathname);
         }}
       />
 
@@ -205,13 +251,14 @@ export default function ResearchPage() {
                         ? deepResearch.cancel(item.turn.localId, item.turn.run.research_run_id)
                         : deepResearch.dismiss(item.turn.localId)
                     }
-                    onReportDecision={(approved, reason) =>
+                    onReportDecision={(approved, reason, editedDraft) =>
                       item.turn.run &&
                       deepResearch.submitReportDecision(
                         item.turn.localId,
                         item.turn.run.research_run_id,
                         approved,
-                        reason
+                        reason,
+                        editedDraft
                       )
                     }
                   />

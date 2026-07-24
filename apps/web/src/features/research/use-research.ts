@@ -223,6 +223,8 @@ export function useResearch() {
     turns,
     conversations,
     activeConversationId,
+    setActiveConversationId,
+    refreshConversations,
     ask,
     selectConversation,
     loadFromHistory,

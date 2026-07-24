@@ -145,6 +145,7 @@ export interface ResearchConversationResponse {
   conversation_id: string;
   title: string | null;
   turns: ResearchSessionResponse[];
+  deep_research_runs: DeepResearchTurnResponse[];
 }
 
 // Matches `app/schemas/research.py::ResearchReportDownloadResponse`.
@@ -183,6 +184,8 @@ export interface DeepResearchProposal {
   proposal_id: string;
   status: 'proposing' | 'awaiting_approval' | 'approved' | 'cancelled';
   conversation_id: string | null;
+  /** The user's literal original question (distinct from `plan.goal`, the planner's own restatement). */
+  query: string;
   plan: DeepResearchPlan;
   created_at: string;
 }
@@ -220,6 +223,64 @@ export interface DeepResearchRun {
   conversation_id: string | null;
   started_at: string | null;
   completed_at: string | null;
+  /** e.g. `"report_rejected_returned_as_answer"` -- see `_complete_run` in `app/ai/runtime/research/execution.py`. */
+  terminal_reason: string | null;
+}
+
+// Matches `app/schemas/research.py::DeepResearchTurnResponse`.
+export interface DeepResearchTurnResponse {
+  proposal: DeepResearchProposal;
+  run: DeepResearchRun;
+}
+
+// Matches `app/schemas/research.py::ResearchDraftFindingResponse`.
+export interface DeepResearchDraftFinding {
+  heading: string;
+  content: string;
+  citation_ids: string[];
+}
+
+// Matches `app/schemas/research.py::ResearchDraftCitationResponse`.
+export interface DeepResearchDraftCitation {
+  citation_id: string;
+  filename: string;
+  excerpt: string;
+  score: number;
+}
+
+// Matches `app/schemas/research.py::ResearchDraftReviewSummary`.
+export interface DeepResearchDraftReview {
+  decision: string;
+  citation_integrity_score: number;
+  completeness_score: number;
+  limitations: string[];
+}
+
+// Matches `app/schemas/research.py::ResearchDraftResponse`.
+export interface DeepResearchDraft {
+  research_run_id: string;
+  title: string;
+  abstract: string;
+  methodology: string;
+  findings: DeepResearchDraftFinding[];
+  discussion: string;
+  conclusion: string;
+  limitations: string[];
+  citations: DeepResearchDraftCitation[];
+  review: DeepResearchDraftReview;
+}
+
+/** Free-text edits submitted alongside approval -- matches
+ * `app/schemas/research.py::ResearchDraftEdit`. Citation ids/schema
+ * version/limitations aren't editable, so an edit can never break citation
+ * integrity (see `ResearchRunService.record_report_decision`). */
+export interface DeepResearchDraftEdit {
+  title: string;
+  abstract: string;
+  methodology: string;
+  findings: { heading: string; content: string }[];
+  discussion: string;
+  conclusion: string;
 }
 
 export interface DeepResearchAskOptions {
@@ -478,11 +539,22 @@ export const api = {
     getRun: (runId: string) => request<DeepResearchRun>(`/api/v1/research/runs/${runId}`),
     cancelRun: (runId: string) =>
       request<DeepResearchRun>(`/api/v1/research/runs/${runId}/cancel`, { method: 'POST' }),
-    submitReportDecision: (runId: string, approved: boolean, reason?: string) =>
+    submitReportDecision: (
+      runId: string,
+      approved: boolean,
+      reason?: string,
+      editedDraft?: DeepResearchDraftEdit
+    ) =>
       request<DeepResearchRun>(`/api/v1/research/runs/${runId}/report-decision`, {
         method: 'POST',
-        body: JSON.stringify({ approved, reason: reason ?? null }),
+        body: JSON.stringify({
+          approved,
+          reason: reason ?? null,
+          edited_draft: editedDraft ?? null,
+        }),
       }),
+    getDraft: (runId: string) =>
+      request<DeepResearchDraft>(`/api/v1/research/runs/${runId}/draft`),
     getReportDownload: (runId: string) =>
       request<ResearchReportDownloadResponse>(`/api/v1/research/runs/${runId}/report`),
     streamRunEvents: streamResearchRunEvents,

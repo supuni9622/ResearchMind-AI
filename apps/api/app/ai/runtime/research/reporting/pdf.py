@@ -132,7 +132,7 @@ def _append_references(
         used.update(finding.citation_ids)
     for citation_id in sorted(used):
         item = evidence_by_citation.get(citation_id)
-        label = item.document_id if item is not None else "Evidence reference unavailable"
+        label = item.filename if item is not None else "Evidence reference unavailable"
         story.append(Paragraph(_safe_text(f"[{citation_id}] {label}"), body_style))
 
 

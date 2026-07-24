@@ -23,6 +23,7 @@ from app.ai.memory.services.memory_service import MemoryService
 from app.ai.research.service import ResearchService
 from app.ai.runtime.generation.orchestration.orchestrator import GenerationRuntime
 from app.ai.runtime.generation.streaming.service import StreamingService
+from app.ai.runtime.research.draft_inspection import ResearchDraftInspectionService
 from app.ai.runtime.research.execution import ResearchRuntimeExecutionService
 from app.ai.runtime.research.proposal_service import ResearchProposalService
 from app.ai.runtime.research.report_download import ResearchReportDownloadService
@@ -36,6 +37,7 @@ from app.dependencies.retrieval import get_retrieval_service
 from app.dependencies.upload import get_document_storage
 from app.infrastructure.storage.interfaces import DocumentStorage
 from app.repositories.research import ResearchRepository
+from app.repositories.research_proposal import ResearchProposalRepository
 from app.repositories.research_run import ResearchRunRepository
 from app.repositories.research_run_event import ResearchRunEventRepository
 from app.services.research_conversation import ResearchConversationService
@@ -98,6 +100,15 @@ def get_research_run_repository(
     return ResearchRunRepository(session)
 
 
+def get_research_proposal_repository(
+    session: AsyncSession = Depends(get_db),
+) -> ResearchProposalRepository:
+    """Return a request-scoped proposal repository (plan lookups, e.g. for
+    conversation replay's Deep Research turns)."""
+
+    return ResearchProposalRepository(session)
+
+
 def get_research_run_event_repository(
     session: AsyncSession = Depends(get_db),
 ) -> ResearchRunEventRepository:
@@ -122,6 +133,13 @@ def get_research_proposal_service(
         generation_runtime=generation_runtime,
         memory_service=memory_service,
     )
+
+
+def get_research_draft_inspection_service() -> ResearchDraftInspectionService:
+    """Stateless (just holds the database URL) -- new per request like the
+    other lightweight collaborators here, not worth `@lru_cache`-ing."""
+
+    return ResearchDraftInspectionService(database_url=settings.database_url)
 
 
 def get_research_report_download_service(

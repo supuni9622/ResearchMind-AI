@@ -259,6 +259,12 @@ class Settings(BaseSettings):
     # LangGraph super-step ceiling; a final safety net, not the primary loop
     # control (budgets/iteration caps enforce that). See PRD §25.
     research_runtime_graph_recursion_limit: int = 20
+    # A run paused at AWAITING_APPROVAL holds its dispatch slot forever if
+    # the user never returns to accept/reject the report. This TTL bounds
+    # that wait for `ResearchRunService.expire_stale_awaiting_approval()`,
+    # a callable-but-unscheduled sweep (mirrors `MemoryLifecycleService.
+    # sweep_stale()`) -- wiring a recurring trigger is an operator decision.
+    research_runtime_awaiting_approval_ttl_hours: int = 72
 
     # Importance scoring (PRD §16)
     memory_importance_threshold: float = 0.1

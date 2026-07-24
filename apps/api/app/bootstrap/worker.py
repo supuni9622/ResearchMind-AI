@@ -59,6 +59,7 @@ from app.ai.memory.create import build_memory_extraction_service, build_memory_s
 from app.ai.observability.create import get_observability_service
 from app.ai.research.service import ResearchService
 from app.ai.runtime.research.execution import ResearchRuntimeExecutionService
+from app.ai.runtime.research.run_service import ResearchRunService
 from app.core.settings import settings
 from app.dependencies.context import get_context_builder
 from app.dependencies.generation import (
@@ -177,9 +178,11 @@ def create_research_runtime_worker(*, session: AsyncSession) -> ResearchRuntimeW
         v1_graph_enabled=settings.research_runtime_v1_graph_enabled,
         memory_service=memory_service,
     )
+    runs = ResearchRunService(session)
     return ResearchRuntimeWorker(
         dispatches=ResearchRunDispatchRepository(session),
         execute_run=lambda run_id: execution.execute_approved_run(run_id=run_id),
         commit=session.commit,
         rollback=session.rollback,
+        expire_stale_awaiting_approval=runs.expire_stale_awaiting_approval,
     )

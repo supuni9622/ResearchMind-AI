@@ -38,8 +38,8 @@ async def test_planner_uses_the_generation_runtime_with_a_structured_contract() 
     assert plan == _focused_plan()
     request = runtime.execute.await_args.args[0]
     assert request.output_model is ResearchPlan
-    assert request.max_tokens == 800
-    assert request.metadata["prompt_version"] == "research-planner-v1"
+    assert request.max_tokens == 2000
+    assert request.metadata["prompt_version"] == "research-planner-v2"
 
 
 @pytest.mark.asyncio

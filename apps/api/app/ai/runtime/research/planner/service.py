@@ -54,7 +54,15 @@ class ResearchPlanner:
                 system_prompt=planner_system_prompt(),
                 response_format=ResponseFormat.STRUCTURED,
                 output_model=ResearchPlan,
-                max_tokens=800,
+                # Claude's native schema-constrained decoding rejects
+                # `minItems`/`maxItems`/`maxLength`/etc. (see
+                # `_strip_unsupported_claude_schema_keywords`), so the API no
+                # longer bounds `tasks`/`question`/`goal` length itself --
+                # only this budget does. 800 was sized for a schema-bounded
+                # response and truncates mid-JSON on a real (up to 5-task,
+                # per `ResearchPlanningPolicy`) plan, which then fails
+                # `ResearchPlan.model_validate()` below.
+                max_tokens=2000,
                 max_regeneration_attempts=1,
                 owner_id=owner_id,
                 session_id=research_run_id,

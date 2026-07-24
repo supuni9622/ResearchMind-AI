@@ -2,16 +2,22 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
 import structlog
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.ai.runtime.events.research.models import ResearchEventType
+from app.ai.runtime.research.event_journal import ResearchRuntimeEventJournal
+from app.ai.runtime.research.lifecycle import transition_run
 from app.ai.runtime.research.types import TERMINAL_RESEARCH_RUN_STATUSES, ResearchRunStatus
+from app.core.settings import settings
 from app.models.research_run import ResearchRun
 from app.repositories.research_run import ResearchRunRepository
 from app.repositories.research_run_dispatch import ResearchRunDispatchRepository
+from app.repositories.research_run_event import ResearchRunEventRepository
 
 logger = structlog.get_logger()
 
@@ -23,6 +29,7 @@ class ResearchRunService:
         self._session = session
         self._repository = ResearchRunRepository(session)
         self._dispatches = ResearchRunDispatchRepository(session)
+        self._event_journal = ResearchRuntimeEventJournal(ResearchRunEventRepository(session))
 
     async def create_or_get(
         self,
@@ -148,3 +155,40 @@ class ResearchRunService:
             approved=approved,
         )
         return run
+
+    async def expire_stale_awaiting_approval(self, *, older_than_hours: int | None = None) -> int:
+        """Auto-cancel runs left sitting at AWAITING_APPROVAL past the TTL.
+
+        Without this, a run the user never returns to accept/reject stays
+        `awaiting_approval` forever -- it has no other expiry path. This is
+        a callable-but-unscheduled sweep (mirrors `MemoryLifecycleService.
+        sweep_stale()`): wiring a recurring trigger (cron/Celery beat) is an
+        operator decision, not something to invent here.
+
+        Auto-*cancel*, not auto-approve: publishing a report the user was
+        explicitly asked to review, without them ever reviewing it, is the
+        wrong default just because they didn't respond in time.
+        """
+
+        ttl_hours = (
+            older_than_hours
+            if older_than_hours is not None
+            else settings.research_runtime_awaiting_approval_ttl_hours
+        )
+        cutoff = datetime.now(UTC) - timedelta(hours=ttl_hours)
+        stale_runs = await self._repository.list_stale_awaiting_approval(older_than=cutoff)
+
+        for run in stale_runs:
+            transition_run(run, target=ResearchRunStatus.CANCELLED, phase="terminal")
+            run.terminal_reason = "awaiting_approval_expired"
+            await self._event_journal.publish(
+                run_id=run.id, event_type=ResearchEventType.RESEARCH_CANCELLED
+            )
+
+        await self._session.commit()
+        logger.info(
+            "research_runtime.run.awaiting_approval_expired",
+            expired_count=len(stale_runs),
+            ttl_hours=ttl_hours,
+        )
+        return len(stale_runs)

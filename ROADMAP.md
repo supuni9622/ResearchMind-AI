@@ -1,2214 +1,566 @@
-# ResearchMind AI Roadmap
+# ResearchMind AI — Roadmap
 
-**Last Updated:** 2026-07-23 (Research Runtime / Deep Research is now a complete, working, end-to-end single-agent workflow with a real frontend — see Phase 6 below. Same day, later: manually browser-verified end to end for the first time, surfacing and fixing two worker session-staleness bugs — see Phase 6's "Same day, later" note.)
-
-**Current Maturity:** NotebookLM++ + Perplexity v1, reaching into Open Deep Research territory for the Deep Research path specifically. Hybrid Retrieval, Reranking, Parent Expansion, Compression, Context Guardrails, and strategy-based Prompt Formatting are all in place — beyond a plain NotebookLM clone. A standalone, platform-wide Guardrails Platform (Milestone 11.16 — input/retrieval/generation/runtime stages, Source Trust, policies, scoring, artifacts) is now complete as an MVP foundation, alongside the Validation Platform. The Generation Platform is now fully complete per `generation_platform_complexion_prd.md` — Routing Platform, Runtime Caching Platform (L1 exact/L2 semantic/L3 session caching, policy resolution), five runtime validation contracts (Research/Planner/Reviewer/Agent/MCP), a Validation Policy Layer (Acceptance/Fail-Fast/Runtime Validation), every PRD output validator, and Runtime Metrics Integration are all done. A Generation Runtime Platform (`generation/orchestration/`, `execute_generation()`/`GenerationRuntime.execute()`) now gives every future caller one canonical entrypoint into that stack instead of reaching into `GenerationService` directly, per `generation_runtime_platform_prd.md`. `POST /research` is live — the Research API Platform (`app/ai/research/`) composes Retrieval → Context → Generation Runtime → Streaming → Artifacts into a complete, end-to-end, cited product answer, with `POST /research`, `/research/stream`, `/research/citations`, `GET /research/{id}` (single-turn replay, backed by `research_sessions`), and server-backed `/research/conversations` thread replay — deliberately linear by design (one retrieval + one generation call), unchanged. An **AI Runtime Observability Platform** (`oberservability_platform_prd.md`) shipped: real LangSmith tracing + a new metrics/statistics/report/artifact layer, wired into both Generation entry points (`generate()` and `stream_generate()`, so Research and Chat both get it, plus the Knowledge Processing pipeline); live verification against an actual LangSmith account and S3 bucket found and fixed three real bugs and surfaced a real product gap that got closed as a follow-up. A later Memory Platform and research-conversation follow-up gave Research conversation-thread history and SESSION memory scoped to the conversation id. Two Retrieval Platform gaps closed: **Parent/Child Retrieval** got a real producer (`HierarchicalChunkingProvider`) and **Parallel Retrieval** grew to a genuine 3-way `asyncio.gather()` (dense+sparse+metadata). **Most recently (2026-07-23): the Research Runtime / Deep Research Platform (Phase 6) is complete** — the query decomposition, planning, and multi-step agentic work this file used to describe as "next" is now real, working, LangGraph-based, single-agent code with a full frontend: memory-aware planning with query rewriting, dependency-wave parallel retrieval, synthesis, deterministic+model review with bounded repair, a genuine second human-in-the-loop checkpoint (report-approval `interrupt()`, not just plan approval), real per-owner rate limiting across all three product paths, and a Research UI destination consuming the whole thing live over SSE. See the Phase 6 section below and `PRODUCT_FLOWS_AND_GAPS.md` for full detail and remaining gaps (worker horizontal scaling, plan edits before approval). Maturity ladder: `NotebookLM++ → Perplexity v1 → Open Deep Research (Deep Research path reaches here) → Manus / Glean`.
-
----
-
-# Vision
-
-Build a production-grade AI Engineering Platform capable of processing, understanding, retrieving, evaluating, and reasoning over enterprise knowledge while remaining modular, provider-independent, and experimentation-friendly.
-
-ResearchMind is **not** a traditional RAG application.
-
-It is an AI Engineering Platform composed of independent but interoperable platforms communicating through canonical ResearchMind artifacts.
-
-Core engineering principles include:
-
-- Clean Architecture
-- Dependency Injection
-- Provider Pattern
-- Registry Pattern
-- Factory Pattern
-- Canonical Models
-- Canonical Artifacts
-- Framework Independence
-- Production-first Engineering
-- Experimentation-first AI Development
-
-Every platform should be independently evolvable while maintaining stable contracts with downstream platforms.
+**Version:** 3.0 (Unified)
+**Last Updated:** 2026-07-24
+**Status:** Living document — single source of truth for project progress, milestone traceability, and implementation order.
 
 ---
 
-# Architectural Philosophy
+## About this document
 
-ResearchMind is composed of multiple independent platforms.
+This roadmap replaces four previously-parallel roadmap files that had drifted out of sync with each other and with the codebase:
 
-Examples include:
+| Superseded file | Moved to | Was |
+|---|---|---|
+| `docs/project/02-roadmap.md` (v1.0, undated) | `docs/archive/02-roadmap.md` | Oldest; predates the Guardrails, Artifact, Observability, Memory, and Research Runtime platforms entirely |
+| `ResearchMind-Roadmap-v2.md` (v2.0, 2026-07-18/19/23) | `docs/archive/ResearchMind-Roadmap-v2.md` | Vision/architecture doc; self-corrected once (2026-07-23 banner) but left contradicting body text below the correction |
+| `phase-3-ai-runtime-roadmap.md` (v2.0, "Frozen" 2026-07-19) | `docs/archive/phase-3-ai-runtime-roadmap.md` | Explicitly self-declared frozen; accurate for its date, stale by design after |
+| `ROADMAP.md` (2026-07-23) | *(this file, rewritten)* | Most current of the four; became the backbone of this document |
 
-- Identity Platform
-- Knowledge Platform
-- Observability Platform
-- Experimentation Platform
-- Benchmark Platform
-- Research Engine
-- Agentic AI Platform
-- MCP Ecosystem
+They're kept under `docs/archive/` for history, not deleted — do not treat them as current.
 
-Each platform owns one responsibility.
+### What changed in this unification pass
 
-Each platform consumes the canonical artifact produced by the previous platform.
+1. **Phase numbering was reorganized** by actual delivery order. The four source files disagreed on where Agent/MCP/Research-Runtime work sits (Phase 4, 5, or 6 depending on the file), and the most-current source file (`ROADMAP.md`) assigned **Phase 6 to two different things** (Research Runtime Platform in its status table, MCP Ecosystem in its body) — an internal collision. This document assigns each shipped or planned capability exactly one phase number, in the order it was actually (or will be) delivered.
+2. **Two claims that had gone stale in three of the four source files were corrected against the live codebase**, not just against the newest doc:
+   - **Guardrails wiring** — two source files claimed `GuardrailService` was still unwired into `GenerationService`/`ContextBuilderService`. Verified false: `apps/api/app/ai/runtime/generation/service.py` and `apps/api/app/ai/knowledge/context/service.py` both import and call it (input-stage, generation-stage, and retrieval-stage enforcement all present). Marked ✅ here.
+   - **Context Platform compression V3/V4** — one source file claimed the LangChain (V3) and LLM (V4) compression providers were still unbuilt (~90% complete). Verified false: both `providers/langchain.py` and `providers/llm.py` exist under `apps/api/app/ai/knowledge/context/compression/`, and `settings.enable_langchain_compression` gates V3 into the default pipeline. Marked ✅ here.
+   - **Research Runtime / Deep Research** — two source files still show this entirely unstarted. Verified built: `apps/api/app/ai/runtime/research/` contains real `planner/`, `decomposition/`, `retrieval/`, `synthesis/`, `reporting/`, `workflows/` packages, plus a dedicated worker (`apps/worker/research_runtime_worker.py`, `research_runtime_main.py`). Marked ✅ here, per the most-current source file's account.
+3. **Nothing marked "not started" or "future" in any source file was deleted.** Where sources disagreed on *status* of a shipped thing, the codebase was the tiebreaker (above). Where sources agreed something isn't built yet, it's retained here as ❌/⏳ — see the "Not Yet Built" callouts throughout.
+4. PRD filenames are cited as they appear in the source roadmaps (e.g. `generation_platform_complexion_prd.md`) for historical traceability. Most PRD files at repo root are being reorganized/removed as of this pass (only `prds/research_runtime_prd.md` currently survives) — treat these as historical citations, not live file paths.
+5. **Uncommitted work as of 2026-07-24** (staged, not yet committed): refinements to the Research Runtime planner/prompts, `run_service.py`, worker bootstrap, and structured-output helpers, with new/updated tests. This is incremental hardening of the already-shipped Phase 5 (Research Runtime), not a new capability — noted under Phase 5 below, not yet reflected as its own milestone.
 
-Each platform produces exactly one canonical artifact for downstream consumers.
+### Status legend
 
----
-
-# Phase 0 — Engineering Foundation
-
----
-
-## Milestone 0.0 — Repository Foundation
-
-**Status:** ✅ Completed
-
-Completed
-
-- Repository structure
-- Engineering conventions
-- Project documentation
-- Layered architecture
-- Modular application layout
+| Symbol | Meaning |
+|---|---|
+| ✅ | Complete and verified against the codebase |
+| 🟡 | Partially complete — some sub-items done, some not |
+| ⏳ | Planned, not started |
+| ❌ | Explicitly not built (used inline for sub-items within an otherwise-✅/🟡 milestone) |
+| 🚧 | Actively in progress |
 
 ---
 
-## Milestone 0.1 — Development Platform
+## Project Progress at a Glance
 
-**Status:** ✅ Completed
+| # | Phase | Status | Summary |
+|---|---|---|---|
+| 0 | Engineering Foundation | ✅ Complete | FastAPI, Docker Compose, Postgres, Valkey, Qdrant, SQLAlchemy, Alembic, structured logging |
+| 1 | Identity Platform | ✅ Complete | Cognito auth, JWT verification, user sync, protected endpoints |
+| 2 | Knowledge Platform | ✅ Complete | Upload → Processing → Chunking → Embedding → Vector Store → Retrieval → Reranking → Context |
+| 3 | AI Runtime / Generation Platform | ✅ Complete | Multi-provider LLM runtime, structured output, validation, guardrails, routing, caching, observability |
+| 4 | Research API (Linear) | ✅ Complete | `POST /research` — first live, cited, end-to-end product surface |
+| 5 | Research Runtime (Deep Research) | ✅ Complete | Single-agent LangGraph: proposal → plan → approval → multi-wave graph → report approval → PDF |
+| 6 | Agentic AI Platform | ⏳ Planned | General-purpose (non-Research-scoped) agents; deferred per ADR-033 |
+| 7 | MCP Ecosystem | ⏳ Planned | External tool/capability integration via Model Context Protocol |
+| 8 | AI Quality / Evaluation Platform | 🟡 Partial | Retrieval + generation benchmarks done; Experimentation Platform not started |
+| 9 | Production Platform | ⏳ Planned | Kubernetes/ECS, CI/CD, OpenTelemetry, Prometheus, Grafana |
+| 10 | Enterprise Platform | ⏳ Planned | RBAC, multi-tenancy, billing, compliance, admin portal |
 
-Completed
-
-- uv
-- Docker
-- PostgreSQL
-- Valkey
-- Local development environment
-- Amazon S3 integration
-- Amazon Cognito integration
-- Amazon SQS integration
-
----
-
-## Milestone 0.2 — Backend Foundation
-
-**Status:** ✅ Completed
-
-Completed
-
-- FastAPI
-- Configuration
-- Middleware
-- Dependency Injection
-- Logging
-- Lifespan
-- API Versioning
-- Health Checks
-- Exception Handling
-- API Contracts
+Maturity ladder (informal, cross-cutting): `NotebookLM++ → Perplexity v1 → Open Deep Research → Manus / Glean`. As of 2026-07-23, the Deep Research path (Phase 5) reaches "Open Deep Research" territory; Chat and Linear Research remain at "NotebookLM++ + Perplexity v1."
 
 ---
 
-## Milestone 0.3 — Engineering Quality
+## Phase 0 — Engineering Foundation ✅
 
-**Status:** 🚧 In Progress
+**Goal:** Production-ready backend foundation.
 
-Completed
+| Item | Status |
+|---|---|
+| FastAPI, Dependency Injection, Lifespan | ✅ |
+| SQLAlchemy, Alembic | ✅ |
+| PostgreSQL, Valkey, Qdrant | ✅ |
+| Structured logging (structlog) | ✅ |
+| Configuration, middleware, health endpoints | ✅ |
+| Ruff, MyPy, Pytest, coverage, pre-commit | ✅ |
+| GitHub Actions CI | 🟡 — testing/benchmark foundations done; full CI pipeline maturity ongoing (cross-cutting, see below) |
 
-- Testing foundation
-- Benchmark foundation
-
-Planned
-
-- Ruff
-- Type Checking
-- Coverage
-- GitHub Actions
-- Pre-commit Hooks
-
----
-
-# Phase 1 — Identity Platform
+**Deliverable:** Production-ready backend skeleton. ✅
 
 ---
 
-## 1.1 Configuration
+## Phase 1 — Identity Platform ✅
 
-**Status:** ✅ Completed
+**Goal:** Secure authentication and user management.
 
----
+| Milestone | Status |
+|---|---|
+| 1.1 Configuration | ✅ |
+| 1.2 Database Foundation (SQLAlchemy, Alembic, base models) | ✅ |
+| 1.3 Internal User Domain (entity, repository, service, sync) | ✅ |
+| 1.4 Authentication (AWS Cognito, JWT verification, protected endpoints) | ✅ |
+| 1.5 Authorization | ✅ — delivered as the Memory Platform's owner-scoping, wired into Chat and Research |
+| 1.6 User Profile (preferences, AI settings) | ⏳ Planned — not started |
+| Organizations / RBAC / billing | ⏳ Deferred to Phase 10 (Enterprise) |
 
-## 1.2 Database Foundation
-
-**Status:** ✅ Completed
-
-Completed
-
-- SQLAlchemy
-- Alembic
-- Base Models
-
----
-
-## 1.3 Internal User Domain
-
-**Status:** ✅ Completed
-
-Completed
-
-- User Entity
-- Repository Pattern
-- Service Layer
-- User Synchronization
+**Deliverable:** Secure production authentication platform. ✅
 
 ---
 
-## 1.4 Authentication
+## Phase 2 — Knowledge Platform ✅
 
-**Status:** ✅ Completed
+**Goal:** Production-grade RAG knowledge ingestion and retrieval pipeline — everything downstream depends on this.
 
-Completed
-
-- Authentication abstraction
-- AWS Cognito
-- JWT validation
-- Current user dependency
-
----
-
-## 1.5 Authorization
-
-**Status:** ✅ Complete — delivered as the Memory Platform and wired into Chat and Research.
-
-Planned
-
-- Roles
-- Permissions
-- Resource ownership
-
----
-
-## 1.6 User Profile
-
-**Status:** Planned
-
-Planned
-
-- Preferences
-- AI Settings
-- Profile Management
-
----
-
-# Phase 2 — Knowledge Platform
-
-The Knowledge Platform transforms raw documents into structured, retrieval-ready knowledge.
-
-Every platform consumes the canonical artifact produced by the previous platform and produces a new canonical artifact for downstream AI platforms.
-
-The production pipeline evolves as a sequence of independent, provider-driven platforms.
-
-Observability is intentionally separated into its own platform.
-
----
-
-# Canonical Knowledge Pipeline
+### Canonical pipeline
 
 ```text
-Upload
-
-↓
-
-Processing
-
-↓
-
-ProcessedDocument
-
-↓
-
-Chunking
-
-↓
-
-ChunkArtifact
-
-↓
-
-Embedding
-
-↓
-
-EmbeddingArtifact
-
-↓
-
-Vector Store
-
-↓
-
-VectorStoreArtifact
-
-↓
-
-Retrieval
-
-↓
-
-RetrievalArtifact
-
-↓
-
-Reranking
-
-↓
-
-RerankingArtifact
+Upload → Processing → Chunking → Embedding → Vector Store → Retrieval → Reranking → Context Building
 ```
 
+### 2.1 Upload Platform ✅
+
+Document entity, Upload API, validation, SHA-256 hashing, S3 integration, repository, DI, structured logging.
+
+### 2.2 Document Processing / Intelligence Platform ✅
+
+Parsing (Docling), text normalization, markdown/plain-text generation, metadata + statistics enrichment, fingerprinting, processing status, error handling, queue processing (incl. DLQ), S3 persistence.
+
+### 2.3 Chunking Platform ✅
+
+| Strategy | Status |
+|---|---|
+| Fixed | ✅ |
+| Recursive (LangChain) | ✅ |
+| Markdown | ✅ |
+| Hierarchical (`HierarchicalChunkingProvider`) | ✅ — two-pass LangChain `RecursiveCharacterTextSplitter`; parent sections + child chunks, children carry `structure.parent_chunk_id`; producer for Context Platform's Parent Expansion (2.9) |
+| Semantic | ❌ Not started |
+| Late chunking | ❌ Not started |
+| Agentic chunking | ❌ Not started |
+
+Evaluation: Chunking Benchmark (`benchmarks/chunking/`). **Deliverable:** ✅ Complete.
+
+### 2.4 Embedding Platform ✅
+
+| Provider | Status |
+|---|---|
+| Sentence Transformers (local) | ✅ |
+| Voyage AI (primary — `voyage-3-lite`) | ✅ |
+| OpenAI | ✅ |
+| BGE / E5 / Nomic / Instructor | ❌ Not started (deferred, no urgency) |
+
+Shared `EmbeddingBatcher` across providers. Valkey-backed embedding cache (TTL-based). **Deliverable:** ✅ Provider-independent embedding platform.
+
+### 2.5 Vector Platform ✅
+
+Qdrant, named dense + sparse vector schema (ADR-019 — no separate BM25 engine; FastEmbed SPLADE `prithivida/Splade_PP_en_v1` sparse vectors instead). Collections, payloads, metadata, indexing pipeline, `indexing.json` artifacts. Verified end-to-end against live Qdrant + Voyage AI + FastEmbed. **Deliverable:** ✅ Complete.
+
+Snapshot management (backup/restore): ❌ Not started.
+
+### 2.6 Retrieval Platform ✅
+
+| Capability | Status |
+|---|---|
+| Dense (semantic) search | ✅ |
+| Sparse search (FastEmbed SPLADE) | ✅ |
+| Hybrid search (RRF fusion) | ✅ |
+| Metadata filtering (`owner_id` server-enforced, `document_id`, `filename`, `language`) | ✅ |
+| Metadata-only retrieval (`search_metadata()`, filter-only Qdrant `scroll()`) | ✅ |
+| Parallel retrieval — 3-way `asyncio.gather()` (dense + sparse + metadata) | ✅ |
+| Parent/Child retrieval | ✅ — reclassified into Context Platform (2.9); chunking-side producer (2.3 Hierarchical) + expansion-side consumer both exist, genuinely end-to-end |
+| Query decomposition / multi-query retrieval | ✅ for Deep Research (Phase 5's planner does real dependency-wave decomposition) / ❌ for Linear Research (`/research` stays one retrieval + one generation call, by design) |
+| Retrieval cache (Valkey) | ❌ Not started — only the query-embedding cache exists |
+| Evaluation (Recall@K, Precision@K, MRR, NDCG@K, latency, cost) | ✅ |
+
+**Deliverable:** ✅ Production retrieval engine.
+
+### 2.7 Reranking Platform ✅
+
+| Provider | Status |
+|---|---|
+| Voyage AI (`rerank-2`) | ✅ |
+| CrossEncoder (local `BAAI/bge-reranker-base`) | ✅ |
+| Cohere / Jina | ❌ Not started |
+| Late Interaction / ColBERT | ❌ Future research topic |
+
+Wired into `RetrievalService.search_hybrid(rerank=True)` by default. **Finding** (Reranking Benchmark): Recall@5 unchanged (already 1.0); MRR and NDCG@5 both improved substantially (MRR 0.925 → 1.0 CrossEncoder / → 0.95 Voyage). **Deliverable:** ✅ Complete.
+
+### 2.8 Knowledge Evaluation 🟡
+
+| Metric | Status |
+|---|---|
+| Precision@K, Recall@K, NDCG, MRR, latency (retrieval + reranking) | ✅ |
+| Cost (qualitative, then real `$` via benchmarks) | ✅ |
+| Generation-side evaluation (Groundedness, Faithfulness, Hallucinations, Citation Accuracy) | ✅ — delivered under Phase 8 (Evaluation Platform), not this milestone originally, see below |
+| Security Evaluation | ❌ Not started |
+
+### 2.9 Context Platform ✅
+
+Sits between Reranking and Generation — enriches, deduplicates, compresses, guards, cites, and formats retrieved knowledge. Parent/child expansion reclassified here from Retrieval since ResearchMind's persisted chunk artifacts, not the vector index, are the source of truth for parent resolution.
+
+| Sub-capability | Status |
+|---|---|
+| Deduplication | ✅ |
+| Parent Expansion (`ChunkArtifactReader`, `ParentExpansionService`) | ✅ — genuinely end-to-end (producer via 2.3 Hierarchical Chunking) |
+| Adjacent Merge (`AdjacentMergeService`) | ✅ |
+| Compression V1 — Token Budget | ✅ |
+| Compression V2 — Embedding Redundancy | ✅ |
+| Compression V3 — LangChain (`ContextualCompressionRetriever` + `LLMChainExtractor`) | ✅ — **corrected**: wired into `ContextBuilderService.build()`'s default pipeline behind `settings.enable_langchain_compression`; verified present in code (one source file incorrectly listed this as ❌) |
+| Compression V4 — LLM (per-chunk query-relevant summarization) | ✅ — **corrected**: registered, not part of default pipeline by design (one source file incorrectly listed this as ❌) |
+| Context Guardrails V1 (`RuleBasedGuardrailProvider`, risk scoring) | ✅ |
+| Guardrails V2 (LlamaGuard, NeMo Guardrails, Lakera) | ❌ Not started |
+| Citation Platform (IDs, pages, headings, chunk IDs) | ✅ |
+| Inline citations / source highlighting / citation evaluation | ❌ Not started |
+| Prompt Formatter (`DEFAULT`, `NOTEBOOKLM`, `PERPLEXITY`, `RESEARCH`, `AGENT` strategies) | ✅ |
+
+**Deliverable:** ✅ Complete — production context-building pipeline feeding the Generation Platform.
+
+### 2.10 Conversation Memory Platform ✅
+
+| Sub-capability | Status |
+|---|---|
+| Session, user, semantic, and research memory | ✅ |
+| Conversation transcript/history + memory-context injection | ✅ |
+| Owner-scoped Chat history/replay | ✅ |
+| Cost-aware, versioned extraction policy (Groq primary, OpenAI fallback) | ✅ |
+| Explicit-interest immediate promotion; generic topics need two sessions + one bounded LLM validation | ✅ |
+| Compact session state, durable-memory short-circuit, shared query embedding, concurrent semantic/research retrieval | ✅ |
+| Chat context-window compaction (cursor-paginated replay, persisted deterministic summary + newest 12 messages, ADR-030) | ✅ |
+| Research conversation-thread history (`research_conversations`) | ✅ |
+| Representative live-traffic validation of skip rate / empty-extraction rate / P50-P95 latency / cost per 100 turns | 🟡 Remaining operational follow-up, not yet executed |
+
+### 2.11 Knowledge Service (unified orchestration API) ⏳
+
+Planned — not started. Would provide one unified API orchestrating every Knowledge Platform sub-service (currently each is called individually by upstream services).
+
 ---
 
-## Milestone 2.1 — Processing Platform
+## Phase 3 — AI Runtime / Generation Platform ✅
 
-**Status:** ✅ Completed
+**Goal:** Own all LLM interactions; provider-independent runtime consuming the Context Platform's `Prompt Context` output.
 
-Responsibilities
+### 3.1 Provider Platform ✅
 
-- Document parsing
-- Metadata enrichment
-- Statistics enrichment
-- Canonical ProcessedDocument
-- Processing artifacts
-- Queue processing
-- Amazon S3 persistence
+| Provider | Status |
+|---|---|
+| Groq (primary, dev) | ✅ |
+| OpenAI | ✅ |
+| Claude | ✅ |
+| Gemini | ✅ |
+| Ollama | ✅ |
 
-Implemented
+Streaming, retries (exponential backoff), timeouts — all ✅.
 
-- ProcessingService
-- DocumentProcessingService
-- Queue abstraction
-- Retry
-- Dead Letter Queue
-- Docling integration
-- Metadata platform
-- Statistics platform
-- Processing artifacts
+### 3.2 Structured Output Platform ✅
 
-Artifacts
+Native decoding (all 5 providers), parser/repair fallback, Markdown/XML parser registry, optional LangChain `with_structured_output()` path (OpenAI/Claude/Gemini/Ollama — Groq excluded, `langchain-groq` incompatible with pinned `groq` SDK), regenerate-on-invalid-output loop with corrective feedback. ✅ Complete. See `docs/architecture/structured-output-platform.md`.
 
-- processed_document.json
-- parsed.md
-- parsed.txt
+### 3.3 Validation Platform ✅
+
+| Layer | Status |
+|---|---|
+| Input validators (empty prompt, token budget, provider limits, context quality) | ✅ |
+| Output validators (JSON, schema, formatting, completeness, consistency, response size, citation) | ✅ |
+| Hallucination/groundedness validator (no-LLM, deterministic) | ✅ |
+| Runtime contracts (Research, Planner, Reviewer, Agent, MCP) | ✅ registered — Research contract now actively exercised by Phase 4/5; Planner/Reviewer/Agent/MCP remain registered-but-dormant pending real callers |
+| `ValidationRegistry`, weighted scoring, `ValidationReport` | ✅ |
+| Validation Policy Layer (Acceptance / Fail-Fast / Runtime Validation) | ✅ |
+
+### 3.4 Routing Platform ✅
+
+Scored `ModelCatalogRegistry`, 15-value task-based `RoutingStrategy`, capability/policy filtering, weighted scoring engine with explainable reasons, distinct-provider-preferred fallback chain. `GenerationService.generate()` auto-routes when no provider given. See `docs/architecture/model-routing-platform.md`, ADR-026.
+
+Adaptive/evaluation-driven and budget-aware routing, A/B experimentation: ❌ explicitly future work, not MVP scope.
+
+### 3.5 Runtime Caching Platform ✅
+
+| Layer | Status |
+|---|---|
+| L1 Exact Cache (Valkey, content-hash keyed) | ✅ |
+| L2 Semantic Cache (LangChain `RedisSemanticCache`, context-hash isolated) | ✅ |
+| L3 Session Cache (Valkey-backed, general-purpose) | ✅ implemented — 🟡 not yet consumed by any caller (no session-aware runtime existed at build time; Phase 5's Research Runtime is a candidate future caller, not yet wired) |
+| Policy resolution (`CachePolicy`: AUTO/NEVER/EXACT_ONLY/SEMANTIC/SESSION) | ✅ |
+| Streaming cache | ❌ Streaming bypasses cache by design (PRD), not a gap |
+
+See `docs/architecture/runtime-caching-platform.md`, ADR-027.
+
+### 3.6 Guardrails Platform ✅
+
+Standalone package (`apps/api/app/ai/guardrails/`), sibling to `knowledge/`, `runtime/`, `quality/`. Answers "should the system do this?" vs. Validation's "did it work?"
+
+| Stage | Status |
+|---|---|
+| Input Guardrails — prompt injection/jailbreak (P0), scope validation, PII detection | ✅ |
+| Input Guardrails — rate limiting, toxicity | 🟡 Foundation interfaces only (always-allow, no request-counting state or classifier provider yet) |
+| Retrieval Guardrails — Context Sanitization, Source Trust Platform, Citation Integrity | ✅ |
+| Retrieval Guardrails — Access Control | 🟡 Foundation interface, permissive default (no tenant ACL model yet) |
+| Generation Guardrails — Faithfulness Enforcement, Schema Enforcement | ✅ |
+| Generation Guardrails — Moderation | 🟡 Foundation interface, always-allow |
+| Runtime Guardrails — Budget Guardrail, Loop Detection (real algorithm) | ✅ |
+| Runtime Guardrails — Tool Policy, Approval Gate | 🟡 Foundation interfaces only, deliberately unimplemented (future LangGraph-interrupt seam) |
+| **Wiring into `GenerationService` (input + generation stage gates)** | ✅ — **corrected**: two source files claimed this was still unwired; verified present in `apps/api/app/ai/runtime/generation/service.py` |
+| **Wiring into `ContextBuilderService` (retrieval-stage gate)** | ✅ — **corrected**: verified present in `apps/api/app/ai/knowledge/context/service.py` |
+| Wiring into a router/agent runtime for `evaluate_runtime()` | 🟡 Needs a genuine agent-runtime caller — partially addressed by Phase 5's Deep Research graph, not fully exercised yet |
+| LLM-based classifiers (Llama Guard, Lakera, NeMo Guardrails) | ❌ Explicitly deferred past MVP |
+
+113+ unit tests. Two dead scaffolds removed during the build.
+
+### 3.7 Generation Runtime Platform ✅
+
+Thin orchestration layer (`generation/orchestration/`: `context.py`, `state.py`, `interfaces.py`, `orchestrator.py`, `create.py`) giving every runtime caller (Research/Planner/Reviewer/Agent/MCP) one canonical entrypoint — `execute_generation(request, provider=None) -> GenerationResult` / `GenerationRuntime.execute()` — instead of reaching into `GenerationService` directly. No reimplementation, no state machines, no DAGs, no LangGraph duplication. First real caller: Phase 4 (Research API).
+
+### 3.8 Prompt Platform ✅
+
+Disk-loaded templates (`prompt.md` + `metadata.yaml` + `examples.json`), `ChatPromptTemplate` rendering, `PromptRegistry`, versioning, variable extraction/validation. Bridged via `GenerationService.generate_from_template()`.
+
+Prompt evaluation / A/B testing: ❌ Not started.
+
+### 3.9 Artifact Platform 🟡
+
+Canonical, immutable, policy-gated persistence for AI Runtime executions.
+
+| Artifact type | Status |
+|---|---|
+| Generation Artifacts (`GenerationArtifact`) | ✅ |
+| Streaming Artifacts (`StreamArtifact`) | ✅ |
+| Conversation Artifacts (`ConversationTurnArtifact`) | ✅ |
+| Replay services (Generation/Stream) | ✅ real, reconstruct from persisted artifacts |
+| Session / Research / Agent / Evaluation Artifacts | 🟡 built + unit-tested, deliberately unwired at time of original build (`ResearchReplayService` was a `NotImplementedError` stub) — **note:** Research-side wiring has since progressed via Phase 4/5's `research_sessions`/`research_runs` persistence; full replay parity not independently re-verified in this pass |
+| Automated retention/expiry enforcement | ❌ Informational-only |
+
+### 3.10 Observability Platform ✅
+
+Real LangSmith tracing + metrics/statistics/report/artifact layer, wired into both Generation entry points (`generate()` and `stream_generate()` — so Research and Chat both get it) and the Knowledge Processing pipeline. Live-verified against a real LangSmith account/S3 bucket; found and fixed 3 real bugs (streaming path completely dark, missing artifact-policy rule silently dropped research artifacts, tracer never sent real input/output) plus a follow-up (streamed generations never scored for post-generation validation/guardrails — now do, informationally).
+
+Advanced observability (OpenTelemetry, Prometheus, Grafana, Phoenix): ⏳ Deferred to Phase 9.
+
+**Phase 3 Deliverable:** ✅ Provider-independent generation runtime powering every downstream product surface (Chat, Linear Research, Deep Research).
 
 ---
 
-## Milestone 2.2 — Chunking Platform
+## Phase 4 — Research API (Linear) ✅
 
-**Status:** ✅ Completed
+**Goal:** First live, end-to-end, grounded, cited product answer over a user's own documents — deliberately linear (one retrieval + one generation call), ahead of and simpler than the full Deep Research workflow (Phase 5).
 
-Responsibilities
+| Item | Status |
+|---|---|
+| `POST /research` | ✅ |
+| `POST /research/stream` (SSE) | ✅ |
+| `POST /research/citations` | ✅ |
+| `GET /research/{id}` (replay) | ✅ |
+| All routes auth-required, owner-scoped | ✅ |
+| `ResearchService` — composes Retrieval → Context → Generation Runtime → Streaming → Artifacts | ✅ |
+| `research_sessions` Postgres table (replay) | ✅ |
+| `RuntimeType.RESEARCH` / `ArtifactRuntime.RESEARCH` exercised by live code | ✅ |
+| Research frontend integration (`apps/web`, real SSE, `mock-engine.ts` removed) | ✅ — 3 backend bugs found + fixed live (stream-completion event name mismatch, retired Claude model, `temperature` rejected by newer Claude model) |
 
-- Transform processed documents into canonical chunks.
+**Explicitly out of scope for this milestone** (delivered instead by Phase 5): query decomposition/research planning, multi-step research loops, tool calling, evidence synthesis across sub-queries, gap detection/fact verification, report generation, human-in-the-loop approve/reject, LangGraph orchestration.
 
-Implemented
+**Deliverable:** ✅ `POST /research` — authenticated, owner-scoped, citation-backed, streamable, replayable.
 
-### Foundation
+---
 
-- Canonical Chunk model
-- Provenance
-- Statistics
-- Experiment metadata
-- Chunk metadata
+## Phase 5 — Research Runtime / Deep Research ✅
 
-### Architecture
+**Goal:** A third, deliberately separate product path alongside Chat (fast, ungrounded) and Linear Research (fast, one-shot, cited): **proposal → approval → asynchronous multi-step LangGraph investigation → human-reviewed report.** `POST /research`/`/research/stream` (Phase 4) remain architecturally untouched — no runtime flag routes either through LangGraph.
 
-- Provider Pattern
-- Registry
-- Factory
-- ChunkingService
-
-### Providers
-
-- Fixed Chunking
-- Recursive Chunking (LangChain)
-- Markdown Chunking
-- Hierarchical Chunking (LangChain `RecursiveCharacterTextSplitter`, two-pass — parent sections + child chunks; child chunks carry `structure.parent_chunk_id`; parent sections are persisted in the `ChunkArtifact` for `ParentExpansionService` (Milestone 2.8.1) but tagged `is_parent` and excluded from embedding/indexing by `EmbeddingService`) — closes the producer half of Parent/Child Retrieval, whose consumer half (expansion) already existed in the Context Platform
-
-Future Providers
-
-- Semantic
-- LLM
-- Adaptive
-
-### Artifact Platform
-
-- ChunkArtifact
-- ChunkArtifactBuilder
-- ChunkArtifactWriter
-
-Artifacts
+### Flow
 
 ```text
-chunking/
-
-    {strategy}/
-
-        {artifact_id}/
-
-            chunks.json
+POST /research/escalation-check          → optional; classifies a query, suggests Deep
+                                             Research only when it's actually worth it
+POST /research/proposals                  → memory-aware planner (query rewriting via
+                                             `rewritten_goal`); no run/retrieval cost yet
+POST /research/proposals/{id}/approve     → idempotent; creates ResearchRun + outbox dispatch
+  dedicated worker process (apps/worker/research_runtime_worker.py)
+    → Postgres-checkpointed LangGraph:
+        planner → dependency-wave retrieval (Send fan-out)
+        → evidence aggregation → synthesis → deterministic+model review → bounded repair
+        → report-approval interrupt() — a real second human checkpoint
+POST /research/runs/{id}/report-decision  → approve (resumes → report + PDF) or reject
+GET  /research/runs/{id}/events (SSE)     → live-consumed by the Research UI
+GET  /research/runs/{id}/report           → presigned PDF download URL
 ```
 
-### Processing Integration
+### What shipped
 
-Implemented
+| Item | Status |
+|---|---|
+| Memory-aware planning with query rewriting | ✅ |
+| Dependency-wave parallel retrieval (LangGraph `Send` fan-out) | ✅ |
+| Synthesis, deterministic + model review, bounded repair | ✅ |
+| Report-approval `interrupt()` (genuine 2nd human-in-the-loop checkpoint) | ✅ |
+| Checkpoint provisioning, budget enforcement, cancellation, crash-resume, logging | ✅ — closed in a same-day readiness-audit pass |
+| Real per-owner rate limiting across all three product paths (Chat / Linear Research / Deep Research) | ✅ — was previously a total no-op app-wide |
+| Cross-run cache-leakage fix in synthesis/review | ✅ |
+| Research UI Deep Research destination (mode toggle, escalation suggestion, plan review, live SSE progress, report-approval, PDF download) | ✅ |
+| Worker session-staleness bugs (long-lived `AsyncSession` poisoning, stale cached `report_decision` on resume) | ✅ found via manual browser verification (2026-07-23) and fixed, regression-tested |
 
-Processing
+### Not yet built (explicitly retained, not dropped)
 
-↓
+| Item | Status |
+|---|---|
+| Plan edits/rejection before approval | ❌ Not started |
+| Horizontal worker scaling | ❌ Single serial process by default; DB-safe to add more, none currently running |
+| Expiry/auto-reject for a run stuck awaiting report approval | ❌ Not started |
+| MCP / general-purpose agent integration into this runtime | ❌ Deferred per ADR-033 until the single-agent design proves a limitation it can't address |
+| Chat → Deep Research escalation | ❌ **Explicitly out of scope, will not be built** — Chat stays a standalone fast conversational surface. (Do not confuse with the Research-interface Linear → Deep escalation, which *is* built.) |
 
-Chunking
+**In progress, uncommitted as of 2026-07-24:** refinements to the planner/prompts, `run_service.py`, worker bootstrap, `research_run` repository, and structured-output helpers, with new/updated unit tests — incremental hardening, not a new capability.
 
-↓
-
-Chunk Artifact
-
----
-
-### Runtime Evaluation
-
-Initial runtime evaluation completed.
-
-Future runtime metrics will migrate to the Observability Platform.
-
----
-
-### Benchmark Platform
-
-Implemented
-
-- Benchmark framework
-- Registry
-- Runner
-- Dataset Loader
-- Markdown Reports
-- JSON Reports
-- Chunking Benchmark
+See `docs/archive/` source files' equivalent sections, and `PRODUCT_FLOWS_AND_GAPS.md` / `PROJECT_STATUS.md` (if present) for full narrative detail.
 
 ---
 
-## Milestone 2.3 — Embedding Platform
+## Phase 6 — Agentic AI Platform ⏳
 
-**Status:** ✅ Completed
+**Goal:** General-purpose (non-Research-scoped) agent orchestration — distinct from Phase 5's Deep Research, which is a single, purpose-built agent.
 
-Responsibilities
+| Milestone | Status |
+|---|---|
+| Workflow engine (reusable LangGraph graphs beyond Deep Research) | ⏳ Planned |
+| Planner abstraction (general-purpose, not Research-specific) | ⏳ Planned |
+| Agent runtime (Research/Retrieval/Summarization/Review/Report agents as reusable units) | ⏳ Planned |
+| Workflow state management | ⏳ Planned |
+| Human interrupts (generalized beyond Phase 5's report-approval seam) | ⏳ Planned |
+| Checkpointing (generalized) | ⏳ Planned |
+| Multi-agent collaboration (Planner/Researcher/Reviewer/Critic/Writer) | ⏳ Planned |
+| Agent evaluation (task completion, planning quality, tool success, recovery) | ⏳ Planned |
+| Coding Agent, Data Analysis Agent | ⏳ Future |
 
-Transform canonical chunks into canonical vector embeddings.
+**Status note:** Deliberately deferred (ADR-033) until Phase 5's single-agent Research Runtime design proves a limitation it can't address on its own.
 
-Implemented
+---
 
-### Foundation
+## Phase 7 — MCP Ecosystem ⏳
 
-- Canonical Embedding model
-- Provider metadata
-- Experiment metadata
-- Statistics
-- Provenance
-
-### Architecture
-
-- Provider Pattern
-- Registry Pattern
-- Factory Pattern
-- Composition Root (`create.py`)
-- Framework Independence
-
-### Providers
-
-Implemented
-
-Local
-
-- Sentence Transformers
-
-Cloud
-
-- Voyage AI
-- OpenAI
-
-Planned
-
-- BGE
-- Instructor
-- Nomic
-
-No additional providers are planned until the core RAG pipeline is completed.
-
-### Shared Batching
-
-A single reusable batching utility, `EmbeddingBatcher`, is shared by every embedding provider.
-
-Responsibilities
-
-- Stream batches lazily
-- Provider-independent batching
-- Configurable batch sizes
-
-Default configuration
-
-| Provider | Batch Size |
-|-----------|-----------:|
-| Sentence Transformers | 64 |
-| Voyage AI | 32 |
-| OpenAI | 128 |
-
-### Artifact Platform
-
-Implemented
-
-- EmbeddingArtifact
-- EmbeddingArtifactBuilder
-- EmbeddingArtifactWriter
-
-Artifacts
+**Goal:** Connect ResearchMind to external capabilities via the Model Context Protocol — ResearchMind should never depend directly on external services.
 
 ```text
-embeddings/
-
-    {provider}/
-
-        {artifact_id}/
-
-            embeddings.json
+Planner → MCP Manager → Capability Routing → External MCP Servers
 ```
 
-### Processing Integration
+| Milestone | Status |
+|---|---|
+| MCP client (protocol, session lifecycle, auth, connection management) | ⏳ Planned |
+| MCP registry | ⏳ Planned |
+| MCP manager (discovery, routing, health monitoring, failover, permissions) | ⏳ Planned |
+| Research MCP (academic search, paper retrieval, DOI/citation lookup) | ⏳ Planned |
+| Development MCP (GitHub, docs, package lookup) | ⏳ Planned |
+| Domain MCPs (Climate, Earthquake, Space, Crypto, Finance, Healthcare) | ⏳ Planned |
+| MCP evaluation (tool latency, success/failure rate, availability) | ⏳ Planned |
 
-Implemented
-
-```text
-Processing
-
-↓
-
-Chunking
-
-↓
-
-Embedding
-```
-
-### Verification
-
-Completed
-
-Verified
-
-- Processing
-- Chunk generation
-- Embedding generation (Sentence Transformers, Voyage AI, OpenAI)
-- Shared batching
-- Runtime metrics
-- Artifact persistence
-- Amazon S3 persistence
-- Configuration fingerprints
-- Provider metadata
-- Canonical models
-
----
-
-### Documentation
-
-Completed
-
-Architecture
-
-- Embedding Platform Architecture
-
-Engineering Journal
-
-- Embedding Platform
-
-ADR
-
-- ADR-008 — Canonical AI Platform Pipeline
-
----
-
-## Milestone 2.4 — Observability Platform
-
-**Status:** 🚧 Runtime Metrics Foundation Complete — Full Platform Deferred
-
-The Observability Platform provides standardized engineering visibility across every AI platform within ResearchMind.
-
-Unlike the Knowledge Platform, which performs AI operations, the Observability Platform measures, reports, and monitors those operations.
-
-It is intentionally designed as a **cross-cutting platform** rather than a feature inside individual AI platforms.
-
-Rather than implementing the full platform immediately, a lightweight **Runtime Metrics Foundation** was introduced first, providing standardized engineering metrics while avoiding unnecessary complexity. The remaining, more advanced Observability Platform work is intentionally deferred until after the core AI pipeline is complete.
-
----
-
-### Responsibilities
-
-- Runtime Evaluation
-- Stage Metrics
-- Pipeline Metrics
-- Performance Measurement
-- Resource Monitoring
-- Cost Tracking
-- Token Tracking
-- Tracing
-- Telemetry
-
----
-
-### Runtime Metrics Foundation
-
-**Status:** ✅ Completed
-
-```text
-RuntimeMetricsCollector
-
-↓
-
-ProcessingService
-
-↓
-
-RuntimeReportGenerator
-```
-
-Every pipeline stage exposes:
-
-- Execution duration
-- Stage duration
-- Peak memory
-- Artifact size
-- Provider
-- Provider version
-
-Metrics include:
-
-Performance
-
-- Execution duration
-- Stage latency
-- Pipeline duration
-
-Memory
-
-- Peak memory
-- Average memory
-
-Artifacts
-
-- Artifact size
-- Artifact count
-
-Provider
-
-- Provider
-- Provider version
-
-Runtime metrics provide immediate engineering visibility while allowing advanced observability to remain a future enhancement.
-
----
-
-### Future Scope — Full Observability Platform
-
-**Status:** Deferred
-
-- Provider costs
-- Token usage
-- Queue latency
-- Worker metrics
-- GPU utilization
-- Distributed tracing
-- OpenTelemetry
-- Prometheus
-- Grafana
-
----
-
-### Integration
-
-Observability integrates with the production pipeline.
-
-```text
-Processing
-
-↓
-
-Chunking
-
-↓
-
-Embedding
-
-↓
-
-Observability
-
-↓
-
-Runtime Metrics
-
-↓
-
-Pipeline Report
-```
-
-Business platforms remain unaware of instrumentation.
-
----
-
-### Documentation
-
-Completed
-
-Architecture
-
-- Observability Platform Architecture
-
-Engineering Journal
-
-- Observability Platform Design
-
-ADR
-
-- ADR-016 — Observability Platform
-
-Roadmap
-
-- Observability Platform Roadmap
-
----
-
-## Milestone 2.5 — Vector Store Platform
-
-**Status:** ✅ Completed
-
-The Vector Store Platform transforms canonical embeddings into searchable vector indexes.
-
-It abstracts vector database providers behind a common interface while exposing canonical persistence artifacts.
-
----
-
-### Responsibilities
-
-- Vector indexing
-- Metadata indexing
-- Collection management
-- Similarity search abstraction
-- Index persistence
-
----
-
-### Providers
-
-Implemented: **Qdrant** (see ADR-017 — Vector Store Platform Architecture). ChromaDB/pgvector/Pinecone/Weaviate were candidates considered but not built.
-
----
-
-### Planned Architecture
-
-```text
-EmbeddingArtifact
-
-↓
-
-VectorStoreService
-
-↓
-
-VectorStoreRegistry
-
-↓
-
-VectorStoreProvider
-
-↓
-
-VectorStoreArtifactBuilder
-
-↓
-
-VectorStoreArtifact
-```
-
----
-
-### Canonical Artifact
-
-```text
-VectorStoreArtifact
-```
-
----
-
-## Milestone 2.6 — Retrieval Platform
-
-**Status:** ✅ Completed (Foundation + Metadata Filtering + Reranking + 3-way Parallel Retrieval); only Multi-query/query decomposition remains planned
-
-The Retrieval Platform retrieves relevant knowledge from vector stores using multiple retrieval strategies.
-
----
-
-### Responsibilities
-
-- ✅ Dense Retrieval
-- ✅ Hybrid Retrieval (Reciprocal Rank Fusion of dense + sparse + metadata)
-- ✅ Metadata Filtering (`owner_id`, `document_id`, `filename`, `language`; server-enforced `owner_id` scoping from the authenticated user)
-- ✅ Metadata Retrieval — `QdrantRetrievalProvider.search_metadata()`, a pure filter-only `scroll()` lookup (no vector similarity); short-circuits to empty when no filters are present, since an unfiltered scroll would ignore tenant scoping
-- ✅ Parallel Retrieval — dense + sparse + metadata all executed concurrently via a single `asyncio.gather()` in `RetrievalService.search_hybrid()`, then fused together by RRF (`RetrievalStatistics.metadata_latency_ms` added alongside `dense_latency_ms`/`sparse_latency_ms`)
-- ✅ Parent/Child Retrieval — genuinely end-to-end as of this session: the Chunking Platform's Hierarchical provider (Milestone 2.2) produces parent sections + child chunks; the Context Platform's Parent Expansion (Milestone 2.8.1) resolves a retrieved child's `parent_chunk_id` back into full parent context. Reclassified into the Context Platform since chunk artifacts, not the vector index, are the source of truth for parent resolution — but the previously-missing producer half is now implemented
-- ✅ Citation Retrieval — implemented as the Context Platform's Citation Platform (Milestone 2.8): citation IDs, pages, headings, chunk IDs
-
----
-
-### Strategies
-
-- ✅ Dense Vector Search
-- ✅ Hybrid Search
-- ✅ Metadata Filtering
-- ✅ Metadata Retrieval (filter-only `scroll()`, no vector)
-- ✅ Parallel Retrieval (dense + sparse + metadata via `asyncio.gather`)
-- ✅ Parent/Child (Parent Document) Retrieval — chunking side in Milestone 2.2, expansion side in Context Platform (Milestone 2.8.1)
-- ❌ Multi-query Retrieval — moved to future Research Runtime (query decomposition)
-
----
-
-### Planned Architecture
-
-```text
-VectorStoreArtifact
-
-↓
-
-RetrievalService
-
-↓
-
-RetrievalRegistry
-
-↓
-
-RetrievalProvider
-
-↓
-
-RetrievalArtifactBuilder
-
-↓
-
-RetrievalArtifact
-```
-
----
-
-### Canonical Artifact
-
-```text
-RetrievalArtifact
-```
-
----
-
-## Milestone 2.7 — Reranking Platform
-
-**Status:** ✅ Completed (Foundation)
-
-The Reranking Platform improves retrieval quality by reordering retrieved documents before they are supplied to downstream language models.
-
----
-
-### Responsibilities
-
-- ✅ Candidate reranking
-- ❌ Multi-stage retrieval
-- ✅ Provider abstraction (`RerankingProviderInterface`, registry, service)
-- ❌ Score normalization
-
----
-
-### Providers
-
-Implemented
-
-- ✅ Voyage AI (`rerank-2`) — wired into `RetrievalService.search_hybrid(rerank=True)` by default
-- ✅ Cross Encoder (local `BAAI/bge-reranker-base`, sentence-transformers)
-
-Future
-
-- Jina AI
-- Cohere
-
-**Finding** (see `benchmarks/reranking/`): on the current benchmark corpus, reranking left Recall@5 unchanged (already 1.0) while lifting MRR and NDCG@5 substantially — exactly the effect reranking is expected to have, since it improves ordering rather than recall. The free local CrossEncoder outperformed paid Voyage AI reranking on this small corpus.
-
----
-
-### Planned Architecture
-
-```text
-RetrievalArtifact
-
-↓
-
-RerankingService
-
-↓
-
-RerankingRegistry
-
-↓
-
-RerankingProvider
-
-↓
-
-RerankingArtifactBuilder
-
-↓
-
-RerankingArtifact
-```
-
----
-
-### Canonical Artifact
-
-```text
-RerankingArtifact
-```
-
----
-
-## Milestone 2.8 — Context Platform
-
-**Status:** 🟡 ~95% Complete
-
-The Context Platform sits between Reranking and Generation. It enriches, deduplicates, compresses, guards, cites, and formats retrieved knowledge before it reaches an LLM. Parent/child expansion was reclassified here from the Retrieval Platform once it became clear that ResearchMind's persisted chunk artifacts — not the vector index — are the source of truth for parent resolution.
-
-Until this session, Parent Expansion had no producer: nothing set `structure.parent_chunk_id` on any chunk, so the resolution logic below was live-wired but never actually triggered. The Chunking Platform's new Hierarchical provider (Milestone 2.2) now produces that structure, making Parent/Child Retrieval genuinely end-to-end for the first time.
-
----
-
-### Responsibilities
-
-- ✅ Parent Expansion
-- ✅ Adjacent Merge
-- ✅ Compression (Token Budget + Embedding + LangChain + LLM, V1-V4)
-- ✅ Context Guardrails (V1)
-- ✅ Citation Building
-- ✅ Prompt Formatting (strategy-based)
-
----
-
-### 2.8.1 Parent Expansion
-
-**Status:** ✅ Complete — now genuinely end-to-end (producer + consumer)
-
-- `ChunkArtifactReader` — loads persisted chunk artifacts from storage
-- `ParentExpansionService` — resolves `parent_chunk_id` into full parent context
-- Vector payload extended with `chunk_artifact_id`, `chunking_strategy`, `parent_chunk_id`
-- **Producer (new):** `HierarchicalChunkingProvider` (Milestone 2.2) — parent sections + child chunks via two-pass LangChain `RecursiveCharacterTextSplitter`; only children are embedded/indexed (`EmbeddingService` excludes chunks tagged `is_parent`), so parents exist purely in the persisted `ChunkArtifact` for this service to resolve against
-
----
-
-### 2.8.2 Adjacent Merge
-
-**Status:** ✅ Complete
-
-- `AdjacentMergeService` — merges adjacent chunks into a single richer context block (NotebookLM-style)
-
----
-
-### 2.8.3 Compression Platform
-
-**Status:** ✅ Complete (V1-V4, Phase 3.7 per `context_platform_complexion_prd.md`)
-
-Implemented
-
-- ✅ Token Budget Provider (V1) — sort by score, fit into token budget
-- ✅ Embedding Compression Provider (V2) — drop chunks above a similarity threshold
-- ✅ LangChain Provider (V3) — query-aware extraction via `ContextualCompressionRetriever` + `LLMChainExtractor` (`langchain-classic`); wired into `ContextBuilderService.build()`'s default pipeline, gated by `settings.enable_langchain_compression` and gated on a `query` being passed
-- ✅ LLM Compression Provider (V4) — per-chunk, query-aware relevant-summary compression via `GenerationService.generate()`; never drops a chunk, falls back per-chunk to original content on failure; registered but not part of `build()`'s default pipeline
-
----
-
-### 2.8.4 Context Guardrails
-
-**Status:** ✅ V1 Complete
-
-- Provider architecture
-- `RuleBasedGuardrailProvider`
-- Risk scoring
-- Guardrail statistics
-
-Future: LlamaGuard, NeMo Guardrails, Lakera.
-
----
-
-### 2.8.5 Citation Platform
-
-**Status:** ✅ Complete
-
-- Citation IDs, page numbers, headings/heading paths, chunk IDs
-
-Future: inline citations, source highlighting, citation evaluation.
-
----
-
-### 2.8.6 Prompt Formatter
-
-**Status:** ✅ Complete
-
-Strategy-based prompt formatting — different downstream consumers need different knowledge representations. Stays a Context Platform concern, separate from Generation Platform prompt templates.
-
-Providers: `DEFAULT`, `NOTEBOOKLM`, `PERPLEXITY`, `RESEARCH`, `AGENT`.
-
----
-
-### Exit Criteria
-
-- ✅ Parent Expansion operational
-- ✅ Adjacent Merge operational
-- 🟡 Compression Platform (3 of 4 providers complete)
-- ✅ Guardrails V1 operational
-- ✅ Citation Platform operational
-- ✅ Prompt Formatter operational
-
----
-
-## Milestone 2.9 — Conversation Memory Platform
-
-**Status:** ✅ Complete — optimized runtime; staged live-traffic validation remains the operational follow-up.
-
-Provides conversational memory capabilities for downstream AI systems.
-
----
-
-### Responsibilities
-
-- Session memory
-- Long-term memory
-- Context management
-- Memory retrieval
-- Context compression
-
----
-
-### Planned Capabilities
-
-- ✅ Session, user, semantic, and research memory
-- ✅ Conversation transcript/history and memory-context injection
-- ✅ Owner-scoped Chat history/replay (`GET /chat/conversations`, `GET /chat/conversations/{id}`)
-- ✅ Cost-aware, versioned extraction policy: only eligible final user-facing turns reach the extraction LLM; Groq primary with OpenAI fallback
-- ✅ Explicit durable interests can be promoted immediately; generic topics require two distinct sessions and one bounded LLM validation/claim
-- ✅ Compact session state, durable-memory availability short-circuit, one shared query embedding, and concurrent semantic/research retrieval
-- ✅ Structured memory decisions/failures/latencies and owner-scoped answer-versus-memory cost accounting
-- ✅ Chat context-window optimization — canonical replay is cursor-paginated (50 default / 100 maximum) and prompt history uses a persisted deterministic summary plus the newest 12 messages; no canonical rows are removed and no summarization LLM is called (ADR-030)
-- 🟡 Validate skip rate, empty-extraction rate, P50/P95 memory latency, and extraction cost per 100 answer turns from representative staging/production traffic
-
----
-
-## Milestone 2.10 — Knowledge Service
-
-**Status:** Planned
-
-The Knowledge Service provides the unified API that orchestrates every platform inside the Knowledge Platform.
-
----
-
-### Responsibilities
-
-- Knowledge orchestration
-- Context assembly
-- Unified retrieval API
-- Citation assembly
-- Pipeline orchestration
-
----
-
-### Production Knowledge Flow
-
-```text
-Upload
-
-↓
-
-Processing
-
-↓
-
-Chunking
-
-↓
-
-Embedding
-
-↓
-
-Vector Store
-
-↓
-
-Retrieval
-
-↓
-
-Reranking
-
-↓
-
-Knowledge Service
-```
-
----
-
-# Phase 3 — Research Engine
-
-The Research Engine consumes the Knowledge Platform and generates trustworthy research outputs.
-
-Unlike the Knowledge Platform, which prepares knowledge, the Research Engine reasons over that knowledge.
-
-Context Assembly and the Citation Engine are already delivered by the Context Platform (Milestone 2.8). The Generation Platform (Milestone 3.1) and the Generation Runtime Platform (Milestone 3.3) are both complete. The Research API Platform (Milestone 3.4) now delivers Phase 3's first live, end-to-end research answer — deliberately linear (no decomposition/planning/agents yet); that broader scope remains this phase's next work (see Milestone 3.4's own "Remaining" list).
-
----
-
-## Milestone 3.1 — Generation Platform
-
-Status: ✅ Complete, per `generation_platform_complexion_prd.md`
-
-Completed
-
-- Provider Platform
-- Structured Output Platform
-- Validation Platform (incl. all five runtime contracts and every PRD output validator)
-- Runtime Validation Platform
-- Validation Policy Layer (Acceptance/Fail-Fast/Runtime Validation)
-- Prompt Template Integration
-- Routing Platform
-- Runtime Caching Platform
-- Streaming Platform (incl. `POST /api/v1/chat/stream` / `/api/v1/chat/ws`)
-- Regeneration Platform
-- Runtime Metrics Integration
-- Generation Artifacts (incl. `metrics.json`)
-
-Remaining
-
-- None for this milestone — the `POST /research` API that was previously listed here is now delivered by Milestone 3.4 — Research API Platform, calling this platform through Milestone 3.3 — Generation Runtime Platform's canonical entrypoint
-
-### Goal
-
-Own all LLM interactions, consuming the Context Platform's `Prompt Context` output.
-
-### Architecture
-
-```text
-generation/
-
-    interfaces.py
-    models.py
-    service.py
-    registry.py
-    create.py
-
-    providers/
-
-        groq.py
-        openai.py
-        claude.py
-        gemini.py
-        ollama.py
-
-    structured_output/    # registry, parsers, repair — connected end-to-end
-    validation/            # ValidationRegistry, ValidationService, scoring, input/output/hallucination/runtime validators, 5 runtime contracts
-    policies/               # AcceptancePolicy, FailFastPolicy, RuntimeValidationPolicy
-    observability/          # GenerationMetricsSnapshot, GenerationMetricsService
-    langchain/              # with_structured_output() bridge (4/5 providers)
-    prompts/                # template platform (pre-existing), now bridged in
-    catalog/                # scored ModelMetadata + ModelCatalogRegistry
-    routing/                # RoutingService — strategies, scoring, fallback chains
-```
-
-### Milestones
-
-- ✅ Generation Core (interfaces, models, service, registry, composition root)
-- ✅ Providers — Groq, OpenAI, Claude, Gemini, Ollama
-- ✅ Structured Output — native provider decoding (all 5), parser/repair
-  fallback, Markdown/XML registry connection, optional LangChain
-  `with_structured_output()` path (OpenAI/Claude/Gemini/Ollama — Groq
-  excluded, `langchain-groq` incompatible with the pinned `groq` SDK),
-  regenerate-on-invalid-output loop with corrective feedback
-- ✅ Validation Platform Integration — Complete
-
-#### Input Validation
-- Empty Prompt Validator
-- Token Budget Validator
-- Provider Limits Validator
-- Context Validation Validator
-
-#### Output Validation
-- JSON Validator
-- Schema Validator
-- Formatting Validator
-- Completeness Validator
-- Consistency Validator
-- Response Size Validator
-- Citation Validator
-
-#### Hallucination Validation
-- Groundedness Validator
-- Citation Faithfulness Checks
-
-#### Runtime Validation
-- Runtime Validation Stage
-- RuntimeRegistry
-- RuntimeValidationService
-- Runtime Contracts — Research, Planner, Reviewer, Agent, MCP
-- Generic Runtime Validators (incl. Dependency Validator)
-
-#### Scoring
-- Weighted Validation Scoring
-- Overall Validation Score
-- ValidationReport Aggregation
-
-#### Validation Policy Layer
-- AcceptancePolicy (Accept/Reject/Regenerate)
-- FailFastPolicy (pre-flight input-validation gate before the provider call)
-- RuntimeValidationPolicy (opt-in runtime-contract regeneration gate)
-
-#### Metrics
-- generation.started / generation.completed / generation.failed
-- validation.started / validation.completed
-- provider.started / provider.completed
-- runtime.validation.started / runtime.validation.completed / runtime.validation.failed
-- `GenerationMetricsService` — request/execution/token/cost/validation/guardrail metrics, Prometheus-ready counters
-
-#### Testing
-- Unit tests
-- Integration tests
-- Runtime validation tests
-
-- ✅ Prompt Templates — bridged via `generate_from_template()`, reusing
-  the pre-existing `generation/prompts/` platform (LangChain
-  `ChatPromptTemplate`-based)
-- ✅ Output Parsers — `PydanticOutputParser`/`JsonOutputParser` (LangChain,
-  via `structured_output/parsers/` and the format-instructions step)
-- ✅ Streaming — per-provider `stream()`, plus `POST /api/v1/chat/stream` (SSE) and `/api/v1/chat/ws` (WebSocket)
-- ✅ Routing Platform — scored `ModelCatalogRegistry` (12 models), a
-  15-value task-based `RoutingStrategy`, capability/policy filtering,
-  a weighted scoring engine with explainable reasons, and a
-  distinct-provider-preferred fallback chain; `GenerationService.generate()`
-  routes automatically (with fallback retry) when no `provider` is given
-- ✅ Runtime Caching Platform — L1 Exact Cache (Valkey), L2 Semantic
-  Cache (LangChain `RedisSemanticCache` against a dedicated
-  `redis-stack-server` instance, context-isolated), L3 Session Cache
-  (implemented, not yet wired to a caller), and a `CachePolicyResolver`
-  (AUTO/NEVER/EXACT_ONLY/SEMANTIC/SESSION per `CacheRuntime`); wired
-  directly into `GenerationService` — see `runtime_caching_platform_prd.md`,
-  ADR-027
-- ✅ Artifacts — `GenerationArtifact` (request/response/metadata/metrics/
-  validation/guardrails/routing/cache.json), persisted on every
-  `generate()` call
-- ✅ `POST /research` API — delivered by Milestone 3.4 — Research API Platform (below), via Milestone 3.3 — Generation Runtime Platform
-
-Detail: `docs/architecture/structured-output-platform.md`.
-
-### Deliverable
-
-Provider-independent generation runtime powering the first end-to-end research answers.
-
----
-
-## Milestone 3.2 — LangChain Adoption for Generation
-
-**Status:** 🟡 Mostly Complete for Structured Output — Prompt Templates,
-Output Parsers, and a `with_structured_output()` path are implemented;
-LCEL composition and streaming-specific LangChain usage remain.
-
-Introduced:
-
-- ✅ Prompt Templates — `ChatPromptTemplate` (pre-existing Prompt Platform)
-- ✅ Output Parsers — `PydanticOutputParser`, `JsonOutputParser`
-- ✅ `with_structured_output()` — `generation/langchain/output_parsers.py`
-  (OpenAI, Claude, Gemini, Ollama)
-- ❌ LCEL — not adopted
-- ❌ Streaming — provider streaming is native-SDK-based, not LangChain-based
-
-Frameworks remain implementation details behind the Generation Platform's provider interfaces.
-
----
-
-## Milestone 3.3 — Generation Runtime Platform
-
-Status: ✅ Complete, per `generation_runtime_platform_prd.md`
-
-Completed
-
-- `generation/orchestration/` (`context.py`, `state.py`, `interfaces.py`, `orchestrator.py`, `create.py`)
-- Canonical entrypoint — `execute_generation(request, provider=None) -> GenerationResult` and `GenerationRuntime.execute()`
-- FastAPI dependency — `get_generation_runtime()`
-- 11 new unit tests, all passing
-
-### Goal
-
-Give every future runtime caller (Research/Planner/Reviewer/Agent/MCP) one canonical entrypoint into the Generation Platform instead of each reaching into `GenerationService` directly, tagging `GenerationRequest.runtime` to identify themselves.
-
-### Notes
-
-Deliberately thin — it does not re-implement anything. `GenerationService.generate()` already runs the full frozen ordering (input validation → input guardrails → routing → cache → provider execution → structured outputs → generation guardrails → output validation → runtime validation → metrics → artifacts) delivered by Milestone 3.1; this platform only orchestrates that call. Explicit Non-Goals honored: no state machines, no DAGs, no LangGraph duplication.
-
-### Deliverable
-
-One canonical Generation Runtime entrypoint, now the first real caller of which is Milestone 3.4 — Research API Platform.
-
----
-
-## Milestone 3.4 — Research API Platform
-
-Status: ✅ Complete, per `research_api_prd.md` — **the first live, end-to-end product surface in ResearchMind.** For the first time, a user can upload documents, ask a question, and get a grounded, cited, streamable answer back — the "NotebookLM + Perplexity" product vision.
-
-Completed
-
-- Routes — `POST /research`, `POST /research/stream` (SSE), `POST /research/citations`, `GET /research/{id}` (replay). All auth-required, all owner-scoped.
-- `ResearchService` (`apps/api/app/ai/research/service.py`) — composes, for the first time in one flow, the Retrieval Platform (hybrid search + rerank) → Context Platform (dedup/expand/merge/compress/cite) → Generation Runtime Platform (Milestone 3.3 — its first real caller) → Streaming Platform (for `/research/stream`) → Artifact Platform (best-effort persistence, via the previously-unwired Research artifact writer)
-- New Postgres table `research_sessions` (model + repository + Alembic migration `37117c83beb2_create_research_sessions_table`) — the first persistent, replayable Q&A history in the product
-- `RuntimeType.RESEARCH` (Runtime Validation Platform) and `ArtifactRuntime.RESEARCH` (Artifact Platform) go from reserved-but-unused enum values to actually-exercised-by-live-code
-- 23 new tests (unit + integration), full suite passing, ruff/mypy clean
-
-Remaining
-
-- Query decomposition, research planning/multi-step loops, agents, LangGraph — deliberately out of scope per this milestone's own PRD Non-Goals; named as what comes next: a Research Runtime, a Deep Research Runtime, and an Agent Platform (Phase 4 — Agentic AI Platform, below)
-
-### Goal
-
-Deliver the first complete, grounded, cited question-answering product experience over a user's own documents.
-
-### Deliverable
-
-`POST /research` — a real, authenticated, owner-scoped, citation-backed research answer, streamable and replayable.
-
----
-
-## Milestone 3.5 — Research Frontend Integration
-
-Status: ✅ Complete — `apps/web`'s Research page now consumes the live Research API instead of a mock.
-
-Completed
-
-- Deleted `apps/web/src/features/research/mock-engine.ts`; added `use-research.ts` (per-turn state machine: `searching` → `generating` → `done`/`error`; now server-backed conversation history via `/research/conversations`) and `lib/sse.ts` (a `fetch` + `ReadableStream` SSE client — not a bare `EventSource`, since this platform's auth is a bearer token `EventSource` can't attach)
-- New `citation-card.tsx`; `research-block`/`research-composer`/`research-sidebar`/`source-card`/`source-panel`/`streaming-status`/`types.ts`/`lib/api.ts` updated to the real API contract
-
-### Findings — three backend bugs found and fixed while validating against live infra
-
-1. `ResearchService.stream_research()` checked only `CoreEventType.COMPLETE` ("complete") to detect "generation finished," but a live (non-cache-hit) provider stream actually emits `StreamEventType.COMPLETED` ("completed") — `CoreEventType.COMPLETE` is cache-hit-replay-only. Every real streamed research turn silently never wrote its `research_sessions` row. Fixed by checking both values.
-2. `claude-sonnet-4` and its dated `-20250514` snapshot are fully retired from the configured Anthropic account (confirmed against `GET /v1/models`). Updated every hardcoded reference (`.env`, `.env.example`, `core/settings.py`, `generation/config.py`, `generation/catalog/models.py`, `generation/prompts/service.py`, `generation/observability/token_counter.py`) to `claude-sonnet-5`.
-3. `claude-sonnet-5` rejects the `temperature` parameter outright (400, effort-based reasoning model, not classic sampling). `ClaudeProvider` now retries once without `temperature` on that specific error instead of hardcoding a model-name list.
-
-### To-Do / Open Items
-
-- Chat now has a separate `/chat` surface with server-backed conversation list/replay, full-title tooltips, and first-question Groq titles. Remaining Chat work is query rewriting and retrieval/citations, not a frontend/history gap.
-- `_sse_byte_stream` (`runtime/generation/streaming/transports/sse.py`) only catches `TimeoutError`/`StopAsyncIteration` around `events.__anext__()` — any other exception propagates unhandled and silently kills the SSE connection with no client-visible `error` event. Not yet hardened.
-- No automated check for upstream model deprecations — Finding 2 above was only caught via a live 404 during manual testing, not proactively.
-
----
-
-## Milestone 11.16 — Guardrails Platform
-
-**Status:** ✅ Complete (MVP Foundation, per `guardrails_platform_prd.md`)
-
-A new, standalone, platform-wide package (`apps/api/app/ai/guardrails/`, sibling to `knowledge/`, `runtime/`, `quality/`) answering a different question than the Validation Platform: not "did the system produce a good output?" but "should the system even perform this operation?" Spans Input → Retrieval → Generation → Runtime stages, built to the same conventions as the Validation Platform (deterministic checks, a crash-safe `GuardrailService`, weighted risk scoring, an `@lru_cache` composition root).
-
-```text
-User
- ↓
-Input Guardrails
- ↓
-Planner
- ↓
-Retrieval
- ↓
-Retrieval Guardrails
- ↓
-Context Platform
- ↓
-Generation
- ↓
-Generation Guardrails
- ↓
-Runtime Guardrails
- ↓
-Reflection / Evaluation
-```
-
-### 11.16.1 Foundation
-
-**Status:** ✅ Complete
-
-- `models.py`/`enums.py`/`interfaces.py` — `GuardrailIssue`, `GuardrailResult`, `GuardrailReport`; one ABC per stage
-- `GuardrailRegistry` — per-stage ordered registration, mirrors `ValidationRegistry`
-- `GuardrailService` — `evaluate_input()`/`evaluate_retrieval()`/`evaluate_generation()`/`evaluate_runtime()`/`evaluate()`; a crashing guardrail becomes a WARNING issue rather than propagating
-- `policies/` — `FailPolicy`, `RiskPolicy`, `RegenerationPolicy`, `RuntimePolicy`
-- `scoring/` — weighted `overall_risk` (0.30/0.30/0.20/0.20 input/retrieval/generation/runtime), renormalized over whichever stages scored
-- `artifacts/` — `GuardrailArtifactWriter`, persisting `guardrails/{run_id}/{input,retrieval,generation,runtime,report}.json`
-- `create.py` — `get_guardrail_service()`, the integration seam for future callers
-
-### 11.16.2 Input Guardrails
-
-**Status:** ✅ Complete (P0 items) / 🟡 Foundation (rate limit, toxicity)
-
-- ✅ Prompt Injection / Jailbreak detection (P0)
-- ✅ Scope Validation (off-topic heuristic, WARNING-only by design)
-- ✅ PII Detection (foundation regex)
-- 🟡 Rate Limiting, Toxicity — foundation interfaces, always-allow (no request-counting state or classifier provider exists yet)
-
-### 11.16.3 Retrieval Guardrails
-
-**Status:** ✅ Complete (P0/P1 items) / 🟡 Foundation (access control)
-
-- ✅ Context Sanitization (P0) — composes the pre-existing `ContextGuardrailService`/`RuleBasedGuardrailProvider` (Milestone 2.8.4) rather than duplicating it
-- ✅ Source Trust Platform (P1, new) — `SourceType` enum, `TrustRegistry`, trust policies/scoring; defaults every chunk to `USER_DOCUMENT` since no source-type field exists on `ContextChunk` yet
-- ✅ Citation Integrity — deterministic existence check, complementary to the Validation Platform's fabricated-citation-marker check
-- 🟡 Access Control — foundation interface, permissive default (no tenant isolation/document ACL model exists yet)
-
-### 11.16.4 Generation Guardrails
-
-**Status:** ✅ Complete (P1 items) / 🟡 Foundation (moderation)
-
-- ✅ Faithfulness Enforcement (P1) — wraps the Validation Platform's `HallucinationValidator`, reinterpreting low groundedness as ERROR (regenerate-worthy) rather than Validation's advisory WARNING
-- ✅ Schema Enforcement — wraps `SchemaValidator`/`JsonValidator`, per the PRD's explicit reuse instruction
-- ✅ PII Leakage (foundation regex, same table as the input-side check)
-- 🟡 Moderation — foundation interface, always-allow (PRD explicitly skips real moderation providers for MVP)
-
-### 11.16.5 Runtime Guardrails
-
-**Status:** ✅ Complete (P1 items) / 🟡 Foundation (tool policy, approval gate)
-
-- ✅ Budget Guardrail (P1, "implement immediately") — max_tokens/max_cost/max_tool_calls/max_iterations/max_runtime_seconds, independent threshold + near-limit warning checks
-- ✅ Loop Detection — foundation depth, real algorithm (max-iterations + repeated-execution-state-hash detection)
-- 🟡 Tool Policy — foundation interface, allow-all default
-- 🟡 Approval Gate — `ApprovalRequest`/`ApprovalResponse` + `ApprovalGateInterface` only, deliberately unimplemented and unregistered (the future LangGraph-interrupt seam, PRD §19)
-
-### Dead Code Removed
-
-Two empty, zero-reference scaffolds discovered during this work: `app/ai/guardrails/{policies.py,scanners.py}` and the entire (all 0-byte) `app/ai/runtime/generation/guardrails/` tree.
-
-### Testing
-
-113 new unit tests under `tests/unit/ai/guardrails/`, mirroring the Validation Platform's test-tree conventions. Full repo suite (744 tests), `ruff format --check`, `ruff check`, and `mypy` all pass clean.
-
-### Not Yet Built (by design — matches PRD MVP scope)
-
-- ❌ LLM-based classifiers (Llama Guard, Lakera, NeMo Guardrails) — explicitly skipped for MVP
-- ❌ Wiring into `GenerationService`, the context builder, or a router (PRD's "Phase 6 — Generation Integration", intentionally deferred, same as the Validation Platform)
-- ❌ Enterprise ACL / multi-tenant Access Control, real Tool Policy providers, a working Approval Gate implementation (LangGraph interrupts/checkpoints)
-- ❌ Security dashboards, attack datasets, red-teaming
-
-### Deliverable
-
-A complete, tested, standalone safety/policy layer ready to be wired into the Generation Platform and future Research Runtime without further architectural refactoring — matches the PRD's explicit goal of shipping interfaces/contracts for Research Runtime, Multi-Agent Runtime, MCP Platform, and Enterprise Multi-Tenancy ahead of those platforms existing.
-
----
-
-## Research Capabilities
-
-**Status:** ❌ Not Started
-
-- Retrieval-Augmented Generation (RAG) — now Generation Platform + Context Platform combined
-- Research Sessions
-- Report Generation
-- Research History
-
----
-
-## Architecture
-
-```text
-Knowledge Service
-
-↓
-
-Research Engine
-
-↓
-
-Prompt Assembly
-
-↓
-
-LLM
-
-↓
-
-Citation Engine
-
-↓
-
-Research Report
-```
-
----
-
-## Planned Features
-
-- Citation-backed responses
-- Research sessions
-- Report generation
-- Multi-document synthesis
-- Research history
-- Export capabilities
-
----
-
-## Runtime Metrics
-
-Provided by the Observability Platform.
-
-Examples
-
-- Total pipeline latency
-- Prompt tokens
-- Completion tokens
-- Groundedness
-- Citation coverage
-- Provider cost
-- Total execution time
-
----
-
-# Phase 4 — Agentic AI Platform
-
-The Agentic AI Platform introduces autonomous reasoning and multi-step execution.
-
----
-
-## Planned Components
-
-- LangGraph
-- Multi-Agent Workflows
-- Planning
-- Memory
-- Checkpointing
-- Human-in-the-loop
-- Tool Calling
-- Reflection
-- Self-correction
-
----
-
-## Planned Agent Types
-
-- Research Agent
-- Retrieval Agent
-- Analysis Agent
-- Report Generation Agent
-- Citation Validation Agent
-- Workflow Orchestrator
-
----
-
-## Future Architecture
-
-```text
-Research Request
-
-↓
-
-Planner
-
-↓
-
-Multi-Agent Workflow
-
-↓
-
-Knowledge Platform
-
-↓
-
-Tool Execution
-
-↓
-
-Research Report
-```
-
----
-
-# Phase 5 — Experimentation Platform
-
-The Experimentation Platform continuously improves ResearchMind by evaluating alternative AI strategies without impacting production.
-
-Unlike the Observability Platform, which measures production execution, the Experimentation Platform compares competing AI approaches.
-
-Experimentation is:
-
-- Optional
-- Configurable
-- Asynchronous
-- Internal only
-
-Production requests should never wait for experimentation to complete.
-
----
-
-## Responsibilities
-
-- Strategy comparison
-- AI quality evaluation
-- Recommendation generation
-- Engineering reports
-- Offline experimentation
-- Architecture migrations
-
----
-
-## Relationship to Other Platforms
-
-The Experimentation Platform consumes outputs from multiple platforms.
-
-```text
-Knowledge Platform
-
-+
-
-Observability Platform
-
-+
-
-Engineering Benchmarks
-
-↓
-
-Experimentation Platform
-
-↓
-
-Evaluation Reports
-
-↓
-
-Engineering Recommendations
-```
-
----
-
-## Chunking Experiments
-
-Compare chunking strategies.
-
-Examples
-
-- Fixed
-- Recursive
-- Markdown
-- Hierarchical
-- Semantic
-- Adaptive
-- LLM Chunking
-
-Outputs
-
-- Comparison reports
-- Quality metrics
-- Cost comparison
-- Recommended strategy
-
----
-
-## Embedding Experiments
-
-Compare embedding providers.
-
-Examples
-
-- Sentence Transformers
-- Voyage AI
-- OpenAI
-- BGE
-- Instructor
-- Nomic
-
-Outputs
-
-- Retrieval quality
-- Latency
-- Cost
-- Memory
-- Embedding dimensions
-- Recommendations
-
----
-
-## Retrieval Experiments
-
-Compare retrieval strategies.
-
-Examples
-
-- Dense Retrieval
-- Hybrid Search
-- Parent Retrieval
-- Multi-query Retrieval
-- Metadata Filtering
-
-Outputs
-
-- Recall
-- Precision
-- MRR
-- NDCG
-- Latency
-
----
-
-## Reranking Experiments
-
-Compare reranking providers.
-
-Examples
-
-- Cohere
-- Jina
-- Voyage AI
-- Cross Encoders
-
-Outputs
-
-- Ranking quality
-- Latency
-- Cost
-
----
-
-## Pipeline Experiments
-
-Compare complete AI pipelines.
-
-Example
-
-```text
-Pipeline A
-
-↓
-
-Markdown
-
-↓
-
-Voyage
-
-↓
-
-Hybrid Search
-
-↓
-
-Jina
-
-vs
-
-Pipeline B
-
-↓
-
-Recursive
-
-↓
-
-OpenAI
-
-↓
-
-Dense Search
-
-↓
-
-Cohere
-```
-
-Outputs
-
-- Engineering recommendations
-- Quality reports
-- Cost comparison
-- Performance comparison
-
----
-
-# Phase 6 — MCP Ecosystem
-
-The MCP Ecosystem enables ResearchMind to communicate with external tools and services using the Model Context Protocol (MCP).
-
----
-
-## Responsibilities
-
-- External Tool Integration
-- Enterprise Knowledge Integration
-- AI Tool Orchestration
-- Remote Agent Communication
-
----
-
-## Planned MCP Servers
-
-- Research MCP
-- Climate MCP
-- Earthquake MCP
-- GitHub MCP
-- Slack MCP
-- Jira MCP
-- Google Drive MCP
-- Notion MCP
-- Enterprise Knowledge MCP
-
----
-
-## Future Capabilities
-
-- Dynamic MCP discovery
-- MCP registry
-- MCP authentication
-- Tool permission management
-- Multi-MCP orchestration
-
----
-
-# Phase 7 — Production Platform
-
-The Production Platform provides the operational foundation required to deploy and operate ResearchMind at production scale.
-
-Unlike the Observability Platform, which measures AI execution, the Production Platform manages infrastructure and deployment.
-
----
-
-## Responsibilities
-
-- CI/CD
-- Kubernetes
-- Scaling
-- Security
-- Disaster Recovery
-- Infrastructure Automation
-- Multi-region deployment
-- Production operations
-
----
-
-## Planned Components
-
-- GitHub Actions
-- Docker
-- Kubernetes
-- Helm
-- AWS
-- Terraform
-- Secrets Management
-- Auto Scaling
-- Backup & Recovery
-
----
-
-# Engineering Benchmark Platform
-
-**Status:** ✅ Foundation Complete, incl. Generation Evaluation + Regression Detection
-
-Engineering Benchmarks are repository-owned evaluation datasets and an offline benchmarking framework used to compare competing AI implementations.
-
-Unlike tests, benchmarks do **not** verify correctness.
-
-Instead, they help engineers compare engineering trade-offs and produce reproducible reports.
-
-Benchmarks are completely independent from:
-
-- Runtime Observability (already implemented as the AI Runtime Observability Platform, `app/ai/observability/` — not a `benchmarks/` concern)
-- Experimentation Platform (separately designed, not yet built)
-
-`evaluation_platform_prd.md` asked for a new `app/ai/evaluation/` platform covering this same ground; it was reconciled rather than built literally, since it would have duplicated this already-real Benchmark Platform and the already-live Observability Platform, and forked the not-yet-built Experimentation Platform. See PROJECT_STATUS.md's "Evaluation Platform PRD Reconciliation" for the full writeup.
-
----
-
-## Purpose
-
-- Prevent regressions
-- Compare implementations
-- Measure quality
-- Measure engineering characteristics
-- Support architecture decisions
-
----
-
-## Implemented
-
-Framework
-
-- Benchmark Registry
-- Benchmark Runner (now supports `--check-regression`)
-- Canonical Benchmark Models
-- Dataset Loader
-- Markdown Report Generator
-- JSON Report Generator
-- Regression Detection (`benchmarks/regression/`) — threshold-based pass/fail comparing a fresh run against the previously stored `report.json`, non-zero exit on failure (now incl. cost metric thresholds alongside latency)
-
-Benchmarks
-
-- Chunking Benchmark
-- Embedding Benchmark
-- Retrieval Benchmark (dense vs. sparse vs. hybrid RRF, ADR-020 metrics, now incl. NDCG@5/10)
-- Metadata Filtering Benchmark (`leakage_rate` correctness signal, unfiltered vs. owner-filtered)
-- Reranking Benchmark (hybrid-only vs. +CrossEncoder vs. +Voyage AI; Recall@5, MRR, NDCG@5, latency, cost)
-- Pipeline Benchmark (end-to-end ingestion)
-- Generation Benchmark (`benchmarks/generation/`) — deterministic no-LLM scoring (faithfulness, groundedness, relevance, completeness, citation accuracy, hallucination rate) plus cost metrics (`avg_cost_usd`, `cost_per_query`, `cost_per_1k_queries`, off the already-computed `GenerationResult.statistics.estimated_cost_usd`) across every configured `GenerationProvider`; verified live against Groq/OpenAI/Claude, with a real citation-accuracy bug found and fixed along the way (the model was never actually given the filename it was asked to cite) and a real cost spread found (~24x between Claude and Groq per 1k queries on this dataset)
-
-Dataset
-
-- Versioned Research Papers Dataset
-
----
-
-## Planned
-
-- Vector Store Benchmark
-- End-to-End Pipeline Benchmark (RAG-level, post Context Building / Generation)
-
-
----
-
-## Execution
-
-Benchmarks execute manually.
-
-Example
-
-```bash
-uv run python -m benchmarks.runner chunking --dataset datasets/research_papers
-```
-
-Benchmarks are intentionally excluded from CI.
-
----
-
-# Platform Relationships
-
-The major AI Engineering platforms interact as follows.
-
-```text
-                    AI Engineering Platform
-
-                               │
-
-      ┌────────────────────────┼────────────────────────┐
-
-      │                        │                        │
-
- Identity Platform     Knowledge Platform     Observability Platform
-
-                               │
-
-                     Processing
-
-                     Chunking
-
-                     Embedding
-
-                     Vector Store
-
-                     Retrieval
-
-                     Reranking
-
-                               │
-
-                     Knowledge Service
-
-                               │
-
-                     Research Engine
-
-                               │
-
-                  Agentic AI Platform
-
-                               │
-
-                    Experimentation Platform
-
-                               │
-
-                  Engineering Benchmarks
-
-                               │
-
-                       MCP Ecosystem
-```
-
----
-
-# Current Project Status
-
-| Phase | Status |
-|--------|--------|
-| Phase 0 — Engineering Foundation | 🚧 In Progress |
-| Phase 1 — Identity Platform | ✅ Complete |
-| Phase 2.1 — Processing Platform | ✅ Complete |
-| Phase 2.2 — Chunking Platform | ✅ Complete |
-| Phase 2.3 — Embedding Platform | ✅ Complete |
-| Phase 2.4 — Observability Platform (Runtime Metrics Foundation) | ✅ Runtime Metrics now also persisted as an artifact (`ObservabilityService.record_processing()`, Milestone 3.6 below), not just logged — see `oberservability_platform_prd.md` |
-| Phase 2.5 — Vector Store Platform | ✅ Complete |
-| Phase 2.6 — Retrieval Platform | ✅ Complete (Foundation + Metadata Filtering + Reranking + 3-way Parallel Retrieval [dense+sparse+metadata via `asyncio.gather`]) |
-| Phase 2.7 — Reranking Platform | ✅ Complete (Foundation) |
-| Phase 2.8 — Context Platform | ✅ Complete (Parent Expansion, Adjacent Merge, Compression V1-V4, Guardrails V1, Citations, Prompt Formatter — Phase 3.7, `context_platform_complexion_prd.md`) |
-| Phase 2.9 — Conversation Memory Platform | ✅ Complete — Memory Platform is wired into Chat and Research and optimized with policy-gated extraction, compact session state, parallel durable retrieval, and separate memory-cost accounting. Representative live-traffic targets remain to be validated. Query rewriting and retrieval remain future Chat work. |
-| Phase 2.10 — Knowledge Service | ⏳ Planned |
-| Phase 3.1 — Generation Platform | ✅ Complete, per `generation_platform_complexion_prd.md` (structured output, input/output/hallucination/runtime validation + scoring, five runtime contracts, Acceptance/Fail-Fast/Runtime Validation policy layer, every PRD output validator, regeneration, prompt bridge, Routing Platform, Runtime Caching Platform, Streaming Platform, Runtime Metrics Integration, Artifact Platform done) |
-| Phase 3.2 — LangChain Adoption for Generation | 🟡 Mostly Complete for structured output (LCEL not adopted) |
-| Phase 3.3 — Generation Runtime Platform | ✅ Complete, per `generation_runtime_platform_prd.md` (canonical `execute_generation()`/`GenerationRuntime.execute()` entrypoint, `generation/orchestration/`, `get_generation_runtime()` dependency, 11 new tests) |
-| Phase 3.4 — Research API Platform | ✅ Complete, per `research_api_prd.md` — first live, end-to-end product surface (`POST /research`, `/research/stream`, `/research/citations`, `GET /research/{id}`; `research_sessions` table; 23 new tests) |
-| Milestone 3.5 — Research Frontend Integration | ✅ Complete — `apps/web` wired to the live Research API (real SSE, `mock-engine.ts` removed); 3 backend bugs found + fixed (stream-completion event mismatch, retired Claude model, `temperature` rejected by new model) |
-| Milestone 3.6 — AI Runtime Observability Platform | ✅ Complete, per `oberservability_platform_prd.md` — metrics/statistics/reports/artifacts + real LangSmith tracing, wired into `generate()`, `stream_generate()` (Research + Chat both covered), and the Knowledge Processing pipeline; 3 real bugs found + fixed via live verification (streaming was completely dark, a missing artifact-policy rule silently dropped research artifacts, the tracer never sent real input/output) + a follow-up closing a real gap (streamed generations never scored for validation/guardrails) |
-| Milestone 11.16 — Guardrails Platform | ✅ Complete (MVP Foundation — input/retrieval/generation/runtime guardrails, Source Trust, policies, scoring, artifacts; standalone, not yet wired into the generation pipeline) |
-| Phase 3 — Research Engine (broader) | ✅ Superseded — see Phase 6 below. Query decomposition, planning, and the multi-step Research Runtime this row once deferred are now complete and shipped as their own phase. |
-| Phase 6 — Research Runtime Platform (Deep Research) | ✅ Complete, working, end-to-end single-agent workflow with a real frontend (2026-07-23) — proposal → memory-aware planning → approval → async multi-wave LangGraph (decomposition, parallel retrieval, synthesis, review, bounded repair) → report-approval `interrupt()` → PDF, plus a Research UI destination consuming it live over SSE. Per-owner rate limiting across all three product paths (Chat/Linear Research/Deep Research). See `PROJECT_STATUS.md` and `PRODUCT_FLOWS_AND_GAPS.md` for full detail and remaining gaps (worker horizontal scaling, plan-edit-before-approval). Chat → Deep Research escalation was considered and is explicitly out of scope (will not be built). |
-| Phase 4 — Agentic AI Platform | ⏳ Planned — MCP integration and a general-purpose (not Deep-Research-scoped) tool-execution loop remain the next step after Phase 6 |
-| Phase 5 — Experimentation Platform | ⏳ Planned |
-| Phase 6 — MCP Ecosystem | ⏳ Planned |
-| Phase 7 — Production Platform | ⏳ Planned |
-
----
-
-# Current Focus
-
-## Phase 2.8 — Context Platform (✅ complete) + Phase 3.1 — Generation Platform (✅ complete) + Phase 3.4 — Research API Platform (✅ complete) + Milestone 3.6 — Observability Platform (✅ complete)
-
-Vector Store, Retrieval (dense/sparse/hybrid/parallel), Metadata Filtering, and Reranking are all complete (Phases 2.5–2.7). The Context Platform (Phase 2.8) is 100% complete (Phase 3.7, `context_platform_complexion_prd.md`). The Generation Platform (Phase 3.1) is now 100% complete, per `generation_platform_complexion_prd.md`: Provider Structured Output Integration (native decoding for all 5 providers, parser/repair fallback, Markdown/XML registry connection, an optional LangChain `with_structured_output()` path), Validation Platform integration (input/output/hallucination/runtime validators, a `ValidationRegistry`, weighted scoring, a multi-stage `ValidationReport`, and five runtime contracts — Research/Planner/Reviewer/Agent/MCP), a Validation Policy Layer (`AcceptancePolicy`/`FailFastPolicy`/`RuntimeValidationPolicy`, `generation/policies/`), a regenerate-on-invalid-output loop (now policy-driven, still correctly scoped to only the output stage plus an opt-in runtime-stage gate), a provider-capability-mismatch guard, a Prompt Platform → Generation bridge (`generate_from_template()` with schema-aware format instructions), a Routing Platform (scored `ModelCatalogRegistry`, 15-value task-based `RoutingStrategy`, weighted scoring engine, distinct-provider-preferred fallback chains, automatic routing inside `GenerationService.generate()`), a Runtime Caching Platform (L1 Exact/L2 Semantic/L3 Session caching, policy resolution, wired directly into the provider-call path), Runtime Metrics Integration (`GenerationMetricsService`, `generation/observability/`), and Artifact persistence (`GenerationArtifact` incl. a `metrics.json` snapshot) are all done. Detail: `docs/architecture/structured-output-platform.md`, `docs/architecture/model-routing-platform.md` (ADR-026), and `docs/architecture/runtime-caching-platform.md` (ADR-027).
-
-Phase 3.3 — Generation Runtime Platform is now complete, per `generation_runtime_platform_prd.md`: a thin `generation/orchestration/` layer gives every future runtime caller one canonical `execute_generation()`/`GenerationRuntime.execute()` entrypoint into the already-complete Generation Platform stack, instead of reaching into `GenerationService` directly. Phase 3.4 — Research API Platform is now complete, per `research_api_prd.md`: `POST /research`, `/research/stream`, `/research/citations`, and `GET /research/{id}` compose Retrieval → Context → Generation Runtime → Streaming → Artifacts into ResearchMind's first live, end-to-end, cited product answer, backed by a new `research_sessions` table for replay. `RuntimeType.RESEARCH` and `ArtifactRuntime.RESEARCH` go from reserved to actually-exercised.
-
-Only remaining items nearby:
-
-- ~~Query decomposition, research planning/multi-step loops~~ ✅ Complete — see Phase 6 / Research Runtime Platform below. General-purpose (non-Research-scoped) agents remain future Agentic AI Platform work.
-- Adaptive/evaluation-driven and budget-aware routing, A/B experimentation (Routing Platform Phase 2+ — explicitly future work, not MVP scope)
-- Wiring Session Cache (L3, implemented) to an actual conversation/research-session caller
-- Test suite for `artifacts/` (`validation/`, `providers/`, `prompts/`, `routing/`, `catalog/`, `caching/`, and core `service.py` now have unit test coverage)
-- Wiring the now-complete Guardrails Platform (Milestone 11.16 — see above) into `GenerationService`
-
-Phase 2.8 — Context Platform is now complete (compression V1-V4, and the LangChain provider is wired into `ContextBuilderService.build()`'s default pipeline behind `settings.enable_langchain_compression`). Remaining nearby scope:
-
-- Conversation-memory consolidation/context-window optimization beyond the completed, cost-aware Memory Platform; validate live skip/empty/latency/cost targets before further tuning
-- Knowledge Service — unified orchestration API (Phase 2.10)
-- Forward `HybridRetrieveRequest.rerank` from `/retrieve/hybrid` into `RetrievalService.search_hybrid` (currently always uses the service's `rerank=True` default)
-- ~~Multi-query Retrieval (query decomposition moved to the future Research Runtime)~~ ✅ The Research Runtime's planner does real dependency-wave task decomposition for Deep Research (see Phase 6 below); this specific line was about Linear Research's single retrieval call, which is unchanged by design (`/research` stays one retrieval + one generation call).
-
-The **Guardrails Platform** (Milestone 11.16, see above) is now complete as a standalone MVP foundation and needs no further work to reach its PRD-defined MVP scope — remaining work on it is entirely the future "Generation Integration" wiring phase, not new guardrail logic.
-
-## Milestone 3.5 — Research Frontend Integration (✅ complete)
-
-`apps/web`'s Research page now calls the live `/research`/`/research/stream` APIs for the first time (real SSE via `use-research.ts`/`lib/sse.ts`, `mock-engine.ts` deleted). Chat is now a separate `/chat` surface, with account-backed conversation list/replay. Completed Chat turns recognize both `complete` and `completed` stream events, preserve user → assistant replay order, and generate a low-cost Groq title from the first persisted user question. Chat still intentionally has no query-rewrite or retrieval/citation stage.
-
-## Milestone 3.6 — AI Runtime Observability Platform (✅ complete)
-
-Per `oberservability_platform_prd.md`: a new `app/ai/observability/` package (metrics/statistics/report-builder subpackages, a new `ObservabilityArtifact`, and real — not stubbed — LangSmith tracing) is wired into every Generation entry point (`generate()` and `stream_generate()`) and the Knowledge Processing pipeline. Because Research and Chat both go through the same `GenerationService`/`StreamingService`, both get tracing and artifact persistence without any Chat-specific work.
-
-Three real bugs were found and fixed via live verification against an actual LangSmith account and S3 bucket — the unit test suite passed throughout all three:
-
-1. Only `generate()` was instrumented; the frontend's real traffic goes through `stream_generate()`, which bypassed all of it. Fixed by exposing `GenerationService`'s `metrics_service`/`observability_service`/`tracer` as read-only properties `StreamingService` now reuses.
-2. `ResearchService` tags requests `ArtifactRuntime.RESEARCH`, but the default artifact-policy table had no `OBSERVABILITY` rule for it — every write silently failed a policy check that fails safe to `NEVER`. Fixed with an explicit `(RESEARCH, OBSERVABILITY) -> PERMANENT` rule.
-3. The tracer only ever sent generic tags as LangSmith's "input" and never sent an "output" — every trace showed empty Input/Output panels and Monitoring had nothing to compute Cost/Tokens from. Fixed by adding a real `inputs` param plus a `TraceHandle.set_output()` seam.
-
-A follow-up closed a real, separate gap the same verification surfaced: streamed generations never ran post-generation validation/guardrail scoring at all (only pre-generation input checks) — `GenerationService.score_completed_stream()` now runs the same checks informationally, never blocking. Verified that no guardrail/validator in the codebase actually calls an LLM today, so this currently costs CPU only.
-
-Also surfaced, separately: **Research had no multi-turn conversation memory** at this point — every query was a fully standalone retrieval+generation call, unlike Chat (which persisted history). This was fixed later by the Memory Platform plus the `research_conversations` follow-up: Research now has conversation-thread history and SESSION memory scoped to the research conversation id. Query rewriting/condensation (for Deep Research specifically, via `rewritten_goal`) shipped as part of Phase 6, below.
-
-## Phase 6 — Research Runtime Platform / Deep Research (✅ complete)
-
-A third, deliberately separate product path alongside Chat (fast, ungrounded) and Linear Research (fast, one-shot, cited): **proposal → approval → asynchronous multi-step LangGraph investigation → human-reviewed report**, now complete end to end with a real frontend, not just an API. `POST /research`/`/research/stream` remain architecturally untouched — no runtime flag routes either through LangGraph.
-
-```text
-POST /research/escalation-check              → optional; classifies a query, suggests Deep
-                                                 Research only when it's actually worth it
-POST /research/proposals                      → memory-aware planner (query rewriting via
-                                                 `rewritten_goal`); no run/retrieval cost
-POST /research/proposals/{id}/approve         → idempotent; creates ResearchRun + outbox dispatch
-  dedicated worker process
-    → Postgres-checkpointed LangGraph: planner → dependency-wave retrieval (Send fan-out)
-      → evidence aggregation → synthesis → deterministic+model review → bounded repair
-      → report-approval interrupt() — a real second human checkpoint
-POST /research/runs/{id}/report-decision      → approve (resumes -> report+PDF) or reject
-GET  /research/runs/{id}/events (SSE)         → live-consumed by the Research UI
-GET  /research/runs/{id}/report               → presigned PDF download URL
-```
-
-Built and hardened same-day (2026-07-23): a readiness audit found and fixed a batch of
-operational gaps (checkpoint provisioning, budget enforcement, cancellation, crash-resume,
-logging — see `AI_ENGINEERING_AUDIT.md` §0.0.0), then a same-day completion pass added
-memory-aware planning (and fixed a real bug where memory extraction from completed runs
-had silently never worked, due to a worker composition-root DI mistake), the report-approval
-`interrupt()`, real per-owner rate limiting across all three product paths (previously a
-total no-op app-wide), a fixed cross-run cache-leakage risk in synthesis/review, and the
-full Research UI Deep Research destination (mode toggle, escalation suggestion, plan
-review, live SSE progress, report-approval, PDF download) — see `AI_ENGINEERING_AUDIT.md`
-§0.0.0a and `PRODUCT_FLOWS_AND_GAPS.md` for complete, code-verified detail.
-
-**Same day, later:** the golden path was manually click-through-verified in a real
-browser for the first time (previously only test/lint/build-verified). This surfaced
-two real worker session-staleness bugs — `apps/worker/research_runtime_main.py` holds
-one `AsyncSession` for its entire process lifetime with `expire_on_commit=False`, so a
-failure could abort the transaction and silently poison every dispatch afterward, and a
-resumed run could read a stale cached `report_decision` even after approving. Both
-fixed and regression-tested — see `PROJECT_STATUS.md` Phase 6's "2026-07-23
-verification pass" and `PRODUCT_FLOWS_AND_GAPS.md` for full detail.
-
-**Not yet built**: plan edits/rejection before approval, horizontal worker
-scaling (single serial process by default — DB-safe to add more, none running), an
-expiry/auto-reject for a run stuck awaiting report approval, and MCP/general-purpose
-agent integration (deferred per ADR-033 until the single-agent runtime proves a limitation
-it can't address). Chat → Deep Research escalation is explicitly out of scope and will not
-be built — Chat is intended to stay a standalone fast conversational surface; do not
-confuse this with the Research-interface Linear → Deep escalation, which is built.
-
----
-
-# Next Major Milestones
-
-This project intentionally prioritizes completing the production AI platform (Tier 1) before expanding engineering tooling (Tier 2/3 — Observability, Benchmarking, Experimentation).
-
-1. ~~Vector Store Platform (Phase 2.5)~~ ✅
-2. ~~Retrieval Platform (Phase 2.6)~~ ✅
-3. ~~Reranking Platform (Phase 2.7)~~ ✅
-4. ~~Context Platform (Phase 2.8) — Parent Expansion, Adjacent Merge, Compression V1-V4, Guardrails V1, Citations, Prompt Formatter~~ ✅ Complete
-5. ~~Generation Platform (Phase 3.1)~~ ✅ Complete, per `generation_platform_complexion_prd.md` — five runtime contracts, validation policy layer, every output validator, runtime metrics, and artifact persistence all done
-6. ~~LangChain Adoption for Generation (Phase 3.2)~~ 🟡 mostly complete for structured output (LCEL not adopted)
-7. ~~Guardrails Platform (Milestone 11.16) — input/retrieval/generation/runtime guardrails, Source Trust, policies, scoring, artifacts~~ ✅ MVP foundation complete; wiring into `GenerationService` is future work
-8. ~~Generation Runtime Platform (Phase 3.3)~~ ✅ Complete, per `generation_runtime_platform_prd.md` — canonical `execute_generation()`/`GenerationRuntime.execute()` entrypoint, `generation/orchestration/`, no state machines/DAGs/LangGraph duplication
-9. ~~Research API Platform (Phase 3.4)~~ ✅ Complete, per `research_api_prd.md` — first live, end-to-end product surface: `POST /research`/`/research/stream`/`/research/citations`/`GET /research/{id}`, `research_sessions` table, `RuntimeType.RESEARCH`/`ArtifactRuntime.RESEARCH` now exercised
-10. ~~Research Frontend Integration (Milestone 3.5)~~ ✅ Complete — `apps/web` wired to the live Research API; 3 backend bugs found + fixed along the way
-11. ~~AI Runtime Observability Platform (Milestone 3.6)~~ ✅ Complete, per `oberservability_platform_prd.md` — real LangSmith tracing + metrics/statistics/report/artifact layer across Generation (streaming + non-streaming), Chat, and Knowledge Processing; 3 real bugs found + fixed via live verification, plus a streaming validation/guardrail-scoring follow-up
-12. ~~Decide Chat vs. Research frontend UX~~ ✅ Complete — separate `/chat` and `/research` surfaces now exist
-13. ~~Conversation Memory Platform (Phase 2.9)~~ ✅ Complete — Memory Platform is wired into both Research and Chat; its optimized runtime gates LLM extraction, keeps compact session state, shares one embedding across parallel durable searches, and accounts for memory cost separately. Research also has server-backed `research_conversations`. Provider-native multi-message prompts and query rewriting/condensation remain future Research Runtime work; staged live-traffic validation is the remaining operational step.
-14. Knowledge Service (Phase 2.10)
-15. ~~Evaluation Platform expansion — NDCG, Groundedness, Faithfulness, Citation Accuracy, Hallucination Rate, Regression Detection, Cost Metrics~~ ✅ Complete, built into `benchmarks/` per the `evaluation_platform_prd.md` reconciliation (see Engineering Benchmark Platform above and PROJECT_STATUS.md) — End-to-End and Security Evaluation remain future work
-16. ~~Research Runtime — Query Decomposition, Planner, Research Agents, Reviewer, Summarizer, LangGraph~~ ✅ Complete (2026-07-23), with a real frontend — see Phase 6 / Research Runtime Platform above and `PRODUCT_FLOWS_AND_GAPS.md`
-17. Agentic AI Platform — general-purpose (non-Research-scoped) agents, MCP integration; deferred per ADR-033 until the Research Runtime's single-agent design proves a limitation it can't address
-18. Long-Term Platform — Research Sessions, Memory, MCP, Feedback Learning
-19. Advanced Observability (Prometheus/Grafana/OpenTelemetry — explicitly deferred by `oberservability_platform_prd.md` §4 Non-Goals), Experimentation Platform (deferred until the core RAG pipeline is complete)
-
 ---
-
-# Long-Term Architectural Principles
-
-Every platform in ResearchMind follows these principles.
-
-## Canonical Models
-
-Internal data exchanged between platforms uses canonical ResearchMind models.
-
----
-
-## Canonical Artifacts
-
-Every AI platform consumes the canonical artifact produced by the previous platform and produces exactly one canonical artifact for downstream platforms.
 
-Example
+## Phase 8 — AI Quality / Evaluation Platform 🟡
 
-```text
-ProcessedDocument
+**Goal:** Make AI quality measurable across every subsystem.
 
-↓
+### Engineering Benchmark Platform ✅ Foundation Complete
 
-ChunkArtifact
+Repository-owned, offline (`benchmarks/`), independent from runtime Observability and the not-yet-built Experimentation Platform.
 
-↓
+| Benchmark | Status |
+|---|---|
+| Chunking Benchmark | ✅ |
+| Embedding Benchmark | ✅ |
+| Retrieval Benchmark (dense/sparse/hybrid RRF, incl. NDCG@5/10) | ✅ |
+| Metadata Filtering Benchmark (`leakage_rate` correctness signal) | ✅ |
+| Reranking Benchmark (Recall@5, MRR, NDCG@5, latency, cost) | ✅ |
+| Pipeline Benchmark (end-to-end ingestion) | ✅ |
+| Generation Benchmark — deterministic no-LLM scoring (faithfulness, groundedness, relevance, completeness, citation accuracy, hallucination rate, cost) | ✅ — live-verified against Groq/OpenAI/Claude; found + fixed a real citation-accuracy bug (model never given the filename it was asked to cite); found a real ~24x cost spread between Claude and Groq per 1k queries |
+| Regression Detection (`--check-regression`, threshold-based, incl. cost thresholds) | ✅ |
+| Vector Store Benchmark | ⏳ Planned |
+| End-to-End Pipeline Benchmark (RAG-level, post Context/Generation) | ⏳ Planned |
 
-EmbeddingArtifact
+**Reconciliation note:** a proposed standalone `app/ai/evaluation/` platform (per one source PRD) was **not** built literally — it was reconciled against the already-real Benchmark Platform (`benchmarks/`) and the already-live Observability Platform (Phase 3.10) rather than duplicated. "Runtime Evaluation" = Observability Platform; "Experiment runner" = the still-not-built Experimentation Platform below.
 
-↓
+### Experimentation Platform ⏳ Not Started
 
-VectorStoreArtifact
+Would compare competing AI strategies offline/asynchronously (chunking, embedding, retrieval, reranking, pipeline-level experiments) without affecting production. Distinct from Benchmarks (which don't verify correctness, just compare trade-offs).
 
-↓
+### Agent Evaluation ⏳ Not Started
 
-RetrievalArtifact
+Planning quality, tool success, completion rate — blocked on Phase 6/7 actually existing.
 
-↓
+### Security Evaluation ❌ Not started
 
-RerankingArtifact
-```
+Attack datasets, red-teaming — not begun.
 
 ---
 
-## Provider Pattern
+## Phase 9 — Production Platform ⏳
 
-External providers remain implementation details hidden behind stable interfaces.
+**Goal:** Prepare ResearchMind for production deployment.
 
-Examples
+| Milestone | Status |
+|---|---|
+| Docker | ✅ (dev; production-grade multi-stage not verified) |
+| Kubernetes / ECS | ⏳ Planned |
+| CI/CD (build/test/security-scan/deploy/rollback) | 🟡 GitHub Actions foundation only |
+| OpenTelemetry, Prometheus, Grafana, Phoenix | ⏳ Planned — explicitly deferred by the Observability Platform's own non-goals |
+| Performance optimization (latency, throughput, memory, cost, startup) | ⏳ Planned |
+| Security Platform (prompt-injection/jailbreak/PII detection exist at the Guardrails layer already; tool policies, MCP permissions, secret management) | 🟡 Partial — see Phase 3.6 Guardrails for what already exists |
+| Blue/green deploy, canary releases, feature flags, backup/DR | ⏳ Planned |
 
-- OpenAI
-- Voyage AI
-- Sentence Transformers
-- ChromaDB
-- Qdrant
-- Pinecone
-
----
-
-## Registry Pattern
-
-Providers are registered through registries rather than directly coupled to services.
-
----
-
-## Factory Pattern
-
-Factories own construction of canonical domain models.
-
----
-
-## Builder Pattern
-
-Builders own construction of persistence artifacts.
-
 ---
-
-## Composition Roots
 
-Platforms are wired through `create.py` composition roots rather than business factories.
+## Phase 10 — Enterprise Platform ⏳
 
----
+**Goal:** Enterprise readiness.
 
-## Framework Independence
+| Milestone | Status |
+|---|---|
+| Organizations, teams, workspaces | ⏳ Planned |
+| RBAC (roles, permissions, policies) | ⏳ Planned |
+| Multi-tenancy (tenant/resource/knowledge isolation) | ⏳ Planned |
+| Billing (usage/token/embedding/API-call tracking, quotas, plans) | ⏳ Planned |
+| Compliance (GDPR, audit logging, data retention, privacy controls) | ⏳ Planned |
+| Admin portal (user mgmt, system health, AI/cost dashboards) | ⏳ Planned |
+| Plugin framework, custom MCP registration, SDK | ⏳ Planned |
 
-Frameworks such as LangChain remain implementation details and never leak outside provider implementations.
-
 ---
 
-## Observability
+## Cross-Cutting Engineering Capabilities
 
-Business platforms remain free from instrumentation.
+These evolve continuously across every phase rather than belonging to one.
 
-Runtime metrics are collected by the Observability Platform.
+| Capability | Starts | Matures | Current State |
+|---|---|---|---|
+| Structured Logging | Phase 0 | Phase 9 | ✅ Live everywhere |
+| Metrics | Phase 0 | Phase 9 | ✅ `GenerationMetricsService`, Prometheus-ready counters |
+| Tracing | Phase 2 | Phase 9 | ✅ Real LangSmith tracing (Phase 3.10) |
+| AI Evaluation | Phase 2 | Phase 8 | 🟡 Retrieval + generation done; agent/security eval pending |
+| Testing | Phase 0 | Continuous | ✅ Real pytest suite, ~1000+ tests, fakes/mocks over live services |
+| Security | Phase 0 | Phase 10 | 🟡 Guardrails MVP live; enterprise ACL/tool policy pending |
+| Performance | Phase 0 | Phase 9 | 🟡 Measured ad hoc; no dedicated dashboard |
+| Cost Tracking | Phase 2 | Phase 9 | ✅ Real per-model `$` cost accounting (generation + memory extraction) |
+| Engineering Analytics | Phase 2 | Phase 9 | 🟡 Benchmark reports; no unified dashboard |
+| LangSmith | Phase 2 | Continuous | ✅ Live |
 
 ---
 
-## Experimentation
+## AI Learning Dimensions
 
-Production execution and experimentation remain independent.
+Every milestone is expected to strengthen four dimensions simultaneously:
 
-Alternative AI strategies execute asynchronously.
+| Dimension | Focus |
+|---|---|
+| Engineering | Architecture, clean code, testing, scalability |
+| AI | RAG, embeddings, retrieval, prompting, agents |
+| Production | Docker, AWS, observability, deployment |
+| Architecture | Trade-offs, ADRs, system design |
 
 ---
 
-## Engineering Benchmarks
+## Roadmap Rules
 
-Benchmarking remains repository-owned and independent from both runtime execution and experimentation.
+- Complete one milestone before starting the next.
+- Every milestone ends with testing and documentation.
+- Freeze architectural decisions once implemented (see ADRs, e.g. ADR-019 sparse vectors, ADR-026 routing, ADR-027 caching, ADR-030 chat compaction, ADR-033 deferred agent/MCP integration).
+- Prioritize implementation over redesign.
+- Compare AI approaches using evaluation rather than opinion.
+- Keep the project focused on becoming a production-grade AI engineering platform, not a demo of every possible AI technology.
+- Canonical models and canonical artifacts between platforms — never leak SDK models or provider types across platform boundaries.
+- Frameworks (LangChain, LangGraph) remain implementation details behind provider/service interfaces.
 
 ---
-
-# Long-Term Vision
 
-ResearchMind is evolving into a production-grade AI Engineering Platform.
+## Open Items Carried Forward From This Reconciliation
 
-Rather than centering the architecture around Retrieval-Augmented Generation (RAG), the platform is organized around independent engineering capabilities that can evolve without breaking downstream systems.
+Things noted during this consolidation that don't have a clean answer yet and may need a follow-up pass:
 
-By combining canonical artifacts, provider-based architecture, observability, experimentation, and engineering benchmarks, ResearchMind provides a foundation for building trustworthy, maintainable, and continuously improving AI systems suitable for long-term production use.
+1. **Artifact Platform Research-side wiring** (Phase 3.9) — the original build left Session/Research/Agent/Evaluation artifact writers scaffold-only with a stub `ResearchReplayService`. Phase 4/5 have since added real `research_sessions`/research-run persistence, but this document does not assert full replay parity was re-verified against the original Artifact Platform design — worth an explicit check.
+2. **PRD file reorganization** — most PRDs cited throughout this roadmap (`generation_platform_complexion_prd.md`, `guardrails_platform_prd.md`, `research_api_prd.md`, etc.) are being removed from the repo root as of this session, with only `prds/research_runtime_prd.md` surviving. If historical PRD content should be preserved, consider archiving rather than deleting the rest.
+3. **Runtime Caching L3 (Session Cache)** — implemented and tested but has never had a real caller. Phase 5's Research Runtime is the most plausible consumer; not yet wired.
+4. **Uncommitted Phase 5 refinements** (staged as of 2026-07-24, not yet committed) — planner/prompts, `run_service.py`, worker bootstrap, and structured-output helper changes with new tests. Recommend committing with a clear message once verified, so this roadmap's "✅ Complete" for Phase 5 stays anchored to a real commit.

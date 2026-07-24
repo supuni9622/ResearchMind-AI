@@ -12,10 +12,14 @@ import pytest  # noqa: E402
 import pytest_asyncio  # noqa: E402
 from app.core.settings import settings  # noqa: E402
 from app.db.base import Base  # noqa: E402
-from app.db.session import get_session_factory  # noqa: E402
 from app.main import app  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
-from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engine  # noqa: E402
+from sqlalchemy.ext.asyncio import (  # noqa: E402
+    AsyncEngine,
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
 from sqlalchemy.pool import NullPool  # noqa: E402
 
 
@@ -46,8 +50,29 @@ async def test_engine() -> AsyncGenerator[AsyncEngine, None]:
 
 @pytest_asyncio.fixture(loop_scope="session")
 async def db_session(test_engine: AsyncEngine) -> AsyncGenerator[AsyncSession, None]:
-    session_factory = get_session_factory(test_engine)
+    """
+    Yield a session scoped to a single outer transaction that is always
+    rolled back at the end of the test.
 
-    async with session_factory() as session:
-        yield session
-        await session.rollback()
+    Application code under test may call `session.commit()` (e.g.
+    UserService.create_user). Binding the session to a connection with
+    `join_transaction_mode="create_savepoint"` turns those inner commits
+    into SAVEPOINT releases instead of real commits, so the outer
+    transaction rollback below still discards everything, keeping tests
+    isolated from each other and from stale data left by interrupted runs.
+    """
+
+    session_factory = async_sessionmaker(
+        class_=AsyncSession,
+        autoflush=False,
+        expire_on_commit=False,
+        join_transaction_mode="create_savepoint",
+    )
+
+    async with test_engine.connect() as conn:
+        await conn.begin()
+
+        async with session_factory(bind=conn) as session:
+            yield session
+
+        await conn.rollback()

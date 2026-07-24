@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from uuid import UUID
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.ai.runtime.research.types import ResearchRunStatus
 from app.models.research_run import ResearchRun
 
 
@@ -36,6 +38,18 @@ class ResearchRunRepository:
             )
         )
         return result.scalar_one_or_none()
+
+    async def list_stale_awaiting_approval(self, *, older_than: datetime) -> list[ResearchRun]:
+        """System-wide (not owner-scoped): the expiry sweep runs as an
+        operator/ops job, not on behalf of a single request's owner."""
+
+        result = await self._session.execute(
+            select(ResearchRun).where(
+                ResearchRun.status == ResearchRunStatus.AWAITING_APPROVAL.value,
+                ResearchRun.updated_at < older_than,
+            )
+        )
+        return list(result.scalars().all())
 
     async def is_cancellation_requested(self, *, run_id: UUID) -> bool:
         """Read the flag as a fresh column value, not a possibly-stale ORM attribute.

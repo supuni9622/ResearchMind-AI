@@ -90,3 +90,19 @@ class RateLimitExceededException(AppException):
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             details={"retry_after_seconds": retry_after_seconds},
         )
+
+
+class ServiceUnavailableException(AppException):
+    def __init__(
+        self,
+        *,
+        retry_after_seconds: int,
+        message: str = "Service temporarily unavailable. Please retry shortly.",
+    ):
+        self.retry_after_seconds = retry_after_seconds
+        super().__init__(
+            message=message,
+            code="SERVICE_UNAVAILABLE",
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            details={"retry_after_seconds": retry_after_seconds},
+        )

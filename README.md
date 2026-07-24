@@ -248,6 +248,8 @@ Approved Deep Research Runtime worker:
 python -m apps.worker.research_runtime_main
 ```
 
+This process runs `RESEARCH_RUNTIME_WORKER_CONCURRENCY` (default `1`) concurrent claim lanes, each with its own DB session. The Postgres outbox (`SELECT ... FOR UPDATE SKIP LOCKED`) also makes it safe to run multiple copies of this same process/container for true horizontal scaling — both knobs compose.
+
 **From now on: whenever you change a model, run `uv run alembic revision --autogenerate -m "..."`, read the generated file, then `./scripts/dev.sh` as usual.**
 
 ---

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
 import pytest
@@ -36,3 +36,13 @@ async def test_reopen_raises_for_an_unknown_run() -> None:
 
     with pytest.raises(RuntimeError, match="was not found"):
         await repository.reopen(run_id=uuid4())
+
+
+@pytest.mark.asyncio
+async def test_count_active_returns_the_scalar_pending_and_running_count() -> None:
+    session = AsyncMock()
+    session.execute = AsyncMock(return_value=MagicMock(scalar_one=MagicMock(return_value=7)))
+    repository = ResearchRunDispatchRepository(session)
+
+    assert await repository.count_active() == 7
+    session.execute.assert_awaited_once()

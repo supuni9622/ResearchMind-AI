@@ -13,10 +13,12 @@ from app.ai.memory.services.memory_service import MemoryService
 from app.ai.runtime.generation.enums import GenerationProvider
 from app.ai.runtime.generation.orchestration.interfaces import GenerationRuntimeInterface
 from app.ai.runtime.generation.routing.enums import RoutingStrategy
+from app.ai.runtime.research.exceptions import ResearchQueueSaturatedError
 from app.ai.runtime.research.planner.models import ResearchComplexity, ResearchPlan
 from app.ai.runtime.research.planner.service import ResearchPlanner
 from app.ai.runtime.research.run_service import ResearchRunService
 from app.ai.runtime.research.types import ResearchProposalStatus
+from app.core.settings import settings
 from app.models.research_proposal import ResearchProposal
 from app.repositories.research_proposal import ResearchProposalRepository
 from app.repositories.research_run_dispatch import ResearchRunDispatchRepository
@@ -216,6 +218,19 @@ class ResearchProposalService:
             return run
         if proposal.status != ResearchProposalStatus.AWAITING_APPROVAL.value:
             raise ValueError(f"Research proposal cannot be approved from '{proposal.status}'.")
+
+        active_count = await self._dispatches.count_active()
+        if active_count >= settings.deep_research_max_queued_runs:
+            logger.warning(
+                "research_runtime.proposal.approval_shed",
+                proposal_id=str(proposal.id),
+                owner_id=str(owner_id),
+                active_count=active_count,
+                max_queued_runs=settings.deep_research_max_queued_runs,
+            )
+            raise ResearchQueueSaturatedError(
+                f"Research runtime queue is full ({active_count} active runs)."
+            )
 
         request = proposal.request
         fingerprint = ResearchRunServiceFingerprint.from_request(request, proposal.conversation_id)

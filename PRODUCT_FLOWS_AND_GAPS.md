@@ -514,17 +514,45 @@ and `route_after_review` checks `cost_lookup()` (live sum from `generation_usage
 keyed by `session_id=research_run_id`) against `max_estimated_cost_usd` before
 allowing another repair iteration.
 
+#### LLM call count per run (derived from the graph, not a separate budget)
+
+Retrieval (`retrieval/service.py::_execute_task`) and decomposition
+(`decomposition/scheduler.py::dependency_waves`) never call an LLM — hybrid
+search + context building, and a deterministic topological sort,
+respectively — regardless of task count. Only three nodes do: the planner
+(once, and only when a run has no pre-approved plan already persisted — the
+normal approved-run path reuses the proposal's plan and skips it), synthesis
+(once per pass through `synthesize`, `multi_wave_research.py`), and review
+(0 or 1 call per pass — `review_draft()`'s deterministic check runs first
+and only escalates to the model in `_model_review` if that doesn't already
+resolve the decision, `review.py`). The `max_review_iterations` column above
+is what caps repeat synthesize+review passes from the repair loop
+(`route_after_review`, `multi_wave_research.py`):
+
+| Complexity | Base calls | Worst case (repair loop maxed) |
+|---|---|---|
+| SIMPLE | 2–3 | same — `max_review_iterations=0`, no repair loop possible |
+| MODERATE | 2–3 | up to 5 (one repair pass adds +synthesize+review) |
+| COMPLEX | 2–3 | up to 7–9 (2 repair iterations, plus up to 1 inline synthesis-schema retry per pass) |
+
+Separately, the escalation-check suggestion (`POST /research/escalation-check`,
+D7) runs its own uncached planner call *before* any of the above, since it
+classifies the query independently of whether the user accepts the
+suggestion.
+
 ### Performance
 
-- **Single worker process, serial processing.** `research_runtime_main.py` opens
-  exactly one DB session and runs one `ResearchRuntimeWorker.run()` loop. The
-  claim query (`SELECT ... FOR UPDATE SKIP LOCKED`) is safe for multiple worker
-  *processes*, so horizontal scaling is possible — but nothing today starts more
-  than one. **In practice, Deep Research runs across the entire application are
-  processed one at a time**, with a 1-second poll interval between claims. Under
-  any real concurrent load (multiple users approving proposals around the same
-  time), later runs queue behind earlier ones for their full duration (up to 600s
-  for COMPLEX plans) before even starting.
+- **Concurrent worker lanes, fixed 2026-07-24 (D2).** `research_runtime_main.py`
+  now opens `settings.research_runtime_worker_concurrency` DB sessions and runs
+  that many `ResearchRuntimeWorker.run()` loops concurrently (default `1`,
+  unchanged out of the box). The claim query (`SELECT ... FOR UPDATE SKIP LOCKED`)
+  was already safe for multiple worker *processes*, so operators can also just
+  run more copies of the process/container -- both knobs compose. Global
+  load-shedding (`deep_research_max_queued_runs`, `503` on `/proposals/{id}/approve`
+  once saturated) bounds how deep the queue is allowed to grow either way.
+  **Still true at the default config**: with concurrency left at `1`, Deep
+  Research runs are processed one at a time, 1-second poll interval between
+  claims -- raising throughput is now a config change, not a code change.
 - Retrieval fan-out within a wave is bounded by a semaphore
   (`ResearchTaskRetrievalService`), not unbounded — real backpressure control,
   good.
@@ -569,7 +597,7 @@ allowing another repair iteration.
 | ID | Issue | Severity |
 |----|-------|----------|
 | ~~D1~~ | ~~Synthesis and review generation calls share `CacheRuntime.RESEARCH`~~ — **Fixed 2026-07-23**: both now tag `CacheRuntime.REVIEWER` (`CachePolicy.NEVER`), eliminating the cross-run semantic-cache leakage risk. Regression-tested. | Resolved |
-| D2 | Single serial worker process — no horizontal scaling configured by default; concurrent Deep Research demand queues behind whatever run is currently executing (up to 10 minutes for COMPLEX plans). Confirmed the new frontend degrades sensibly while queued: with zero events yet in the DB, the live event stream just shows "Starting…" indefinitely rather than erroring — correct behavior, but a user has no way to tell "queued behind another run" apart from "about to start" from the UI alone. | Medium-High (scales with adoption) |
+| ~~D2~~ | ~~Single serial worker process — no horizontal scaling configured by default~~ — **Fixed 2026-07-24**: `apps/worker/research_runtime_main.py` now runs `settings.research_runtime_worker_concurrency` concurrent claim lanes in-process (each its own DB session), and running more copies of the process/container composes with that since the Postgres outbox (`SELECT ... FOR UPDATE SKIP LOCKED`) already made concurrent claims safe. Also added global load-shedding: `POST /proposals/{id}/approve` now checks `ResearchRunDispatchRepository.count_active()` against `settings.deep_research_max_queued_runs` (default 20) and returns `503` + `Retry-After` instead of queuing invisibly once saturated. Both are static config, not autoscaling — no automatic provisioning based on observed queue depth. The frontend-visible symptom (live event stream showing "Starting…" indefinitely while queued, indistinguishable from "about to start") is unchanged; a still-open cosmetic gap, not reopened here. | Resolved (residual: static config, not autoscaling) |
 | ~~D3~~ | ~~No rate limiting on proposal creation~~ — **Fixed 2026-07-23**: `POST /research/proposals` is capped at `deep_research_proposal_rate_limit_requests` (default 5/60s) per owner, checked before the planner runs. `POST /research/proposals/{id}/approve` — the more expensive action — has its own, stricter cap: `deep_research_approval_rate_limit_requests` (default 5 per `deep_research_approval_rate_limit_window_seconds`=600s) per owner, checked before run creation/dispatch. Both return `429` with `Retry-After` and never touch `ResearchProposalService` when limited. | Resolved |
 | ~~D4~~ | ~~No mid-run *plan* editing / no plan-approval interrupt~~ — **Fixed 2026-07-24**: a new `await_plan_approval` graph node (`interrupt()`, positioned between `aggregate` and `synthesize`) gives the plan-approval checkpoint the same view/edit/reject-with-reason treatment report approval (D13) already had. `GET /research/runs/{id}/plan` exposes the gathered evidence and goal from the paused run's checkpoint; `POST /research/runs/{id}/plan-decision` approves (optionally with an edited `rewritten_goal` — the only plan field still safe to change once retrieval has already run for the original tasks) or rejects with a reason. Reached once per run — the automatic `REVISE_SYNTHESIS`/`RESEARCH_GAPS` repair loops bypass it on retries. New `AWAITING_PLAN_APPROVAL` lifecycle state; a new `goal_review` frontend stage between `running` and `report_review`. | Resolved |
 | D5 | Report-approval decision has no timeout: a run can sit in `AWAITING_APPROVAL` forever if the user never responds — no expiry, no reminder event, no auto-reject after N hours/days. The run just occupies a `research_runs` row indefinitely. | Low-Medium |
@@ -631,9 +659,12 @@ per run regardless of how many times it's called — see the code comment on
 
 **Remaining gap:** the approval limit (5/600s) is a per-owner cap, not a
 global one — it doesn't prevent many different accounts from each queuing
-approvals that pile up behind the single serial worker (D2). Per-owner rate
-limiting bounds abuse by any one account; it does not by itself solve
-aggregate demand exceeding one worker's throughput.
+approvals. D2's fix (2026-07-24) added a genuinely global backstop
+(`deep_research_max_queued_runs`, checked in `ResearchProposalService.approve()`),
+so aggregate demand exceeding worker throughput now gets an explicit `503`
+instead of an unbounded queue -- but it's a blunt total-depth cap, not
+per-owner fair-share, so one owner's burst can still consume the whole
+queue and get other owners' approvals shed.
 
 ### X2 — Cost accounting exists and is wired everywhere, but is not surfaced
 
@@ -681,7 +712,7 @@ context rather than failing the request.
 | ~~✓~~ | D1 | **Done (2026-07-23)** — synthesis/review generation calls moved off `CacheRuntime.RESEARCH` onto `CacheRuntime.REVIEWER` (`CachePolicy.NEVER`), eliminating the cross-run report-content leakage risk. Regression-tested. |
 | ~~✓~~ | D8–D13 | **Done (2026-07-24)** — six gaps found via user testing of the Deep Research frontend: progress-step log disappearing after `running`, PDF citations showing raw UUIDs, Linear/Deep Research not sharing a conversation (and History fragmenting per-question as a symptom), Deep Research state lost on refresh, report rejection destroying the synthesized draft as a terminal failure, and report approval being blind with no preview/edit. All fixed and regression-tested; see each ID's row above for detail. |
 | ~~✓~~ | D4 | **Done (2026-07-24)** — plan-approval got the same view/edit/reject-with-reason treatment report approval already had, via a new `await_plan_approval` graph interrupt positioned between `aggregate` and `synthesize`. See D4's row above for detail. |
-| 1 | D2 | Decide whether Deep Research needs horizontal worker scaling now or can stay single-process at current adoption; if scaling is needed, it's already DB-safe (`SKIP LOCKED`) — just needs more worker processes deployed |
+| ~~✓~~ | D2 | **Done (2026-07-24)** — in-process worker concurrency (`research_runtime_worker_concurrency`, multiple claim lanes/DB sessions per process) plus global load-shedding on approval (`deep_research_max_queued_runs`, `503` + `Retry-After`). Still a manual/static config knob, not autoscaling. |
 | 2 | D5 | Add an expiry/auto-reject path for runs stuck in `AWAITING_APPROVAL` (now also covers `AWAITING_PLAN_APPROVAL` — the same unwired `expire_stale_awaiting_approval` sweep handles both, still just missing a cron trigger) |
 | 3 | D7 | Consider parallelizing the escalation-check with Linear Research instead of gating it, so the UI's default path isn't paying a mandatory extra LLM call in serial |
 | 4 | L1 | Consider short-circuiting retrieval on an exact-cache hit for Linear Research (would need the cache lookup moved ahead of `_retrieve_and_build_context()`, a real flow change, not a config flip) |

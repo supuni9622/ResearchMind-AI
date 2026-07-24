@@ -1428,3 +1428,28 @@ def test_approve_research_proposal_returns_429_when_rate_limited(
     assert response.headers["retry-after"] == "99"
     # The limited request never reached run creation/dispatch -- no run queued.
     proposals.approve.assert_not_awaited()
+
+
+def test_approve_research_proposal_returns_503_when_the_dispatch_queue_is_saturated(
+    client: TestClient,
+    fakes: tuple[_FakeResearchService, dict],
+) -> None:
+    """Load-shedding (REMAINING_WORK.md D2): once the outbox already holds
+    `deep_research_max_queued_runs` active dispatches, approval is rejected
+    with an explicit retryable 503 instead of queuing invisibly."""
+
+    from app.ai.runtime.research.exceptions import ResearchQueueSaturatedError
+
+    proposals = AsyncMock()
+    proposals.approve.side_effect = ResearchQueueSaturatedError("Research runtime queue is full.")
+    app.dependency_overrides[get_current_user] = _fake_user
+    app.dependency_overrides[get_research_proposal_service] = lambda: proposals
+
+    try:
+        response = client.post(f"/api/v1/research/proposals/{uuid.uuid4()}/approve")
+    finally:
+        del app.dependency_overrides[get_current_user]
+        del app.dependency_overrides[get_research_proposal_service]
+
+    assert response.status_code == 503
+    assert "retry-after" in response.headers

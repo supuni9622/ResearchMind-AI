@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
-from sqlalchemy import or_, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.runtime.research.types import ResearchRunDispatchStatus
@@ -24,6 +24,27 @@ class ResearchRunDispatchRepository:
         self._session.add(dispatch)
         await self._session.flush()
         return dispatch
+
+    async def count_active(self) -> int:
+        """PENDING + RUNNING dispatch rows -- work not yet completed by any
+        worker lane. Used as a global load-shedding signal ahead of proposal
+        approval (see `ResearchQueueSaturatedError`); intentionally counts
+        RUNNING too, since a lease that hasn't expired yet is still real
+        in-flight demand, not free capacity."""
+
+        result = await self._session.execute(
+            select(func.count())
+            .select_from(ResearchRunDispatch)
+            .where(
+                ResearchRunDispatch.status.in_(
+                    (
+                        ResearchRunDispatchStatus.PENDING.value,
+                        ResearchRunDispatchStatus.RUNNING.value,
+                    )
+                )
+            )
+        )
+        return result.scalar_one()
 
     async def claim_next(self, *, lease_seconds: int) -> ResearchRunDispatch | None:
         now = datetime.now(UTC)

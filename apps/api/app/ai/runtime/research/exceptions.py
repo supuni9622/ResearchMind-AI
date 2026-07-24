@@ -19,3 +19,10 @@ class ResearchPlanRejectedError(RuntimeError):
     """Raised when the plan-approval interrupt resumes with a malformed
     decision payload -- a real rejection does not raise this (see
     `route_after_plan_approval` in `multi_wave_research.py`)."""
+
+
+class ResearchQueueSaturatedError(RuntimeError):
+    """Raised by `ResearchProposalService.approve()` when the outbox already
+    holds `settings.deep_research_max_queued_runs` PENDING/RUNNING dispatches
+    -- load-shedding so a demand burst gets an explicit retry signal instead
+    of queuing invisibly behind the runtime worker(s) (REMAINING_WORK.md D2)."""

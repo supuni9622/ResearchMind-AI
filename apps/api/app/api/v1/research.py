@@ -15,6 +15,7 @@ from app.ai.runtime.research.draft_inspection import (
     PendingDraftUnavailableError,
     ResearchDraftInspectionService,
 )
+from app.ai.runtime.research.exceptions import ResearchQueueSaturatedError
 from app.ai.runtime.research.plan_inspection import (
     PendingPlanUnavailableError,
     ResearchPlanInspectionService,
@@ -40,7 +41,7 @@ from app.dependencies.research import (
     get_research_run_service,
     get_research_service,
 )
-from app.exceptions.base import NotFoundException
+from app.exceptions.base import NotFoundException, ServiceUnavailableException
 from app.infrastructure.rate_limiting import ValkeyRateLimiter
 from app.models.research import ResearchSession
 from app.models.research_proposal import ResearchProposal
@@ -273,6 +274,11 @@ async def approve_research_proposal(
     )
     try:
         run = await proposals.approve(proposal_id=proposal_id, owner_id=current_user.id)
+    except ResearchQueueSaturatedError as exc:
+        raise ServiceUnavailableException(
+            message=str(exc),
+            retry_after_seconds=settings.deep_research_queue_full_retry_after_seconds,
+        ) from exc
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     if run is None:

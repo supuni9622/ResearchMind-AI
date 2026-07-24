@@ -8,6 +8,7 @@ from uuid import uuid4
 import pytest
 from app.ai.memory.enums import MemoryType
 from app.ai.memory.models import MemoryContext, MemoryRecord
+from app.ai.runtime.research.exceptions import ResearchQueueSaturatedError
 from app.ai.runtime.research.planner.models import (
     ResearchComplexity,
     ResearchExecutionStrategy,
@@ -215,6 +216,7 @@ async def test_check_escalation_persists_an_approvable_proposal_for_a_moderate_p
 async def test_approval_creates_and_links_one_durable_run() -> None:
     session = AsyncMock()
     session.add = MagicMock()
+    session.execute = AsyncMock(return_value=MagicMock(scalar_one=MagicMock(return_value=0)))
     owner_id = uuid4()
     proposal_id = uuid4()
     run = ResearchRun(
@@ -248,6 +250,42 @@ async def test_approval_creates_and_links_one_durable_run() -> None:
     assert run.current_phase == "awaiting_runtime_dispatch"
     runs.create_or_get.assert_awaited_once()
     session.commit.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_approval_raises_when_the_dispatch_queue_is_saturated() -> None:
+    from app.core.settings import settings
+
+    session = AsyncMock()
+    session.add = MagicMock()
+    session.execute = AsyncMock(
+        return_value=MagicMock(
+            scalar_one=MagicMock(return_value=settings.deep_research_max_queued_runs)
+        )
+    )
+    owner_id = uuid4()
+    proposal_id = uuid4()
+    proposal = SimpleNamespace(
+        id=proposal_id,
+        owner_id=owner_id,
+        conversation_id=None,
+        status=ResearchProposalStatus.AWAITING_APPROVAL.value,
+        research_run_id=None,
+        request={"query": "Compare methods", "top_k": 5, "filters": {}},
+    )
+    runs = AsyncMock()
+    service = ResearchProposalService(
+        session=session,
+        generation_runtime=AsyncMock(),
+        run_service=runs,
+    )
+    service.get_for_owner = AsyncMock(return_value=proposal)  # type: ignore[method-assign]
+
+    with pytest.raises(ResearchQueueSaturatedError):
+        await service.approve(proposal_id=proposal_id, owner_id=owner_id)
+
+    runs.create_or_get.assert_not_awaited()
+    session.commit.assert_not_awaited()
 
 
 @pytest.mark.asyncio

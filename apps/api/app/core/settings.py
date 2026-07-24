@@ -265,6 +265,22 @@ class Settings(BaseSettings):
     # a callable-but-unscheduled sweep (mirrors `MemoryLifecycleService.
     # sweep_stale()`) -- wiring a recurring trigger is an operator decision.
     research_runtime_awaiting_approval_ttl_hours: int = 72
+    # Concurrent dispatch-claim lanes run in-process by
+    # `research_runtime_main.py`, each with its own DB session. The Postgres
+    # outbox (`SELECT ... FOR UPDATE SKIP LOCKED`) already makes concurrent
+    # claims safe (see `ResearchRunDispatchRepository.claim_next`), so this
+    # is the cheapest throughput knob; running more OS processes/containers
+    # of the same entrypoint is equally safe and composes with this (see
+    # REMAINING_WORK.md D2).
+    research_runtime_worker_concurrency: int = 1
+
+    # Load-shedding: total PENDING+RUNNING dispatch rows allowed before
+    # `/proposals/{id}/approve` starts rejecting new approvals with 503, so
+    # demand exceeding worker throughput degrades as an explicit
+    # client-visible retry signal instead of an unbounded, invisible queue
+    # (REMAINING_WORK.md D2).
+    deep_research_max_queued_runs: int = 20
+    deep_research_queue_full_retry_after_seconds: int = 60
 
     # Importance scoring (PRD §16)
     memory_importance_threshold: float = 0.1

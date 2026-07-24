@@ -371,6 +371,110 @@ async def test_generate_regenerates_on_output_stage_validation_failure() -> None
     assert provider.generate.await_count == 3
 
 
+async def test_regeneration_escalates_max_tokens_when_prior_attempt_was_truncated() -> None:
+    """
+    A prior attempt that hit its token ceiling (finish_reason indicates
+    truncation) would just truncate again identically if retried with
+    the same max_tokens -- the regeneration budget must grow, not
+    repeat, in that case.
+    """
+
+    request = _make_request()
+    request.max_tokens = 2_000
+    request.max_regeneration_attempts = 1
+
+    truncated_result = _make_result(request)
+    truncated_result.finish_reason = "max_tokens"
+
+    provider = _make_capable_provider()
+    provider.generate = AsyncMock(return_value=truncated_result)
+
+    failing_report = ValidationReport(
+        input_validation=_valid_result(),
+        output_validation=_failing_output_result(),
+        hallucination_validation=_valid_result(),
+        valid=False,
+    )
+
+    registry = GenerationRegistry(providers=[provider])
+    service = GenerationService(
+        registry=registry,
+        validation_service=_make_validation_service(failing_report),
+    )
+
+    await service.generate(provider=GenerationProvider.GROQ, request=request)
+
+    assert provider.generate.await_count == 2
+    regenerated_request = provider.generate.call_args_list[1].args[0]
+    assert regenerated_request.max_tokens == 4_000
+
+
+async def test_regeneration_caps_escalated_max_tokens_at_the_ceiling() -> None:
+    request = _make_request()
+    request.max_tokens = 30_000
+    request.max_regeneration_attempts = 1
+
+    truncated_result = _make_result(request)
+    truncated_result.finish_reason = "length"
+
+    provider = _make_capable_provider()
+    provider.generate = AsyncMock(return_value=truncated_result)
+
+    failing_report = ValidationReport(
+        input_validation=_valid_result(),
+        output_validation=_failing_output_result(),
+        hallucination_validation=_valid_result(),
+        valid=False,
+    )
+
+    registry = GenerationRegistry(providers=[provider])
+    service = GenerationService(
+        registry=registry,
+        validation_service=_make_validation_service(failing_report),
+    )
+
+    await service.generate(provider=GenerationProvider.GROQ, request=request)
+
+    regenerated_request = provider.generate.call_args_list[1].args[0]
+    assert regenerated_request.max_tokens == 32_000
+
+
+async def test_regeneration_does_not_escalate_max_tokens_without_truncation() -> None:
+    """
+    A schema/parse failure with a normal finish_reason (e.g. "stop")
+    isn't a token-budget problem -- escalating max_tokens wouldn't fix
+    it and would just spend more on the retry for nothing.
+    """
+
+    request = _make_request()
+    request.max_tokens = 2_000
+    request.max_regeneration_attempts = 1
+
+    result = _make_result(request)
+    result.finish_reason = "stop"
+
+    provider = _make_capable_provider()
+    provider.generate = AsyncMock(return_value=result)
+
+    failing_report = ValidationReport(
+        input_validation=_valid_result(),
+        output_validation=_failing_output_result(),
+        hallucination_validation=_valid_result(),
+        valid=False,
+    )
+
+    registry = GenerationRegistry(providers=[provider])
+    service = GenerationService(
+        registry=registry,
+        validation_service=_make_validation_service(failing_report),
+    )
+
+    await service.generate(provider=GenerationProvider.GROQ, request=request)
+
+    regenerated_request = provider.generate.call_args_list[1].args[0]
+    assert regenerated_request.max_tokens == 2_000
+
+
 # ==========================================================
 # Routing integration (generate() called without a provider)
 # ==========================================================

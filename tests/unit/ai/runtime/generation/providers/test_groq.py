@@ -24,7 +24,10 @@ from app.ai.runtime.generation.config import GroqGenerationConfig
 from app.ai.runtime.generation.enums import GenerationProvider, ResponseFormat
 from app.ai.runtime.generation.exceptions import GenerationExecutionError
 from app.ai.runtime.generation.models import GenerationRequest, StreamEventType
-from app.ai.runtime.generation.providers.groq import GroqProvider
+from app.ai.runtime.generation.providers.groq import (
+    _STRUCTURED_OUTPUT_TOOL_NAME,
+    GroqProvider,
+)
 from app.core.settings import settings
 from groq import GroqError
 
@@ -48,11 +51,13 @@ class _AsyncIter:
 def _make_request(
     user_prompt: str = "hello",
     response_format: ResponseFormat = ResponseFormat.TEXT,
+    output_schema: dict | None = None,
 ) -> GenerationRequest:
     return GenerationRequest(
         prompt_context=PromptContext(context="retrieved context", chunks=[]),
         user_prompt=user_prompt,
         response_format=response_format,
+        output_schema=output_schema,
     )
 
 
@@ -84,17 +89,27 @@ def _make_provider(
 
 def _make_completion(
     *,
-    content: str = "hello world",
+    content: str | None = "hello world",
     finish_reason: str = "stop",
     prompt_tokens: int = 10,
     completion_tokens: int = 5,
     total_tokens: int = 15,
     has_usage: bool = True,
+    tool_call_arguments: str | None = None,
+    tool_call_name: str = _STRUCTURED_OUTPUT_TOOL_NAME,
 ) -> MagicMock:
     response = MagicMock()
     response.choices[0].message.content = content
     response.choices[0].finish_reason = finish_reason
     response.model_dump.return_value = {"id": "chatcmpl-test"}
+
+    if tool_call_arguments is not None:
+        tool_call = MagicMock()
+        tool_call.function.name = tool_call_name
+        tool_call.function.arguments = tool_call_arguments
+        response.choices[0].message.tool_calls = [tool_call]
+    else:
+        response.choices[0].message.tool_calls = None
 
     if has_usage:
         response.usage.prompt_tokens = prompt_tokens
@@ -266,6 +281,73 @@ async def test_stream_raises_execution_error_on_sdk_failure(
             pass
 
     assert isinstance(exc_info.value.__cause__, GroqError)
+
+
+async def test_generate_forces_tool_call_for_structured_requests_with_schema(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provider, client = _make_provider(monkeypatch)
+    client.chat.completions.create.return_value = _make_completion()
+
+    schema = {"type": "object", "properties": {"answer": {"type": "integer"}}}
+
+    await provider.generate(
+        _make_request(response_format=ResponseFormat.STRUCTURED, output_schema=schema)
+    )
+
+    _, kwargs = client.chat.completions.create.call_args
+    assert "response_format" not in kwargs
+    assert kwargs["tools"] == [
+        {
+            "type": "function",
+            "function": {
+                "name": _STRUCTURED_OUTPUT_TOOL_NAME,
+                "description": "Return the response matching the required schema.",
+                "parameters": schema,
+            },
+        }
+    ]
+    assert kwargs["tool_choice"] == {
+        "type": "function",
+        "function": {"name": _STRUCTURED_OUTPUT_TOOL_NAME},
+    }
+
+
+async def test_generate_reads_content_from_forced_tool_call_arguments(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provider, client = _make_provider(monkeypatch)
+    client.chat.completions.create.return_value = _make_completion(
+        content=None,
+        finish_reason="tool_calls",
+        tool_call_arguments='{"answer": 42}',
+    )
+
+    result = await provider.generate(
+        _make_request(
+            response_format=ResponseFormat.STRUCTURED,
+            output_schema={"type": "object"},
+        )
+    )
+
+    assert result.content == '{"answer": 42}'
+    assert result.parsed_output == {"answer": 42}
+
+
+async def test_generate_without_schema_does_not_force_tool_call(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provider, client = _make_provider(monkeypatch)
+    client.chat.completions.create.return_value = _make_completion(
+        content='{"answer": 42}',
+    )
+
+    await provider.generate(_make_request(response_format=ResponseFormat.STRUCTURED))
+
+    _, kwargs = client.chat.completions.create.call_args
+    assert kwargs["response_format"] == {"type": "json_object"}
+    assert "tools" not in kwargs
+    assert "tool_choice" not in kwargs
 
 
 async def test_generate_structured_delegates_to_generate(

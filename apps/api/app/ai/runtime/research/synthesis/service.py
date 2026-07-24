@@ -63,7 +63,19 @@ class ResearchSynthesisService:
                 ),
                 response_format=ResponseFormat.STRUCTURED,
                 output_model=ResearchDraft,
-                max_tokens=2_000,
+                # `ResearchDraft`'s schema bounds (title 300 + abstract 2,000 +
+                # methodology 2,000 + up to 8 `findings` sections of up to
+                # 6,000 chars each + discussion 4,000 + conclusion 2,000 +
+                # limitations) allow a fully-populated draft of ~60,000+
+                # chars (~15,000-18,000 tokens). 2,000 was sized like the
+                # planner's budget but for a schema an order of magnitude
+                # smaller; confirmed in production truncating mid-JSON
+                # (`finish_reason="max_tokens"`) on a real multi-finding
+                # report, which then fails `ResearchDraft.model_validate()`
+                # below with every required field missing. Sized generously
+                # above the schema's theoretical worst case so a genuinely
+                # long report never gets cut off.
+                max_tokens=20_000,
                 max_regeneration_attempts=1,
                 owner_id=owner_id,
                 session_id=research_run_id,

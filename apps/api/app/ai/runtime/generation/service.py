@@ -52,6 +52,7 @@ from app.ai.runtime.generation.interfaces import (
     GenerationProviderInterface,
 )
 from app.ai.runtime.generation.models import (
+    TRUNCATION_FINISH_REASONS,
     GenerationRequest,
     GenerationResult,
     StreamChunk,
@@ -131,6 +132,25 @@ _REGISTRY_PARSED_FORMATS: dict[ResponseFormat, OutputFormat] = {
     ResponseFormat.MARKDOWN: OutputFormat.MARKDOWN,
     ResponseFormat.XML: OutputFormat.XML,
 }
+
+#
+# Regeneration `max_tokens` escalation (see `_build_corrected_request`).
+#
+# A hard-coded `max_tokens` that's undersized for a given schema/evidence
+# volume has repeatedly caused regeneration to retry with the *same*
+# budget and truncate again identically (confirmed in production: the
+# research planner and, separately, the research synthesis draft both
+# hit this before their call sites' fixed budgets were bumped by hand).
+# Rather than relying on every caller to size its budget exactly right
+# forever, regeneration itself now doubles `max_tokens` whenever the
+# prior attempt's `finish_reason` indicates truncation
+# (`TRUNCATION_FINISH_REASONS`) -- capped well below every current
+# provider's output-token ceiling so this can't runaway on cost/latency.
+#
+
+_REGENERATION_MAX_TOKENS_MULTIPLIER = 2
+
+_REGENERATION_MAX_TOKENS_CEILING = 32_000
 
 
 class GenerationService:
@@ -1140,10 +1160,28 @@ class GenerationService:
             f"{request.system_prompt}\n\n{correction}" if request.system_prompt else correction
         )
 
+        updates: dict[str, Any] = {
+            "system_prompt": corrected_system_prompt,
+        }
+
+        if request.max_tokens and result.finish_reason in TRUNCATION_FINISH_REASONS:
+            escalated_max_tokens = min(
+                request.max_tokens * _REGENERATION_MAX_TOKENS_MULTIPLIER,
+                _REGENERATION_MAX_TOKENS_CEILING,
+            )
+
+            if escalated_max_tokens > request.max_tokens:
+                logger.warning(
+                    "generation.regeneration.max_tokens_escalated",
+                    finish_reason=result.finish_reason,
+                    previous_max_tokens=request.max_tokens,
+                    escalated_max_tokens=escalated_max_tokens,
+                )
+
+                updates["max_tokens"] = escalated_max_tokens
+
         return request.model_copy(
-            update={
-                "system_prompt": corrected_system_prompt,
-            },
+            update=updates,
         )
 
     @classmethod
@@ -1168,12 +1206,20 @@ class GenerationService:
             )
             and result.parsed_output is None
         ):
-            parts.append(
-                "Your previous response could not be parsed as valid JSON. "
-                "Return ONLY valid JSON matching the requested schema — "
-                "no markdown code fences, no commentary, no extra text "
-                "before or after the JSON."
-            )
+            if result.finish_reason in TRUNCATION_FINISH_REASONS:
+                parts.append(
+                    "Your previous response was cut off before it finished "
+                    "(it hit the token limit, not a formatting mistake). "
+                    "You now have a larger token budget — respond again "
+                    "with the complete JSON matching the requested schema."
+                )
+            else:
+                parts.append(
+                    "Your previous response could not be parsed as valid JSON. "
+                    "Return ONLY valid JSON matching the requested schema — "
+                    "no markdown code fences, no commentary, no extra text "
+                    "before or after the JSON."
+                )
 
         if result.validation is not None and not result.validation.output_validation.valid:
             error_messages = "; ".join(

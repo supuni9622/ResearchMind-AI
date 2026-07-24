@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from app.ai.runtime.generation.models import (
+    TRUNCATION_FINISH_REASONS,
     GenerationResult,
 )
 from app.ai.runtime.generation.validation.interfaces import (
@@ -15,21 +16,6 @@ from app.ai.runtime.generation.validation.models import (
 _DEFAULT_MIN_CHARS = 1
 
 _DEFAULT_MAX_CHARS = 200_000
-
-#
-# Provider-reported finish reasons that mean "the provider stopped
-# because it hit a token/length ceiling, not because it was done" --
-# OpenAI/Groq report "length", Claude reports "max_tokens". Gemini and
-# Ollama don't populate finish_reason at all yet (see providers/*.py),
-# so this check is a no-op for those two until they do.
-#
-
-_TRUNCATION_FINISH_REASONS = frozenset(
-    {
-        "length",
-        "max_tokens",
-    },
-)
 
 
 class ResponseSizeValidator(
@@ -105,7 +91,7 @@ class ResponseSizeValidator(
                 )
             )
 
-        if result.finish_reason in _TRUNCATION_FINISH_REASONS:
+        if result.finish_reason in TRUNCATION_FINISH_REASONS:
             issues.append(
                 ValidationIssue(
                     validator=self.name,

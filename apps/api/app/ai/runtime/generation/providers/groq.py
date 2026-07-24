@@ -42,6 +42,8 @@ from groq.types.chat import (
 
 logger = structlog.get_logger()
 
+_STRUCTURED_OUTPUT_TOOL_NAME = "emit_structured_response"
+
 
 class GroqProvider(
     BaseGenerationProvider,
@@ -95,7 +97,16 @@ class GroqProvider(
             response,
         )
 
-        content = response.choices[0].message.content or ""
+        message = response.choices[0].message
+
+        tool_calls = message.tool_calls or []
+
+        forced_call = next(
+            (call for call in tool_calls if call.function.name == _STRUCTURED_OUTPUT_TOOL_NAME),
+            None,
+        )
+
+        content = forced_call.function.arguments if forced_call else (message.content or "")
 
         parsed_output = None
 
@@ -215,6 +226,48 @@ class GroqProvider(
             "temperature": (request.temperature or self.config.temperature),
             "max_completion_tokens": (request.max_tokens or self.config.max_tokens),
         }
+
+        #
+        # Structured Outputs -- forced tool call
+        #
+        # Groq only enables native `response_format: json_schema` for a
+        # narrow, provider-curated model allowlist that excludes
+        # `llama-3.3-70b-versatile` (this platform's default/AUTO-routed
+        # Groq model -- see `build_groq_response_format`), so structured
+        # requests fall back to plain `json_object` mode with the schema
+        # spelled out as prose in the prompt. That's schema-*unenforced*:
+        # the model occasionally drifts (missing/extra fields, wrong enum
+        # casing, wrong task count) even after a regeneration attempt --
+        # confirmed in production via repeated `ResearchPlannerError`s on
+        # the research planner. Tool/function calling, unlike the narrow
+        # Structured Outputs allowlist, is broadly supported on Groq
+        # (including this model) and is what the model was fine-tuned to
+        # follow precisely, so forcing a single tool call whose
+        # `parameters` *is* the output schema constrains the response
+        # shape far more reliably than prompt-only JSON mode. The
+        # resulting `tool_calls[0].function.arguments` is read back as
+        # `content` in `generate()`.
+        #
+
+        if request.response_format == ResponseFormat.STRUCTURED and request.output_schema:
+            kwargs["tools"] = [
+                {
+                    "type": "function",
+                    "function": {
+                        "name": _STRUCTURED_OUTPUT_TOOL_NAME,
+                        "description": "Return the response matching the required schema.",
+                        "parameters": request.output_schema,
+                    },
+                }
+            ]
+            kwargs["tool_choice"] = {
+                "type": "function",
+                "function": {"name": _STRUCTURED_OUTPUT_TOOL_NAME},
+            }
+
+            return await self._client.chat.completions.create(
+                **kwargs,
+            )
 
         #
         # JSON Mode

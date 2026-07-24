@@ -297,6 +297,26 @@ class GenerationExecution(
     completed_at: datetime | None = None
 
 
+#
+# Provider-reported `GenerationResult.finish_reason` values meaning "the
+# provider stopped because it hit a token/length ceiling, not because it
+# was done" -- OpenAI/Groq report "length", Claude reports "max_tokens".
+# Gemini and Ollama don't populate `finish_reason` at all yet (see
+# providers/*.py), so any check against this is a no-op for those two
+# until they do. Shared by `ResponseSizeValidator` (flags it as a
+# validation warning) and `GenerationService._build_corrected_request`
+# (escalates `max_tokens` on regeneration when this is the cause) so
+# both agree on what "truncated" means.
+#
+
+TRUNCATION_FINISH_REASONS = frozenset(
+    {
+        "length",
+        "max_tokens",
+    },
+)
+
+
 class GenerationResult(
     BaseModel,
 ):

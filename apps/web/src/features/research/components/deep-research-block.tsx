@@ -8,6 +8,7 @@ import type {
 } from '@/features/research/types';
 import { AlertIcon, ArrowDownIcon, CheckCircleIcon, TargetIcon } from '@/components/ui/icons';
 import { DraftReview } from '@/features/research/components/draft-review';
+import { PlanGoalReview } from '@/features/research/components/plan-goal-review';
 import { renderAnswer } from '@/features/research/components/research-block';
 
 /** Ordered progress-step log, shared by every post-approval-flow stage so the
@@ -59,6 +60,7 @@ const STATUS_LABEL: Record<string, string> = {
   synthesizing: 'Writing report',
   paused: 'Paused',
   awaiting_approval: 'Awaiting your review',
+  awaiting_plan_approval: 'Awaiting your review',
   completed: 'Completed',
   completed_with_limitations: 'Completed (with limitations)',
   cancelled: 'Cancelled',
@@ -85,6 +87,7 @@ export function DeepResearchBlock({
   onFocus,
   onApprove,
   onCancel,
+  onPlanDecision,
   onReportDecision,
 }: {
   turn: DeepResearchTurn;
@@ -92,11 +95,15 @@ export function DeepResearchBlock({
   onFocus: () => void;
   onApprove: () => void;
   onCancel: () => void;
+  onPlanDecision: (approved: boolean, reason?: string, editedGoal?: string) => void;
   onReportDecision: (approved: boolean, reason?: string, editedDraft?: DeepResearchDraftEdit) => void;
 }) {
   const [rejectReason, setRejectReason] = useState('');
   const [showRejectInput, setShowRejectInput] = useState(false);
   const [draftEdit, setDraftEdit] = useState<DeepResearchDraftEdit | null>(null);
+  const [planRejectReason, setPlanRejectReason] = useState('');
+  const [showPlanRejectInput, setShowPlanRejectInput] = useState(false);
+  const [editedGoal, setEditedGoal] = useState<string | null>(null);
   const { plan } = turn.proposal;
   const goal = plan.rewritten_goal ?? plan.goal;
 
@@ -196,6 +203,75 @@ export function DeepResearchBlock({
                   className="font-mono text-[10px] text-stone-600 hover:text-red-400 transition-colors"
                 >
                   cancel
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
+        {turn.stage === 'goal_review' && (
+          <div>
+            <EventLog events={turn.events} live={false} />
+            <div className="flex items-center gap-2.5 mb-3">
+              <span className="text-sage-500 flex-shrink-0">
+                <CheckCircleIcon size={13} />
+              </span>
+              <span className="text-stone-200 text-[13px]">
+                Evidence is in -- review the plan before the report is written.
+              </span>
+            </div>
+            {turn.pendingPlan ? (
+              <PlanGoalReview plan={turn.pendingPlan} onEditingChange={setEditedGoal} />
+            ) : (
+              <p className="text-stone-600 text-[12px] mb-3">Loading the gathered evidence…</p>
+            )}
+            {showPlanRejectInput ? (
+              <div onClick={(e) => e.stopPropagation()}>
+                <textarea
+                  value={planRejectReason}
+                  onChange={(e) => setPlanRejectReason(e.target.value)}
+                  placeholder="What's wrong with it? (optional)"
+                  rows={2}
+                  className="w-full bg-ink-800 border border-ink-500 rounded-lg px-3 py-2 text-stone-100 text-[13px] placeholder-stone-600 resize-none focus:outline-none focus:border-sage-600 mb-2"
+                />
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => onPlanDecision(false, planRejectReason || undefined)}
+                    className="px-3 py-1.5 rounded-lg bg-red-900/40 hover:bg-red-900/60 text-red-300 text-[12px] transition-colors duration-150"
+                  >
+                    Confirm reject
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowPlanRejectInput(false)}
+                    className="px-3 py-1.5 rounded-lg border border-ink-600 hover:border-ink-500 text-stone-400 text-[12px] transition-colors duration-150"
+                  >
+                    Back
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onPlanDecision(true, undefined, editedGoal ?? undefined);
+                  }}
+                  className="px-3 py-1.5 rounded-lg bg-sage-600 hover:bg-sage-500 text-stone-100 text-[12px] font-medium transition-colors duration-150"
+                >
+                  Continue to report
+                </button>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setShowPlanRejectInput(true);
+                  }}
+                  className="px-3 py-1.5 rounded-lg border border-ink-600 hover:border-ink-500 text-stone-400 text-[12px] transition-colors duration-150"
+                >
+                  Reject
                 </button>
               </div>
             )}
@@ -327,7 +403,11 @@ export function DeepResearchBlock({
             <EventLog events={turn.events} live={false} />
             <div className="flex items-center gap-2.5 px-4 py-3 rounded-lg border border-red-800/50 bg-red-900/20 text-red-400 text-[13px]">
               <AlertIcon size={13} className="flex-shrink-0" />
-              <span>This run {turn.run?.status === 'cancelled' ? 'was cancelled' : 'failed'}.</span>
+              <span>
+                {turn.run?.terminal_reason === 'plan_rejected_by_user'
+                  ? 'You rejected this plan -- no report was written.'
+                  : `This run ${turn.run?.status === 'cancelled' ? 'was cancelled' : 'failed'}.`}
+              </span>
             </div>
           </div>
         )}

@@ -17,6 +17,7 @@ from app.ai.runtime.research.evidence_artifact import (
     ResearchEvidenceArtifactWriter,
 )
 from app.ai.runtime.research.exceptions import (
+    ResearchPlanRejectedError,
     ResearchReportRejectedError,
     ResearchRunCancelledError,
 )
@@ -68,6 +69,8 @@ class MultiWaveResearchState(TypedDict):
     review_artifact_refs: list[str]
     final_report_ref: str
     final_report_pdf_ref: str
+    plan_decision: str
+    plan_rejection_reason: str | None
     report_decision: str
     report_rejection_reason: str | None
 
@@ -182,6 +185,52 @@ def compile_multi_wave_research_graph(
             warning_count=len(bundle.warnings),
         )
         await emit(ResearchEventType.EVIDENCE_COMPLETED)
+        return update
+
+    async def await_plan_approval(state: MultiWaveResearchState) -> dict[str, object]:
+        """Pause for a human plan-approval decision (`interrupt()`), once real
+        evidence exists but before the costly synthesis call spends it.
+
+        Only reached once per run: the edge into this node comes solely from
+        `aggregate` (the first pass) -- the automatic `REVISE_SYNTHESIS`/
+        `RESEARCH_GAPS` repair loops route `prepare_synthesis_revision`/
+        `aggregate_gap_evidence` straight back to `synthesize`, bypassing
+        this checkpoint, since those are bounded system retries, not new
+        human decision points.
+
+        Same no-side-effects-before-`interrupt()` rule as
+        `await_report_approval` -- LangGraph replays this node's body from
+        the top on every resume attempt for this thread.
+
+        An approval can carry `edited_plan` (currently just a revised
+        `rewritten_goal` -- editing `tasks` here would be moot, since
+        retrieval for the original tasks has already run), overwriting
+        `state["plan"]["rewritten_goal"]` before `synthesize` reads it.
+
+        Rejection does not fail the run: `route_after_plan_approval` sends
+        it straight to `END` without ever calling `synthesize`. There is no
+        draft to publish as a plain answer in this case (unlike a rejected
+        *report*, which still has one) -- the execution service marks the
+        run terminal without a `publish_runtime_report` call.
+        """
+
+        decision = interrupt({"kind": "plan_approval", "research_run_id": state["research_run_id"]})
+        if not isinstance(decision, dict):
+            raise ResearchPlanRejectedError(
+                "The plan-approval interrupt resumed with an invalid decision payload."
+            )
+        if decision.get("decision") != "approved":
+            reason = decision.get("reason")
+            logger.info(
+                "research_runtime.graph.plan_rejected",
+                research_run_id=state["research_run_id"],
+                reason=reason,
+            )
+            return {"plan_decision": "rejected", "plan_rejection_reason": reason}
+        update: dict[str, object] = {"plan_decision": "approved"}
+        edited_plan = decision.get("edited_plan")
+        if isinstance(edited_plan, dict) and isinstance(edited_plan.get("rewritten_goal"), str):
+            update["plan"] = {**state["plan"], "rewritten_goal": edited_plan["rewritten_goal"]}
         return update
 
     async def synthesize(state: MultiWaveResearchState) -> dict[str, object]:
@@ -486,6 +535,13 @@ def compile_multi_wave_research_graph(
             return "__end__"
         return "persist_final_report"
 
+    def route_after_plan_approval(
+        state: MultiWaveResearchState,
+    ) -> Literal["synthesize", "__end__"]:
+        if state.get("plan_decision") == "rejected":
+            return "__end__"
+        return "synthesize"
+
     async def persist_final_report(state: MultiWaveResearchState) -> dict[str, object]:
         await emit(ResearchEventType.REPORT_STARTED)
         draft = ResearchDraft.model_validate(state["draft"])
@@ -515,6 +571,7 @@ def compile_multi_wave_research_graph(
     graph.add_node("retrieve_task", retrieve_task)
     graph.add_node("advance_wave", advance_wave)
     graph.add_node("aggregate", aggregate)
+    graph.add_node("await_plan_approval", await_plan_approval)
     graph.add_node("synthesize", synthesize)
     graph.add_node("review", review)
     graph.add_node("prepare_synthesis_revision", prepare_synthesis_revision)
@@ -529,7 +586,8 @@ def compile_multi_wave_research_graph(
     graph.add_conditional_edges("prepare_wave", dispatch_wave, ["retrieve_task"])
     graph.add_edge("retrieve_task", "advance_wave")
     graph.add_conditional_edges("advance_wave", route_after_wave)
-    graph.add_edge("aggregate", "synthesize")
+    graph.add_edge("aggregate", "await_plan_approval")
+    graph.add_conditional_edges("await_plan_approval", route_after_plan_approval)
     graph.add_edge("synthesize", "review")
     graph.add_conditional_edges("review", route_after_review)
     graph.add_edge("prepare_synthesis_revision", "synthesize")

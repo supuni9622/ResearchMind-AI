@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+from typing import Any
 from unittest.mock import AsyncMock
 from uuid import uuid4
 
 import pytest
 from app.ai.runtime.research.evidence_artifact import ResearchEvidenceArtifactWriter
 from app.ai.runtime.research.exceptions import (
+    ResearchPlanRejectedError,
     ResearchReportRejectedError,
     ResearchRunCancelledError,
 )
@@ -24,6 +26,15 @@ from app.ai.runtime.research.synthesis.service import (
 from app.ai.runtime.research.workflows.multi_wave_research import compile_multi_wave_research_graph
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.types import Command
+
+
+async def _approve_plan(graph: object, config: dict[str, Any]) -> dict[str, Any]:
+    """Every test below now hits the plan-approval interrupt (after
+    evidence aggregation, before synthesis) before it can reach whatever
+    it actually wants to assert on -- this resumes past it with a bare
+    approval, same shape as approving the report-approval interrupt."""
+
+    return await graph.ainvoke(Command(resume={"decision": "approved"}), config=config)  # type: ignore[attr-defined,no-any-return]
 
 
 @pytest.mark.asyncio
@@ -82,6 +93,11 @@ async def test_multi_wave_graph_waits_for_dependencies_before_aggregation() -> N
     )
 
     assert "__interrupt__" in paused
+    assert final_report_writer.write.await_count == 0
+    assert synthesis.synthesize.await_count == 0
+
+    plan_approved = await _approve_plan(graph, config)
+    assert "__interrupt__" in plan_approved
     assert final_report_writer.write.await_count == 0
 
     result = await graph.ainvoke(Command(resume={"decision": "approved"}), config=config)
@@ -150,8 +166,9 @@ async def test_multi_wave_graph_runs_one_targeted_gap_retrieval_then_finalizes_l
         reviewer=reviewer,
     )
     initial = ResearchPlanTask(task_id="initial", question="initial")
+    config = {"configurable": {"thread_id": str(run_id)}}
 
-    result = await graph.ainvoke(
+    await graph.ainvoke(
         {
             "research_run_id": str(run_id),
             "owner_id": str(owner_id),
@@ -161,8 +178,9 @@ async def test_multi_wave_graph_runs_one_targeted_gap_retrieval_then_finalizes_l
             "top_k": 5,
             "task_results": {},
         },
-        config={"configurable": {"thread_id": str(run_id)}},
+        config=config,
     )
+    result = await _approve_plan(graph, config)
 
     assert set(result["task_results"]) == {"initial", "gap-1"}
     assert result["gap_research_count"] == 1
@@ -251,8 +269,9 @@ async def test_multi_wave_graph_never_repairs_a_simple_plan() -> None:
         reviewer=reviewer,
     )
     initial = ResearchPlanTask(task_id="initial", question="initial")
+    config = {"configurable": {"thread_id": str(run_id)}}
 
-    result = await graph.ainvoke(
+    await graph.ainvoke(
         {
             "research_run_id": str(run_id),
             "owner_id": str(owner_id),
@@ -262,8 +281,9 @@ async def test_multi_wave_graph_never_repairs_a_simple_plan() -> None:
             "top_k": 5,
             "task_results": {},
         },
-        config={"configurable": {"thread_id": str(run_id)}},
+        config=config,
     )
+    result = await _approve_plan(graph, config)
 
     assert reviewer.review.await_count == 1
     assert result["review"]["decision"] == ReviewDecision.FINALIZE_WITH_LIMITATIONS.value
@@ -314,8 +334,9 @@ async def test_multi_wave_graph_stops_repair_once_cost_budget_exhausted() -> Non
         cost_lookup=AsyncMock(return_value=999.0),
     )
     initial = ResearchPlanTask(task_id="initial", question="initial")
+    config = {"configurable": {"thread_id": str(run_id)}}
 
-    result = await graph.ainvoke(
+    await graph.ainvoke(
         {
             "research_run_id": str(run_id),
             "owner_id": str(owner_id),
@@ -325,8 +346,9 @@ async def test_multi_wave_graph_stops_repair_once_cost_budget_exhausted() -> Non
             "top_k": 5,
             "task_results": {},
         },
-        config={"configurable": {"thread_id": str(run_id)}},
+        config=config,
     )
+    result = await _approve_plan(graph, config)
 
     assert reviewer.review.await_count == 1
     assert result["review"]["decision"] == ReviewDecision.FINALIZE_WITH_LIMITATIONS.value
@@ -367,8 +389,9 @@ async def test_multi_wave_graph_retries_synthesis_once_after_a_schema_failure() 
         final_report_writer=final_report_writer,
     )
     initial = ResearchPlanTask(task_id="initial", question="initial")
+    config = {"configurable": {"thread_id": str(run_id)}}
 
-    result = await graph.ainvoke(
+    await graph.ainvoke(
         {
             "research_run_id": str(run_id),
             "owner_id": str(owner_id),
@@ -378,8 +401,9 @@ async def test_multi_wave_graph_retries_synthesis_once_after_a_schema_failure() 
             "top_k": 5,
             "task_results": {},
         },
-        config={"configurable": {"thread_id": str(run_id)}},
+        config=config,
     )
+    result = await _approve_plan(graph, config)
 
     assert synthesis.synthesize.await_count == 2
     assert result["synthesis_revision_count"] == 1
@@ -443,6 +467,9 @@ async def test_multi_wave_graph_synthesizes_and_reviews_against_the_rewritten_go
     )
     assert "__interrupt__" in paused
 
+    plan_approved = await _approve_plan(graph, config)
+    assert "__interrupt__" in plan_approved
+
     result = await graph.ainvoke(Command(resume={"decision": "approved"}), config=config)
 
     assert synthesis.synthesize.await_args.kwargs["goal"] == "compare LoRA with QLoRA"
@@ -504,6 +531,10 @@ async def test_multi_wave_graph_skips_pdf_and_completes_when_the_user_rejects_th
     )
 
     assert "__interrupt__" in paused
+    final_report_writer.write.assert_not_awaited()
+
+    plan_approved = await _approve_plan(graph, config)
+    assert "__interrupt__" in plan_approved
     final_report_writer.write.assert_not_awaited()
 
     result = await graph.ainvoke(
@@ -574,8 +605,206 @@ async def test_multi_wave_graph_raises_on_a_malformed_report_decision_payload() 
         },
         config=config,
     )
+    await _approve_plan(graph, config)
 
     with pytest.raises(ResearchReportRejectedError, match="invalid decision payload"):
         await graph.ainvoke(Command(resume="not-a-dict"), config=config)
 
     final_report_writer.write.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_multi_wave_graph_pauses_for_plan_approval_before_synthesis() -> None:
+    """The plan-approval interrupt sits between `aggregate` and `synthesize`
+    -- reached once evidence exists, before the synthesis call is spent."""
+
+    run_id, owner_id = uuid4(), uuid4()
+    retrieval = AsyncMock()
+    retrieval.execute_task.return_value = ResearchTaskResult(
+        task_id="only", status=ResearchTaskStatus.COMPLETED
+    )
+    writer = AsyncMock(spec=ResearchEvidenceArtifactWriter)
+    writer.write.return_value = "artifacts/research-runs/evidence.json"
+    synthesis = AsyncMock(spec=ResearchSynthesisService)
+    final_report_writer = AsyncMock(spec=ResearchFinalReportArtifactWriter)
+    graph = compile_multi_wave_research_graph(
+        checkpointer=InMemorySaver(),
+        task_retrieval=retrieval,
+        evidence_writer=writer,
+        synthesis=synthesis,
+        final_report_writer=final_report_writer,
+    )
+    only = ResearchPlanTask(task_id="only", question="only")
+    config = {"configurable": {"thread_id": str(run_id)}}
+
+    paused = await graph.ainvoke(
+        {
+            "research_run_id": str(run_id),
+            "owner_id": str(owner_id),
+            "plan": {"goal": "q", "complexity": "simple"},
+            "waves": [[only.model_dump(mode="json")]],
+            "filters": {},
+            "top_k": 5,
+            "task_results": {},
+        },
+        config=config,
+    )
+
+    assert "__interrupt__" in paused
+    assert paused["evidence_bundle"]["completed_task_count"] == 1
+    synthesis.synthesize.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_multi_wave_graph_applies_an_edited_goal_from_plan_approval() -> None:
+    run_id, owner_id = uuid4(), uuid4()
+    retrieval = AsyncMock()
+    retrieval.execute_task.return_value = ResearchTaskResult(
+        task_id="only", status=ResearchTaskStatus.COMPLETED
+    )
+    writer = AsyncMock(spec=ResearchEvidenceArtifactWriter)
+    writer.write.return_value = "artifacts/research-runs/evidence.json"
+    synthesis = AsyncMock(spec=ResearchSynthesisService)
+    synthesis.synthesize.return_value = ResearchDraft(
+        title="Report",
+        abstract="Abstract.",
+        methodology="Methodology.",
+        findings=[ResearchDraftSection(heading="Finding", content="Grounded finding.")],
+        discussion="Discussion.",
+        conclusion="Conclusion.",
+    )
+    reviewer = AsyncMock(spec=ResearchReviewService)
+    reviewer.review.return_value = ResearchReview(
+        decision=ReviewDecision.PASS, citation_integrity_score=1.0, completeness_score=1.0
+    )
+    final_report_writer = AsyncMock(spec=ResearchFinalReportArtifactWriter)
+    final_report_writer.write.return_value = ResearchFinalReportReferences(
+        report_ref="artifacts/research-runs/final-report.json",
+        pdf_ref="artifacts/research-runs/final-report.pdf",
+    )
+    graph = compile_multi_wave_research_graph(
+        checkpointer=InMemorySaver(),
+        task_retrieval=retrieval,
+        evidence_writer=writer,
+        synthesis=synthesis,
+        final_report_writer=final_report_writer,
+        reviewer=reviewer,
+    )
+    only = ResearchPlanTask(task_id="only", question="only")
+    config = {"configurable": {"thread_id": str(run_id)}}
+
+    await graph.ainvoke(
+        {
+            "research_run_id": str(run_id),
+            "owner_id": str(owner_id),
+            "plan": {"goal": "compare it with QLoRA", "complexity": "simple"},
+            "waves": [[only.model_dump(mode="json")]],
+            "filters": {},
+            "top_k": 5,
+            "task_results": {},
+        },
+        config=config,
+    )
+
+    await graph.ainvoke(
+        Command(
+            resume={
+                "decision": "approved",
+                "edited_plan": {"rewritten_goal": "compare LoRA with QLoRA, cite benchmarks"},
+            }
+        ),
+        config=config,
+    )
+
+    assert (
+        synthesis.synthesize.await_args.kwargs["goal"] == "compare LoRA with QLoRA, cite benchmarks"
+    )
+
+
+@pytest.mark.asyncio
+async def test_multi_wave_graph_ends_without_synthesizing_when_the_plan_is_rejected() -> None:
+    run_id, owner_id = uuid4(), uuid4()
+    retrieval = AsyncMock()
+    retrieval.execute_task.return_value = ResearchTaskResult(
+        task_id="only", status=ResearchTaskStatus.COMPLETED
+    )
+    writer = AsyncMock(spec=ResearchEvidenceArtifactWriter)
+    writer.write.return_value = "artifacts/research-runs/evidence.json"
+    synthesis = AsyncMock(spec=ResearchSynthesisService)
+    final_report_writer = AsyncMock(spec=ResearchFinalReportArtifactWriter)
+    graph = compile_multi_wave_research_graph(
+        checkpointer=InMemorySaver(),
+        task_retrieval=retrieval,
+        evidence_writer=writer,
+        synthesis=synthesis,
+        final_report_writer=final_report_writer,
+    )
+    only = ResearchPlanTask(task_id="only", question="only")
+    config = {"configurable": {"thread_id": str(run_id)}}
+
+    await graph.ainvoke(
+        {
+            "research_run_id": str(run_id),
+            "owner_id": str(owner_id),
+            "plan": {"goal": "q", "complexity": "simple"},
+            "waves": [[only.model_dump(mode="json")]],
+            "filters": {},
+            "top_k": 5,
+            "task_results": {},
+        },
+        config=config,
+    )
+
+    result = await graph.ainvoke(
+        Command(resume={"decision": "rejected", "reason": "evidence looks thin"}), config=config
+    )
+
+    synthesis.synthesize.assert_not_awaited()
+    final_report_writer.write.assert_not_awaited()
+    assert result["plan_decision"] == "rejected"
+    assert result["plan_rejection_reason"] == "evidence looks thin"
+    # The gathered evidence survives the rejection -- nothing is discarded,
+    # even though there's no draft to publish from it (see
+    # `execution.py::_resume_v1_graph_after_plan_approval`).
+    assert result["evidence_bundle"]["completed_task_count"] == 1
+    assert "draft" not in result
+
+
+@pytest.mark.asyncio
+async def test_multi_wave_graph_raises_on_a_malformed_plan_decision_payload() -> None:
+    run_id, owner_id = uuid4(), uuid4()
+    retrieval = AsyncMock()
+    retrieval.execute_task.return_value = ResearchTaskResult(
+        task_id="only", status=ResearchTaskStatus.COMPLETED
+    )
+    writer = AsyncMock(spec=ResearchEvidenceArtifactWriter)
+    writer.write.return_value = "artifacts/research-runs/evidence.json"
+    synthesis = AsyncMock(spec=ResearchSynthesisService)
+    final_report_writer = AsyncMock(spec=ResearchFinalReportArtifactWriter)
+    graph = compile_multi_wave_research_graph(
+        checkpointer=InMemorySaver(),
+        task_retrieval=retrieval,
+        evidence_writer=writer,
+        synthesis=synthesis,
+        final_report_writer=final_report_writer,
+    )
+    only = ResearchPlanTask(task_id="only", question="only")
+    config = {"configurable": {"thread_id": str(run_id)}}
+
+    await graph.ainvoke(
+        {
+            "research_run_id": str(run_id),
+            "owner_id": str(owner_id),
+            "plan": {"goal": "q", "complexity": "simple"},
+            "waves": [[only.model_dump(mode="json")]],
+            "filters": {},
+            "top_k": 5,
+            "task_results": {},
+        },
+        config=config,
+    )
+
+    with pytest.raises(ResearchPlanRejectedError, match="invalid decision payload"):
+        await graph.ainvoke(Command(resume="not-a-dict"), config=config)
+
+    synthesis.synthesize.assert_not_awaited()

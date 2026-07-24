@@ -275,6 +275,108 @@ async def test_record_report_decision_returns_none_for_an_unknown_or_unowned_run
 
 
 @pytest.mark.asyncio
+async def test_record_plan_decision_persists_approval_and_reopens_the_dispatch() -> None:
+    run = _run(status=ResearchRunStatus.AWAITING_PLAN_APPROVAL)
+    session = AsyncMock()
+    service = ResearchRunService(session)
+    service._repository.get_by_id_for_owner = AsyncMock(return_value=run)  # type: ignore[method-assign]
+    service._dispatches.reopen = AsyncMock()  # type: ignore[method-assign]
+
+    result = await service.record_plan_decision(run_id=run.id, owner_id=run.owner_id, approved=True)
+
+    assert result is run
+    assert run.budget_usage["plan_decision"] == {"decision": "approved", "reason": None}
+    service._dispatches.reopen.assert_awaited_once_with(run_id=run.id)
+    session.commit.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_record_plan_decision_persists_an_edited_goal_alongside_approval() -> None:
+    run = _run(status=ResearchRunStatus.AWAITING_PLAN_APPROVAL)
+    session = AsyncMock()
+    service = ResearchRunService(session)
+    service._repository.get_by_id_for_owner = AsyncMock(return_value=run)  # type: ignore[method-assign]
+    service._dispatches.reopen = AsyncMock()  # type: ignore[method-assign]
+
+    result = await service.record_plan_decision(
+        run_id=run.id,
+        owner_id=run.owner_id,
+        approved=True,
+        edited_goal="Focus specifically on classical music.",
+    )
+
+    assert result is run
+    assert run.budget_usage["plan_decision"] == {
+        "decision": "approved",
+        "reason": None,
+        "edited_plan": {"rewritten_goal": "Focus specifically on classical music."},
+    }
+
+
+@pytest.mark.asyncio
+async def test_record_plan_decision_persists_rejection_with_a_reason() -> None:
+    run = _run(status=ResearchRunStatus.AWAITING_PLAN_APPROVAL)
+    session = AsyncMock()
+    service = ResearchRunService(session)
+    service._repository.get_by_id_for_owner = AsyncMock(return_value=run)  # type: ignore[method-assign]
+    service._dispatches.reopen = AsyncMock()  # type: ignore[method-assign]
+
+    result = await service.record_plan_decision(
+        run_id=run.id, owner_id=run.owner_id, approved=False, reason="Evidence looks too thin."
+    )
+
+    assert result is run
+    assert run.budget_usage["plan_decision"] == {
+        "decision": "rejected",
+        "reason": "Evidence looks too thin.",
+    }
+
+
+@pytest.mark.asyncio
+async def test_record_plan_decision_ignores_an_edited_goal_on_rejection() -> None:
+    run = _run(status=ResearchRunStatus.AWAITING_PLAN_APPROVAL)
+    session = AsyncMock()
+    service = ResearchRunService(session)
+    service._repository.get_by_id_for_owner = AsyncMock(return_value=run)  # type: ignore[method-assign]
+    service._dispatches.reopen = AsyncMock()  # type: ignore[method-assign]
+
+    result = await service.record_plan_decision(
+        run_id=run.id,
+        owner_id=run.owner_id,
+        approved=False,
+        reason="not accurate",
+        edited_goal="should be ignored",
+    )
+
+    assert result is run
+    assert "edited_plan" not in run.budget_usage["plan_decision"]
+
+
+@pytest.mark.asyncio
+async def test_record_plan_decision_rejects_a_run_not_awaiting_plan_approval() -> None:
+    run = _run(status=ResearchRunStatus.RESEARCHING)
+    session = AsyncMock()
+    service = ResearchRunService(session)
+    service._repository.get_by_id_for_owner = AsyncMock(return_value=run)  # type: ignore[method-assign]
+
+    with pytest.raises(ValueError, match="not awaiting"):
+        await service.record_plan_decision(run_id=run.id, owner_id=run.owner_id, approved=True)
+
+    session.commit.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_record_plan_decision_returns_none_for_an_unknown_or_unowned_run() -> None:
+    session = AsyncMock()
+    service = ResearchRunService(session)
+    service._repository.get_by_id_for_owner = AsyncMock(return_value=None)  # type: ignore[method-assign]
+
+    result = await service.record_plan_decision(run_id=uuid4(), owner_id=uuid4(), approved=True)
+
+    assert result is None
+
+
+@pytest.mark.asyncio
 async def test_expire_stale_awaiting_approval_cancels_each_stale_run() -> None:
     stale_runs = [
         _run(status=ResearchRunStatus.AWAITING_APPROVAL),
@@ -295,6 +397,23 @@ async def test_expire_stale_awaiting_approval_cancels_each_stale_run() -> None:
         assert run.terminal_reason == "awaiting_approval_expired"
     assert service._event_journal.publish.await_count == 2
     session.commit.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_expire_stale_awaiting_approval_uses_a_distinct_reason_for_plan_approval() -> None:
+    stale_run = _run(status=ResearchRunStatus.AWAITING_PLAN_APPROVAL)
+    session = AsyncMock()
+    service = ResearchRunService(session)
+    service._repository.list_stale_awaiting_approval = AsyncMock(  # type: ignore[method-assign]
+        return_value=[stale_run]
+    )
+    service._event_journal.publish = AsyncMock()  # type: ignore[method-assign]
+
+    count = await service.expire_stale_awaiting_approval()
+
+    assert count == 1
+    assert stale_run.status == ResearchRunStatus.CANCELLED.value
+    assert stale_run.terminal_reason == "awaiting_plan_approval_expired"
 
 
 @pytest.mark.asyncio

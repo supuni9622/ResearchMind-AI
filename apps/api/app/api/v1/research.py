@@ -15,6 +15,10 @@ from app.ai.runtime.research.draft_inspection import (
     PendingDraftUnavailableError,
     ResearchDraftInspectionService,
 )
+from app.ai.runtime.research.plan_inspection import (
+    PendingPlanUnavailableError,
+    ResearchPlanInspectionService,
+)
 from app.ai.runtime.research.planner.models import ResearchComplexity, ResearchPlan
 from app.ai.runtime.research.proposal_service import ResearchProposalService
 from app.ai.runtime.research.report_download import ResearchReportDownloadService
@@ -26,6 +30,7 @@ from app.dependencies.rate_limiting import enforce_rate_limit, get_rate_limiter
 from app.dependencies.research import (
     get_research_conversation_service,
     get_research_draft_inspection_service,
+    get_research_plan_inspection_service,
     get_research_proposal_repository,
     get_research_proposal_service,
     get_research_report_download_service,
@@ -57,6 +62,10 @@ from app.schemas.research import (
     ResearchDraftResponse,
     ResearchDraftReviewSummary,
     ResearchEscalationCheckResponse,
+    ResearchPendingPlanEvidenceSummary,
+    ResearchPendingPlanResponse,
+    ResearchPendingPlanTaskResponse,
+    ResearchPlanDecisionRequest,
     ResearchProposalRequest,
     ResearchProposalResponse,
     ResearchReportDecisionRequest,
@@ -462,6 +471,98 @@ async def cancel_research_run(
     """
 
     run = await runs.request_cancellation(run_id=research_run_id, owner_id=current_user.id)
+    if run is None:
+        raise NotFoundException(message=f"Research run '{research_run_id}' was not found.")
+    return _run_response(run)
+
+
+@router.get(
+    "/runs/{research_run_id}/plan",
+    response_model=ResearchPendingPlanResponse,
+    summary="Inspect the plan and gathered evidence awaiting approval before synthesis",
+)
+async def get_research_run_plan(
+    research_run_id: UUID,
+    current_user: User = Depends(get_current_user),
+    runs: ResearchRunRepository = Depends(get_research_run_repository),
+    plan_inspection: ResearchPlanInspectionService = Depends(get_research_plan_inspection_service),
+) -> ResearchPendingPlanResponse:
+    """Reads the pending plan and evidence straight out of the paused run's
+    LangGraph checkpoint (see `ResearchPlanInspectionService`) -- reached
+    after retrieval/evidence-aggregation but before the synthesis call."""
+
+    run = await runs.get_by_id_for_owner(run_id=research_run_id, owner_id=current_user.id)
+    if run is None:
+        raise NotFoundException(message=f"Research run '{research_run_id}' was not found.")
+    if run.status != ResearchRunStatus.AWAITING_PLAN_APPROVAL.value:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Research run '{research_run_id}' is not awaiting a plan decision.",
+        )
+    try:
+        pending = await plan_inspection.get_pending_plan(run)
+    except PendingPlanUnavailableError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+
+    return ResearchPendingPlanResponse(
+        research_run_id=run.id,
+        goal=pending.plan.goal,
+        rewritten_goal=pending.plan.rewritten_goal,
+        complexity=pending.plan.complexity,
+        tasks=[
+            ResearchPendingPlanTaskResponse(task_id=task.task_id, question=task.question)
+            for task in pending.plan.tasks
+        ],
+        evidence=ResearchPendingPlanEvidenceSummary(
+            completed_task_count=pending.evidence.completed_task_count,
+            failed_task_count=pending.evidence.failed_task_count,
+            warning_count=len(pending.evidence.warnings),
+        ),
+        citations=[
+            ResearchDraftCitationResponse(
+                citation_id=item.citation_id,
+                filename=item.filename,
+                excerpt=item.excerpt,
+                score=item.score,
+            )
+            for item in pending.evidence.evidence
+            if item.citation_id is not None
+        ],
+    )
+
+
+@router.post(
+    "/runs/{research_run_id}/plan-decision",
+    response_model=ResearchRunResponse,
+    summary="Approve or reject the plan before synthesis runs",
+)
+async def submit_research_plan_decision(
+    research_run_id: UUID,
+    payload: ResearchPlanDecisionRequest,
+    current_user: User = Depends(get_current_user),
+    runs: ResearchRunService = Depends(get_research_run_service),
+) -> ResearchRunResponse:
+    """Resolve the graph's plan-approval `interrupt()`.
+
+    Only valid while the run's status is `awaiting_plan_approval`. The
+    decision is persisted and a fresh dispatch wakes the worker to resume
+    the run -- continuing into synthesis on approval, or ending the run
+    (with no report ever produced) on rejection. Neither happens
+    synchronously in this request.
+    """
+
+    try:
+        run = await runs.record_plan_decision(
+            run_id=research_run_id,
+            owner_id=current_user.id,
+            approved=payload.approved,
+            reason=payload.reason,
+            edited_goal=(
+                payload.edited_plan.rewritten_goal if payload.edited_plan is not None else None
+            ),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     if run is None:
         raise NotFoundException(message=f"Research run '{research_run_id}' was not found.")
     return _run_response(run)

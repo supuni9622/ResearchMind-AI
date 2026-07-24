@@ -18,14 +18,16 @@ const TERMINAL_RUN_STATUSES = new Set<DeepResearchRun['status']>([
 ]);
 
 // research_completed/failed/cancelled -- see `ResearchEventType` in
-// `app/ai/runtime/events/research/models.py`. `research_awaiting_approval`
-// is handled separately -- it doesn't end the stream (see below).
+// `app/ai/runtime/events/research/models.py`. `research_awaiting_approval`/
+// `research_awaiting_plan_approval` are handled separately -- neither ends
+// the stream (see below).
 const TERMINAL_EVENT_TYPES = new Set(['research_completed', 'research_failed', 'research_cancelled']);
 
 const MAX_RECONNECT_ATTEMPTS = 5;
 const RECONNECT_DELAY_MS = 1500;
 
 function stageForRun(run: DeepResearchRun): DeepResearchStage {
+  if (run.status === 'awaiting_plan_approval') return 'goal_review';
   if (run.status === 'awaiting_approval') return 'report_review';
   if (run.status === 'cancelled' || run.status === 'failed') return 'failed';
   if (TERMINAL_RUN_STATUSES.has(run.status)) return 'done';
@@ -41,6 +43,7 @@ function turnFromProposal(query: string, proposal: DeepResearchProposal): DeepRe
     run: null,
     stage: 'plan_review',
     events: [],
+    pendingPlan: null,
     draft: null,
     reportDownloadUrl: null,
     linearAnswer: null,
@@ -118,6 +121,21 @@ export function useDeepResearch(onConversationLearned?: (conversationId: string)
     } catch {
       // Best-effort: the completed-run card still renders correctly without
       // a download link -- the user can still see the report status.
+    }
+  }, []);
+
+  /** Fetches the plan and gathered evidence once a run pauses at the
+   * plan-approval interrupt -- reached after retrieval/evidence-aggregation
+   * but before the synthesis call is spent (see
+   * `ResearchPlanInspectionService`, which reads it straight out of the
+   * paused run's LangGraph checkpoint, same pattern as `fetchDraft` below). */
+  const fetchPendingPlan = useCallback(async (localId: string, runId: string) => {
+    try {
+      const pendingPlan = await api.research.getPlan(runId);
+      setTurns((prev) => patchTurn(prev, localId, { pendingPlan }));
+    } catch {
+      // Best-effort -- the review card still renders the approve/reject
+      // buttons without the evidence preview if this fetch fails.
     }
   }, []);
 
@@ -219,6 +237,11 @@ export function useDeepResearch(onConversationLearned?: (conversationId: string)
                 }))
               );
 
+              if (event.type === 'research_awaiting_plan_approval') {
+                setTurns((prev) => patchTurn(prev, localId, { stage: 'goal_review' }));
+                void fetchPendingPlan(localId, runId);
+              }
+
               if (event.type === 'research_awaiting_approval') {
                 setTurns((prev) => patchTurn(prev, localId, { stage: 'report_review' }));
                 void fetchDraft(localId, runId);
@@ -250,7 +273,7 @@ export function useDeepResearch(onConversationLearned?: (conversationId: string)
         }
       })();
     },
-    [stopStream, finalizeRun, fetchDraft]
+    [stopStream, finalizeRun, fetchDraft, fetchPendingPlan]
   );
 
   /** Manual "Deep Research" mode submission -- creates and shows a fresh proposal. */
@@ -297,6 +320,28 @@ export function useDeepResearch(onConversationLearned?: (conversationId: string)
       }
     },
     [streamRun, learnConversationId]
+  );
+
+  const submitPlanDecision = useCallback(
+    async (localId: string, runId: string, approved: boolean, reason?: string, editedGoal?: string) => {
+      try {
+        const run = await api.research.submitPlanDecision(runId, approved, reason, editedGoal);
+        // Optimistic, mirrors `submitReportDecision` -- the run is still
+        // `awaiting_plan_approval` at this point (the worker hasn't resumed
+        // the graph yet), so flip to `running` immediately rather than
+        // waiting for the next stream event.
+        setTurns((prev) => patchTurn(prev, localId, { run, stage: 'running' }));
+        learnConversationId(run.conversation_id);
+      } catch (err) {
+        setTurns((prev) =>
+          patchTurn(prev, localId, {
+            stage: 'error',
+            error: errorMessage(err, 'Could not submit your plan decision.'),
+          })
+        );
+      }
+    },
+    [learnConversationId]
   );
 
   const submitReportDecision = useCallback(
@@ -406,6 +451,7 @@ export function useDeepResearch(onConversationLearned?: (conversationId: string)
     createProposal,
     startFromProposal,
     approve,
+    submitPlanDecision,
     submitReportDecision,
     hydrateFromConversation,
     reset,

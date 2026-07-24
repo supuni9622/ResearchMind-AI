@@ -74,6 +74,8 @@ _RESUMABLE_IN_PROGRESS_STATUSES = frozenset(
         # a crashed/dead attempt, but `_begin` treats it identically -- bump
         # attempt_count and continue rather than re-transition to PLANNING.
         ResearchRunStatus.AWAITING_APPROVAL.value,
+        # Same reasoning for the plan-approval checkpoint.
+        ResearchRunStatus.AWAITING_PLAN_APPROVAL.value,
     }
 )
 
@@ -147,12 +149,14 @@ class ResearchRuntimeExecutionService:
             return await self._replay_completed(run=run, owner_id=proposal.owner_id)
 
         resuming_after_report_decision = run.status == ResearchRunStatus.AWAITING_APPROVAL.value
+        resuming_after_plan_decision = run.status == ResearchRunStatus.AWAITING_PLAN_APPROVAL.value
         logger.info(
             "research_runtime.execution.approved_run_started",
             research_run_id=str(run.id),
             owner_id=str(proposal.owner_id),
             attempt_count=(run.attempt_count or 0) + 1,
             resuming_after_report_decision=resuming_after_report_decision,
+            resuming_after_plan_decision=resuming_after_plan_decision,
         )
         request = proposal.request
         try:
@@ -170,6 +174,21 @@ class ResearchRuntimeExecutionService:
                         "that was never recorded."
                     )
                 outcome = await self._resume_v1_graph_after_report_approval(
+                    run=run,
+                    query=str(request["query"]),
+                    owner_id=proposal.owner_id,
+                    conversation_id=proposal.conversation_id,
+                    plan=plan,
+                    decision=decision,
+                )
+            elif resuming_after_plan_decision:
+                decision = (run.budget_usage or {}).get("plan_decision")
+                if decision is None:
+                    raise RuntimeError(
+                        f"Research run '{run.id}' is awaiting a plan decision "
+                        "that was never recorded."
+                    )
+                outcome = await self._resume_v1_graph_after_plan_approval(
                     run=run,
                     query=str(request["query"]),
                     owner_id=proposal.owner_id,
@@ -618,6 +637,81 @@ class ResearchRuntimeExecutionService:
             started=started,
         )
 
+    async def _resume_v1_graph_after_plan_approval(
+        self,
+        *,
+        run: ResearchRun,
+        query: str,
+        owner_id: UUID,
+        conversation_id: UUID | None,
+        plan: ResearchPlan,
+        decision: dict[str, Any],
+    ) -> ResearchOutcome | None:
+        """Continue a graph paused at `await_plan_approval` with a recorded decision.
+
+        Mirrors `_resume_v1_graph_after_report_approval` -- no `graph_input`
+        reconstruction happens here, the checkpoint already holds the
+        accumulated state (plan, evidence); only the pending `interrupt()`
+        needs a resume value.
+        """
+
+        generation_runtime, retrieval, context_builder, storage = self._v1_graph_dependencies()
+        started = perf_counter()
+        budget = ResearchPlanningPolicy().budget_for(plan.complexity)
+        transition_run(
+            run, target=ResearchRunStatus.RESEARCHING, phase="resuming_after_plan_decision"
+        )
+        await self._session.commit()
+        await self._publish_runtime_event(
+            run_id=run.id, event_type=ResearchEventType.RESEARCH_RESUMED
+        )
+        async with postgres_checkpointer(self._database_url) as checkpointer:
+            graph = self._compile_graph_for_run(
+                run=run,
+                checkpointer=checkpointer,
+                generation_runtime=generation_runtime,
+                retrieval=retrieval,
+                context_builder=context_builder,
+                storage=storage,
+            )
+            graph_config: RunnableConfig = {
+                "configurable": {"thread_id": run.graph_thread_id},
+                "recursion_limit": settings.research_runtime_graph_recursion_limit,
+            }
+            try:
+                result = await asyncio.wait_for(
+                    graph.ainvoke(Command(resume=decision), config=graph_config),
+                    timeout=budget.max_duration_seconds,
+                )
+            except TimeoutError as exc:
+                raise ResearchRunBudgetExceededError(
+                    f"Research run '{run.id}' exceeded its "
+                    f"{budget.max_duration_seconds}s duration budget."
+                ) from exc
+        if result.get("plan_decision") == "rejected" and not result.get("__interrupt__"):
+            # No draft was ever produced -- `route_after_plan_approval` sent
+            # the graph straight to `END` without touching `synthesize`, so
+            # there is nothing for `_finalize_or_pause` to publish. Distinct
+            # from a rejected *report*, which still has a draft to publish
+            # as a plain answer.
+            await self._mark_terminal(run, ResearchRunStatus.CANCELLED, "plan_rejected_by_user")
+            await self._publish_runtime_event(
+                run_id=run.id, event_type=ResearchEventType.RESEARCH_CANCELLED
+            )
+            logger.info(
+                "research_runtime.execution.plan_rejected",
+                research_run_id=str(run.id),
+            )
+            return None
+        return await self._finalize_or_pause(
+            run=run,
+            result=result,
+            query=query,
+            owner_id=owner_id,
+            conversation_id=conversation_id,
+            started=started,
+        )
+
     async def _finalize_or_pause(
         self,
         *,
@@ -629,6 +723,21 @@ class ResearchRuntimeExecutionService:
         started: float,
     ) -> ResearchOutcome | None:
         if result.get("__interrupt__"):
+            if self._interrupt_kind(result["__interrupt__"]) == "plan_approval":
+                transition_run(
+                    run,
+                    target=ResearchRunStatus.AWAITING_PLAN_APPROVAL,
+                    phase="awaiting_plan_approval",
+                )
+                await self._session.commit()
+                await self._publish_runtime_event(
+                    run_id=run.id, event_type=ResearchEventType.RESEARCH_AWAITING_PLAN_APPROVAL
+                )
+                logger.info(
+                    "research_runtime.execution.paused_for_plan_approval",
+                    research_run_id=str(run.id),
+                )
+                return None
             transition_run(
                 run, target=ResearchRunStatus.AWAITING_APPROVAL, phase="awaiting_report_approval"
             )
@@ -665,6 +774,21 @@ class ResearchRuntimeExecutionService:
             conversation_id=conversation_id,
             duration_ms=(perf_counter() - started) * 1000,
         )
+
+    @staticmethod
+    def _interrupt_kind(interrupts: Any) -> str:
+        """Distinguish which checkpoint a graph paused at from `result["__interrupt__"]`
+        (a tuple of LangGraph `Interrupt` objects). Defaults to `"report_approval"`
+        when the kind can't be determined -- that was this codebase's only
+        interrupt before the plan-approval checkpoint existed, so an
+        unrecognized/malformed payload should fail the same way it always did
+        rather than silently misrouting to a plan-approval status."""
+
+        for item in interrupts:
+            value = getattr(item, "value", None)
+            if isinstance(value, dict) and value.get("kind") == "plan_approval":
+                return "plan_approval"
+        return "report_approval"
 
     async def _publish_runtime_event(self, *, run_id: UUID, event_type: ResearchEventType) -> None:
         await self._event_journal.publish(run_id=run_id, event_type=event_type)

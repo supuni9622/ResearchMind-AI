@@ -207,6 +207,7 @@ export type DeepResearchRunStatus =
   | 'synthesizing'
   | 'paused'
   | 'awaiting_approval'
+  | 'awaiting_plan_approval'
   | 'completed'
   | 'completed_with_limitations'
   | 'cancelled'
@@ -281,6 +282,33 @@ export interface DeepResearchDraftEdit {
   findings: { heading: string; content: string }[];
   discussion: string;
   conclusion: string;
+}
+
+// Matches `app/schemas/research.py::ResearchPendingPlanTaskResponse`.
+export interface DeepResearchPendingPlanTask {
+  task_id: string;
+  question: string;
+}
+
+// Matches `app/schemas/research.py::ResearchPendingPlanEvidenceSummary`.
+export interface DeepResearchPendingPlanEvidence {
+  completed_task_count: number;
+  failed_task_count: number;
+  warning_count: number;
+}
+
+// Matches `app/schemas/research.py::ResearchPendingPlanResponse` -- the plan
+// and the evidence already gathered for it, read from the paused run's
+// checkpoint while it's `awaiting_plan_approval` (reached after retrieval,
+// before the synthesis call is spent).
+export interface DeepResearchPendingPlan {
+  research_run_id: string;
+  goal: string;
+  rewritten_goal: string | null;
+  complexity: ResearchComplexity;
+  tasks: DeepResearchPendingPlanTask[];
+  evidence: DeepResearchPendingPlanEvidence;
+  citations: DeepResearchDraftCitation[];
 }
 
 export interface DeepResearchAskOptions {
@@ -555,6 +583,17 @@ export const api = {
       }),
     getDraft: (runId: string) =>
       request<DeepResearchDraft>(`/api/v1/research/runs/${runId}/draft`),
+    getPlan: (runId: string) =>
+      request<DeepResearchPendingPlan>(`/api/v1/research/runs/${runId}/plan`),
+    submitPlanDecision: (runId: string, approved: boolean, reason?: string, editedGoal?: string) =>
+      request<DeepResearchRun>(`/api/v1/research/runs/${runId}/plan-decision`, {
+        method: 'POST',
+        body: JSON.stringify({
+          approved,
+          reason: reason ?? null,
+          edited_plan: editedGoal ? { rewritten_goal: editedGoal } : null,
+        }),
+      }),
     getReportDownload: (runId: string) =>
       request<ResearchReportDownloadResponse>(`/api/v1/research/runs/${runId}/report`),
     streamRunEvents: streamResearchRunEvents,

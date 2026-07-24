@@ -25,6 +25,7 @@ from app.ai.runtime.generation.orchestration.orchestrator import GenerationRunti
 from app.ai.runtime.generation.streaming.service import StreamingService
 from app.ai.runtime.research.draft_inspection import ResearchDraftInspectionService
 from app.ai.runtime.research.execution import ResearchRuntimeExecutionService
+from app.ai.runtime.research.plan_inspection import ResearchPlanInspectionService
 from app.ai.runtime.research.proposal_service import ResearchProposalService
 from app.ai.runtime.research.report_download import ResearchReportDownloadService
 from app.ai.runtime.research.run_service import ResearchRunService
@@ -140,6 +141,12 @@ def get_research_draft_inspection_service() -> ResearchDraftInspectionService:
     other lightweight collaborators here, not worth `@lru_cache`-ing."""
 
     return ResearchDraftInspectionService(database_url=settings.database_url)
+
+
+def get_research_plan_inspection_service() -> ResearchPlanInspectionService:
+    """Stateless, mirrors `get_research_draft_inspection_service`."""
+
+    return ResearchPlanInspectionService(database_url=settings.database_url)
 
 
 def get_research_report_download_service(

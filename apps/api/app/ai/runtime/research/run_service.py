@@ -197,6 +197,55 @@ class ResearchRunService:
         )
         return run
 
+    async def record_plan_decision(
+        self,
+        *,
+        run_id: UUID,
+        owner_id: UUID,
+        approved: bool,
+        reason: str | None = None,
+        edited_goal: str | None = None,
+    ) -> ResearchRun | None:
+        """Record the plan-approval decision and re-queue the run's dispatch
+        in one transaction -- mirrors `record_report_decision`'s atomicity
+        rationale (a committed decision with no dispatch would strand the
+        run at `awaiting_plan_approval` forever).
+
+        `edited_goal` (only meaningful when `approved`) is the reviewer's
+        revised `rewritten_goal` -- the only plan field editable at this
+        checkpoint, since retrieval for the plan's `tasks` has already run
+        by the time evidence exists to review. No merge/validation against
+        a checkpointed original is needed here (unlike an edited draft's
+        finding-count guard): it's a single free-text field, already
+        length-bounded by `ResearchPlanGoalEdit`, that `await_plan_approval`
+        substitutes directly onto `state["plan"]`.
+        """
+
+        run = await self._repository.get_by_id_for_owner(run_id=run_id, owner_id=owner_id)
+        if run is None:
+            return None
+        if run.status != ResearchRunStatus.AWAITING_PLAN_APPROVAL.value:
+            raise ValueError(f"Research run '{run.id}' is not awaiting a plan decision.")
+
+        decision: dict[str, object] = {
+            "decision": "approved" if approved else "rejected",
+            "reason": reason,
+        }
+        if approved and edited_goal is not None:
+            decision["edited_plan"] = {"rewritten_goal": edited_goal}
+
+        run.budget_usage = {**(run.budget_usage or {}), "plan_decision": decision}
+        await self._dispatches.reopen(run_id=run.id)
+        await self._session.commit()
+        logger.info(
+            "research_runtime.run.plan_decision_recorded",
+            research_run_id=str(run.id),
+            owner_id=str(owner_id),
+            approved=approved,
+            edited=edited_goal is not None,
+        )
+        return run
+
     async def expire_stale_awaiting_approval(self, *, older_than_hours: int | None = None) -> int:
         """Auto-cancel runs left sitting at AWAITING_APPROVAL past the TTL.
 
@@ -220,8 +269,13 @@ class ResearchRunService:
         stale_runs = await self._repository.list_stale_awaiting_approval(older_than=cutoff)
 
         for run in stale_runs:
+            was_awaiting_plan = run.status == ResearchRunStatus.AWAITING_PLAN_APPROVAL.value
             transition_run(run, target=ResearchRunStatus.CANCELLED, phase="terminal")
-            run.terminal_reason = "awaiting_approval_expired"
+            run.terminal_reason = (
+                "awaiting_plan_approval_expired"
+                if was_awaiting_plan
+                else "awaiting_approval_expired"
+            )
             await self._event_journal.publish(
                 run_id=run.id, event_type=ResearchEventType.RESEARCH_CANCELLED
             )

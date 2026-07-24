@@ -41,4 +41,5 @@ class ResearchEventType(StrEnum):
     RESEARCH_PAUSED = "research_paused"
     RESEARCH_RESUMED = "research_resumed"
     RESEARCH_AWAITING_APPROVAL = "research_awaiting_approval"
+    RESEARCH_AWAITING_PLAN_APPROVAL = "research_awaiting_plan_approval"
     RESEARCH_CANCELLED = "research_cancelled"

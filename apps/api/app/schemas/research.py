@@ -102,6 +102,35 @@ class ResearchReportDecisionRequest(BaseModel):
     edited_draft: ResearchDraftEdit | None = None
 
 
+class ResearchPlanGoalEdit(BaseModel):
+    """Free-text edit to the plan's synthesis-driving goal, submitted
+    alongside plan approval. `tasks`/`complexity` aren't editable here --
+    retrieval for the plan's original tasks has already run by the time
+    evidence exists to review, so changing them wouldn't retroactively
+    affect what was retrieved (see `ResearchRunService.record_plan_decision`)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    rewritten_goal: str = Field(min_length=1, max_length=4_000)
+
+
+class ResearchPlanDecisionRequest(BaseModel):
+    """Body for `POST /research/runs/{id}/plan-decision` (the plan-approval
+    interrupt checkpoint -- reached after retrieval/evidence-aggregation but
+    before the costly synthesis call) -- distinct from both
+    `ResearchProposalRequest`'s earlier, pre-run plan approval and
+    `ResearchReportDecisionRequest`'s later report approval."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    approved: bool
+
+    reason: str | None = Field(default=None, max_length=1_000)
+
+    # Only meaningful when `approved` -- mirrors `ResearchReportDecisionRequest.edited_draft`.
+    edited_plan: ResearchPlanGoalEdit | None = None
+
+
 class ResearchCitationsRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -194,6 +223,39 @@ class ResearchDraftResponse(BaseModel):
     limitations: list[str]
     citations: list[ResearchDraftCitationResponse]
     review: ResearchDraftReviewSummary
+
+
+class ResearchPendingPlanTaskResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    task_id: str
+    question: str
+
+
+class ResearchPendingPlanEvidenceSummary(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    completed_task_count: int
+    failed_task_count: int
+    warning_count: int
+
+
+class ResearchPendingPlanResponse(BaseModel):
+    """`GET /research/runs/{id}/plan` -- the plan and the evidence already
+    gathered for it, awaiting approval before the synthesis call is spent.
+    Read directly from the paused run's LangGraph checkpoint (see
+    `ResearchPlanInspectionService`). Only available while the run is
+    `awaiting_plan_approval`."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    research_run_id: UUID
+    goal: str
+    rewritten_goal: str | None
+    complexity: ResearchComplexity
+    tasks: list[ResearchPendingPlanTaskResponse]
+    evidence: ResearchPendingPlanEvidenceSummary
+    citations: list[ResearchDraftCitationResponse]
 
 
 class ResearchRunResponse(BaseModel):

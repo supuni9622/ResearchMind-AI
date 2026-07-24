@@ -60,11 +60,20 @@ class ResearchRunRepository:
 
     async def list_stale_awaiting_approval(self, *, older_than: datetime) -> list[ResearchRun]:
         """System-wide (not owner-scoped): the expiry sweep runs as an
-        operator/ops job, not on behalf of a single request's owner."""
+        operator/ops job, not on behalf of a single request's owner.
+
+        Covers both human-checkpoint pauses -- report approval and (as of
+        the plan-approval checkpoint) plan approval -- since either can
+        strand a run indefinitely if the user never returns to it."""
 
         result = await self._session.execute(
             select(ResearchRun).where(
-                ResearchRun.status == ResearchRunStatus.AWAITING_APPROVAL.value,
+                ResearchRun.status.in_(
+                    (
+                        ResearchRunStatus.AWAITING_APPROVAL.value,
+                        ResearchRunStatus.AWAITING_PLAN_APPROVAL.value,
+                    )
+                ),
                 ResearchRun.updated_at < older_than,
             )
         )

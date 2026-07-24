@@ -589,6 +589,210 @@ async def test_execute_approved_run_fails_loudly_without_a_recorded_decision() -
 
 
 @pytest.mark.asyncio
+async def test_execute_approved_run_pauses_at_plan_approval(monkeypatch) -> None:
+    run = _run()
+    proposal = _approved_proposal(run)
+    research_service = AsyncMock()
+    execution = _v1_execution(session=AsyncMock(), research_service=research_service)
+    execution._proposals.get_by_run_id = AsyncMock(return_value=proposal)  # type: ignore[method-assign]
+    execution._runs.get_for_owner = AsyncMock(return_value=run)  # type: ignore[method-assign]
+
+    class FakeInterrupt:
+        value = {"kind": "plan_approval", "research_run_id": str(run.id)}
+
+    class FakeGraph:
+        async def ainvoke(self, _state, *, config) -> dict:
+            return {"__interrupt__": [FakeInterrupt()]}
+
+    class FakeCheckpointer:
+        async def aget_tuple(self, _config: object) -> None:
+            return None
+
+    @asynccontextmanager
+    async def fake_checkpointer(_: str):
+        yield FakeCheckpointer()
+
+    monkeypatch.setattr(
+        "app.ai.runtime.research.execution.compile_multi_wave_research_graph",
+        lambda **_kwargs: FakeGraph(),
+    )
+    monkeypatch.setattr(
+        "app.ai.runtime.research.execution.postgres_checkpointer", fake_checkpointer
+    )
+
+    outcome = await execution.execute_approved_run(run_id=run.id)
+
+    assert outcome is None
+    assert run.status == ResearchRunStatus.AWAITING_PLAN_APPROVAL.value
+    research_service.publish_runtime_report.assert_not_awaited()
+    _publish_mock(execution).assert_any_await(
+        run_id=run.id, event_type=ResearchEventType.RESEARCH_AWAITING_PLAN_APPROVAL
+    )
+
+
+@pytest.mark.asyncio
+async def test_execute_approved_run_resumes_into_synthesis_after_plan_approval(monkeypatch) -> None:
+    """An approved plan resumes straight into synthesis/review, which then
+    pauses again at the *report*-approval interrupt (a fresh one, not the
+    plan-approval interrupt just resolved)."""
+
+    run = _run()
+    run.status = ResearchRunStatus.AWAITING_PLAN_APPROVAL.value
+    run.budget_usage = {"plan_decision": {"decision": "approved", "reason": None}}
+    proposal = _approved_proposal(run)
+    research_service = AsyncMock()
+    execution = _v1_execution(session=AsyncMock(), research_service=research_service)
+    execution._proposals.get_by_run_id = AsyncMock(return_value=proposal)  # type: ignore[method-assign]
+    execution._runs.get_for_owner = AsyncMock(return_value=run)  # type: ignore[method-assign]
+
+    class FakeGraph:
+        async def ainvoke(self, command, *, config) -> dict:
+            assert isinstance(command, Command)
+            assert command.resume == {"decision": "approved", "reason": None}
+            return {"__interrupt__": [object()]}
+
+    class FakeCheckpointer:
+        async def aget_tuple(self, _config: object) -> None:
+            return None
+
+    @asynccontextmanager
+    async def fake_checkpointer(_: str):
+        yield FakeCheckpointer()
+
+    monkeypatch.setattr(
+        "app.ai.runtime.research.execution.compile_multi_wave_research_graph",
+        lambda **_kwargs: FakeGraph(),
+    )
+    monkeypatch.setattr(
+        "app.ai.runtime.research.execution.postgres_checkpointer", fake_checkpointer
+    )
+
+    outcome = await execution.execute_approved_run(run_id=run.id)
+
+    assert outcome is None
+    assert run.status == ResearchRunStatus.AWAITING_APPROVAL.value
+    _publish_mock(execution).assert_any_await(
+        run_id=run.id, event_type=ResearchEventType.RESEARCH_RESUMED
+    )
+    _publish_mock(execution).assert_any_await(
+        run_id=run.id, event_type=ResearchEventType.RESEARCH_AWAITING_APPROVAL
+    )
+
+
+@pytest.mark.asyncio
+async def test_execute_approved_run_ends_without_a_report_when_plan_is_rejected(
+    monkeypatch,
+) -> None:
+    """A rejected plan never reaches synthesis -- there is no draft to
+    publish (unlike a rejected *report*, which still has one), so the run
+    just ends CANCELLED rather than completing with a plain answer."""
+
+    run = _run()
+    run.status = ResearchRunStatus.AWAITING_PLAN_APPROVAL.value
+    run.budget_usage = {"plan_decision": {"decision": "rejected", "reason": "thin evidence"}}
+    proposal = _approved_proposal(run)
+    research_service = AsyncMock()
+    execution = _v1_execution(session=AsyncMock(), research_service=research_service)
+    execution._proposals.get_by_run_id = AsyncMock(return_value=proposal)  # type: ignore[method-assign]
+    execution._runs.get_for_owner = AsyncMock(return_value=run)  # type: ignore[method-assign]
+
+    class FakeGraph:
+        async def ainvoke(self, command, *, config) -> dict:
+            assert isinstance(command, Command)
+            assert command.resume == {"decision": "rejected", "reason": "thin evidence"}
+            return {
+                "plan_decision": "rejected",
+                "plan_rejection_reason": "thin evidence",
+                "evidence_bundle": {"completed_task_count": 1, "failed_task_count": 0},
+            }
+
+    class FakeCheckpointer:
+        async def aget_tuple(self, _config: object) -> None:
+            return None
+
+    @asynccontextmanager
+    async def fake_checkpointer(_: str):
+        yield FakeCheckpointer()
+
+    monkeypatch.setattr(
+        "app.ai.runtime.research.execution.compile_multi_wave_research_graph",
+        lambda **_kwargs: FakeGraph(),
+    )
+    monkeypatch.setattr(
+        "app.ai.runtime.research.execution.postgres_checkpointer", fake_checkpointer
+    )
+
+    outcome = await execution.execute_approved_run(run_id=run.id)
+
+    assert outcome is None
+    assert run.status == ResearchRunStatus.CANCELLED.value
+    assert run.terminal_reason == "plan_rejected_by_user"
+    research_service.publish_runtime_report.assert_not_awaited()
+    _publish_mock(execution).assert_any_await(
+        run_id=run.id, event_type=ResearchEventType.RESEARCH_CANCELLED
+    )
+
+
+@pytest.mark.asyncio
+async def test_execute_approved_run_marks_failed_on_a_malformed_plan_decision(
+    monkeypatch,
+) -> None:
+    run = _run()
+    run.status = ResearchRunStatus.AWAITING_PLAN_APPROVAL.value
+    run.budget_usage = {"plan_decision": {"decision": "rejected", "reason": "thin evidence"}}
+    proposal = _approved_proposal(run)
+    execution = _v1_execution(session=AsyncMock(), research_service=AsyncMock())
+    execution._proposals.get_by_run_id = AsyncMock(return_value=proposal)  # type: ignore[method-assign]
+    execution._runs.get_for_owner = AsyncMock(return_value=run)  # type: ignore[method-assign]
+
+    from app.ai.runtime.research.exceptions import ResearchPlanRejectedError
+
+    class FakeGraph:
+        async def ainvoke(self, _command, *, config) -> dict:
+            raise ResearchPlanRejectedError(
+                "The plan-approval interrupt resumed with an invalid decision payload."
+            )
+
+    class FakeCheckpointer:
+        async def aget_tuple(self, _config: object) -> None:
+            return None
+
+    @asynccontextmanager
+    async def fake_checkpointer(_: str):
+        yield FakeCheckpointer()
+
+    monkeypatch.setattr(
+        "app.ai.runtime.research.execution.compile_multi_wave_research_graph",
+        lambda **_kwargs: FakeGraph(),
+    )
+    monkeypatch.setattr(
+        "app.ai.runtime.research.execution.postgres_checkpointer", fake_checkpointer
+    )
+
+    with pytest.raises(ResearchPlanRejectedError):
+        await execution.execute_approved_run(run_id=run.id)
+
+    assert run.status == ResearchRunStatus.FAILED.value
+    _publish_mock(execution).assert_any_await(
+        run_id=run.id, event_type=ResearchEventType.RESEARCH_FAILED
+    )
+
+
+@pytest.mark.asyncio
+async def test_execute_approved_run_fails_loudly_without_a_recorded_plan_decision() -> None:
+    run = _run()
+    run.status = ResearchRunStatus.AWAITING_PLAN_APPROVAL.value
+    run.budget_usage = {}
+    proposal = _approved_proposal(run)
+    execution = _v1_execution(session=AsyncMock(), research_service=AsyncMock())
+    execution._proposals.get_by_run_id = AsyncMock(return_value=proposal)  # type: ignore[method-assign]
+    execution._runs.get_for_owner = AsyncMock(return_value=run)  # type: ignore[method-assign]
+
+    with pytest.raises(RuntimeError, match="never recorded"):
+        await execution.execute_approved_run(run_id=run.id)
+
+
+@pytest.mark.asyncio
 async def test_execute_approved_run_refreshes_the_run_before_reading_its_decision(
     monkeypatch,
 ) -> None:

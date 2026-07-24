@@ -13,3 +13,9 @@ class ResearchRunBudgetExceededError(RuntimeError):
 
 class ResearchReportRejectedError(RuntimeError):
     """Raised when the user rejects the final report at its approval checkpoint."""
+
+
+class ResearchPlanRejectedError(RuntimeError):
+    """Raised when the plan-approval interrupt resumes with a malformed
+    decision payload -- a real rejection does not raise this (see
+    `route_after_plan_approval` in `multi_wave_research.py`)."""

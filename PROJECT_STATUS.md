@@ -1623,18 +1623,75 @@ same-finding-count guard), `ResearchDraftInspectionService`, and the new
 not-awaiting-approval case). The user then manually re-tested the full flow
 in the browser and confirmed all six fixes work correctly.
 
+## 2026-07-24 plan-approval interrupt — the same view/edit/reject-with-reason
+## treatment report approval got, now for the earlier plan-approval checkpoint
+
+The report-approval work above (`AWAITING_APPROVAL`, `await_report_approval`,
+`GET /draft`, `report-decision`) deliberately left the *plan*-approval step
+untouched — before this, a proposal could only be approved as-is or silently
+abandoned, with no way to see gathered evidence or revise the goal before the
+graph spent a synthesis call on it, and no reject-with-reason.
+
+- **New graph checkpoint.** `await_plan_approval` (`interrupt()`, same pattern
+  as `await_report_approval`) sits on a new node between `aggregate` and
+  `synthesize` in `multi_wave_research.py` — reached once real evidence
+  exists but before the costly synthesis call runs. Wired onto the
+  `aggregate -> await_plan_approval -> synthesize` edge only: the automatic
+  `REVISE_SYNTHESIS`/`RESEARCH_GAPS` repair-loop edges
+  (`prepare_synthesis_revision`/`aggregate_gap_evidence -> synthesize`) still
+  bypass it, so it's a human checkpoint once per run, not on every internal
+  retry.
+- **New lifecycle state.** `ResearchRunStatus.AWAITING_PLAN_APPROVAL`, with
+  the same `{RESEARCHING, CANCELLED}` transition shape as `AWAITING_APPROVAL`.
+  `execution.py`'s `_finalize_or_pause` now inspects which `interrupt()`
+  payload (`{"kind": "plan_approval" | "report_approval", ...}`) a paused
+  `ainvoke()` actually returned to route to the right status/event, instead
+  of assuming report-approval unconditionally.
+- **Inspection + decision endpoints.** `ResearchPlanInspectionService` reads
+  the paused run's checkpoint directly (`channel_values["plan"]`/
+  `["evidence_bundle"]` — no draft/review exist yet at this point) — same
+  pattern as `ResearchDraftInspectionService`. `GET /research/runs/{id}/plan`
+  exposes goal/rewritten_goal/complexity/tasks/evidence-summary/citations;
+  `POST /research/runs/{id}/plan-decision` approves (optionally with an
+  `edited_plan.rewritten_goal` — the *only* plan field still safe to change,
+  since retrieval for `tasks` has already run and produced the evidence being
+  reviewed) or rejects with a reason.
+- **Rejection has no fallback answer, unlike report rejection.** A rejected
+  *report* still has a synthesized draft to publish as a plain answer
+  (`report_rejected_returned_as_answer`). A rejected *plan* has no draft at
+  all — `synthesize` never ran — so `route_after_plan_approval` routes
+  straight to `END` and the execution service marks the run `CANCELLED`
+  (`terminal_reason="plan_rejected_by_user"`) rather than
+  `COMPLETED_WITH_LIMITATIONS`. The gathered evidence isn't discarded (it's
+  a plain, unreduced state channel that survives regardless of which node
+  the graph ends at), it's just never turned into a report.
+- **Expiry sweep widened.** `ResearchRunRepository.list_stale_awaiting_approval`
+  now covers both `AWAITING_APPROVAL` and `AWAITING_PLAN_APPROVAL` so the new
+  checkpoint doesn't introduce a second unbounded-wait blind spot alongside
+  the existing (still-unwired-to-a-cron) one tracked as D5.
+- **Frontend.** A new `goal_review` stage sits between `running` and
+  `report_review` in `use-deep-research.ts`'s state machine, triggered by the
+  same live SSE event stream (`research_awaiting_plan_approval`, no new
+  connection needed). New `PlanGoalReview` component (mirrors `DraftReview`,
+  but only the goal is editable — tasks/complexity are read-only since
+  retrieval for them already ran).
+
+Verified: full repo suite **1361 passed**, ruff/mypy clean across every
+touched backend path, frontend `tsc --noEmit`/`eslint`/`next build` all
+clean. New backend tests cover the graph's new interrupt (pause, edited-goal
+resume, rejection routing, malformed-payload guard), `record_plan_decision`,
+`ResearchPlanInspectionService`, and the new `/plan` and `/plan-decision`
+endpoints (including the 409-when-not-awaiting-plan-approval case). Every
+existing graph/execution test that previously invoked the graph straight
+through to the report-approval interrupt now resumes past the new
+plan-approval interrupt first — updated, not skipped.
+
 ## Not Yet Built
 
 - ⛔ Chat → Deep Research escalation ("Research this" suggestion + handoff) — **out of
   scope, will not be built.** The Research-interface equivalent (Linear → Deep) is built
   and is a distinct surface (see above); Chat is intended to stay a standalone fast
   conversational surface with no path into Deep Research.
-- ❌ Proposal rejection/expiry, or plan edits before approval — this is specifically
-  about the *earlier* plan-approval step (goal/tasks/complexity), which still has no
-  edit/reject UX beyond simply not approving it. **Not the same gap as report editing**,
-  which is now built (2026-07-24) — the *later* report-approval checkpoint lets a
-  reviewer see and edit the draft's text (title/abstract/findings/discussion/conclusion)
-  before deciding.
 - ❌ Horizontal worker scaling — single serial process by default; the claim query
   (`SELECT ... FOR UPDATE SKIP LOCKED`) is already safe for multiple processes, nothing
   currently runs more than one. Under concurrent load, later runs queue behind earlier ones

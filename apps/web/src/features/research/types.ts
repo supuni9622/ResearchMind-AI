@@ -1,6 +1,7 @@
 import type {
   Citation,
   DeepResearchDraft,
+  DeepResearchPendingPlan,
   DeepResearchProposal,
   DeepResearchRun,
   GenerationProvider,
@@ -10,6 +11,9 @@ export { PROVIDER_OPTIONS } from '@/lib/api';
 export type {
   DeepResearchDraft,
   DeepResearchDraftEdit,
+  DeepResearchPendingPlan,
+  DeepResearchPendingPlanEvidence,
+  DeepResearchPendingPlanTask,
   DeepResearchPlan,
   DeepResearchPlanTask,
   DeepResearchProposal,
@@ -26,13 +30,23 @@ export type ResearchMode = 'linear' | 'deep';
 
 /**
  * Client-side view of where one Deep Research turn sits:
- * `plan_review` (awaiting approve/cancel) -> `running` (approved, polling
- * status) -> `report_review` (graph paused at the report-approval
- * interrupt) -> `done`/`failed`. `error` is a request-level failure
- * (network, etc.), distinct from a run reaching a terminal `failed`/
- * `cancelled` status.
+ * `plan_review` (awaiting approve/cancel, before a run exists at all) ->
+ * `running` (approved, polling status) -> `goal_review` (graph paused at
+ * the *plan*-approval interrupt -- reached after retrieval/evidence-
+ * aggregation but before the synthesis call; distinct from `plan_review`,
+ * which happens before any run/retrieval exists) -> `running` again ->
+ * `report_review` (graph paused at the *report*-approval interrupt) ->
+ * `done`/`failed`. `error` is a request-level failure (network, etc.),
+ * distinct from a run reaching a terminal `failed`/`cancelled` status.
  */
-export type DeepResearchStage = 'plan_review' | 'running' | 'report_review' | 'done' | 'failed' | 'error';
+export type DeepResearchStage =
+  | 'plan_review'
+  | 'running'
+  | 'goal_review'
+  | 'report_review'
+  | 'done'
+  | 'failed'
+  | 'error';
 
 /** One label from the live `GET /research/runs/{id}/events` SSE feed. */
 export interface DeepResearchProgressEvent {
@@ -57,8 +71,10 @@ export interface DeepResearchTurn {
   proposal: DeepResearchProposal;
   run: DeepResearchRun | null;
   stage: DeepResearchStage;
-  /** Ordered, oldest-first log of safe progress labels streamed live while `stage` is `running`/`report_review`. */
+  /** Ordered, oldest-first log of safe progress labels streamed live while `stage` is `running`/`goal_review`/`report_review`. */
   events: DeepResearchProgressEvent[];
+  /** Fetched once `stage` reaches `goal_review` -- the plan and gathered evidence the approve/reject decision is about. */
+  pendingPlan: DeepResearchPendingPlan | null;
   /** Fetched once `stage` reaches `report_review` -- the draft the approve/reject decision is about. */
   draft: DeepResearchDraft | null;
   reportDownloadUrl: string | null;

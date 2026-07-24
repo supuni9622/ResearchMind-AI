@@ -34,6 +34,10 @@ from app.ai.runtime.research.draft_inspection import (
     PendingDraftUnavailableError,
 )
 from app.ai.runtime.research.evidence import ResearchEvidenceBundle
+from app.ai.runtime.research.plan_inspection import (
+    PendingPlanSnapshot,
+    PendingPlanUnavailableError,
+)
 from app.ai.runtime.research.planner.models import (
     ResearchComplexity,
     ResearchExecutionStrategy,
@@ -49,6 +53,7 @@ from app.dependencies.rate_limiting import get_rate_limiter
 from app.dependencies.research import (
     get_research_conversation_service,
     get_research_draft_inspection_service,
+    get_research_plan_inspection_service,
     get_research_proposal_repository,
     get_research_proposal_service,
     get_research_report_download_service,
@@ -207,6 +212,23 @@ class _FakeResearchRunService:
         }
         return run
 
+    async def record_plan_decision(
+        self, *, run_id, owner_id, approved, reason=None, edited_goal=None
+    ):
+        run = self._runs.get(run_id)
+        if run is None or run.owner_id != owner_id:
+            return None
+        if run.status != "awaiting_plan_approval":
+            raise ValueError(f"Research run '{run.id}' is not awaiting a plan decision.")
+        decision: dict[str, object] = {
+            "decision": "approved" if approved else "rejected",
+            "reason": reason,
+        }
+        if approved and edited_goal is not None:
+            decision["edited_plan"] = {"rewritten_goal": edited_goal}
+        run.budget_usage = {**(run.budget_usage or {}), "plan_decision": decision}
+        return run
+
 
 class _FakeResearchConversationService:
     def __init__(self, conversations: dict[uuid.UUID, ResearchConversation]) -> None:
@@ -271,6 +293,46 @@ def _pending_draft_snapshot() -> PendingDraftSnapshot:
             decision=ReviewDecision.PASS,
             citation_integrity_score=1.0,
             completeness_score=1.0,
+        ),
+    )
+
+
+class _FakeResearchPlanInspectionService:
+    def __init__(self, snapshot: PendingPlanSnapshot | Exception) -> None:
+        self._snapshot = snapshot
+
+    async def get_pending_plan(self, run):
+        if isinstance(self._snapshot, Exception):
+            raise self._snapshot
+        return self._snapshot
+
+
+def _pending_plan_snapshot() -> PendingPlanSnapshot:
+    return PendingPlanSnapshot(
+        plan=ResearchPlan(
+            goal="How does music affect mood?",
+            rewritten_goal="How does music listening affect mood regulation?",
+            complexity=ResearchComplexity.MODERATE,
+            execution_strategy=ResearchExecutionStrategy.DECOMPOSED,
+            tasks=[
+                ResearchPlanTask(task_id="task_one", question="What genres improve mood?"),
+                ResearchPlanTask(task_id="task_two", question="What's the neuroscience basis?"),
+            ],
+        ),
+        evidence=ResearchEvidenceBundle(
+            evidence=[
+                ResearchEvidenceReference(
+                    document_id=str(uuid.uuid4()),
+                    chunk_id=str(uuid.uuid4()),
+                    filename="music_and_mood.pdf",
+                    citation_id="S1",
+                    score=0.9,
+                    excerpt="Music listening is associated with mood regulation.",
+                )
+            ],
+            citation_ids=["S1"],
+            completed_task_count=2,
+            failed_task_count=0,
         ),
     )
 
@@ -522,6 +584,309 @@ def test_get_research_run_draft_returns_409_when_the_checkpoint_has_no_draft_yet
         del app.dependency_overrides[get_research_draft_inspection_service]
 
     assert response.status_code == 409
+
+
+def test_get_research_run_plan_returns_the_pending_plan_with_gathered_evidence(
+    client: TestClient,
+    fakes: tuple[_FakeResearchService, dict],
+) -> None:
+    run_id = uuid.uuid4()
+    runs = {
+        run_id: ResearchRun(
+            id=run_id,
+            owner_id=_OWNER_ID,
+            graph_thread_id=str(uuid.uuid4()),
+            status="awaiting_plan_approval",
+            attempt_count=1,
+            cancellation_requested=False,
+            budget_profile={},
+            budget_usage={},
+            error_summary={},
+        )
+    }
+    app.dependency_overrides[get_current_user] = _fake_user
+    app.dependency_overrides[get_research_run_repository] = lambda: _FakeResearchRunRepository(runs)
+    app.dependency_overrides[get_research_plan_inspection_service] = lambda: (
+        _FakeResearchPlanInspectionService(_pending_plan_snapshot())
+    )
+
+    try:
+        response = client.get(f"/api/v1/research/runs/{run_id}/plan")
+    finally:
+        del app.dependency_overrides[get_current_user]
+        del app.dependency_overrides[get_research_run_repository]
+        del app.dependency_overrides[get_research_plan_inspection_service]
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["goal"] == "How does music affect mood?"
+    assert body["rewritten_goal"] == "How does music listening affect mood regulation?"
+    assert body["complexity"] == "moderate"
+    assert [t["task_id"] for t in body["tasks"]] == ["task_one", "task_two"]
+    assert body["evidence"] == {
+        "completed_task_count": 2,
+        "failed_task_count": 0,
+        "warning_count": 0,
+    }
+    assert body["citations"] == [
+        {
+            "citation_id": "S1",
+            "filename": "music_and_mood.pdf",
+            "excerpt": "Music listening is associated with mood regulation.",
+            "score": 0.9,
+        }
+    ]
+
+
+def test_get_research_run_plan_returns_409_when_not_awaiting_plan_approval(
+    client: TestClient,
+    fakes: tuple[_FakeResearchService, dict],
+) -> None:
+    run_id = uuid.uuid4()
+    runs = {
+        run_id: ResearchRun(
+            id=run_id,
+            owner_id=_OWNER_ID,
+            graph_thread_id=str(uuid.uuid4()),
+            status="awaiting_approval",
+            attempt_count=1,
+            cancellation_requested=False,
+            budget_profile={},
+            budget_usage={},
+            error_summary={},
+        )
+    }
+    app.dependency_overrides[get_current_user] = _fake_user
+    app.dependency_overrides[get_research_run_repository] = lambda: _FakeResearchRunRepository(runs)
+    app.dependency_overrides[get_research_plan_inspection_service] = lambda: (
+        _FakeResearchPlanInspectionService(_pending_plan_snapshot())
+    )
+
+    try:
+        response = client.get(f"/api/v1/research/runs/{run_id}/plan")
+    finally:
+        del app.dependency_overrides[get_current_user]
+        del app.dependency_overrides[get_research_run_repository]
+        del app.dependency_overrides[get_research_plan_inspection_service]
+
+    assert response.status_code == 409
+
+
+def test_get_research_run_plan_returns_409_when_the_checkpoint_has_no_evidence_yet(
+    client: TestClient,
+    fakes: tuple[_FakeResearchService, dict],
+) -> None:
+    run_id = uuid.uuid4()
+    runs = {
+        run_id: ResearchRun(
+            id=run_id,
+            owner_id=_OWNER_ID,
+            graph_thread_id=str(uuid.uuid4()),
+            status="awaiting_plan_approval",
+            attempt_count=1,
+            cancellation_requested=False,
+            budget_profile={},
+            budget_usage={},
+            error_summary={},
+        )
+    }
+    app.dependency_overrides[get_current_user] = _fake_user
+    app.dependency_overrides[get_research_run_repository] = lambda: _FakeResearchRunRepository(runs)
+    app.dependency_overrides[get_research_plan_inspection_service] = lambda: (
+        _FakeResearchPlanInspectionService(
+            PendingPlanUnavailableError(
+                f"Research run '{run_id}' has no evidence awaiting plan review yet."
+            )
+        )
+    )
+
+    try:
+        response = client.get(f"/api/v1/research/runs/{run_id}/plan")
+    finally:
+        del app.dependency_overrides[get_current_user]
+        del app.dependency_overrides[get_research_run_repository]
+        del app.dependency_overrides[get_research_plan_inspection_service]
+
+    assert response.status_code == 409
+
+
+def test_submit_plan_decision_approves_a_run_awaiting_plan_approval(
+    client: TestClient,
+    fakes: tuple[_FakeResearchService, dict],
+) -> None:
+    run_id = uuid.uuid4()
+    runs = {
+        run_id: ResearchRun(
+            id=run_id,
+            owner_id=_OWNER_ID,
+            graph_thread_id=str(uuid.uuid4()),
+            status="awaiting_plan_approval",
+            attempt_count=1,
+            cancellation_requested=False,
+            budget_profile={},
+            budget_usage={},
+            error_summary={},
+        )
+    }
+    app.dependency_overrides[get_current_user] = _fake_user
+    app.dependency_overrides[get_research_run_service] = lambda: _FakeResearchRunService(runs)
+
+    try:
+        response = client.post(
+            f"/api/v1/research/runs/{run_id}/plan-decision", json={"approved": True}
+        )
+    finally:
+        del app.dependency_overrides[get_current_user]
+        del app.dependency_overrides[get_research_run_service]
+
+    assert response.status_code == 200
+    assert response.json()["research_run_id"] == str(run_id)
+    assert runs[run_id].budget_usage["plan_decision"] == {
+        "decision": "approved",
+        "reason": None,
+    }
+
+
+def test_submit_plan_decision_approves_with_an_edited_goal(
+    client: TestClient,
+    fakes: tuple[_FakeResearchService, dict],
+) -> None:
+    run_id = uuid.uuid4()
+    runs = {
+        run_id: ResearchRun(
+            id=run_id,
+            owner_id=_OWNER_ID,
+            graph_thread_id=str(uuid.uuid4()),
+            status="awaiting_plan_approval",
+            attempt_count=1,
+            cancellation_requested=False,
+            budget_profile={},
+            budget_usage={},
+            error_summary={},
+        )
+    }
+    app.dependency_overrides[get_current_user] = _fake_user
+    app.dependency_overrides[get_research_run_service] = lambda: _FakeResearchRunService(runs)
+
+    try:
+        response = client.post(
+            f"/api/v1/research/runs/{run_id}/plan-decision",
+            json={
+                "approved": True,
+                "edited_plan": {"rewritten_goal": "Focus specifically on classical music."},
+            },
+        )
+    finally:
+        del app.dependency_overrides[get_current_user]
+        del app.dependency_overrides[get_research_run_service]
+
+    assert response.status_code == 200
+    assert runs[run_id].budget_usage["plan_decision"] == {
+        "decision": "approved",
+        "reason": None,
+        "edited_plan": {"rewritten_goal": "Focus specifically on classical music."},
+    }
+
+
+def test_submit_plan_decision_rejects_with_a_reason(
+    client: TestClient,
+    fakes: tuple[_FakeResearchService, dict],
+) -> None:
+    run_id = uuid.uuid4()
+    runs = {
+        run_id: ResearchRun(
+            id=run_id,
+            owner_id=_OWNER_ID,
+            graph_thread_id=str(uuid.uuid4()),
+            status="awaiting_plan_approval",
+            attempt_count=1,
+            cancellation_requested=False,
+            budget_profile={},
+            budget_usage={},
+            error_summary={},
+        )
+    }
+    app.dependency_overrides[get_current_user] = _fake_user
+    app.dependency_overrides[get_research_run_service] = lambda: _FakeResearchRunService(runs)
+
+    try:
+        response = client.post(
+            f"/api/v1/research/runs/{run_id}/plan-decision",
+            json={"approved": False, "reason": "Evidence looks too thin."},
+        )
+    finally:
+        del app.dependency_overrides[get_current_user]
+        del app.dependency_overrides[get_research_run_service]
+
+    assert response.status_code == 200
+    assert runs[run_id].budget_usage["plan_decision"] == {
+        "decision": "rejected",
+        "reason": "Evidence looks too thin.",
+    }
+
+
+def test_submit_plan_decision_returns_409_when_run_is_not_awaiting_plan_approval(
+    client: TestClient,
+    fakes: tuple[_FakeResearchService, dict],
+) -> None:
+    run_id = uuid.uuid4()
+    runs = {
+        run_id: ResearchRun(
+            id=run_id,
+            owner_id=_OWNER_ID,
+            graph_thread_id=str(uuid.uuid4()),
+            status="researching",
+            attempt_count=1,
+            cancellation_requested=False,
+            budget_profile={},
+            budget_usage={},
+            error_summary={},
+        )
+    }
+    app.dependency_overrides[get_current_user] = _fake_user
+    app.dependency_overrides[get_research_run_service] = lambda: _FakeResearchRunService(runs)
+
+    try:
+        response = client.post(
+            f"/api/v1/research/runs/{run_id}/plan-decision", json={"approved": True}
+        )
+    finally:
+        del app.dependency_overrides[get_current_user]
+        del app.dependency_overrides[get_research_run_service]
+
+    assert response.status_code == 409
+
+
+def test_submit_plan_decision_returns_404_for_another_owners_run(
+    client: TestClient,
+    fakes: tuple[_FakeResearchService, dict],
+) -> None:
+    run_id = uuid.uuid4()
+    runs = {
+        run_id: ResearchRun(
+            id=run_id,
+            owner_id=_OTHER_OWNER_ID,
+            graph_thread_id=str(uuid.uuid4()),
+            status="awaiting_plan_approval",
+            attempt_count=1,
+            cancellation_requested=False,
+            budget_profile={},
+            budget_usage={},
+            error_summary={},
+        )
+    }
+    app.dependency_overrides[get_current_user] = _fake_user
+    app.dependency_overrides[get_research_run_service] = lambda: _FakeResearchRunService(runs)
+
+    try:
+        response = client.post(
+            f"/api/v1/research/runs/{run_id}/plan-decision", json={"approved": True}
+        )
+    finally:
+        del app.dependency_overrides[get_current_user]
+        del app.dependency_overrides[get_research_run_service]
+
+    assert response.status_code == 404
 
 
 def test_get_research_run_returns_only_the_owners_lifecycle_view(

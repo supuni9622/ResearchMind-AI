@@ -88,6 +88,7 @@ class LangGraphResearchEventAdapter:
             ResearchEventType.RESEARCH_PAUSED: "Research paused",
             ResearchEventType.RESEARCH_RESUMED: "Resuming research",
             ResearchEventType.RESEARCH_AWAITING_APPROVAL: "Awaiting research approval",
+            ResearchEventType.RESEARCH_AWAITING_PLAN_APPROVAL: "Awaiting plan approval",
             ResearchEventType.RESEARCH_CANCELLED: "Research cancelled",
         }
         return StreamEvent(

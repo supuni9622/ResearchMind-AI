@@ -24,6 +24,13 @@ review calls sharing a cache namespace with Linear Research answers) is fixed �
 both now use `CacheRuntime.REVIEWER` (`CachePolicy.NEVER`). X3 is resolved as a
 result. This was the highest-severity open item in the doc.
 
+**2026-07-24 update (plan-approval editing):** Loophole D4 (no mid-run plan
+editing, no plan-approval interrupt) is fixed — a new `await_plan_approval`
+graph interrupt, positioned after evidence-aggregation but before the
+synthesis call, gives plan approval the same view/edit/reject-with-reason
+treatment report approval (D13) already had. See D4's entry and the new
+Flow/Frontend diagrams below.
+
 **2026-07-24 update (user-testing pass on the Deep Research frontend):** the
 user hand-tested the flow verified end-to-end the day before and reported
 seven issues from actually using it. Six were real, root-caused gaps and are
@@ -277,7 +284,7 @@ review.py) + `apps/worker/research_runtime_worker.py` +
 `components/deep-research-block.tsx`, `components/escalation-suggestion.tsx`) +
 `apps/web/src/app/(app)/research/page.tsx` — see the new Frontend subsection below.
 
-### Flow (current, as of the report-approval-interrupt work earlier this session)
+### Flow (current, as of the plan-approval-interrupt work, 2026-07-24)
 
 ```
 0. [optional] POST /research/escalation-check  (Research UI's Linear-mode default)
@@ -319,20 +326,53 @@ review.py) + `apps/worker/research_runtime_worker.py` +
                concurrency via ResearchTaskRetrievalService's semaphore)
              -> advance_wave (loop until all waves done)
              -> aggregate evidence -> persist evidence artifact (S3/storage)
+             -> await_plan_approval: interrupt() -- GRAPH PAUSES HERE (NEW
+                  2026-07-24; reached once per run -- REVISE_SYNTHESIS/
+                  RESEARCH_GAPS retries below route straight back to
+                  synthesize, bypassing this checkpoint)
              -> synthesize (Generation Runtime call, evidence-grounded)
              -> review (deterministic + optional model-based review)
              -> route on ReviewDecision:
-                  PASS                     -> await_report_approval (NEW)
+                  PASS                     -> await_report_approval
                   REVISE_SYNTHESIS         -> retry synthesis (bounded)
                   RESEARCH_GAPS            -> one targeted gap-retrieval round
-                  FINALIZE_WITH_LIMITATIONS -> await_report_approval (NEW)
+                  FINALIZE_WITH_LIMITATIONS -> await_report_approval
                   FAIL                     -> terminal failure
              -> await_report_approval: interrupt() -- GRAPH PAUSES HERE
-        -> if paused: run.status = AWAITING_APPROVAL, publish
-           RESEARCH_AWAITING_APPROVAL, return (worker marks THIS dispatch
-           attempt complete -- the run itself is not done)
+        -> if paused at await_plan_approval: run.status =
+           AWAITING_PLAN_APPROVAL, publish RESEARCH_AWAITING_PLAN_APPROVAL
+        -> if paused at await_report_approval: run.status =
+           AWAITING_APPROVAL, publish RESEARCH_AWAITING_APPROVAL
+        -> either way, return (worker marks THIS dispatch attempt complete
+           -- the run itself is not done)
 
-3.5 [new 2026-07-24] GET /research/runs/{id}/draft
+3.3 [new 2026-07-24] GET /research/runs/{id}/plan
+     ResearchPlanInspectionService.get_pending_plan()
+       -> reads the paused run's LangGraph checkpoint directly
+          (channel_values["plan"]/["evidence_bundle"]) -- evidence exists
+          at this point but no draft does yet (synthesize hasn't run)
+       -> returns goal/rewritten_goal/complexity/tasks, the evidence
+          summary (completed/failed task counts, warning count), and
+          citations resolved to filenames
+       409s if the run isn't AWAITING_PLAN_APPROVAL, or the checkpoint has
+       no evidence yet
+
+     POST /research/runs/{id}/plan-decision
+       {"approved": true|false, "reason": ..., "edited_plan": {"rewritten_goal": ...} | null}
+       ResearchRunService.record_plan_decision()
+         -> persist decision into run.budget_usage.plan_decision
+         -> reopen the (1:1) dispatch row back to PENDING
+       Approving resumes straight into synthesize (with the edited goal
+       substituted onto state["plan"] if one was given); tasks/complexity
+       aren't editable here since retrieval for the original tasks has
+       already run. Rejecting routes straight to END without ever calling
+       synthesize -- there's no draft yet to publish as a plain answer
+       (unlike a rejected *report*, see step 5 below), so the run ends
+       CANCELLED (terminal_reason="plan_rejected_by_user") rather than
+       COMPLETED_WITH_LIMITATIONS. The gathered evidence isn't discarded,
+       it's just never turned into a report.
+
+3.5 GET /research/runs/{id}/draft
      ResearchDraftInspectionService.get_pending_draft()
        -> reads the paused run's LangGraph checkpoint directly
           (channel_values["draft"]/["evidence_bundle"]/["review"]) -- the
@@ -391,27 +431,41 @@ from the report-approval pause). It is not a synchronous abort.
 working state machine (`use-deep-research.ts`), not a stub:
 
 ```
-plan_review  (goal, tasks, complexity badge, Approve/Dismiss)
+plan_review  (goal, tasks, complexity badge, Approve/Dismiss -- pre-run,
+    |          before any retrieval has happened)
     |  approve
     v
 running      (LIVE event feed via GET /research/runs/{id}/events SSE --
-    |          one connection per run, from approve() through report
-    |          approval to a terminal event; see below. As of 2026-07-24,
-    |          this step log stays visible in every later stage too --
-    |          see D8 -- instead of disappearing once `running` ends.)
+    |          one connection per run, from approve() through both
+    |          approval pauses to a terminal event; see below. As of
+    |          2026-07-24, this step log stays visible in every later
+    |          stage too -- see D8 -- instead of disappearing once
+    |          `running` ends.)
     v
-report_review (graph paused at the interrupt -- as of 2026-07-24, shows the
-    |          actual draft (title/abstract/findings/citations/review
-    |          scores) via GET /research/runs/{id}/draft, editable in place
-    |          -- see D13 -- before Approve report / Reject+reason)
-    |  (same SSE connection keeps running through this pause -- the
-    |   backend's replay loop doesn't close on `awaiting_approval`)
+goal_review  (graph paused at await_plan_approval -- new 2026-07-24, see
+    |          D4 -- shows the goal and the evidence already gathered for
+    |          it via GET /research/runs/{id}/plan, with the goal editable
+    |          in place before Continue to report / Reject+reason. Reached
+    |          once per run, not on automatic repair-loop retries.)
+    |  approve
+    v
+running      (resumes into synthesis/review)
+    v
+report_review (graph paused at await_report_approval -- as of 2026-07-24,
+    |          shows the actual draft (title/abstract/findings/citations/
+    |          review scores) via GET /research/runs/{id}/draft, editable
+    |          in place -- see D13 -- before Approve report / Reject+reason)
+    |  (same SSE connection keeps running through both pauses -- the
+    |   backend's replay loop doesn't close on `awaiting_plan_approval` or
+    |   `awaiting_approval`)
     v
 done / failed (final GET /research/runs/{id} fetch for the authoritative
                status, then GET /research/runs/{id}/report for the PDF link
                -- or, as of 2026-07-24, if the report was rejected, the
                synthesized answer rendered inline instead of a PDF link;
-               see D12. `failed` is now reserved for genuine failures, not
+               see D12. Rejecting at `goal_review` instead lands here with
+               no answer at all (see D4) -- there's no draft yet to fall
+               back to. `failed` is now reserved for genuine failures, not
                user rejection.)
 ```
 
@@ -517,7 +571,7 @@ allowing another repair iteration.
 | ~~D1~~ | ~~Synthesis and review generation calls share `CacheRuntime.RESEARCH`~~ — **Fixed 2026-07-23**: both now tag `CacheRuntime.REVIEWER` (`CachePolicy.NEVER`), eliminating the cross-run semantic-cache leakage risk. Regression-tested. | Resolved |
 | D2 | Single serial worker process — no horizontal scaling configured by default; concurrent Deep Research demand queues behind whatever run is currently executing (up to 10 minutes for COMPLEX plans). Confirmed the new frontend degrades sensibly while queued: with zero events yet in the DB, the live event stream just shows "Starting…" indefinitely rather than erroring — correct behavior, but a user has no way to tell "queued behind another run" apart from "about to start" from the UI alone. | Medium-High (scales with adoption) |
 | ~~D3~~ | ~~No rate limiting on proposal creation~~ — **Fixed 2026-07-23**: `POST /research/proposals` is capped at `deep_research_proposal_rate_limit_requests` (default 5/60s) per owner, checked before the planner runs. `POST /research/proposals/{id}/approve` — the more expensive action — has its own, stricter cap: `deep_research_approval_rate_limit_requests` (default 5 per `deep_research_approval_rate_limit_window_seconds`=600s) per owner, checked before run creation/dispatch. Both return `429` with `Retry-After` and never touch `ResearchProposalService` when limited. | Resolved |
-| D4 | No mid-run *plan* editing / no plan-approval interrupt (documented separately, unchanged by this session's work). **Not the same gap as report editing (D13, fixed 2026-07-24)** — this is specifically about the earlier plan-approval step (goal/tasks/complexity); the later report-approval step now does support viewing and editing the draft's text before deciding. | Medium (product gap, known) |
+| ~~D4~~ | ~~No mid-run *plan* editing / no plan-approval interrupt~~ — **Fixed 2026-07-24**: a new `await_plan_approval` graph node (`interrupt()`, positioned between `aggregate` and `synthesize`) gives the plan-approval checkpoint the same view/edit/reject-with-reason treatment report approval (D13) already had. `GET /research/runs/{id}/plan` exposes the gathered evidence and goal from the paused run's checkpoint; `POST /research/runs/{id}/plan-decision` approves (optionally with an edited `rewritten_goal` — the only plan field still safe to change once retrieval has already run for the original tasks) or rejects with a reason. Reached once per run — the automatic `REVISE_SYNTHESIS`/`RESEARCH_GAPS` repair loops bypass it on retries. New `AWAITING_PLAN_APPROVAL` lifecycle state; a new `goal_review` frontend stage between `running` and `report_review`. | Resolved |
 | D5 | Report-approval decision has no timeout: a run can sit in `AWAITING_APPROVAL` forever if the user never responds — no expiry, no reminder event, no auto-reject after N hours/days. The run just occupies a `research_runs` row indefinitely. | Low-Medium |
 | ~~D6~~ | ~~`report-decision` endpoint has no frontend consumer yet~~ — **Fixed 2026-07-23**: full frontend built (plan review, live-streaming run status, report-approval, PDF download). See the new Frontend subsection above for what's covered and the disclosed scope trims (citations panel, history replay). | Resolved |
 | D7 | The Research UI's default (Linear-mode) submission path now `await`s a full escalation-check planner call *before* running Linear Research — a deliberate, explicitly-requested design (blocking, not parallel, so a rejected suggestion cleanly "continues" rather than racing an already-started answer). Net effect: the UI's fast path is no longer as fast as the raw `POST /research` API — every default submission pays for one extra uncached LLM call (~1-3s) it wouldn't otherwise need. Not a bug; a known, disclosed tradeoff. **Possible follow-up**: run the check in parallel with Linear Research instead of gating it, showing the suggestion banner alongside/after the answer rather than before it. | Known tradeoff |
@@ -626,8 +680,9 @@ context rather than failing the request.
 | ~~✓~~ | D6 | **Done (2026-07-23)** — Deep Research got a full working frontend (plan review, live SSE progress, report-approval, PDF download) plus the escalation-check suggestion flow. |
 | ~~✓~~ | D1 | **Done (2026-07-23)** — synthesis/review generation calls moved off `CacheRuntime.RESEARCH` onto `CacheRuntime.REVIEWER` (`CachePolicy.NEVER`), eliminating the cross-run report-content leakage risk. Regression-tested. |
 | ~~✓~~ | D8–D13 | **Done (2026-07-24)** — six gaps found via user testing of the Deep Research frontend: progress-step log disappearing after `running`, PDF citations showing raw UUIDs, Linear/Deep Research not sharing a conversation (and History fragmenting per-question as a symptom), Deep Research state lost on refresh, report rejection destroying the synthesized draft as a terminal failure, and report approval being blind with no preview/edit. All fixed and regression-tested; see each ID's row above for detail. |
+| ~~✓~~ | D4 | **Done (2026-07-24)** — plan-approval got the same view/edit/reject-with-reason treatment report approval already had, via a new `await_plan_approval` graph interrupt positioned between `aggregate` and `synthesize`. See D4's row above for detail. |
 | 1 | D2 | Decide whether Deep Research needs horizontal worker scaling now or can stay single-process at current adoption; if scaling is needed, it's already DB-safe (`SKIP LOCKED`) — just needs more worker processes deployed |
-| 2 | D5 | Add an expiry/auto-reject path for runs stuck in `AWAITING_APPROVAL` |
+| 2 | D5 | Add an expiry/auto-reject path for runs stuck in `AWAITING_APPROVAL` (now also covers `AWAITING_PLAN_APPROVAL` — the same unwired `expire_stale_awaiting_approval` sweep handles both, still just missing a cron trigger) |
 | 3 | D7 | Consider parallelizing the escalation-check with Linear Research instead of gating it, so the UI's default path isn't paying a mandatory extra LLM call in serial |
 | 4 | L1 | Consider short-circuiting retrieval on an exact-cache hit for Linear Research (would need the cache lookup moved ahead of `_retrieve_and_build_context()`, a real flow change, not a config flip) |
 | 5 | C1 | Product decision, not a bug: whether/when Chat should get retrieval grounding (already tracked elsewhere as a known gap) |

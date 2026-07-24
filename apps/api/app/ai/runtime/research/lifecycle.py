@@ -28,6 +28,7 @@ _ALLOWED_TRANSITIONS: dict[ResearchRunStatus, set[ResearchRunStatus]] = {
         ResearchRunStatus.REVIEWING,
         ResearchRunStatus.PAUSED,
         ResearchRunStatus.AWAITING_APPROVAL,
+        ResearchRunStatus.AWAITING_PLAN_APPROVAL,
         ResearchRunStatus.CANCELLED,
         ResearchRunStatus.FAILED,
     },
@@ -50,6 +51,10 @@ _ALLOWED_TRANSITIONS: dict[ResearchRunStatus, set[ResearchRunStatus]] = {
         ResearchRunStatus.CANCELLED,
     },
     ResearchRunStatus.AWAITING_APPROVAL: {
+        ResearchRunStatus.RESEARCHING,
+        ResearchRunStatus.CANCELLED,
+    },
+    ResearchRunStatus.AWAITING_PLAN_APPROVAL: {
         ResearchRunStatus.RESEARCHING,
         ResearchRunStatus.CANCELLED,
     },

@@ -1736,6 +1736,36 @@ backend source files, frontend `tsc --noEmit`/`eslint`/`next build` all
 clean. Both global (`WEB_SEARCH_ENABLED`) and per-request
 (`web_search_mode=disabled`) default off.
 
+### 2026-07-25, same day, later — real-run bug fix + early evidence-relevance detour
+
+A real Deep Research run with web evidence crashed publishing its report:
+`ResearchService._runtime_evidence_metadata` assumed every evidence item's
+`document_id`/`chunk_id` was a real UUID, which broke on web evidence's
+URL/`web:<uuid>` strings. Fixed with a deterministic `uuid5` fallback;
+web citation markers also shortened from `web:<uuid>` to `W{round}-{n}`
+(fixes a citation-card display bug the long form caused, matches the
+app's `S1`/`S2` style).
+
+Separately, the same run exposed a real product gap: a query entirely
+outside the private corpus's topic (asking about climate change against a
+knowledge base containing only a mental-health PDF) produced a synthesized
+report on the wrong topic, with the mismatch only disclosed in prose in the
+abstract — because the post-review gap-detection loop only fires *after* a
+full synthesis pass, and a confidently off-topic corpus can still pass
+citation-integrity review cleanly (review checks citation validity/coverage,
+not subject-matter match). Fixed by routing through the existing
+necessity-decision checkpoint *unconditionally*, right after evidence
+aggregation and before plan approval, whenever `auto`/`required` is set —
+so a topical mismatch is caught (and, in AUTO, asked about) before any
+synthesis is spent on it. Rejected a numeric relevance-score threshold as
+the detection mechanism first: `ResearchEvidenceReference.score` is a
+Reciprocal Rank Fusion sum (rank-derived), not a semantic-similarity
+measure, and can't reliably tell a confidently-wrong top hit from a
+genuinely relevant one — see ADR-036's addendum. `REQUIRED` mode's forced
+web round moved to this same early check (was a post-review-PASS check).
+
+Verified: full repo suite **1401 passed**, ruff/mypy clean.
+
 ## Not Yet Built
 
 - ❌ Web Search Tool Platform's standalone SSRF-hardened Web Fetch Platform,

@@ -95,6 +95,14 @@ def _base_graph_input(
     }
 
 
+def _pass_reviewer() -> AsyncMock:
+    reviewer = AsyncMock(spec=ResearchReviewService)
+    reviewer.review.return_value = ResearchReview(
+        decision=ReviewDecision.PASS, citation_integrity_score=1.0, completeness_score=1.0
+    )
+    return reviewer
+
+
 def _gap_reviewer(second_decision: ReviewDecision = ReviewDecision.PASS) -> AsyncMock:
     """First review call finds a gap; the second (after a repair round) settles."""
 
@@ -200,7 +208,13 @@ async def test_disabled_mode_never_consults_web_search_and_matches_existing_gap_
 
 
 @pytest.mark.asyncio
-async def test_auto_mode_declines_falls_back_to_document_gap_path() -> None:
+async def test_auto_mode_declines_at_aggregate_time_and_still_repairs_gaps_later() -> None:
+    """The early, pre-plan-approval check declines (evidence looks fine);
+    the run proceeds to plan approval, synthesis, and review normally --
+    review can still separately trigger a *second* (post-review) necessity
+    check for a real reviewer-identified gap, and that one falls back to
+    today's doc-only gap path unchanged."""
+
     run_id, owner_id = uuid4(), uuid4()
     retrieval, writer, synthesis, final_report_writer = _standard_collaborators()
     reviewer = _gap_reviewer(ReviewDecision.RESEARCH_GAPS)
@@ -218,22 +232,26 @@ async def test_auto_mode_declines_falls_back_to_document_gap_path() -> None:
     initial = ResearchPlanTask(task_id="initial", question="initial")
     config = {"configurable": {"thread_id": str(run_id)}}
 
-    await graph.ainvoke(
+    paused = await graph.ainvoke(
         _base_graph_input(run_id=run_id, owner_id=owner_id, task=initial, web_search_mode="auto"),
         config=config,
     )
+    assert "__interrupt__" in paused
+    assert [item.value.get("kind") for item in paused["__interrupt__"]] == ["plan_approval"]
+    necessity.decide.assert_awaited_once()
+
     result = await _approve_plan(graph, config)
 
     assert set(result["task_results"]) == {"initial", "gap-1"}
-    necessity.decide.assert_awaited_once()
+    assert necessity.decide.await_count == 2  # early + post-review gap check
     web_search.search.assert_not_awaited()
 
 
 @pytest.mark.asyncio
-async def test_auto_mode_needed_pauses_for_approval_then_merges_web_evidence() -> None:
+async def test_auto_mode_needed_at_aggregate_pauses_for_approval_then_merges_web_evidence() -> None:
     run_id, owner_id = uuid4(), uuid4()
     retrieval, writer, synthesis, final_report_writer = _standard_collaborators()
-    reviewer = _gap_reviewer(ReviewDecision.PASS)
+    reviewer = _pass_reviewer()
     web_search = _fake_web_search()
     necessity = _fake_necessity(needs_web_search=True)
     graph = _compile(
@@ -248,30 +266,40 @@ async def test_auto_mode_needed_pauses_for_approval_then_merges_web_evidence() -
     initial = ResearchPlanTask(task_id="initial", question="initial")
     config = {"configurable": {"thread_id": str(run_id)}}
 
-    await graph.ainvoke(
+    paused = await graph.ainvoke(
         _base_graph_input(run_id=run_id, owner_id=owner_id, task=initial, web_search_mode="auto"),
         config=config,
     )
-    paused = await _approve_plan(graph, config)
 
+    # Reached before plan approval ever runs -- there's no evidence for it
+    # to show yet without this.
     assert "__interrupt__" in paused
-    kinds = [item.value.get("kind") for item in paused["__interrupt__"]]
-    assert "web_search_approval" in kinds
+    assert [item.value.get("kind") for item in paused["__interrupt__"]] == ["web_search_approval"]
     web_search.search.assert_not_awaited()
 
-    result = await graph.ainvoke(Command(resume={"decision": "approved"}), config=config)
+    plan_paused = await graph.ainvoke(Command(resume={"decision": "approved"}), config=config)
 
+    assert [item.value.get("kind") for item in plan_paused["__interrupt__"]] == ["plan_approval"]
     web_search.search.assert_awaited_once()
-    assert any(task_id.startswith("web-") for task_id in result["task_results"])
+    assert any(task_id.startswith("web-") for task_id in plan_paused["task_results"])
+    # The early round must not consume the post-review repair budget -- it's
+    # evidence-gathering before any synthesis attempt, not a repair of one
+    # (see `search_web_gap`'s docstring).
+    assert plan_paused["gap_research_count"] == 0
+    assert plan_paused["web_search_count"] == 1
+
+    result = await _approve_plan(graph, config)
+
     web_task = next(v for k, v in result["task_results"].items() if k.startswith("web-"))
     assert web_task["evidence"][0]["source_type"] == "web"
+    assert [item.value.get("kind") for item in result["__interrupt__"]] == ["report_approval"]
 
 
 @pytest.mark.asyncio
-async def test_auto_approve_toggle_skips_the_interrupt() -> None:
+async def test_auto_approve_toggle_skips_the_interrupt_at_aggregate_time() -> None:
     run_id, owner_id = uuid4(), uuid4()
     retrieval, writer, synthesis, final_report_writer = _standard_collaborators()
-    reviewer = _gap_reviewer(ReviewDecision.PASS)
+    reviewer = _pass_reviewer()
     web_search = _fake_web_search()
     necessity = _fake_necessity(needs_web_search=True)
     graph = _compile(
@@ -286,7 +314,7 @@ async def test_auto_approve_toggle_skips_the_interrupt() -> None:
     initial = ResearchPlanTask(task_id="initial", question="initial")
     config = {"configurable": {"thread_id": str(run_id)}}
 
-    await graph.ainvoke(
+    paused = await graph.ainvoke(
         _base_graph_input(
             run_id=run_id,
             owner_id=owner_id,
@@ -296,19 +324,18 @@ async def test_auto_approve_toggle_skips_the_interrupt() -> None:
         ),
         config=config,
     )
-    result = await _approve_plan(graph, config)
 
+    # Web search already happened, silently, before the first pause.
     web_search.search.assert_awaited_once()
-    if "__interrupt__" in result:
-        kinds = [item.value.get("kind") for item in result["__interrupt__"]]
-        assert "web_search_approval" not in kinds
+    assert [item.value.get("kind") for item in paused["__interrupt__"]] == ["plan_approval"]
+    assert any(task_id.startswith("web-") for task_id in paused["task_results"])
 
 
 @pytest.mark.asyncio
-async def test_rejecting_the_web_search_suggestion_falls_back_to_existing_flow() -> None:
+async def test_rejecting_the_early_web_search_suggestion_falls_back_to_plan_approval() -> None:
     run_id, owner_id = uuid4(), uuid4()
     retrieval, writer, synthesis, final_report_writer = _standard_collaborators()
-    reviewer = _gap_reviewer(ReviewDecision.RESEARCH_GAPS)
+    reviewer = _pass_reviewer()
     web_search = _fake_web_search()
     necessity = _fake_necessity(needs_web_search=True)
     graph = _compile(
@@ -327,24 +354,29 @@ async def test_rejecting_the_web_search_suggestion_falls_back_to_existing_flow()
         _base_graph_input(run_id=run_id, owner_id=owner_id, task=initial, web_search_mode="auto"),
         config=config,
     )
-    await _approve_plan(graph, config)
 
-    result = await graph.ainvoke(
+    plan_paused = await graph.ainvoke(
         Command(resume={"decision": "rejected", "reason": "not now"}), config=config
     )
 
     web_search.search.assert_not_awaited()
-    assert set(result["task_results"]) == {"initial", "gap-1"}
+    assert [item.value.get("kind") for item in plan_paused["__interrupt__"]] == ["plan_approval"]
+    assert set(plan_paused["task_results"]) == {"initial"}
+
+    result = await _approve_plan(graph, config)
+
+    assert [item.value.get("kind") for item in result["__interrupt__"]] == ["report_approval"]
+    assert not any(task_id.startswith("web-") for task_id in result["task_results"])
 
 
 @pytest.mark.asyncio
-async def test_malformed_web_search_decision_payload_is_treated_as_rejection() -> None:
+async def test_malformed_early_web_search_decision_payload_is_treated_as_rejection() -> None:
     """Unlike plan/report rejection, there's always a safe fallback here, so a
     malformed resume payload does not raise -- it just falls back too."""
 
     run_id, owner_id = uuid4(), uuid4()
     retrieval, writer, synthesis, final_report_writer = _standard_collaborators()
-    reviewer = _gap_reviewer(ReviewDecision.RESEARCH_GAPS)
+    reviewer = _pass_reviewer()
     web_search = _fake_web_search()
     necessity = _fake_necessity(needs_web_search=True)
     graph = _compile(
@@ -363,12 +395,11 @@ async def test_malformed_web_search_decision_payload_is_treated_as_rejection() -
         _base_graph_input(run_id=run_id, owner_id=owner_id, task=initial, web_search_mode="auto"),
         config=config,
     )
-    await _approve_plan(graph, config)
 
-    result = await graph.ainvoke(Command(resume="not-a-dict"), config=config)
+    plan_paused = await graph.ainvoke(Command(resume="not-a-dict"), config=config)
 
     web_search.search.assert_not_awaited()
-    assert set(result["task_results"]) == {"initial", "gap-1"}
+    assert [item.value.get("kind") for item in plan_paused["__interrupt__"]] == ["plan_approval"]
 
 
 @pytest.mark.asyncio
@@ -393,18 +424,22 @@ async def test_required_mode_forces_one_web_round_without_asking() -> None:
     initial = ResearchPlanTask(task_id="initial", question="initial")
     config = {"configurable": {"thread_id": str(run_id)}}
 
-    await graph.ainvoke(
+    paused = await graph.ainvoke(
         _base_graph_input(
             run_id=run_id, owner_id=owner_id, task=initial, web_search_mode="required"
         ),
         config=config,
     )
+
+    # REQUIRED forces the round before plan approval ever runs -- and never
+    # pauses to ask, unlike AUTO.
+    web_search.search.assert_awaited_once()
+    assert "__interrupt__" in paused
+    assert [item.value.get("kind") for item in paused["__interrupt__"]] == ["plan_approval"]
+
     result = await _approve_plan(graph, config)
 
-    web_search.search.assert_awaited_once()
-    assert "__interrupt__" in result
-    kinds = [item.value.get("kind") for item in result["__interrupt__"]]
-    assert kinds == ["report_approval"]
+    assert [item.value.get("kind") for item in result["__interrupt__"]] == ["report_approval"]
 
 
 @pytest.mark.asyncio

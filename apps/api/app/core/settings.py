@@ -294,8 +294,14 @@ class Settings(BaseSettings):
     # Dedicated cheap-tier models for the web-search necessity decision only
     # -- deliberately separate from `openai_model`/`claude_model`, which
     # apply to every other generation call (synthesis, review, etc.). See
-    # `app.ai.runtime.research.web_search.create`.
-    web_search_decision_openai_model: str = "gpt-5-nano"
+    # `app.ai.runtime.research.web_search.create`. `gpt-5-mini`, not the
+    # cheaper `gpt-5-nano`: confirmed in production that `gpt-5-nano`
+    # unreliably follows the structured-output (`json_schema`) contract for
+    # this call, exhausting the regeneration budget and silently failing
+    # closed to "no search needed" every time (2026-07-25). `gpt-5-mini` is
+    # this app's already-proven-reliable default OpenAI model everywhere
+    # else; still materially cheaper than the main synthesis/review tier.
+    web_search_decision_openai_model: str = "gpt-5-mini"
     web_search_decision_claude_model: str = "claude-haiku-4-5"
 
     # Importance scoring (PRD §16)

@@ -1,11 +1,16 @@
 """Composition root for the web-search necessity decision.
 
 Builds a small, dedicated provider registry pinned to a cheap OpenAI
-(`gpt-5-nano`) and/or cheap Claude (`claude-haiku-4-5`) model -- deliberately
+(`gpt-5-mini`) and/or cheap Claude (`claude-haiku-4-5`) model -- deliberately
 separate from the app's main `GenerationRegistry` (whose OpenAI/Claude
 entries use whatever model is configured for *all* other generation calls,
 e.g. synthesis) so this one bounded, cheap decision never depends on --
 or changes the cost of -- the rest of the app's model configuration.
+
+Not `gpt-5-nano`, the cheapest OpenAI tier: confirmed in production
+(2026-07-25) that it unreliably follows the structured-output contract for
+this call, silently failing closed to "no search needed" every time. See
+`settings.web_search_decision_openai_model`'s comment.
 
 Falls through to the shared production `GenerationRuntime` (via
 `RoutingStrategy.CLASSIFICATION`, not `AUTO`) only when neither OpenAI nor
@@ -16,7 +21,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 
-from app.ai.runtime.generation.catalog.models import CLAUDE_HAIKU_4_5, GPT_5_NANO
+from app.ai.runtime.generation.catalog.models import CLAUDE_HAIKU_4_5, GPT_5_MINI
 from app.ai.runtime.generation.config import ClaudeGenerationConfig, OpenAIGenerationConfig
 from app.ai.runtime.generation.enums import GenerationProvider
 from app.ai.runtime.generation.interfaces import GenerationProviderInterface
@@ -40,8 +45,8 @@ def create_web_search_necessity_service() -> WebSearchNecessityService:
             OpenAIProvider(
                 config=OpenAIGenerationConfig(
                     model_name=settings.web_search_decision_openai_model,
-                    cost_per_input_1m=GPT_5_NANO.cost_per_input_1m,
-                    cost_per_output_1m=GPT_5_NANO.cost_per_output_1m,
+                    cost_per_input_1m=GPT_5_MINI.cost_per_input_1m,
+                    cost_per_output_1m=GPT_5_MINI.cost_per_output_1m,
                 )
             )
         )

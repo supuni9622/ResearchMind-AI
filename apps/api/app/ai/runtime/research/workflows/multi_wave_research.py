@@ -206,16 +206,53 @@ def compile_multi_wave_research_graph(
         await emit(ResearchEventType.EVIDENCE_COMPLETED)
         return update
 
+    def route_after_aggregate(
+        state: MultiWaveResearchState,
+    ) -> Literal["evaluate_web_search_need", "await_plan_approval"]:
+        """Detour through the web-search-need evaluation before plan
+        approval whenever web search is enabled -- catching a private
+        corpus that's topically irrelevant to the goal (not just "thin")
+        before the costly synthesis call is ever spent on it, rather than
+        only after a post-synthesis reviewer flags a gap. `REQUIRED` always
+        detours (deterministic, no LLM call inside `evaluate_web_search_need`
+        -- see `WebSearchNecessityService.decide`); `AUTO` detours
+        unconditionally too, since the necessity call itself is the cheap
+        judgment of whether the evidence just gathered is even on-topic --
+        there's no reliable numeric signal on `ResearchEvidenceReference.
+        score` to gate this on instead (it's a Reciprocal Rank Fusion sum,
+        rank-derived rather than a semantic-similarity measure). `DISABLED`
+        or an unconfigured web-search platform skips straight to plan
+        approval, exactly as before this detour existed."""
+
+        mode = WebSearchMode(state.get("web_search_mode", WebSearchMode.DISABLED.value))
+        if not _web_search_ready():
+            if mode is WebSearchMode.REQUIRED:
+                logger.warning(
+                    "research_runtime.graph.web_search_required_unavailable",
+                    research_run_id=state["research_run_id"],
+                )
+            return "await_plan_approval"
+        if mode is WebSearchMode.DISABLED:
+            return "await_plan_approval"
+        return "evaluate_web_search_need"
+
     async def await_plan_approval(state: MultiWaveResearchState) -> dict[str, object]:
         """Pause for a human plan-approval decision (`interrupt()`), once real
         evidence exists but before the costly synthesis call spends it.
 
-        Only reached once per run: the edge into this node comes solely from
-        `aggregate` (the first pass) -- the automatic `REVISE_SYNTHESIS`/
-        `RESEARCH_GAPS` repair loops route `prepare_synthesis_revision`/
-        `aggregate_gap_evidence` straight back to `synthesize`, bypassing
-        this checkpoint, since those are bounded system retries, not new
-        human decision points.
+        Reached once per run, but from one of two edges depending on whether
+        web search is enabled: directly from `aggregate` when web search is
+        `disabled` (or unavailable), or -- when `auto`/`required` -- after
+        the early evidence-relevance detour (`evaluate_web_search_need` /
+        `await_web_search_approval` / `search_web_gap` /
+        `aggregate_gap_evidence`, see `route_after_aggregate` and
+        `route_after_gap_evidence_aggregation`) resolves, so this node
+        always sees the final evidence bundle either way. The automatic
+        `REVISE_SYNTHESIS`/`RESEARCH_GAPS` repair loops that run *after*
+        this checkpoint route `prepare_synthesis_revision`/
+        `aggregate_gap_evidence` straight back to `synthesize` instead,
+        bypassing it a second time, since those are bounded system retries,
+        not new human decision points.
 
         Same no-side-effects-before-`interrupt()` rule as
         `await_report_approval` -- LangGraph replays this node's body from
@@ -445,20 +482,31 @@ def compile_multi_wave_research_graph(
         }
 
     def finalize_gap_limitations(state: MultiWaveResearchState) -> dict[str, object]:
+        """Publish the existing draft as `completed_with_limitations` instead
+        of failing outright once the review-repair budget runs out --
+        reached both when a `RESEARCH_GAPS` follow-up couldn't close every
+        gap in time, and (since 2026-07-25) when a `REVISE_SYNTHESIS`
+        citation-integrity fix couldn't be attempted again in time either.
+        The disclosed limitation differs by which one triggered it, so a
+        reader knows what's actually still wrong with the report."""
+
         review_result = ResearchReview.model_validate(state["review"])
+        limitation = (
+            "The draft's citation issues could not be corrected within the review budget."
+            if review_result.decision is ReviewDecision.REVISE_SYNTHESIS
+            else "The bounded targeted evidence follow-up did not close every review gap."
+        )
         logger.info(
             "research_runtime.graph.finalizing_with_limitations",
             research_run_id=state["research_run_id"],
             limitations=review_result.limitations,
+            triggering_decision=review_result.decision.value,
         )
         return {
             "review": review_result.model_copy(
                 update={
                     "decision": ReviewDecision.FINALIZE_WITH_LIMITATIONS,
-                    "limitations": [
-                        *review_result.limitations,
-                        "The bounded targeted evidence follow-up did not close every review gap.",
-                    ],
+                    "limitations": [*review_result.limitations, limitation],
                 }
             ).model_dump(mode="json")
         }
@@ -497,16 +545,49 @@ def compile_multi_wave_research_graph(
     def _web_search_ready() -> bool:
         return web_search is not None and web_search_necessity is not None
 
+    def _before_plan_approval(state: MultiWaveResearchState) -> bool:
+        """True until `await_plan_approval` has actually resolved once.
+        Distinguishes the *early* evidence-relevance detour (reached from
+        `aggregate`, before plan approval) from the *post-review* gap-repair
+        detour (reached from `review`'s `RESEARCH_GAPS` decision, always
+        after plan approval already resolved) -- both routes share the same
+        `evaluate_web_search_need`/`await_web_search_approval`/
+        `search_web_gap`/`aggregate_gap_evidence` nodes, so the "what do we
+        do when there's nothing to suggest/it's rejected" fallback and the
+        "where does aggregated evidence go next" edge both need to know
+        which context they're in."""
+
+        return state.get("plan_decision") in (None, "")
+
+    def route_after_gap_evidence_aggregation(
+        state: MultiWaveResearchState,
+    ) -> Literal["await_plan_approval", "synthesize"]:
+        """`aggregate_gap_evidence` is shared by two contexts: the early,
+        pre-plan-approval evidence-relevance detour (`search_web_gap` ->
+        here -> should continue on to `await_plan_approval`, since
+        `synthesize` hasn't run yet) and the post-review repair loop
+        (`retrieve_gap_task`/`search_web_gap` -> here -> should loop back to
+        `synthesize`, since a draft already exists to revise)."""
+
+        return "await_plan_approval" if _before_plan_approval(state) else "synthesize"
+
     async def evaluate_web_search_need(state: MultiWaveResearchState) -> dict[str, object]:
-        """Decide whether the run's next gap-research round should be a web
-        search instead of another document retrieval -- reached either from
-        a real reviewer-identified gap (`RESEARCH_GAPS`) or from a forced
-        `REQUIRED`-mode check on an otherwise-passing review (see
-        `route_after_review`). Deterministic pre-rules short-circuit
-        `DISABLED`/`REQUIRED` (no LLM call); `AUTO` defers to
-        `WebSearchNecessityService`'s cheap model call. Writes only a
-        suggestion into state -- `search_web_gap` is the node that actually
-        spends the per-run web-search budget."""
+        """Decide whether web search would help -- reached either early,
+        right after initial evidence aggregation and before plan approval
+        (so a topically-irrelevant private corpus gets caught before a
+        synthesis call is ever spent on it, not just after a reviewer flags
+        a gap post-synthesis), or from a real reviewer-identified gap
+        (`RESEARCH_GAPS`) in the post-review repair loop (see
+        `route_after_aggregate` / `route_after_review`). Deterministic
+        pre-rules short-circuit `DISABLED`/`REQUIRED` (no LLM call); `AUTO`
+        defers to `WebSearchNecessityService`'s cheap model call, which
+        judges topical relevance as well as recency/coverage gaps -- not a
+        numeric retrieval-score threshold (Reciprocal Rank Fusion scores are
+        rank-derived, not a semantic-similarity signal, so a raw threshold
+        on them can't distinguish a genuinely irrelevant top hit from a
+        genuinely relevant one). Writes only a suggestion into state --
+        `search_web_gap` is the node that actually spends the per-run
+        web-search budget."""
 
         if not _web_search_ready():
             return {"web_search_suggestion": {}}
@@ -558,12 +639,17 @@ def compile_multi_wave_research_graph(
 
     def route_after_web_search_evaluation(
         state: MultiWaveResearchState,
-    ) -> Literal["prepare_gap_research", "await_web_search_approval", "search_web_gap"]:
+    ) -> Literal[
+        "await_plan_approval", "prepare_gap_research", "await_web_search_approval", "search_web_gap"
+    ]:
         suggestion = state.get("web_search_suggestion") or {}
         if not suggestion.get("query"):
             # Disabled, budget-exhausted, or the model/deterministic rule
-            # said no -- fall back to exactly today's doc-only gap path.
-            return "prepare_gap_research"
+            # said no -- fall back to exactly the node this run would have
+            # reached without this feature: `await_plan_approval` when this
+            # is the early, pre-plan-approval check, `prepare_gap_research`
+            # (today's doc-only gap path) when it's the post-review one.
+            return "await_plan_approval" if _before_plan_approval(state) else "prepare_gap_research"
         mode = WebSearchMode(state.get("web_search_mode", WebSearchMode.DISABLED.value))
         if mode is WebSearchMode.REQUIRED or state.get("web_search_auto_approve", False):
             return "search_web_gap"
@@ -577,13 +663,14 @@ def compile_multi_wave_research_graph(
         from the top on every resume attempt for this thread.
 
         Unlike plan/report rejection, a rejection here is never a dead end:
-        `route_after_web_search_approval` sends it to the same
-        `prepare_gap_research` node a `DISABLED`/AUTO-declined suggestion
-        would have reached anyway -- "reject and the run continues exactly
-        as it would have without this feature." A malformed resume payload
-        is treated the same way (as a rejection) rather than raising, for
-        the same reason: there is always a safe existing fallback to fall
-        back to here.
+        `route_after_web_search_approval` sends it to whichever node a
+        `DISABLED`/AUTO-declined suggestion would have reached anyway --
+        `await_plan_approval` if reached early (before plan approval),
+        `prepare_gap_research` if reached from the post-review repair loop
+        -- "reject and the run continues exactly as it would have without
+        this feature." A malformed resume payload is treated the same way
+        (as a rejection) rather than raising, for the same reason: there is
+        always a safe existing fallback to fall back to here.
         """
 
         suggestion = state.get("web_search_suggestion") or {}
@@ -609,9 +696,9 @@ def compile_multi_wave_research_graph(
 
     def route_after_web_search_approval(
         state: MultiWaveResearchState,
-    ) -> Literal["prepare_gap_research", "search_web_gap"]:
+    ) -> Literal["await_plan_approval", "prepare_gap_research", "search_web_gap"]:
         if state.get("web_search_decision") == "rejected":
-            return "prepare_gap_research"
+            return "await_plan_approval" if _before_plan_approval(state) else "prepare_gap_research"
         return "search_web_gap"
 
     async def search_web_gap(state: MultiWaveResearchState) -> dict[str, object]:
@@ -619,7 +706,18 @@ def compile_multi_wave_research_graph(
         result into `task_results` under a synthetic `web-{n}` task id, the
         same shape `retrieve_gap_task` produces for a document gap round --
         `aggregate_gap_evidence` (reused unchanged) doesn't need to know
-        which kind of task produced an entry."""
+        which kind of task produced an entry.
+
+        Only increments `gap_research_count` -- the shared post-review
+        repair budget (`ResearchPlanningPolicy.max_review_iterations`,
+        checked in `route_after_review`) -- when reached from the
+        post-review repair loop. The early, pre-plan-approval round (see
+        `route_after_aggregate`) is evidence-gathering before any synthesis
+        attempt has happened, not a repair of one; charging it against the
+        same tiny budget (as low as 1 for MODERATE complexity) would leave
+        zero budget for a genuine post-synthesis citation-integrity fix and
+        turn an otherwise-recoverable `REVISE_SYNTHESIS` into a hard
+        `fail()`."""
 
         assert web_search is not None
         suggestion = state.get("web_search_suggestion") or {}
@@ -650,7 +748,11 @@ def compile_multi_wave_research_graph(
                 error_type=type(exc).__name__,
             )
 
-        next_gap_count = state.get("gap_research_count", 0) + 1
+        next_gap_count = (
+            state.get("gap_research_count", 0)
+            if _before_plan_approval(state)
+            else state.get("gap_research_count", 0) + 1
+        )
         task_id = f"web-{next_web_count}"
         task_result = ResearchTaskResult(
             task_id=task_id,
@@ -702,16 +804,10 @@ def compile_multi_wave_research_graph(
         if review_result.decision is ReviewDecision.FAIL:
             return "fail"
         if review_result.decision is ReviewDecision.PASS:
-            # REQUIRED must include at least one web source even when the
-            # reviewer never flagged a gap -- forced once (guarded by
-            # `web_search_count == 0`), never on subsequent PASS visits.
-            if mode is WebSearchMode.REQUIRED and state.get("web_search_count", 0) == 0:
-                if _web_search_ready():
-                    return "evaluate_web_search_need"
-                logger.warning(
-                    "research_runtime.graph.web_search_required_unavailable",
-                    research_run_id=state["research_run_id"],
-                )
+            # REQUIRED's "at least one web source" guarantee is already
+            # enforced earlier, unconditionally, by `route_after_aggregate`
+            # (before plan approval, before any synthesis call is spent) --
+            # nothing left to force here.
             return "await_report_approval"
 
         budget = ResearchPlanningPolicy().budget_for(
@@ -736,7 +832,12 @@ def compile_multi_wave_research_graph(
         if review_result.decision is ReviewDecision.REVISE_SYNTHESIS:
             if within_iteration_budget and within_cost_budget:
                 return "prepare_synthesis_revision"
-            return "fail"
+            # A citation-integrity fix that can't be attempted again within
+            # budget still has a real, synthesized draft to publish --
+            # finalize with an explicit limitation instead of failing the
+            # run outright (2026-07-25; matches how a budget-exhausted
+            # RESEARCH_GAPS follow-up already degrades below).
+            return "finalize_gap_limitations"
         if review_result.decision is ReviewDecision.RESEARCH_GAPS:
             if within_iteration_budget and within_cost_budget:
                 if _web_search_ready() and mode is not WebSearchMode.DISABLED:
@@ -815,14 +916,14 @@ def compile_multi_wave_research_graph(
     graph.add_conditional_edges("prepare_wave", dispatch_wave, ["retrieve_task"])
     graph.add_edge("retrieve_task", "advance_wave")
     graph.add_conditional_edges("advance_wave", route_after_wave)
-    graph.add_edge("aggregate", "await_plan_approval")
+    graph.add_conditional_edges("aggregate", route_after_aggregate)
     graph.add_conditional_edges("await_plan_approval", route_after_plan_approval)
     graph.add_edge("synthesize", "review")
     graph.add_conditional_edges("review", route_after_review)
     graph.add_edge("prepare_synthesis_revision", "synthesize")
     graph.add_edge("prepare_gap_research", "retrieve_gap_task")
     graph.add_edge("retrieve_gap_task", "aggregate_gap_evidence")
-    graph.add_edge("aggregate_gap_evidence", "synthesize")
+    graph.add_conditional_edges("aggregate_gap_evidence", route_after_gap_evidence_aggregation)
     graph.add_edge("finalize_gap_limitations", "await_report_approval")
     graph.add_conditional_edges("await_report_approval", route_after_report_approval)
     graph.add_conditional_edges("evaluate_web_search_need", route_after_web_search_evaluation)

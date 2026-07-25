@@ -252,3 +252,51 @@ Third human-approval checkpoint, mirroring the plan-approval checkpoint's
 - Default-off: `WEB_SEARCH_ENABLED=false` and `web_search_mode=disabled`
   both default off; no `TAVILY_API_KEY` degrades to inert rather than
   crashing a run.
+
+### Bug fix + early evidence-relevance detour (2026-07-25, same day, later)
+
+- [x] Fixed a real crash: `ResearchService._runtime_evidence_metadata`
+  assumed every evidence item's `document_id`/`chunk_id` was a real UUID
+  (true for documents, not for web evidence's URL/`web:<uuid>` strings) --
+  raised `ValueError: badly formed hexadecimal UUID string` the first time
+  a run with web evidence reached report publication. Now falls back to a
+  deterministic `uuid5`-derived UUID. Also shortened web citation markers
+  from `web:<uuid>` to `W{round}-{n}` (matches the app's `S1`/`S2` style and
+  fixes a citation-card display truncation bug the long form caused).
+- [x] `route_after_aggregate` now detours through
+  `evaluate_web_search_need` unconditionally, right after evidence
+  aggregation and before plan approval, whenever `auto`/`required` is set --
+  catching a private corpus that's topically irrelevant to the goal (not
+  just "thin") before a synthesis call is ever spent on it. Previously the
+  web-search check only fired post-review (after a full synthesis pass) if
+  the reviewer happened to flag a gap; a confidently off-topic corpus can
+  pass citation-integrity review cleanly, so the mismatch surfaced only as
+  a disclaimer buried in the synthesized report's abstract.
+- [x] Considered and rejected a numeric relevance-score threshold at
+  aggregation time: `ResearchEvidenceReference.score` is a Reciprocal Rank
+  Fusion sum (rank-derived), not a semantic-similarity measure, so it
+  can't reliably distinguish a confidently-wrong top hit from a genuinely
+  relevant one. Reused the existing cheap necessity-decision model instead
+  (prompt tuned to also judge topical relevance, not just recency).
+  See ADR-036's addendum for the full reasoning, including the discarded
+  Voyage `rerank-2` score as a deferred, more principled alternative.
+- [x] `REQUIRED` mode's "at least one web source" guarantee moved from a
+  post-review-PASS forced check to this same early, deterministic
+  aggregate-time detour -- strictly earlier and cheaper.
+  Full suite green (1401 tests), ruff/mypy clean.
+
+### Two more fixes from the same live run (2026-07-25, same day, later still)
+
+- [x] `search_web_gap` no longer charges the early (pre-plan-approval)
+  detour against `gap_research_count` -- that's the same counter
+  `route_after_review` checks against the review-repair budget
+  (`max_review_iterations`, as low as 1 for MODERATE plans), and the early
+  detour always runs before any synthesis attempt, so charging it there
+  could leave zero budget for a legitimate post-synthesis citation fix.
+- [x] Budget-exhausted `REVISE_SYNTHESIS` (citation-integrity fix needed,
+  no repair rounds left) now finalizes with limitations
+  (`completed_with_limitations`, matching the existing budget-exhausted
+  `RESEARCH_GAPS` behavior) instead of routing to `fail()` and raising an
+  unhandled `RuntimeError` -- explicit user decision, applies uniformly to
+  both `REVISE_SYNTHESIS` triggers. See ADR-036's second addendum.
+  Full suite green (1402 tests), ruff/mypy clean.

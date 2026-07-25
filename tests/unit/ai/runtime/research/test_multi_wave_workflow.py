@@ -187,6 +187,89 @@ async def test_multi_wave_graph_runs_one_targeted_gap_retrieval_then_finalizes_l
     assert result["plan_version"] == 2
     assert synthesis.synthesize.await_count == 2
     assert result["review"]["decision"] == ReviewDecision.FINALIZE_WITH_LIMITATIONS.value
+
+
+@pytest.mark.asyncio
+async def test_multi_wave_graph_finalizes_limited_when_citation_fix_has_no_budget() -> None:
+    """A gap-repair round can exhaust a MODERATE plan's one review-iteration
+    budget; if the *next* review then wants a citation-integrity revision
+    (`REVISE_SYNTHESIS`), there's no budget left to attempt it -- this must
+    finalize with an explicit limitation and publish the existing draft,
+    not crash the run (2026-07-25; previously routed straight to `fail()`,
+    raising an unhandled `RuntimeError`)."""
+
+    run_id, owner_id = uuid4(), uuid4()
+    retrieval = AsyncMock()
+
+    async def execute_task(*, task, **_kwargs) -> ResearchTaskResult:
+        citation_id = "c2" if task.task_id == "gap-1" else "c1"
+        return ResearchTaskResult(
+            task_id=task.task_id,
+            status=ResearchTaskStatus.COMPLETED,
+            citation_ids=[citation_id],
+        )
+
+    retrieval.execute_task.side_effect = execute_task
+    writer = AsyncMock(spec=ResearchEvidenceArtifactWriter)
+    writer.write.return_value = "artifacts/research-runs/evidence.json"
+    synthesis = AsyncMock(spec=ResearchSynthesisService)
+    synthesis.synthesize.return_value = ResearchDraft(
+        title="Report",
+        abstract="Abstract.",
+        methodology="Methodology.",
+        findings=[ResearchDraftSection(heading="Finding", content="Grounded finding.")],
+        discussion="Discussion.",
+        conclusion="Conclusion.",
+    )
+    reviewer = AsyncMock(spec=ResearchReviewService)
+    reviewer.review.side_effect = [
+        ResearchReview(
+            decision=ReviewDecision.RESEARCH_GAPS,
+            citation_integrity_score=1,
+            completeness_score=0.5,
+            gap_questions=["What comparative benchmark evidence is available?"],
+        ),
+        ResearchReview(
+            decision=ReviewDecision.REVISE_SYNTHESIS,
+            citation_integrity_score=0,
+            completeness_score=1,
+            revision_instructions=["Add citations from the supplied evidence to findings."],
+        ),
+    ]
+    final_report_writer = AsyncMock(spec=ResearchFinalReportArtifactWriter)
+    final_report_writer.write.return_value = ResearchFinalReportReferences(
+        report_ref="artifacts/research-runs/final-report.json",
+        pdf_ref="artifacts/research-runs/final-report.pdf",
+    )
+    graph = compile_multi_wave_research_graph(
+        checkpointer=InMemorySaver(),
+        task_retrieval=retrieval,
+        evidence_writer=writer,
+        synthesis=synthesis,
+        final_report_writer=final_report_writer,
+        reviewer=reviewer,
+    )
+    initial = ResearchPlanTask(task_id="initial", question="initial")
+    config = {"configurable": {"thread_id": str(run_id)}}
+
+    await graph.ainvoke(
+        {
+            "research_run_id": str(run_id),
+            "owner_id": str(owner_id),
+            "plan": {"goal": "q", "complexity": "moderate"},
+            "waves": [[initial.model_dump(mode="json")]],
+            "filters": {},
+            "top_k": 5,
+            "task_results": {},
+        },
+        config=config,
+    )
+    result = await _approve_plan(graph, config)
+
+    assert result["review"]["decision"] == ReviewDecision.FINALIZE_WITH_LIMITATIONS.value
+    assert any("citation" in limitation.lower() for limitation in result["review"]["limitations"])
+    assert "__interrupt__" in result
+    assert [item.value.get("kind") for item in result["__interrupt__"]] == ["report_approval"]
     assert writer.write.await_args_list[-1].kwargs["version"] == 2
 
 

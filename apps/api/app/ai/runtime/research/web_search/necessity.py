@@ -24,11 +24,18 @@ logger = structlog.get_logger()
 _MAX_EVIDENCE_ITEMS = 8
 _SYSTEM_PROMPT = (
     "You decide whether a bounded research task needs a public web search. "
-    "The private evidence already gathered is summarized below. Say yes only "
-    "when the goal or open question concerns recent, changing, or external "
-    "information the private evidence plausibly cannot answer. Prefer no "
-    "when the private evidence already looks sufficient. Return a short "
-    "search query and a one-sentence reason a reviewer can read."
+    "The private evidence already gathered is summarized below. Say yes when "
+    "either of these is true: (a) the private evidence is not actually about "
+    "the same subject as the goal or open question -- a topical mismatch, "
+    "e.g. the goal asks about one subject but the evidence covers a "
+    "different, unrelated one -- or (b) the goal or open question concerns "
+    "recent, changing, or external information the private evidence "
+    "plausibly cannot answer even though it's on-topic. Prefer no only when "
+    "the private evidence is both clearly on the same subject as the goal "
+    "and sufficient to answer it. Return a short search query and a "
+    "one-sentence reason a reviewer can read. Respond with ONLY a single "
+    "JSON object matching the requested schema -- no markdown code fences, "
+    "no prose before or after it."
 )
 
 
@@ -91,6 +98,7 @@ class WebSearchNecessityService:
                 "research_runtime.web_search.necessity_unavailable",
                 research_run_id=str(research_run_id),
                 error_type=type(exc).__name__,
+                error=str(exc),
             )
             return WebSearchNecessityDecision(
                 needs_web_search=False,
@@ -124,8 +132,15 @@ class WebSearchNecessityService:
             ),
             response_format=ResponseFormat.STRUCTURED,
             output_model=WebSearchNecessityDecision,
-            max_tokens=300,
-            max_regeneration_attempts=1,
+            # Generous relative to the schema's tiny worst case (~150
+            # tokens) -- confirmed in production that a too-tight budget
+            # combined with a weaker model can silently exhaust the
+            # regeneration budget without ever tripping the truncation
+            # auto-escalation (`finish_reason` wasn't a truncation reason;
+            # the output just wasn't valid JSON), same class of issue
+            # `ResearchSynthesisService` already sizes generously against.
+            max_tokens=600,
+            max_regeneration_attempts=2,
             owner_id=owner_id,
             session_id=research_run_id,
             temperature=0.0,

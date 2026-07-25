@@ -1,7 +1,12 @@
 'use client';
 
 import { useState } from 'react';
-import type { DeepResearchDraft, DeepResearchDraftEdit } from '@/features/research/types';
+import {
+  isWebCitation,
+  type DeepResearchDraft,
+  type DeepResearchDraftEdit,
+} from '@/features/research/types';
+import { NetworkIcon } from '@/components/ui/icons';
 
 function draftToEdit(draft: DeepResearchDraft): DeepResearchDraftEdit {
   return {
@@ -183,15 +188,23 @@ export function DraftReview({
         <div>
           <label className={labelClass}>Sources</label>
           <div className="flex flex-wrap gap-1.5">
-            {draft.citations.map((c) => (
-              <span
-                key={c.citation_id}
-                title={c.excerpt}
-                className="font-mono text-amber-500 text-[11px] px-1.5 py-0.5 rounded border border-amber-800/40 bg-amber-500/5"
-              >
-                [{c.citation_id.slice(1)}] {c.filename}
-              </span>
-            ))}
+            {draft.citations.map((c) => {
+              const web = isWebCitation(c.citation_id);
+              return (
+                <span
+                  key={c.citation_id}
+                  title={web ? `${c.excerpt} · found via web search` : c.excerpt}
+                  className={`inline-flex items-center gap-1 font-mono text-[11px] px-1.5 py-0.5 rounded border ${
+                    web
+                      ? 'text-sky-400 border-sky-800/40 bg-sky-500/5'
+                      : 'text-amber-500 border-amber-800/40 bg-amber-500/5'
+                  }`}
+                >
+                  {web && <NetworkIcon size={10} />}
+                  [{c.citation_id.slice(1)}] {c.filename}
+                </span>
+              );
+            })}
           </div>
         </div>
       )}

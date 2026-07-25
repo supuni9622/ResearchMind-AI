@@ -1,7 +1,8 @@
 'use client';
 
 import { useState } from 'react';
-import type { DeepResearchPendingPlan } from '@/features/research/types';
+import { isWebCitation, type DeepResearchPendingPlan } from '@/features/research/types';
+import { NetworkIcon } from '@/components/ui/icons';
 
 const inputClass =
   'w-full bg-ink-800 border border-ink-500 rounded-lg px-2.5 py-1.5 text-stone-100 text-[13px] placeholder-stone-600 focus:outline-none focus:border-sage-600';
@@ -99,15 +100,23 @@ export function PlanGoalReview({
         <div>
           <label className={labelClass}>Sources found so far</label>
           <div className="flex flex-wrap gap-1.5">
-            {plan.citations.map((c) => (
-              <span
-                key={c.citation_id}
-                title={c.excerpt}
-                className="font-mono text-amber-500 text-[11px] px-1.5 py-0.5 rounded border border-amber-800/40 bg-amber-500/5"
-              >
-                [{c.citation_id.slice(1)}] {c.filename}
-              </span>
-            ))}
+            {plan.citations.map((c) => {
+              const web = isWebCitation(c.citation_id);
+              return (
+                <span
+                  key={c.citation_id}
+                  title={web ? `${c.excerpt} · found via web search` : c.excerpt}
+                  className={`inline-flex items-center gap-1 font-mono text-[11px] px-1.5 py-0.5 rounded border ${
+                    web
+                      ? 'text-sky-400 border-sky-800/40 bg-sky-500/5'
+                      : 'text-amber-500 border-amber-800/40 bg-amber-500/5'
+                  }`}
+                >
+                  {web && <NetworkIcon size={10} />}
+                  [{c.citation_id.slice(1)}] {c.filename}
+                </span>
+              );
+            })}
           </div>
         </div>
       )}

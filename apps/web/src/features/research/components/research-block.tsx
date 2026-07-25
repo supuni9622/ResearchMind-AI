@@ -2,11 +2,12 @@
 
 import type { ReactNode } from 'react';
 import type { Citation } from '@/lib/api';
-import type { ResearchTurn } from '@/features/research/types';
-import { AlertIcon, ClockIcon, LayersIcon } from '@/components/ui/icons';
+import { isWebCitation, type ResearchTurn } from '@/features/research/types';
+import { AlertIcon, ClockIcon, LayersIcon, NetworkIcon } from '@/components/ui/icons';
 import { StreamingStatus } from '@/features/research/components/streaming-status';
 
-const CITATION_TOKEN = /\[?(S\d+)\]?/g;
+// Matches both document citations (`S1`) and web citations (`W1-1`).
+const CITATION_TOKEN = /\[?(S\d+|W\d+-\d+)\]?/g;
 
 /** Shared with `DeepResearchBlock` for rendering a rejected report's
  * plain-text answer the same way a Linear Research turn's is rendered. */
@@ -22,12 +23,19 @@ export function renderAnswer(answer: string, citations: Citation[]): ReactNode[]
   while ((match = CITATION_TOKEN.exec(answer)) !== null) {
     const id = match[1];
     if (!knownIds.has(id)) continue;
+    const web = isWebCitation(id);
     parts.push(answer.slice(lastIndex, match.index));
     parts.push(
       <span
         key={key++}
-        className="font-mono text-amber-500 text-[0.82em] px-1 py-0.5 rounded border border-amber-800/40 bg-amber-500/5 whitespace-nowrap"
+        title={web ? 'Found via web search' : undefined}
+        className={`inline-flex items-center gap-0.5 font-mono text-[0.82em] px-1 py-0.5 rounded border whitespace-nowrap ${
+          web
+            ? 'text-sky-400 border-sky-800/40 bg-sky-500/5'
+            : 'text-amber-500 border-amber-800/40 bg-amber-500/5'
+        }`}
       >
+        {web && <NetworkIcon size={9} />}
         [{id.slice(1)}]
       </span>
     );
@@ -81,15 +89,23 @@ export function ResearchBlock({
 
         {turn.citations.length > 0 && (
           <div className="flex items-center gap-1.5 mb-4 flex-wrap">
-            {turn.citations.map((c) => (
-              <span
-                key={c.citation_id}
-                title={c.filename}
-                className="font-mono text-amber-500 text-[11px] px-1.5 py-0.5 rounded border border-amber-800/40 bg-amber-500/5"
-              >
-                [{c.citation_id.slice(1)}]
-              </span>
-            ))}
+            {turn.citations.map((c) => {
+              const web = isWebCitation(c.citation_id);
+              return (
+                <span
+                  key={c.citation_id}
+                  title={web ? `${c.filename} · found via web search` : c.filename}
+                  className={`inline-flex items-center gap-1 font-mono text-[11px] px-1.5 py-0.5 rounded border ${
+                    web
+                      ? 'text-sky-400 border-sky-800/40 bg-sky-500/5'
+                      : 'text-amber-500 border-amber-800/40 bg-amber-500/5'
+                  }`}
+                >
+                  {web && <NetworkIcon size={10} />}
+                  [{c.citation_id.slice(1)}]
+                </span>
+              );
+            })}
           </div>
         )}
 

@@ -32,6 +32,16 @@ export type ResearchStage = 'searching' | 'generating' | 'done' | 'error';
 /** Manual selector in the composer -- default is `linear`. */
 export type ResearchMode = 'linear' | 'deep';
 
+/** True for a web-search-sourced citation. Derived from the ID scheme
+ * itself rather than a separate field: document citations are `S{n}`
+ * (`app/ai/knowledge/context/citations/service.py`), web citations are
+ * `W{round}-{n}` (`app/ai/runtime/research/web_search/evidence.py`) --
+ * Linear Research never produces a `W`-prefixed ID, since it has no web
+ * search, so this is safe to apply to every citation list unconditionally. */
+export function isWebCitation(citationId: string): boolean {
+  return citationId.startsWith('W');
+}
+
 /**
  * Client-side view of where one Deep Research turn sits:
  * `plan_review` (awaiting approve/cancel, before a run exists at all) ->

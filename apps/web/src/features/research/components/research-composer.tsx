@@ -106,6 +106,9 @@ export function ResearchComposer({
         </div>
         {mode === 'deep' && (
           <div className="flex items-center gap-2 mb-2">
+            <span className="font-mono text-stone-700 text-[10px] uppercase tracking-widest">
+              Web search
+            </span>
             <div className="flex items-center gap-1 w-fit bg-ink-800 border border-ink-600 rounded-lg p-0.5">
               {WEB_SEARCH_OPTIONS.map((opt) => {
                 const active = webSearchMode === opt.value;

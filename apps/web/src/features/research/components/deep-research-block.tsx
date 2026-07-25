@@ -6,7 +6,8 @@ import type {
   DeepResearchProgressEvent,
   DeepResearchTurn,
 } from '@/features/research/types';
-import { AlertIcon, ArrowDownIcon, CheckCircleIcon, TargetIcon } from '@/components/ui/icons';
+import { AlertIcon, ArrowDownIcon, CheckCircleIcon, NetworkIcon, TargetIcon } from '@/components/ui/icons';
+import { isWebCitation } from '@/features/research/types';
 import { DraftReview } from '@/features/research/components/draft-review';
 import { PlanGoalReview } from '@/features/research/components/plan-goal-review';
 import { WebSearchApprovalReview } from '@/features/research/components/web-search-approval-review';
@@ -61,8 +62,8 @@ const STATUS_LABEL: Record<string, string> = {
   synthesizing: 'Writing report',
   paused: 'Paused',
   awaiting_approval: 'Awaiting your review',
-  awaiting_plan_approval: 'Awaiting your review',
-  awaiting_web_search_approval: 'Awaiting your review',
+  awaiting_plan_approval: 'Awaiting plan review',
+  awaiting_web_search_approval: 'Awaiting web search approval',
   completed: 'Completed',
   completed_with_limitations: 'Completed (with limitations)',
   cancelled: 'Cancelled',
@@ -432,15 +433,23 @@ export function DeepResearchBlock({
                 </p>
                 {turn.linearAnswer.citations.length > 0 && (
                   <div className="flex items-center gap-1.5 mb-3 flex-wrap">
-                    {turn.linearAnswer.citations.map((c) => (
-                      <span
-                        key={c.citation_id}
-                        title={c.filename}
-                        className="font-mono text-amber-500 text-[11px] px-1.5 py-0.5 rounded border border-amber-800/40 bg-amber-500/5"
-                      >
-                        [{c.citation_id.slice(1)}]
-                      </span>
-                    ))}
+                    {turn.linearAnswer.citations.map((c) => {
+                      const web = isWebCitation(c.citation_id);
+                      return (
+                        <span
+                          key={c.citation_id}
+                          title={web ? `${c.filename} · found via web search` : c.filename}
+                          className={`inline-flex items-center gap-1 font-mono text-[11px] px-1.5 py-0.5 rounded border ${
+                            web
+                              ? 'text-sky-400 border-sky-800/40 bg-sky-500/5'
+                              : 'text-amber-500 border-amber-800/40 bg-amber-500/5'
+                          }`}
+                        >
+                          {web && <NetworkIcon size={10} />}
+                          [{c.citation_id.slice(1)}]
+                        </span>
+                      );
+                    })}
                   </div>
                 )}
                 <p className="flex items-center gap-1.5 text-stone-600 text-[11px] pt-1 border-t border-ink-700">

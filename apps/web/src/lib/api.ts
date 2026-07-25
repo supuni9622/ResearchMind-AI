@@ -208,6 +208,7 @@ export type DeepResearchRunStatus =
   | 'paused'
   | 'awaiting_approval'
   | 'awaiting_plan_approval'
+  | 'awaiting_web_search_approval'
   | 'completed'
   | 'completed_with_limitations'
   | 'cancelled'
@@ -311,11 +312,31 @@ export interface DeepResearchPendingPlan {
   citations: DeepResearchDraftCitation[];
 }
 
+// Matches `app/schemas/research.py::ResearchPendingWebSearchResponse` -- the
+// agent's web-search suggestion, read from the paused run's checkpoint while
+// it's `awaiting_web_search_approval` (only reached in AUTO mode without
+// `webSearchAutoApprove`).
+export interface DeepResearchPendingWebSearch {
+  research_run_id: string;
+  suggested_query: string;
+  reason: string;
+  gap_question: string | null;
+}
+
+// Matches `app/schemas/research.py::WebSearchMode`.
+export type DeepResearchWebSearchMode = 'disabled' | 'auto' | 'required';
+
 export interface DeepResearchAskOptions {
   topK?: number;
   filters?: Record<string, unknown>;
   provider?: GenerationProvider;
   conversationId?: string;
+  webSearchMode?: DeepResearchWebSearchMode;
+  /** Skip the web-search approval pause: when AUTO decides a search would
+   * help, proceed without asking. Ignored for DISABLED/REQUIRED. */
+  webSearchAutoApprove?: boolean;
+  includeDomains?: string[];
+  excludeDomains?: string[];
 }
 
 // Matches `app/ai/runtime/events/models.py::StreamEvent`, as sent over SSE
@@ -558,6 +579,10 @@ export const api = {
           filters: options.filters ?? {},
           provider: options.provider ?? null,
           conversation_id: options.conversationId ?? null,
+          web_search_mode: options.webSearchMode ?? 'disabled',
+          web_search_auto_approve: options.webSearchAutoApprove ?? false,
+          include_domains: options.includeDomains ?? [],
+          exclude_domains: options.excludeDomains ?? [],
         }),
       }),
     approveProposal: (proposalId: string) =>
@@ -596,6 +621,16 @@ export const api = {
       }),
     getReportDownload: (runId: string) =>
       request<ResearchReportDownloadResponse>(`/api/v1/research/runs/${runId}/report`),
+    getWebSearch: (runId: string) =>
+      request<DeepResearchPendingWebSearch>(`/api/v1/research/runs/${runId}/web-search`),
+    submitWebSearchDecision: (runId: string, approved: boolean, reason?: string) =>
+      request<DeepResearchRun>(`/api/v1/research/runs/${runId}/web-search-decision`, {
+        method: 'POST',
+        body: JSON.stringify({
+          approved,
+          reason: reason ?? null,
+        }),
+      }),
     streamRunEvents: streamResearchRunEvents,
   },
   documents: {

@@ -246,6 +246,47 @@ class ResearchRunService:
         )
         return run
 
+    async def record_web_search_decision(
+        self,
+        *,
+        run_id: UUID,
+        owner_id: UUID,
+        approved: bool,
+        reason: str | None = None,
+    ) -> ResearchRun | None:
+        """Record the web-search-approval decision and re-queue the run's
+        dispatch in one transaction -- mirrors `record_plan_decision`'s
+        atomicity rationale (a committed decision with no dispatch would
+        strand the run at `awaiting_web_search_approval` forever).
+
+        Unlike a plan/report rejection, a rejected web-search suggestion
+        never needs an `edited_*` payload -- the graph's `await_web_search_
+        approval` node just falls back to the existing document-only
+        gap-research path (`route_after_web_search_approval`), so there is
+        nothing here for a caller to edit.
+        """
+
+        run = await self._repository.get_by_id_for_owner(run_id=run_id, owner_id=owner_id)
+        if run is None:
+            return None
+        if run.status != ResearchRunStatus.AWAITING_WEB_SEARCH_APPROVAL.value:
+            raise ValueError(f"Research run '{run.id}' is not awaiting a web-search decision.")
+
+        decision: dict[str, object] = {
+            "decision": "approved" if approved else "rejected",
+            "reason": reason,
+        }
+        run.budget_usage = {**(run.budget_usage or {}), "web_search_decision": decision}
+        await self._dispatches.reopen(run_id=run.id)
+        await self._session.commit()
+        logger.info(
+            "research_runtime.run.web_search_decision_recorded",
+            research_run_id=str(run.id),
+            owner_id=str(owner_id),
+            approved=approved,
+        )
+        return run
+
     async def expire_stale_awaiting_approval(self, *, older_than_hours: int | None = None) -> int:
         """Auto-cancel runs left sitting at AWAITING_APPROVAL past the TTL.
 
@@ -270,10 +311,15 @@ class ResearchRunService:
 
         for run in stale_runs:
             was_awaiting_plan = run.status == ResearchRunStatus.AWAITING_PLAN_APPROVAL.value
+            was_awaiting_web_search = (
+                run.status == ResearchRunStatus.AWAITING_WEB_SEARCH_APPROVAL.value
+            )
             transition_run(run, target=ResearchRunStatus.CANCELLED, phase="terminal")
             run.terminal_reason = (
                 "awaiting_plan_approval_expired"
                 if was_awaiting_plan
+                else "awaiting_web_search_approval_expired"
+                if was_awaiting_web_search
                 else "awaiting_approval_expired"
             )
             await self._event_journal.publish(

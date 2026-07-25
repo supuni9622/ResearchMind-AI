@@ -293,6 +293,35 @@ CLAUDE_OPUS_4 = ModelMetadata(
     priority=15,
 )
 
+CLAUDE_HAIKU_4_5 = ModelMetadata(
+    provider=GenerationProvider.CLAUDE,
+    model_name="claude-haiku-4-5",
+    display_name="Claude Haiku 4.5",
+    context_window=200_000,
+    capabilities=ProviderCapabilities(
+        streaming=True,
+        structured_output=True,
+        tool_calling=True,
+        reasoning=False,
+        vision=True,
+        json_mode=True,
+    ),
+    cost_per_input_1m=1.0,
+    cost_per_output_1m=5.0,
+    average_latency_ms=900,
+    quality_score=0.80,
+    reasoning_score=0.65,
+    coding_score=0.70,
+    summarization_score=0.78,
+    classification_score=0.80,
+    extraction_score=0.78,
+    planning_score=0.55,
+    review_score=0.60,
+    speed_score=0.90,
+    reliability_score=0.90,
+    priority=25,
+)
+
 GEMINI_2_5_PRO = ModelMetadata(
     provider=GenerationProvider.GEMINI,
     model_name="gemini-2.5-pro",
@@ -501,6 +530,7 @@ ALL_MODELS: list[ModelMetadata] = [
     GPT_5_NANO,
     CLAUDE_SONNET_4,
     CLAUDE_OPUS_4,
+    CLAUDE_HAIKU_4_5,
     GEMINI_2_5_PRO,
     GEMINI_2_5_FLASH,
     LLAMA_3_3_70B,

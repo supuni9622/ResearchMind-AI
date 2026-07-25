@@ -51,7 +51,10 @@ from app.ai.runtime.research.types import (
     ResearchRunStatus,
     ResearchRuntimeRequest,
 )
+from app.ai.runtime.research.web_search.models import WebSearchMode
+from app.ai.runtime.research.web_search.necessity import WebSearchNecessityService
 from app.ai.runtime.research.workflows.multi_wave_research import compile_multi_wave_research_graph
+from app.ai.tools.web_search.service import WebSearchService
 from app.core.settings import settings
 from app.infrastructure.storage.interfaces import DocumentStorage
 from app.models.research_run import ResearchRun
@@ -76,6 +79,8 @@ _RESUMABLE_IN_PROGRESS_STATUSES = frozenset(
         ResearchRunStatus.AWAITING_APPROVAL.value,
         # Same reasoning for the plan-approval checkpoint.
         ResearchRunStatus.AWAITING_PLAN_APPROVAL.value,
+        # Same reasoning for the web-search-approval checkpoint.
+        ResearchRunStatus.AWAITING_WEB_SEARCH_APPROVAL.value,
     }
 )
 
@@ -100,6 +105,8 @@ class ResearchRuntimeExecutionService:
         storage: DocumentStorage | None = None,
         v1_graph_enabled: bool = False,
         memory_service: MemoryService | None = None,
+        web_search: WebSearchService | None = None,
+        web_search_necessity: WebSearchNecessityService | None = None,
     ) -> None:
         self._session = session
         self._research_service = research_service
@@ -110,6 +117,8 @@ class ResearchRuntimeExecutionService:
         self._storage = storage
         self._v1_graph_enabled = v1_graph_enabled
         self._memory = memory_service
+        self._web_search = web_search
+        self._web_search_necessity = web_search_necessity
         self._runs = ResearchRunService(session)
         self._research_sessions = ResearchRepository(session)
         self._proposals = ResearchProposalRepository(session)
@@ -150,6 +159,9 @@ class ResearchRuntimeExecutionService:
 
         resuming_after_report_decision = run.status == ResearchRunStatus.AWAITING_APPROVAL.value
         resuming_after_plan_decision = run.status == ResearchRunStatus.AWAITING_PLAN_APPROVAL.value
+        resuming_after_web_search_decision = (
+            run.status == ResearchRunStatus.AWAITING_WEB_SEARCH_APPROVAL.value
+        )
         logger.info(
             "research_runtime.execution.approved_run_started",
             research_run_id=str(run.id),
@@ -157,6 +169,7 @@ class ResearchRuntimeExecutionService:
             attempt_count=(run.attempt_count or 0) + 1,
             resuming_after_report_decision=resuming_after_report_decision,
             resuming_after_plan_decision=resuming_after_plan_decision,
+            resuming_after_web_search_decision=resuming_after_web_search_decision,
         )
         request = proposal.request
         try:
@@ -196,6 +209,21 @@ class ResearchRuntimeExecutionService:
                     plan=plan,
                     decision=decision,
                 )
+            elif resuming_after_web_search_decision:
+                decision = (run.budget_usage or {}).get("web_search_decision")
+                if decision is None:
+                    raise RuntimeError(
+                        f"Research run '{run.id}' is awaiting a web-search decision "
+                        "that was never recorded."
+                    )
+                outcome = await self._resume_v1_graph_after_web_search_approval(
+                    run=run,
+                    query=str(request["query"]),
+                    owner_id=proposal.owner_id,
+                    conversation_id=proposal.conversation_id,
+                    plan=plan,
+                    decision=decision,
+                )
             else:
                 await self._event_journal.publish(
                     run_id=run.id, event_type=ResearchEventType.RESEARCH_STARTED
@@ -225,6 +253,12 @@ class ResearchRuntimeExecutionService:
                     ),
                     conversation_id=proposal.conversation_id,
                     plan=plan,
+                    web_search_mode=str(
+                        request.get("web_search_mode") or WebSearchMode.DISABLED.value
+                    ),
+                    web_search_auto_approve=bool(request.get("web_search_auto_approve") or False),
+                    web_search_include_domains=list(request.get("include_domains") or []),
+                    web_search_exclude_domains=list(request.get("exclude_domains") or []),
                 )
         except ResearchReportRejectedError as exc:
             # A genuine user rejection no longer raises this -- it routes to
@@ -481,6 +515,8 @@ class ResearchRuntimeExecutionService:
             ),
             cancellation_check=lambda: self._is_cancellation_requested(run.id),
             cost_lookup=lambda: self._cost_so_far(run.id),
+            web_search=self._web_search,
+            web_search_necessity=self._web_search_necessity,
         )
 
     async def _execute_v1_graph(
@@ -495,6 +531,10 @@ class ResearchRuntimeExecutionService:
         routing_strategy: RoutingStrategy | None,
         conversation_id: UUID | None,
         plan: ResearchPlan | None = None,
+        web_search_mode: str = WebSearchMode.DISABLED.value,
+        web_search_auto_approve: bool = False,
+        web_search_include_domains: list[str] | None = None,
+        web_search_exclude_domains: list[str] | None = None,
     ) -> ResearchOutcome | None:
         generation_runtime, retrieval, context_builder, storage = self._v1_graph_dependencies()
 
@@ -555,6 +595,11 @@ class ResearchRuntimeExecutionService:
                     "filters": filters,
                     "top_k": top_k,
                     "task_results": {},
+                    "web_search_mode": web_search_mode,
+                    "web_search_auto_approve": web_search_auto_approve,
+                    "web_search_include_domains": web_search_include_domains or [],
+                    "web_search_exclude_domains": web_search_exclude_domains or [],
+                    "web_search_count": 0,
                 }
             try:
                 result = await asyncio.wait_for(
@@ -712,6 +757,66 @@ class ResearchRuntimeExecutionService:
             started=started,
         )
 
+    async def _resume_v1_graph_after_web_search_approval(
+        self,
+        *,
+        run: ResearchRun,
+        query: str,
+        owner_id: UUID,
+        conversation_id: UUID | None,
+        plan: ResearchPlan,
+        decision: dict[str, Any],
+    ) -> ResearchOutcome | None:
+        """Continue a graph paused at `await_web_search_approval` with a
+        recorded decision. Simpler than the plan/report resumes: there is no
+        "rejected with nothing to publish" case here -- rejection routes
+        `await_web_search_approval` -> `prepare_gap_research` inside the
+        same graph invocation (the existing document-only gap path), which
+        always leaves the graph at either another interrupt or a normal
+        completion, exactly as if this feature had never suggested a search."""
+
+        generation_runtime, retrieval, context_builder, storage = self._v1_graph_dependencies()
+        started = perf_counter()
+        budget = ResearchPlanningPolicy().budget_for(plan.complexity)
+        transition_run(
+            run, target=ResearchRunStatus.RESEARCHING, phase="resuming_after_web_search_decision"
+        )
+        await self._session.commit()
+        await self._publish_runtime_event(
+            run_id=run.id, event_type=ResearchEventType.RESEARCH_RESUMED
+        )
+        async with postgres_checkpointer(self._database_url) as checkpointer:
+            graph = self._compile_graph_for_run(
+                run=run,
+                checkpointer=checkpointer,
+                generation_runtime=generation_runtime,
+                retrieval=retrieval,
+                context_builder=context_builder,
+                storage=storage,
+            )
+            graph_config: RunnableConfig = {
+                "configurable": {"thread_id": run.graph_thread_id},
+                "recursion_limit": settings.research_runtime_graph_recursion_limit,
+            }
+            try:
+                result = await asyncio.wait_for(
+                    graph.ainvoke(Command(resume=decision), config=graph_config),
+                    timeout=budget.max_duration_seconds,
+                )
+            except TimeoutError as exc:
+                raise ResearchRunBudgetExceededError(
+                    f"Research run '{run.id}' exceeded its "
+                    f"{budget.max_duration_seconds}s duration budget."
+                ) from exc
+        return await self._finalize_or_pause(
+            run=run,
+            result=result,
+            query=query,
+            owner_id=owner_id,
+            conversation_id=conversation_id,
+            started=started,
+        )
+
     async def _finalize_or_pause(
         self,
         *,
@@ -723,7 +828,8 @@ class ResearchRuntimeExecutionService:
         started: float,
     ) -> ResearchOutcome | None:
         if result.get("__interrupt__"):
-            if self._interrupt_kind(result["__interrupt__"]) == "plan_approval":
+            interrupt_kind = self._interrupt_kind(result["__interrupt__"])
+            if interrupt_kind == "plan_approval":
                 transition_run(
                     run,
                     target=ResearchRunStatus.AWAITING_PLAN_APPROVAL,
@@ -735,6 +841,22 @@ class ResearchRuntimeExecutionService:
                 )
                 logger.info(
                     "research_runtime.execution.paused_for_plan_approval",
+                    research_run_id=str(run.id),
+                )
+                return None
+            if interrupt_kind == "web_search_approval":
+                transition_run(
+                    run,
+                    target=ResearchRunStatus.AWAITING_WEB_SEARCH_APPROVAL,
+                    phase="awaiting_web_search_approval",
+                )
+                await self._session.commit()
+                await self._publish_runtime_event(
+                    run_id=run.id,
+                    event_type=ResearchEventType.RESEARCH_AWAITING_WEB_SEARCH_APPROVAL,
+                )
+                logger.info(
+                    "research_runtime.execution.paused_for_web_search_approval",
                     research_run_id=str(run.id),
                 )
                 return None
@@ -788,6 +910,8 @@ class ResearchRuntimeExecutionService:
             value = getattr(item, "value", None)
             if isinstance(value, dict) and value.get("kind") == "plan_approval":
                 return "plan_approval"
+            if isinstance(value, dict) and value.get("kind") == "web_search_approval":
+                return "web_search_approval"
         return "report_approval"
 
     async def _publish_runtime_event(self, *, run_id: UUID, event_type: ResearchEventType) -> None:

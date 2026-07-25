@@ -2,8 +2,12 @@
 
 import { useRef } from 'react';
 import type { GenerationProvider } from '@/lib/api';
-import { PROVIDER_OPTIONS, type ResearchMode } from '@/features/research/types';
-import { SparklesIcon, ZapIcon } from '@/components/ui/icons';
+import {
+  PROVIDER_OPTIONS,
+  type DeepResearchWebSearchMode,
+  type ResearchMode,
+} from '@/features/research/types';
+import { NetworkIcon, SparklesIcon, ZapIcon } from '@/components/ui/icons';
 
 const MODE_OPTIONS: { value: ResearchMode; label: string; icon: typeof ZapIcon; title: string }[] = [
   { value: 'linear', label: 'Linear', icon: ZapIcon, title: 'Fast, one-shot cited answer' },
@@ -15,6 +19,23 @@ const MODE_OPTIONS: { value: ResearchMode; label: string; icon: typeof ZapIcon; 
   },
 ];
 
+// Cycles DISABLED -> AUTO -> REQUIRED -> DISABLED. AUTO: the agent decides
+// whether it needs the web, and asks for approval unless pre-authorized.
+// REQUIRED: always includes at least one web source, never asks.
+const WEB_SEARCH_OPTIONS: {
+  value: DeepResearchWebSearchMode;
+  label: string;
+  title: string;
+}[] = [
+  { value: 'disabled', label: 'Off', title: 'Never search the web' },
+  {
+    value: 'auto',
+    label: 'Auto',
+    title: 'The agent decides if it needs the web, and asks before searching',
+  },
+  { value: 'required', label: 'Required', title: 'Always include at least one web source' },
+];
+
 export function ResearchComposer({
   value,
   onChange,
@@ -24,6 +45,10 @@ export function ResearchComposer({
   onProviderChange,
   mode,
   onModeChange,
+  webSearchMode,
+  onWebSearchModeChange,
+  webSearchAutoApprove,
+  onWebSearchAutoApproveChange,
 }: {
   value: string;
   onChange: (v: string) => void;
@@ -33,6 +58,10 @@ export function ResearchComposer({
   onProviderChange: (p: GenerationProvider | 'auto') => void;
   mode: ResearchMode;
   onModeChange: (m: ResearchMode) => void;
+  webSearchMode: DeepResearchWebSearchMode;
+  onWebSearchModeChange: (m: DeepResearchWebSearchMode) => void;
+  webSearchAutoApprove: boolean;
+  onWebSearchAutoApproveChange: (v: boolean) => void;
 }) {
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -75,6 +104,47 @@ export function ResearchComposer({
             );
           })}
         </div>
+        {mode === 'deep' && (
+          <div className="flex items-center gap-2 mb-2">
+            <div className="flex items-center gap-1 w-fit bg-ink-800 border border-ink-600 rounded-lg p-0.5">
+              {WEB_SEARCH_OPTIONS.map((opt) => {
+                const active = webSearchMode === opt.value;
+                return (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    title={opt.title}
+                    disabled={loading}
+                    onClick={() => onWebSearchModeChange(opt.value)}
+                    className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md font-mono text-[10px] uppercase tracking-widest transition-colors duration-150 disabled:cursor-not-allowed ${
+                      active ? 'bg-sage-600 text-stone-100' : 'text-stone-500 hover:text-stone-300'
+                    }`}
+                  >
+                    {opt.value === 'disabled' && <NetworkIcon size={11} />}
+                    {opt.label}
+                  </button>
+                );
+              })}
+            </div>
+            {webSearchMode === 'auto' && (
+              <label
+                title="When the agent decides it needs the web, proceed without asking for approval"
+                className="flex items-center gap-1.5 cursor-pointer"
+              >
+                <input
+                  type="checkbox"
+                  checked={webSearchAutoApprove}
+                  disabled={loading}
+                  onChange={(e) => onWebSearchAutoApproveChange(e.target.checked)}
+                  className="accent-sage-600"
+                />
+                <span className="font-mono text-stone-600 text-[10px] uppercase tracking-widest">
+                  Skip approval
+                </span>
+              </label>
+            )}
+          </div>
+        )}
         <div className="flex gap-2.5 items-end">
           <div className="flex-1 relative">
             <textarea

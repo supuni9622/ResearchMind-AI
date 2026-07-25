@@ -2,6 +2,7 @@ import type {
   Citation,
   DeepResearchDraft,
   DeepResearchPendingPlan,
+  DeepResearchPendingWebSearch,
   DeepResearchProposal,
   DeepResearchRun,
   GenerationProvider,
@@ -9,16 +10,19 @@ import type {
 } from '@/lib/api';
 export { PROVIDER_OPTIONS } from '@/lib/api';
 export type {
+  DeepResearchAskOptions,
   DeepResearchDraft,
   DeepResearchDraftEdit,
   DeepResearchPendingPlan,
   DeepResearchPendingPlanEvidence,
   DeepResearchPendingPlanTask,
+  DeepResearchPendingWebSearch,
   DeepResearchPlan,
   DeepResearchPlanTask,
   DeepResearchProposal,
   DeepResearchRun,
   DeepResearchRunStatus,
+  DeepResearchWebSearchMode,
   ResearchComplexity,
   ResearchEscalationCheck,
 } from '@/lib/api';
@@ -35,6 +39,8 @@ export type ResearchMode = 'linear' | 'deep';
  * the *plan*-approval interrupt -- reached after retrieval/evidence-
  * aggregation but before the synthesis call; distinct from `plan_review`,
  * which happens before any run/retrieval exists) -> `running` again ->
+ * `web_search_review` (graph paused at the *web-search*-approval interrupt --
+ * only reached in AUTO mode without pre-approval) -> `running` again ->
  * `report_review` (graph paused at the *report*-approval interrupt) ->
  * `done`/`failed`. `error` is a request-level failure (network, etc.),
  * distinct from a run reaching a terminal `failed`/`cancelled` status.
@@ -43,6 +49,7 @@ export type DeepResearchStage =
   | 'plan_review'
   | 'running'
   | 'goal_review'
+  | 'web_search_review'
   | 'report_review'
   | 'done'
   | 'failed'
@@ -75,6 +82,8 @@ export interface DeepResearchTurn {
   events: DeepResearchProgressEvent[];
   /** Fetched once `stage` reaches `goal_review` -- the plan and gathered evidence the approve/reject decision is about. */
   pendingPlan: DeepResearchPendingPlan | null;
+  /** Fetched once `stage` reaches `web_search_review` -- the agent's web-search suggestion the approve/reject decision is about. */
+  pendingWebSearch: DeepResearchPendingWebSearch | null;
   /** Fetched once `stage` reaches `report_review` -- the draft the approve/reject decision is about. */
   draft: DeepResearchDraft | null;
   reportDownloadUrl: string | null;

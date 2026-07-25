@@ -60,6 +60,8 @@ from app.ai.observability.create import get_observability_service
 from app.ai.research.service import ResearchService
 from app.ai.runtime.research.execution import ResearchRuntimeExecutionService
 from app.ai.runtime.research.run_service import ResearchRunService
+from app.ai.runtime.research.web_search.create import create_web_search_necessity_service
+from app.ai.tools.web_search.create import create_web_search_service
 from app.core.settings import settings
 from app.dependencies.context import get_context_builder
 from app.dependencies.generation import (
@@ -177,6 +179,8 @@ def create_research_runtime_worker(*, session: AsyncSession) -> ResearchRuntimeW
         storage=storage,
         v1_graph_enabled=settings.research_runtime_v1_graph_enabled,
         memory_service=memory_service,
+        web_search=create_web_search_service(),
+        web_search_necessity=create_web_search_necessity_service(),
     )
     runs = ResearchRunService(session)
     return ResearchRuntimeWorker(

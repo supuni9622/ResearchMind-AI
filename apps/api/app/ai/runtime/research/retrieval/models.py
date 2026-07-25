@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from enum import StrEnum
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -21,6 +22,11 @@ class ResearchEvidenceReference(BaseModel):
     citation_id: str | None = None
     score: float
     excerpt: str = Field(max_length=500)
+    # Additive, defaulted field (web_search_tool_platform_prd.md) -- existing
+    # checkpointed state (document-only evidence) still validates unchanged.
+    # `document_id`/`chunk_id` hold a normalized URL / stable result id for
+    # web evidence rather than a real document/chunk identifier.
+    source_type: Literal["document", "web"] = "document"
 
 
 class ResearchTaskResult(BaseModel):

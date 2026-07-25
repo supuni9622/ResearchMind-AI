@@ -19,8 +19,8 @@ const TERMINAL_RUN_STATUSES = new Set<DeepResearchRun['status']>([
 
 // research_completed/failed/cancelled -- see `ResearchEventType` in
 // `app/ai/runtime/events/research/models.py`. `research_awaiting_approval`/
-// `research_awaiting_plan_approval` are handled separately -- neither ends
-// the stream (see below).
+// `research_awaiting_plan_approval`/`research_awaiting_web_search_approval`
+// are handled separately -- none of them end the stream (see below).
 const TERMINAL_EVENT_TYPES = new Set(['research_completed', 'research_failed', 'research_cancelled']);
 
 const MAX_RECONNECT_ATTEMPTS = 5;
@@ -28,6 +28,7 @@ const RECONNECT_DELAY_MS = 1500;
 
 function stageForRun(run: DeepResearchRun): DeepResearchStage {
   if (run.status === 'awaiting_plan_approval') return 'goal_review';
+  if (run.status === 'awaiting_web_search_approval') return 'web_search_review';
   if (run.status === 'awaiting_approval') return 'report_review';
   if (run.status === 'cancelled' || run.status === 'failed') return 'failed';
   if (TERMINAL_RUN_STATUSES.has(run.status)) return 'done';
@@ -44,6 +45,7 @@ function turnFromProposal(query: string, proposal: DeepResearchProposal): DeepRe
     stage: 'plan_review',
     events: [],
     pendingPlan: null,
+    pendingWebSearch: null,
     draft: null,
     reportDownloadUrl: null,
     linearAnswer: null,
@@ -136,6 +138,21 @@ export function useDeepResearch(onConversationLearned?: (conversationId: string)
     } catch {
       // Best-effort -- the review card still renders the approve/reject
       // buttons without the evidence preview if this fetch fails.
+    }
+  }, []);
+
+  /** Fetches the agent's web-search suggestion once a run pauses at the
+   * web-search-approval interrupt -- only reached in AUTO mode without
+   * pre-approval, when the agent decided a search would help (see
+   * `ResearchWebSearchInspectionService`, same checkpoint-read pattern as
+   * `fetchPendingPlan`). */
+  const fetchPendingWebSearch = useCallback(async (localId: string, runId: string) => {
+    try {
+      const pendingWebSearch = await api.research.getWebSearch(runId);
+      setTurns((prev) => patchTurn(prev, localId, { pendingWebSearch }));
+    } catch {
+      // Best-effort -- the review card still renders the approve/reject
+      // buttons without the suggestion preview if this fetch fails.
     }
   }, []);
 
@@ -242,6 +259,11 @@ export function useDeepResearch(onConversationLearned?: (conversationId: string)
                 void fetchPendingPlan(localId, runId);
               }
 
+              if (event.type === 'research_awaiting_web_search_approval') {
+                setTurns((prev) => patchTurn(prev, localId, { stage: 'web_search_review' }));
+                void fetchPendingWebSearch(localId, runId);
+              }
+
               if (event.type === 'research_awaiting_approval') {
                 setTurns((prev) => patchTurn(prev, localId, { stage: 'report_review' }));
                 void fetchDraft(localId, runId);
@@ -273,7 +295,7 @@ export function useDeepResearch(onConversationLearned?: (conversationId: string)
         }
       })();
     },
-    [stopStream, finalizeRun, fetchDraft, fetchPendingPlan]
+    [stopStream, finalizeRun, fetchDraft, fetchPendingPlan, fetchPendingWebSearch]
   );
 
   /** Manual "Deep Research" mode submission -- creates and shows a fresh proposal. */
@@ -337,6 +359,28 @@ export function useDeepResearch(onConversationLearned?: (conversationId: string)
           patchTurn(prev, localId, {
             stage: 'error',
             error: errorMessage(err, 'Could not submit your plan decision.'),
+          })
+        );
+      }
+    },
+    [learnConversationId]
+  );
+
+  const submitWebSearchDecision = useCallback(
+    async (localId: string, runId: string, approved: boolean, reason?: string) => {
+      try {
+        const run = await api.research.submitWebSearchDecision(runId, approved, reason);
+        // Optimistic, mirrors `submitPlanDecision` -- the run is still
+        // `awaiting_web_search_approval` at this point (the worker hasn't
+        // resumed the graph yet), so flip to `running` immediately rather
+        // than waiting for the next stream event.
+        setTurns((prev) => patchTurn(prev, localId, { run, stage: 'running' }));
+        learnConversationId(run.conversation_id);
+      } catch (err) {
+        setTurns((prev) =>
+          patchTurn(prev, localId, {
+            stage: 'error',
+            error: errorMessage(err, 'Could not submit your web-search decision.'),
           })
         );
       }
@@ -452,6 +496,7 @@ export function useDeepResearch(onConversationLearned?: (conversationId: string)
     startFromProposal,
     approve,
     submitPlanDecision,
+    submitWebSearchDecision,
     submitReportDecision,
     hydrateFromConversation,
     reset,

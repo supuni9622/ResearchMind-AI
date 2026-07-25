@@ -282,6 +282,22 @@ class Settings(BaseSettings):
     deep_research_max_queued_runs: int = 20
     deep_research_queue_full_retry_after_seconds: int = 60
 
+    # Web Search Tool Platform (web_search_tool_platform_prd.md). Default-off
+    # at both the platform level (`web_search_enabled`) and per-request
+    # (`WebSearchMode.DISABLED`) -- existing Deep Research runs are
+    # unaffected until a caller opts in and this is enabled.
+    web_search_enabled: bool = True
+    tavily_api_key: str | None = None
+    web_search_max_calls_per_run: int = 1
+    web_search_max_results_per_call: int = 8
+    web_search_timeout_seconds: float = 20.0
+    # Dedicated cheap-tier models for the web-search necessity decision only
+    # -- deliberately separate from `openai_model`/`claude_model`, which
+    # apply to every other generation call (synthesis, review, etc.). See
+    # `app.ai.runtime.research.web_search.create`.
+    web_search_decision_openai_model: str = "gpt-5-nano"
+    web_search_decision_claude_model: str = "claude-haiku-4-5"
+
     # Importance scoring (PRD §16)
     memory_importance_threshold: float = 0.1
 

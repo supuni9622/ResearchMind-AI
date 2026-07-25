@@ -29,6 +29,11 @@ from app.ai.runtime.research.plan_inspection import ResearchPlanInspectionServic
 from app.ai.runtime.research.proposal_service import ResearchProposalService
 from app.ai.runtime.research.report_download import ResearchReportDownloadService
 from app.ai.runtime.research.run_service import ResearchRunService
+from app.ai.runtime.research.web_search.create import create_web_search_necessity_service
+from app.ai.runtime.research.web_search.necessity import WebSearchNecessityService
+from app.ai.runtime.research.web_search_inspection import ResearchWebSearchInspectionService
+from app.ai.tools.web_search.create import create_web_search_service
+from app.ai.tools.web_search.service import WebSearchService
 from app.core.settings import settings
 from app.db.session import SessionFactory, get_db
 from app.dependencies.context import get_context_builder
@@ -149,6 +154,22 @@ def get_research_plan_inspection_service() -> ResearchPlanInspectionService:
     return ResearchPlanInspectionService(database_url=settings.database_url)
 
 
+def get_research_web_search_inspection_service() -> ResearchWebSearchInspectionService:
+    """Stateless, mirrors `get_research_plan_inspection_service`."""
+
+    return ResearchWebSearchInspectionService(database_url=settings.database_url)
+
+
+@lru_cache
+def get_web_search_service() -> WebSearchService:
+    return create_web_search_service()
+
+
+@lru_cache
+def get_web_search_necessity_service() -> WebSearchNecessityService:
+    return create_web_search_necessity_service()
+
+
 def get_research_report_download_service(
     runs: ResearchRunRepository = Depends(get_research_run_repository),
     storage: DocumentStorage = Depends(get_document_storage),
@@ -197,6 +218,8 @@ async def get_research_runtime_execution_service(
     context_builder: ContextBuilderService = Depends(get_context_builder),
     storage: DocumentStorage = Depends(get_document_storage),
     memory_service: MemoryService = Depends(get_memory_service),
+    web_search: WebSearchService = Depends(get_web_search_service),
+    web_search_necessity: WebSearchNecessityService = Depends(get_web_search_necessity_service),
 ) -> AsyncGenerator[ResearchRuntimeExecutionService | None, None]:
     """Construct the bridge only for the explicitly enabled durable path."""
 
@@ -218,4 +241,6 @@ async def get_research_runtime_execution_service(
             storage=storage,
             v1_graph_enabled=settings.research_runtime_v1_graph_enabled,
             memory_service=memory_service,
+            web_search=web_search,
+            web_search_necessity=web_search_necessity,
         )

@@ -23,6 +23,7 @@ class ResearchRunStatus(StrEnum):
     PAUSED = "paused"
     AWAITING_APPROVAL = "awaiting_approval"
     AWAITING_PLAN_APPROVAL = "awaiting_plan_approval"
+    AWAITING_WEB_SEARCH_APPROVAL = "awaiting_web_search_approval"
     COMPLETED = "completed"
     COMPLETED_WITH_LIMITATIONS = "completed_with_limitations"
     CANCELLED = "cancelled"

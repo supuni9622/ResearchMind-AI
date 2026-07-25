@@ -208,3 +208,47 @@ Research.
   intent, source/evidence lineage, and prior-report references.
 - [x] Continue using the current owner-scoped model. Separate projects or
   workspaces are not required for this product stage.
+
+## Web Search Tool Platform (2026-07-25)
+
+Third human-approval checkpoint, mirroring the plan-approval checkpoint's
+`interrupt()`/`Command(resume=...)` pattern. See ADR-036 and
+`prds/2. web_search_tool_platform_prd.md`.
+
+- [x] Framework-independent Web Search platform (`app/ai/tools/web_search/`):
+  canonical models, provider interface/registry, `WebSearchService`
+  (policy/budget/dedupe), Tavily provider via raw `httpx`.
+- [x] Research-Runtime glue (`app/ai/runtime/research/web_search/`):
+  `WebSearchNecessityService` (cheap OpenAI `gpt-5-nano` / Claude
+  `claude-haiku-4-5` structured decision, deterministic pre-rules for
+  DISABLED/REQUIRED) and web-result evidence normalization (reuses the
+  existing Context Guardrails Platform for prompt-injection scanning).
+- [x] Three new graph nodes (`evaluate_web_search_need`,
+  `await_web_search_approval`, `search_web_gap`) inserted into the existing
+  bounded gap-research loop in `multi_wave_research.py` — not a parallel
+  node family, so the existing iteration/cost/recursion budget applies
+  unchanged and a decline falls back to the pre-existing
+  `prepare_gap_research` doc-only path.
+- [x] `AWAITING_WEB_SEARCH_APPROVAL` status, lifecycle transitions,
+  `record_web_search_decision`, TTL-expiry sweep coverage, and an
+  `execution.py` resume branch, mirroring the plan-approval checkpoint's
+  five-file surface exactly.
+- [x] `GET /research/runs/{id}/web-search` +
+  `POST /research/runs/{id}/web-search-decision`; `web_search_mode` /
+  `web_search_auto_approve` / `include_domains` / `exclude_domains` added to
+  `ResearchProposalRequest` only (Linear Research and Chat contracts
+  unchanged).
+- [x] Research UI: mode toggle (Off/Auto/Required) + "skip approval" checkbox
+  in the composer, and an approve/reject card for the new checkpoint in
+  `deep-research-block.tsx`.
+- [x] Unit tests (web_search platform, necessity decision, evidence
+  normalization) and extended `multi_wave_research` graph tests (disabled,
+  AUTO decline/approve, pre-approved toggle, REQUIRED forcing, budget
+  exhaustion, malformed-payload-as-rejection). Full suite green
+  (1397 tests), ruff/mypy clean on both apps/api and apps/web.
+- [ ] Not built this pass (deferred, see ADR-036): the standalone
+  SSRF-hardened Web Fetch Platform, multi-provider fallback (Exa/Brave/MCP),
+  org-wide domain policy management, the full evaluation/benchmark harness.
+- Default-off: `WEB_SEARCH_ENABLED=false` and `web_search_mode=disabled`
+  both default off; no `TAVILY_API_KEY` degrades to inert rather than
+  crashing a run.

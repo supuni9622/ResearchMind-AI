@@ -4,7 +4,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api, type GenerationProvider, type ResearchEscalationCheck } from '@/lib/api';
 import { useResearch } from '@/features/research/use-research';
 import { useDeepResearch } from '@/features/research/use-deep-research';
-import type { ResearchMode, ResearchTurn, DeepResearchTurn } from '@/features/research/types';
+import type {
+  ResearchMode,
+  ResearchTurn,
+  DeepResearchTurn,
+  DeepResearchWebSearchMode,
+} from '@/features/research/types';
 import { ResearchSidebar } from '@/features/research/components/research-sidebar';
 import { ResearchBlock } from '@/features/research/components/research-block';
 import { DeepResearchBlock } from '@/features/research/components/deep-research-block';
@@ -48,6 +53,10 @@ export default function ResearchPage() {
   const [input, setInput] = useState('');
   const [provider, setProvider] = useState<GenerationProvider | 'auto'>('auto');
   const [mode, setMode] = useState<ResearchMode>('linear');
+  // Deep Research only (web_search_tool_platform_prd.md) -- Linear Research
+  // has no runtime graph/interrupt machinery to act on these.
+  const [webSearchMode, setWebSearchMode] = useState<DeepResearchWebSearchMode>('disabled');
+  const [webSearchAutoApprove, setWebSearchAutoApprove] = useState(false);
   const [checkingEscalation, setCheckingEscalation] = useState(false);
   const [creatingProposal, setCreatingProposal] = useState(false);
   const [pendingEscalation, setPendingEscalation] = useState<{
@@ -129,6 +138,8 @@ export default function ResearchPage() {
         const localId = await deepResearch.createProposal(query, {
           provider: providerOrUndefined,
           conversationId: activeConversationId ?? undefined,
+          webSearchMode,
+          webSearchAutoApprove,
         });
         if (localId) {
           setFocusedTurnId(localId);
@@ -160,7 +171,17 @@ export default function ResearchPage() {
 
     const localId = ask(query, providerOrUndefined);
     setFocusedTurnId(localId);
-  }, [input, loading, mode, provider, activeConversationId, deepResearch, ask]);
+  }, [
+    input,
+    loading,
+    mode,
+    provider,
+    activeConversationId,
+    deepResearch,
+    ask,
+    webSearchMode,
+    webSearchAutoApprove,
+  ]);
 
   const handleAcceptEscalation = useCallback(() => {
     if (!pendingEscalation?.check.proposal) return;
@@ -271,6 +292,15 @@ export default function ResearchPage() {
                         editedDraft
                       )
                     }
+                    onWebSearchDecision={(approved, reason) =>
+                      item.turn.run &&
+                      deepResearch.submitWebSearchDecision(
+                        item.turn.localId,
+                        item.turn.run.research_run_id,
+                        approved,
+                        reason
+                      )
+                    }
                   />
                 )
               )}
@@ -309,6 +339,10 @@ export default function ResearchPage() {
           onProviderChange={setProvider}
           mode={mode}
           onModeChange={setMode}
+          webSearchMode={webSearchMode}
+          onWebSearchModeChange={setWebSearchMode}
+          webSearchAutoApprove={webSearchAutoApprove}
+          onWebSearchAutoApproveChange={setWebSearchAutoApprove}
         />
       </div>
 

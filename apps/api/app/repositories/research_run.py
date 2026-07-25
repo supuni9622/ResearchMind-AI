@@ -62,9 +62,9 @@ class ResearchRunRepository:
         """System-wide (not owner-scoped): the expiry sweep runs as an
         operator/ops job, not on behalf of a single request's owner.
 
-        Covers both human-checkpoint pauses -- report approval and (as of
-        the plan-approval checkpoint) plan approval -- since either can
-        strand a run indefinitely if the user never returns to it."""
+        Covers all three human-checkpoint pauses -- report approval, plan
+        approval, and web-search approval -- since any of them can strand a
+        run indefinitely if the user never returns to it."""
 
         result = await self._session.execute(
             select(ResearchRun).where(
@@ -72,6 +72,7 @@ class ResearchRunRepository:
                     (
                         ResearchRunStatus.AWAITING_APPROVAL.value,
                         ResearchRunStatus.AWAITING_PLAN_APPROVAL.value,
+                        ResearchRunStatus.AWAITING_WEB_SEARCH_APPROVAL.value,
                     )
                 ),
                 ResearchRun.updated_at < older_than,

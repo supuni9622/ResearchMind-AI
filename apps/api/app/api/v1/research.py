@@ -25,6 +25,10 @@ from app.ai.runtime.research.proposal_service import ResearchProposalService
 from app.ai.runtime.research.report_download import ResearchReportDownloadService
 from app.ai.runtime.research.run_service import ResearchRunService
 from app.ai.runtime.research.types import ResearchProposalStatus, ResearchRunStatus
+from app.ai.runtime.research.web_search_inspection import (
+    PendingWebSearchUnavailableError,
+    ResearchWebSearchInspectionService,
+)
 from app.auth.dependencies import get_current_user
 from app.core.settings import settings
 from app.dependencies.rate_limiting import enforce_rate_limit, get_rate_limiter
@@ -40,6 +44,7 @@ from app.dependencies.research import (
     get_research_run_repository,
     get_research_run_service,
     get_research_service,
+    get_research_web_search_inspection_service,
 )
 from app.exceptions.base import NotFoundException, ServiceUnavailableException
 from app.infrastructure.rate_limiting import ValkeyRateLimiter
@@ -66,6 +71,7 @@ from app.schemas.research import (
     ResearchPendingPlanEvidenceSummary,
     ResearchPendingPlanResponse,
     ResearchPendingPlanTaskResponse,
+    ResearchPendingWebSearchResponse,
     ResearchPlanDecisionRequest,
     ResearchProposalRequest,
     ResearchProposalResponse,
@@ -76,6 +82,7 @@ from app.schemas.research import (
     ResearchRunResponse,
     ResearchSessionResponse,
     ResearchStreamRequest,
+    ResearchWebSearchDecisionRequest,
 )
 from app.services.research_conversation import ResearchConversationService
 
@@ -214,6 +221,10 @@ async def create_research_proposal(
         provider=payload.provider,
         routing_strategy=payload.routing_strategy,
         conversation_id=payload.conversation_id,
+        web_search_mode=payload.web_search_mode.value,
+        web_search_auto_approve=payload.web_search_auto_approve,
+        include_domains=payload.include_domains,
+        exclude_domains=payload.exclude_domains,
     )
     return _proposal_response(proposal)
 
@@ -566,6 +577,78 @@ async def submit_research_plan_decision(
             edited_goal=(
                 payload.edited_plan.rewritten_goal if payload.edited_plan is not None else None
             ),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    if run is None:
+        raise NotFoundException(message=f"Research run '{research_run_id}' was not found.")
+    return _run_response(run)
+
+
+@router.get(
+    "/runs/{research_run_id}/web-search",
+    response_model=ResearchPendingWebSearchResponse,
+    summary="Inspect the agent's web-search suggestion awaiting approval",
+)
+async def get_research_run_web_search(
+    research_run_id: UUID,
+    current_user: User = Depends(get_current_user),
+    runs: ResearchRunRepository = Depends(get_research_run_repository),
+    web_search_inspection: ResearchWebSearchInspectionService = Depends(
+        get_research_web_search_inspection_service
+    ),
+) -> ResearchPendingWebSearchResponse:
+    """Reads the pending web-search suggestion straight out of the paused
+    run's LangGraph checkpoint (see `ResearchWebSearchInspectionService`) --
+    reached only in AUTO mode without `web_search_auto_approve`, when the
+    agent decided a web search would help."""
+
+    run = await runs.get_by_id_for_owner(run_id=research_run_id, owner_id=current_user.id)
+    if run is None:
+        raise NotFoundException(message=f"Research run '{research_run_id}' was not found.")
+    if run.status != ResearchRunStatus.AWAITING_WEB_SEARCH_APPROVAL.value:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Research run '{research_run_id}' is not awaiting a web-search decision.",
+        )
+    try:
+        pending = await web_search_inspection.get_pending_suggestion(run)
+    except PendingWebSearchUnavailableError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+
+    return ResearchPendingWebSearchResponse(
+        research_run_id=run.id,
+        suggested_query=pending.suggested_query,
+        reason=pending.reason,
+        gap_question=pending.gap_question,
+    )
+
+
+@router.post(
+    "/runs/{research_run_id}/web-search-decision",
+    response_model=ResearchRunResponse,
+    summary="Approve or reject the agent's web-search suggestion",
+)
+async def submit_research_web_search_decision(
+    research_run_id: UUID,
+    payload: ResearchWebSearchDecisionRequest,
+    current_user: User = Depends(get_current_user),
+    runs: ResearchRunService = Depends(get_research_run_service),
+) -> ResearchRunResponse:
+    """Resolve the graph's web-search-approval `interrupt()`.
+
+    Only valid while the run's status is `awaiting_web_search_approval`. On
+    rejection, the run continues via the existing document-only
+    gap-research path -- no report content or evidence gathered so far is
+    discarded either way.
+    """
+
+    try:
+        run = await runs.record_web_search_decision(
+            run_id=research_run_id,
+            owner_id=current_user.id,
+            approved=payload.approved,
+            reason=payload.reason,
         )
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc

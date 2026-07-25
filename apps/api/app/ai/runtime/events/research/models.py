@@ -42,4 +42,9 @@ class ResearchEventType(StrEnum):
     RESEARCH_RESUMED = "research_resumed"
     RESEARCH_AWAITING_APPROVAL = "research_awaiting_approval"
     RESEARCH_AWAITING_PLAN_APPROVAL = "research_awaiting_plan_approval"
+    RESEARCH_AWAITING_WEB_SEARCH_APPROVAL = "research_awaiting_web_search_approval"
     RESEARCH_CANCELLED = "research_cancelled"
+
+    RESEARCH_WEB_SEARCH_STARTED = "research_web_search_started"
+    RESEARCH_WEB_SEARCH_COMPLETED = "research_web_search_completed"
+    RESEARCH_WEB_SEARCH_SKIPPED = "research_web_search_skipped"

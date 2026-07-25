@@ -25,7 +25,11 @@ from app.ai.runtime.research.planner.models import ResearchComplexity, ResearchP
 from app.ai.runtime.research.planner.policies import ResearchPlanningPolicy
 from app.ai.runtime.research.reducers import merge_by_stable_id
 from app.ai.runtime.research.report_artifact import ResearchFinalReportArtifactWriter
-from app.ai.runtime.research.retrieval.models import ResearchTaskResult
+from app.ai.runtime.research.retrieval.models import (
+    ResearchEvidenceReference,
+    ResearchTaskResult,
+    ResearchTaskStatus,
+)
 from app.ai.runtime.research.retrieval.service import ResearchTaskRetrievalService
 from app.ai.runtime.research.review import (
     ResearchReview,
@@ -42,6 +46,11 @@ from app.ai.runtime.research.synthesis.service import (
     ResearchSynthesisError,
     ResearchSynthesisService,
 )
+from app.ai.runtime.research.web_search.evidence import normalize_web_search_result
+from app.ai.runtime.research.web_search.models import WebSearchMode
+from app.ai.runtime.research.web_search.necessity import WebSearchNecessityService
+from app.ai.tools.web_search.models import WebSearchRequest
+from app.ai.tools.web_search.service import WebSearchService
 
 logger = structlog.get_logger()
 
@@ -73,6 +82,14 @@ class MultiWaveResearchState(TypedDict):
     plan_rejection_reason: str | None
     report_decision: str
     report_rejection_reason: str | None
+    web_search_mode: str
+    web_search_auto_approve: bool
+    web_search_include_domains: list[str]
+    web_search_exclude_domains: list[str]
+    web_search_count: int
+    web_search_suggestion: dict[str, object]
+    web_search_decision: str
+    web_search_rejection_reason: str | None
 
 
 def compile_multi_wave_research_graph(
@@ -87,6 +104,8 @@ def compile_multi_wave_research_graph(
     progress: Callable[[ResearchEventType], Awaitable[None]] | None = None,
     cancellation_check: Callable[[], Awaitable[bool]] | None = None,
     cost_lookup: Callable[[], Awaitable[float]] | None = None,
+    web_search: WebSearchService | None = None,
+    web_search_necessity: WebSearchNecessityService | None = None,
 ) -> Any:
     """Compile bounded waves through synthesis, review, and final artifacts.
 
@@ -475,19 +494,224 @@ def compile_multi_wave_research_graph(
             "evidence_artifact_ref": await evidence_writer.write(artifact, version=2),
         }
 
+    def _web_search_ready() -> bool:
+        return web_search is not None and web_search_necessity is not None
+
+    async def evaluate_web_search_need(state: MultiWaveResearchState) -> dict[str, object]:
+        """Decide whether the run's next gap-research round should be a web
+        search instead of another document retrieval -- reached either from
+        a real reviewer-identified gap (`RESEARCH_GAPS`) or from a forced
+        `REQUIRED`-mode check on an otherwise-passing review (see
+        `route_after_review`). Deterministic pre-rules short-circuit
+        `DISABLED`/`REQUIRED` (no LLM call); `AUTO` defers to
+        `WebSearchNecessityService`'s cheap model call. Writes only a
+        suggestion into state -- `search_web_gap` is the node that actually
+        spends the per-run web-search budget."""
+
+        if not _web_search_ready():
+            return {"web_search_suggestion": {}}
+        mode = WebSearchMode(state.get("web_search_mode", WebSearchMode.DISABLED.value))
+        if mode is WebSearchMode.DISABLED:
+            return {"web_search_suggestion": {}}
+        assert web_search is not None and web_search_necessity is not None
+        if state.get("web_search_count", 0) >= web_search.policy.max_search_calls_per_run:
+            logger.info(
+                "research_runtime.graph.web_search_budget_exhausted",
+                research_run_id=state["research_run_id"],
+                web_search_count=state.get("web_search_count", 0),
+            )
+            return {"web_search_suggestion": {}}
+
+        review_result = (
+            ResearchReview.model_validate(state["review"]) if state.get("review") else None
+        )
+        gap_question = (
+            review_result.gap_questions[0]
+            if review_result is not None and review_result.gap_questions
+            else None
+        )
+        goal = state["plan"].get("rewritten_goal") or state["plan"].get("goal")
+        evidence = ResearchEvidenceBundle.model_validate(state["evidence_bundle"])
+        decision = await web_search_necessity.decide(
+            mode=mode,
+            goal=str(goal),
+            gap_question=gap_question,
+            evidence=evidence,
+            owner_id=UUID(state["owner_id"]),
+            research_run_id=UUID(state["research_run_id"]),
+        )
+        logger.info(
+            "research_runtime.graph.web_search_evaluated",
+            research_run_id=state["research_run_id"],
+            mode=mode.value,
+            needs_web_search=decision.needs_web_search,
+        )
+        if not decision.needs_web_search:
+            return {"web_search_suggestion": {}}
+        return {
+            "web_search_suggestion": {
+                "query": decision.query,
+                "reason": decision.reason,
+                "gap_question": gap_question,
+            }
+        }
+
+    def route_after_web_search_evaluation(
+        state: MultiWaveResearchState,
+    ) -> Literal["prepare_gap_research", "await_web_search_approval", "search_web_gap"]:
+        suggestion = state.get("web_search_suggestion") or {}
+        if not suggestion.get("query"):
+            # Disabled, budget-exhausted, or the model/deterministic rule
+            # said no -- fall back to exactly today's doc-only gap path.
+            return "prepare_gap_research"
+        mode = WebSearchMode(state.get("web_search_mode", WebSearchMode.DISABLED.value))
+        if mode is WebSearchMode.REQUIRED or state.get("web_search_auto_approve", False):
+            return "search_web_gap"
+        return "await_web_search_approval"
+
+    async def await_web_search_approval(state: MultiWaveResearchState) -> dict[str, object]:
+        """Pause for a human decision on the agent's own web-search
+        suggestion (`AUTO` mode, not pre-approved). Mirrors
+        `await_plan_approval`'s `interrupt()` contract exactly -- no side
+        effects before the call, since LangGraph replays this node's body
+        from the top on every resume attempt for this thread.
+
+        Unlike plan/report rejection, a rejection here is never a dead end:
+        `route_after_web_search_approval` sends it to the same
+        `prepare_gap_research` node a `DISABLED`/AUTO-declined suggestion
+        would have reached anyway -- "reject and the run continues exactly
+        as it would have without this feature." A malformed resume payload
+        is treated the same way (as a rejection) rather than raising, for
+        the same reason: there is always a safe existing fallback to fall
+        back to here.
+        """
+
+        suggestion = state.get("web_search_suggestion") or {}
+        decision = interrupt(
+            {
+                "kind": "web_search_approval",
+                "research_run_id": state["research_run_id"],
+                "suggested_query": suggestion.get("query"),
+                "reason": suggestion.get("reason"),
+            }
+        )
+        if not isinstance(decision, dict) or decision.get("decision") != "approved":
+            reason = (
+                decision.get("reason") if isinstance(decision, dict) else "invalid_resume_payload"
+            )
+            logger.info(
+                "research_runtime.graph.web_search_rejected",
+                research_run_id=state["research_run_id"],
+                reason=reason,
+            )
+            return {"web_search_decision": "rejected", "web_search_rejection_reason": reason}
+        return {"web_search_decision": "approved"}
+
+    def route_after_web_search_approval(
+        state: MultiWaveResearchState,
+    ) -> Literal["prepare_gap_research", "search_web_gap"]:
+        if state.get("web_search_decision") == "rejected":
+            return "prepare_gap_research"
+        return "search_web_gap"
+
+    async def search_web_gap(state: MultiWaveResearchState) -> dict[str, object]:
+        """Spend one round of the per-run web-search budget and fold the
+        result into `task_results` under a synthetic `web-{n}` task id, the
+        same shape `retrieve_gap_task` produces for a document gap round --
+        `aggregate_gap_evidence` (reused unchanged) doesn't need to know
+        which kind of task produced an entry."""
+
+        assert web_search is not None
+        suggestion = state.get("web_search_suggestion") or {}
+        goal = state["plan"].get("rewritten_goal") or state["plan"].get("goal")
+        query = str(suggestion.get("query") or goal)[:500]
+        next_web_count = state.get("web_search_count", 0) + 1
+        await emit(ResearchEventType.RESEARCH_WEB_SEARCH_STARTED)
+
+        references: list[ResearchEvidenceReference] = []
+        try:
+            result = await web_search.search(
+                WebSearchRequest(
+                    query=query,
+                    include_domains=list(state.get("web_search_include_domains", [])),
+                    exclude_domains=list(state.get("web_search_exclude_domains", [])),
+                )
+            )
+            references = await normalize_web_search_result(
+                result,
+                owner_id=UUID(state["owner_id"]),
+                research_run_id=UUID(state["research_run_id"]),
+                round_number=next_web_count,
+            )
+        except Exception as exc:
+            logger.warning(
+                "research_runtime.graph.web_search_failed",
+                research_run_id=state["research_run_id"],
+                error_type=type(exc).__name__,
+            )
+
+        next_gap_count = state.get("gap_research_count", 0) + 1
+        task_id = f"web-{next_web_count}"
+        task_result = ResearchTaskResult(
+            task_id=task_id,
+            status=ResearchTaskStatus.COMPLETED if references else ResearchTaskStatus.FAILED,
+            evidence=references,
+            citation_ids=[ref.citation_id for ref in references if ref.citation_id],
+            error_type=None if references else "no_web_evidence",
+        )
+        await emit(
+            ResearchEventType.RESEARCH_WEB_SEARCH_COMPLETED
+            if references
+            else ResearchEventType.RESEARCH_WEB_SEARCH_SKIPPED
+        )
+        logger.info(
+            "research_runtime.graph.web_search_gap_completed",
+            research_run_id=state["research_run_id"],
+            web_search_count=next_web_count,
+            evidence_count=len(references),
+        )
+        return {
+            "task_results": {task_id: task_result.model_dump(mode="json")},
+            "web_search_count": next_web_count,
+            "gap_research_count": next_gap_count,
+            "plan_version": state.get("plan_version", 1) + 1,
+            "plan_versions": [
+                *state.get("plan_versions", []),
+                {
+                    "version": state.get("plan_version", 1) + 1,
+                    "reason": "web_search_gap",
+                    "task_id": task_id,
+                    "question": query,
+                },
+            ],
+        }
+
     async def route_after_review(
         state: MultiWaveResearchState,
     ) -> Literal[
         "prepare_synthesis_revision",
         "prepare_gap_research",
+        "evaluate_web_search_need",
         "finalize_gap_limitations",
         "await_report_approval",
         "fail",
     ]:
         review_result = ResearchReview.model_validate(state["review"])
+        mode = WebSearchMode(state.get("web_search_mode", WebSearchMode.DISABLED.value))
+
         if review_result.decision is ReviewDecision.FAIL:
             return "fail"
         if review_result.decision is ReviewDecision.PASS:
+            # REQUIRED must include at least one web source even when the
+            # reviewer never flagged a gap -- forced once (guarded by
+            # `web_search_count == 0`), never on subsequent PASS visits.
+            if mode is WebSearchMode.REQUIRED and state.get("web_search_count", 0) == 0:
+                if _web_search_ready():
+                    return "evaluate_web_search_need"
+                logger.warning(
+                    "research_runtime.graph.web_search_required_unavailable",
+                    research_run_id=state["research_run_id"],
+                )
             return "await_report_approval"
 
         budget = ResearchPlanningPolicy().budget_for(
@@ -515,6 +739,8 @@ def compile_multi_wave_research_graph(
             return "fail"
         if review_result.decision is ReviewDecision.RESEARCH_GAPS:
             if within_iteration_budget and within_cost_budget:
+                if _web_search_ready() and mode is not WebSearchMode.DISABLED:
+                    return "evaluate_web_search_need"
                 return "prepare_gap_research"
             return "finalize_gap_limitations"
         return "await_report_approval"
@@ -582,6 +808,9 @@ def compile_multi_wave_research_graph(
     graph.add_node("await_report_approval", await_report_approval)
     graph.add_node("persist_final_report", persist_final_report)
     graph.add_node("fail", fail)
+    graph.add_node("evaluate_web_search_need", evaluate_web_search_need)
+    graph.add_node("await_web_search_approval", await_web_search_approval)
+    graph.add_node("search_web_gap", search_web_gap)
     graph.add_edge(START, "prepare_wave")
     graph.add_conditional_edges("prepare_wave", dispatch_wave, ["retrieve_task"])
     graph.add_edge("retrieve_task", "advance_wave")
@@ -596,6 +825,9 @@ def compile_multi_wave_research_graph(
     graph.add_edge("aggregate_gap_evidence", "synthesize")
     graph.add_edge("finalize_gap_limitations", "await_report_approval")
     graph.add_conditional_edges("await_report_approval", route_after_report_approval)
+    graph.add_conditional_edges("evaluate_web_search_need", route_after_web_search_evaluation)
+    graph.add_conditional_edges("await_web_search_approval", route_after_web_search_approval)
+    graph.add_edge("search_web_gap", "aggregate_gap_evidence")
     graph.add_edge("persist_final_report", END)
     graph.add_edge("fail", END)
     return graph.compile(checkpointer=checkpointer)

@@ -18,6 +18,7 @@ from app.ai.runtime.research.planner.models import ResearchComplexity, ResearchP
 from app.ai.runtime.research.planner.service import ResearchPlanner
 from app.ai.runtime.research.run_service import ResearchRunService
 from app.ai.runtime.research.types import ResearchProposalStatus
+from app.ai.runtime.research.web_search.models import WebSearchMode
 from app.core.settings import settings
 from app.models.research_proposal import ResearchProposal
 from app.repositories.research_proposal import ResearchProposalRepository
@@ -54,6 +55,10 @@ class ResearchProposalService:
         provider: GenerationProvider | None,
         routing_strategy: RoutingStrategy | None,
         conversation_id: UUID | None,
+        web_search_mode: str = WebSearchMode.DISABLED.value,
+        web_search_auto_approve: bool = False,
+        include_domains: list[str] | None = None,
+        exclude_domains: list[str] | None = None,
     ) -> ResearchProposal:
         proposal = await self._repository.create(
             ResearchProposal(
@@ -67,6 +72,10 @@ class ResearchProposalService:
                     "filters": filters,
                     "provider": provider.value if provider else None,
                     "routing_strategy": routing_strategy.value if routing_strategy else None,
+                    "web_search_mode": web_search_mode,
+                    "web_search_auto_approve": web_search_auto_approve,
+                    "include_domains": include_domains or [],
+                    "exclude_domains": exclude_domains or [],
                 },
             )
         )

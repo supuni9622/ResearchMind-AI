@@ -1686,8 +1686,63 @@ existing graph/execution test that previously invoked the graph straight
 through to the report-approval interrupt now resumes past the new
 plan-approval interrupt first — updated, not skipped.
 
+## 2026-07-25 Web Search Tool Platform — third human-approval checkpoint
+
+Deep Research can now search the public web via Tavily, gated by a third
+`interrupt()` checkpoint that mirrors the plan-approval checkpoint exactly.
+See ADR-036 and `RESEARCH_RUNTIME_IMPLEMENTATION_TRACKER.md`'s "Web Search
+Tool Platform" section for the full breakdown; summary:
+
+- **New platform**, `app/ai/tools/web_search/` — canonical models, provider
+  interface/registry, `WebSearchService` (policy/budget/domain-filter/dedupe),
+  a Tavily provider over raw `httpx` (no new SDK dependency). Framework- and
+  LangGraph-independent, matching every other platform boundary in this repo.
+- **No separate secure Web Fetch Platform** (PRD §14) in this pass — Tavily
+  extracts page content server-side, so ResearchMind never fetches an
+  arbitrary URL itself; there's no new SSRF surface to defend yet. Extracted
+  text still passes through the existing Context Guardrails Platform
+  (prompt-injection scan) before becoming evidence.
+- **Reuses the existing bounded gap-research loop** instead of adding a
+  parallel node family: `review`'s `RESEARCH_GAPS` decision (and a forced
+  check on `REQUIRED` mode even when review passes) can now route through a
+  web-search branch inside the same iteration/cost-budgeted loop
+  `prepare_gap_research` already uses. A decline (or `DISABLED`, or the
+  agent's own "no") falls back to that exact pre-existing node — not a
+  separate compatibility path.
+- **`AUTO` mode asks; `REQUIRED` never does.** The necessity decision itself
+  is a small structured-output call pinned to a cheap OpenAI (`gpt-5-nano`)
+  or Claude (`claude-haiku-4-5`, a new catalog entry) model — a dedicated
+  registry, deliberately separate from the shared `GenerationRegistry` used
+  for synthesis/review, so this one bounded decision's model choice never
+  depends on the rest of the app's configuration. Falls through to the
+  shared runtime via `RoutingStrategy.CLASSIFICATION` (never `AUTO`'s
+  Groq default) if neither OpenAI nor Claude is configured.
+- **New user-facing toggle**: `web_search_mode` (disabled/auto/required) +
+  `web_search_auto_approve` (pre-authorize, skip the approval pause) on
+  `ResearchProposalRequest` only — Linear Research (`/research`,
+  `/research/stream`) and Chat have zero code changes and are unaffected by
+  construction, not by a compatibility shim.
+- **Frontend**: an Off/Auto/Required toggle + "skip approval" checkbox in
+  the Deep Research composer (visible only in Deep mode), and a new
+  `web_search_review` stage/approval card in `deep-research-block.tsx`
+  mirroring the plan-approval card.
+
+Verified: full repo suite **1397 passed** (31 new tests: web_search platform,
+necessity decision, evidence normalization, and eight new/extended
+`multi_wave_research` graph scenarios — disabled, AUTO decline, AUTO
+approve-and-merge, pre-approved toggle, rejection fallback, malformed-payload
+fallback, REQUIRED forcing, budget exhaustion), ruff/mypy clean on all 736
+backend source files, frontend `tsc --noEmit`/`eslint`/`next build` all
+clean. Both global (`WEB_SEARCH_ENABLED`) and per-request
+(`web_search_mode=disabled`) default off.
+
 ## Not Yet Built
 
+- ❌ Web Search Tool Platform's standalone SSRF-hardened Web Fetch Platform,
+  multi-provider fallback (Exa/Brave/MCP), org-wide domain policy
+  management, and dedicated evaluation/benchmark harness — deferred per
+  ADR-036; not needed while Tavily's own content extraction is the only
+  search path.
 - ⛔ Chat → Deep Research escalation ("Research this" suggestion + handoff) — **out of
   scope, will not be built.** The Research-interface equivalent (Linear → Deep) is built
   and is a distinct surface (see above); Chat is intended to stay a standalone fast

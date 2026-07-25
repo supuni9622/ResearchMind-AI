@@ -9,6 +9,7 @@ import type {
 import { AlertIcon, ArrowDownIcon, CheckCircleIcon, TargetIcon } from '@/components/ui/icons';
 import { DraftReview } from '@/features/research/components/draft-review';
 import { PlanGoalReview } from '@/features/research/components/plan-goal-review';
+import { WebSearchApprovalReview } from '@/features/research/components/web-search-approval-review';
 import { renderAnswer } from '@/features/research/components/research-block';
 
 /** Ordered progress-step log, shared by every post-approval-flow stage so the
@@ -61,6 +62,7 @@ const STATUS_LABEL: Record<string, string> = {
   paused: 'Paused',
   awaiting_approval: 'Awaiting your review',
   awaiting_plan_approval: 'Awaiting your review',
+  awaiting_web_search_approval: 'Awaiting your review',
   completed: 'Completed',
   completed_with_limitations: 'Completed (with limitations)',
   cancelled: 'Cancelled',
@@ -89,6 +91,7 @@ export function DeepResearchBlock({
   onCancel,
   onPlanDecision,
   onReportDecision,
+  onWebSearchDecision,
 }: {
   turn: DeepResearchTurn;
   focused: boolean;
@@ -97,6 +100,7 @@ export function DeepResearchBlock({
   onCancel: () => void;
   onPlanDecision: (approved: boolean, reason?: string, editedGoal?: string) => void;
   onReportDecision: (approved: boolean, reason?: string, editedDraft?: DeepResearchDraftEdit) => void;
+  onWebSearchDecision: (approved: boolean, reason?: string) => void;
 }) {
   const [rejectReason, setRejectReason] = useState('');
   const [showRejectInput, setShowRejectInput] = useState(false);
@@ -104,6 +108,8 @@ export function DeepResearchBlock({
   const [planRejectReason, setPlanRejectReason] = useState('');
   const [showPlanRejectInput, setShowPlanRejectInput] = useState(false);
   const [editedGoal, setEditedGoal] = useState<string | null>(null);
+  const [webSearchRejectReason, setWebSearchRejectReason] = useState('');
+  const [showWebSearchRejectInput, setShowWebSearchRejectInput] = useState(false);
   const { plan } = turn.proposal;
   const goal = plan.rewritten_goal ?? plan.goal;
 
@@ -268,6 +274,75 @@ export function DeepResearchBlock({
                   onClick={(e) => {
                     e.stopPropagation();
                     setShowPlanRejectInput(true);
+                  }}
+                  className="px-3 py-1.5 rounded-lg border border-ink-600 hover:border-ink-500 text-stone-400 text-[12px] transition-colors duration-150"
+                >
+                  Reject
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
+        {turn.stage === 'web_search_review' && (
+          <div>
+            <EventLog events={turn.events} live={false} />
+            <div className="flex items-center gap-2.5 mb-3">
+              <span className="text-sage-500 flex-shrink-0">
+                <CheckCircleIcon size={13} />
+              </span>
+              <span className="text-stone-200 text-[13px]">
+                The agent thinks it needs the web to fill a gap -- review before it searches.
+              </span>
+            </div>
+            {turn.pendingWebSearch ? (
+              <WebSearchApprovalReview suggestion={turn.pendingWebSearch} />
+            ) : (
+              <p className="text-stone-600 text-[12px] mb-3">Loading the suggestion…</p>
+            )}
+            {showWebSearchRejectInput ? (
+              <div onClick={(e) => e.stopPropagation()}>
+                <textarea
+                  value={webSearchRejectReason}
+                  onChange={(e) => setWebSearchRejectReason(e.target.value)}
+                  placeholder="Why not? (optional)"
+                  rows={2}
+                  className="w-full bg-ink-800 border border-ink-500 rounded-lg px-3 py-2 text-stone-100 text-[13px] placeholder-stone-600 resize-none focus:outline-none focus:border-sage-600 mb-2"
+                />
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => onWebSearchDecision(false, webSearchRejectReason || undefined)}
+                    className="px-3 py-1.5 rounded-lg bg-red-900/40 hover:bg-red-900/60 text-red-300 text-[12px] transition-colors duration-150"
+                  >
+                    Confirm reject
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowWebSearchRejectInput(false)}
+                    className="px-3 py-1.5 rounded-lg border border-ink-600 hover:border-ink-500 text-stone-400 text-[12px] transition-colors duration-150"
+                  >
+                    Back
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onWebSearchDecision(true);
+                  }}
+                  className="px-3 py-1.5 rounded-lg bg-sage-600 hover:bg-sage-500 text-stone-100 text-[12px] font-medium transition-colors duration-150"
+                >
+                  Approve search
+                </button>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setShowWebSearchRejectInput(true);
                   }}
                   className="px-3 py-1.5 rounded-lg border border-ink-600 hover:border-ink-500 text-stone-400 text-[12px] transition-colors duration-150"
                 >

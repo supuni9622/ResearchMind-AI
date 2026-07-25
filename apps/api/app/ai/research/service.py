@@ -12,7 +12,7 @@ from __future__ import annotations
 from collections.abc import AsyncGenerator
 from time import perf_counter
 from typing import Any
-from uuid import UUID, uuid4
+from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 
 import structlog
 from langchain_core.messages import BaseMessage, HumanMessage
@@ -651,6 +651,22 @@ class ResearchService:
         ]
 
     @staticmethod
+    def _coerce_uuid(value: str) -> UUID:
+        """`Citation`/`ResearchSource` require real `UUID` fields, but web
+        evidence (`ResearchEvidenceReference.source_type == "web"`) carries a
+        URL/synthetic string in `document_id`/`chunk_id` instead of a real
+        document/chunk UUID. Deterministically derive a stable UUID from the
+        string rather than raising -- the same URL/chunk id always maps to
+        the same synthetic UUID, so repeated runs stay consistent, and this
+        never collides with a real `uuid4()`-generated document/chunk id
+        (UUID5 vs UUID4 namespaces don't overlap in practice)."""
+
+        try:
+            return UUID(value)
+        except ValueError:
+            return uuid5(NAMESPACE_URL, value)
+
+    @staticmethod
     def _runtime_evidence_metadata(
         evidence: ResearchEvidenceBundle,
     ) -> tuple[list[Citation], list[ResearchSource]]:
@@ -661,8 +677,8 @@ class ResearchService:
         seen_citations: set[str] = set()
         seen_sources: set[tuple[str, str]] = set()
         for item in evidence.evidence:
-            document_id = UUID(item.document_id)
-            chunk_id = UUID(item.chunk_id)
+            document_id = ResearchService._coerce_uuid(item.document_id)
+            chunk_id = ResearchService._coerce_uuid(item.chunk_id)
             source_key = (item.document_id, item.chunk_id)
             if source_key not in seen_sources:
                 sources.append(

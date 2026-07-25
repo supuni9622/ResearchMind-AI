@@ -14,6 +14,7 @@ from app.ai.runtime.generation.enums import GenerationProvider
 from app.ai.runtime.generation.routing.enums import RoutingStrategy
 from app.ai.runtime.research.planner.models import ResearchComplexity, ResearchPlan
 from app.ai.runtime.research.types import ResearchProposalStatus, ResearchRunStatus
+from app.ai.runtime.research.web_search.models import WebSearchMode
 
 # ==========================================================
 # Requests
@@ -55,7 +56,29 @@ class ResearchStreamRequest(ResearchRequest):
 
 
 class ResearchProposalRequest(ResearchRequest):
-    """Explicit request to plan Deep Research; it does not begin a run."""
+    """Explicit request to plan Deep Research; it does not begin a run.
+
+    The web-search fields below are deliberately only on this subclass, not
+    the base `ResearchRequest` -- Linear Research (`/research`, `/research/
+    stream`) has no LangGraph runtime/interrupt machinery to act on them, so
+    keeping them off that contract avoids implying a capability that
+    doesn't exist there (web_search_tool_platform_prd.md §31)."""
+
+    web_search_mode: WebSearchMode = WebSearchMode.DISABLED
+
+    web_search_auto_approve: bool = Field(
+        default=False,
+        description=(
+            "Pre-authorize web search: when the agent decides a web search "
+            "would help (AUTO mode), proceed without pausing for approval. "
+            "Ignored when web_search_mode is DISABLED or REQUIRED (REQUIRED "
+            "never pauses -- it was already explicitly requested)."
+        ),
+    )
+
+    include_domains: list[str] = Field(default_factory=list, max_length=20)
+
+    exclude_domains: list[str] = Field(default_factory=list, max_length=20)
 
 
 class ResearchDraftFindingEdit(BaseModel):
@@ -129,6 +152,21 @@ class ResearchPlanDecisionRequest(BaseModel):
 
     # Only meaningful when `approved` -- mirrors `ResearchReportDecisionRequest.edited_draft`.
     edited_plan: ResearchPlanGoalEdit | None = None
+
+
+class ResearchWebSearchDecisionRequest(BaseModel):
+    """Body for `POST /research/runs/{id}/web-search-decision` (the
+    web-search-approval interrupt checkpoint, only reached in AUTO mode
+    without `web_search_auto_approve`). No `edited_*` field -- unlike a
+    rejected plan/report, a rejected web-search suggestion has nothing to
+    edit; the run simply continues via the existing document-only
+    gap-research path (see `ResearchRunService.record_web_search_decision`)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    approved: bool
+
+    reason: str | None = Field(default=None, max_length=1_000)
 
 
 class ResearchCitationsRequest(BaseModel):
@@ -256,6 +294,20 @@ class ResearchPendingPlanResponse(BaseModel):
     tasks: list[ResearchPendingPlanTaskResponse]
     evidence: ResearchPendingPlanEvidenceSummary
     citations: list[ResearchDraftCitationResponse]
+
+
+class ResearchPendingWebSearchResponse(BaseModel):
+    """`GET /research/runs/{id}/web-search` -- the agent's web-search
+    suggestion awaiting approval, read directly from the paused run's
+    LangGraph checkpoint (see `ResearchWebSearchInspectionService`). Only
+    available while the run is `awaiting_web_search_approval`."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    research_run_id: UUID
+    suggested_query: str
+    reason: str
+    gap_question: str | None
 
 
 class ResearchRunResponse(BaseModel):

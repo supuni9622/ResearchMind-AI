@@ -89,7 +89,11 @@ class LangGraphResearchEventAdapter:
             ResearchEventType.RESEARCH_RESUMED: "Resuming research",
             ResearchEventType.RESEARCH_AWAITING_APPROVAL: "Awaiting research approval",
             ResearchEventType.RESEARCH_AWAITING_PLAN_APPROVAL: "Awaiting plan approval",
+            ResearchEventType.RESEARCH_AWAITING_WEB_SEARCH_APPROVAL: "Awaiting web search approval",
             ResearchEventType.RESEARCH_CANCELLED: "Research cancelled",
+            ResearchEventType.RESEARCH_WEB_SEARCH_STARTED: "Searching the web",
+            ResearchEventType.RESEARCH_WEB_SEARCH_COMPLETED: "Web search complete",
+            ResearchEventType.RESEARCH_WEB_SEARCH_SKIPPED: "Web search skipped",
         }
         return StreamEvent(
             session_id=research_run_id,

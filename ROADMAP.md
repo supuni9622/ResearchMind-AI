@@ -1,7 +1,7 @@
 # ResearchMind AI — Roadmap
 
 **Version:** 3.0 (Unified)
-**Last Updated:** 2026-07-24
+**Last Updated:** 2026-07-25
 **Status:** Living document — single source of truth for project progress, milestone traceability, and implementation order.
 
 ---
@@ -51,7 +51,7 @@ They're kept under `docs/archive/` for history, not deleted — do not treat the
 | 2 | Knowledge Platform | ✅ Complete | Upload → Processing → Chunking → Embedding → Vector Store → Retrieval → Reranking → Context |
 | 3 | AI Runtime / Generation Platform | ✅ Complete | Multi-provider LLM runtime, structured output, validation, guardrails, routing, caching, observability |
 | 4 | Research API (Linear) | ✅ Complete | `POST /research` — first live, cited, end-to-end product surface |
-| 5 | Research Runtime (Deep Research) | ✅ Complete | Single-agent LangGraph: proposal → plan → approval → multi-wave graph → report approval → PDF |
+| 5 | Research Runtime (Deep Research) | ✅ Complete | Single-agent LangGraph: proposal → plan → approval → multi-wave graph → report approval → PDF; web search (Tavily, 3rd checkpoint) now also reachable from Chat |
 | 6 | Agentic AI Platform | ⏳ Planned | General-purpose (non-Research-scoped) agents; deferred per ADR-033 |
 | 7 | MCP Ecosystem | ⏳ Planned | External tool/capability integration via Model Context Protocol |
 | 8 | AI Quality / Evaluation Platform | 🟡 Partial | Retrieval + generation benchmarks done; Experimentation Platform not started |
@@ -385,6 +385,24 @@ GET  /research/runs/{id}/report           → presigned PDF download URL
 | Cross-run cache-leakage fix in synthesis/review | ✅ |
 | Research UI Deep Research destination (mode toggle, escalation suggestion, plan review, live SSE progress, report-approval, PDF download) | ✅ |
 | Worker session-staleness bugs (long-lived `AsyncSession` poisoning, stale cached `report_decision` on resume) | ✅ found via manual browser verification (2026-07-23) and fixed, regression-tested |
+| Plan-approval `interrupt()` — second human checkpoint between evidence aggregation and synthesis, view/edit-goal/reject-with-reason | ✅ (2026-07-24) |
+| Web Search Tool Platform — third human checkpoint (`await_web_search_approval`), Tavily-backed, AUTO/REQUIRED/DISABLED modes + pre-authorize toggle | ✅ (2026-07-25, ADR-036) — see subsection below |
+
+### Web Search Tool Platform ✅ (2026-07-25, ADR-036)
+
+A framework-independent search platform (`app/ai/tools/web_search/` — canonical models, provider interface/registry, Tavily provider over raw `httpx`, no new SDK dependency) reused by two runtimes:
+
+| Consumer | Approval model | Status |
+|---|---|---|
+| Deep Research (`multi_wave_research.py`) | Third `interrupt()` checkpoint (`await_web_search_approval`), mirroring the plan-approval pattern; reused inside the existing bounded gap-research loop. `AUTO` asks unless `web_search_auto_approve` is set; `REQUIRED` never asks; `DISABLED` never searches. | ✅ |
+| Chat (`app/ai/runtime/chat/web_search.py`) | No checkpoint — Chat has no interrupt/resume mechanism, so a single `web_search_enabled` toggle on `ChatStreamRequest` *is* the approval, once, per turn. Reuses the same `WebSearchService`/`WebSearchNecessityService`/evidence normalizer unchanged; best-effort (any failure degrades to no search for that turn). | ✅ (2026-07-25, same day, later) |
+| Linear Research (`/research`, `/research/stream`) | — | ❌ Explicitly excluded per product decision; request/response schemas untouched |
+
+The necessity decision (does this task need the web?) is a small structured-output call pinned to a cheap OpenAI/Claude model via a dedicated registry, deliberately separate from the shared `GenerationRegistry`. Its default OpenAI model was swapped from `gpt-5-nano` to `gpt-5-mini` after production logs showed `gpt-5-nano` unreliably following the structured-output contract, silently failing AUTO mode closed to "no search needed" every time.
+
+Frontend: Deep Research composer gained an Off/Auto/Required toggle + "skip approval" checkbox (labeled "Web search" as of 2026-07-25) and an approval card; Chat composer gained its own toggle plus a "Searching the web…"/"Searched the web" status chip with source pills in the message bubble. Citation chips across both surfaces (sidebar Citations panel, plan-review "Sources found so far," report draft "Sources," inline `[S1]`/`[W1-1]` answer markers) now visually distinguish web-sourced citations from document ones, derived client-side from the `S{n}`/`W{round}-{n}` citation-ID prefix already set server-side — no new backend field needed.
+
+Not built this pass (deferred, see ADR-036): the standalone SSRF-hardened Web Fetch Platform (Tavily already extracts page content server-side, so there's no new SSRF surface yet), multi-provider fallback (Exa/Brave/MCP), org-wide domain policy management, the full evaluation/benchmark harness.
 
 ### Not yet built (explicitly retained, not dropped)
 

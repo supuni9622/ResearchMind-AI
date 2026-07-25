@@ -24,6 +24,7 @@ from app.ai.memory.retrieval.availability import DurableMemoryAvailabilityServic
 from app.ai.memory.semantic.service import SemanticMemoryService
 from app.ai.memory.services.memory_service import MemoryService
 from app.ai.memory.session.service import SessionMemoryService
+from app.ai.memory.session.state_updater import SessionStateUpdaterService
 from app.ai.memory.storage.postgres_store import PostgresMemoryStore
 from app.ai.memory.storage.vector_index import MemoryVectorIndex
 from app.ai.runtime.generation.enums import GenerationProvider
@@ -101,6 +102,17 @@ def get_memory_extraction_service(
 ) -> MemoryExtractionService:
     provider, fallback_provider = _memory_extraction_providers()
     return MemoryExtractionService(
+        generation_runtime,
+        provider=provider,
+        fallback_provider=fallback_provider,
+    )
+
+
+def get_session_state_updater_service(
+    generation_runtime: GenerationRuntime = Depends(get_generation_runtime),
+) -> SessionStateUpdaterService:
+    provider, fallback_provider = _memory_extraction_providers()
+    return SessionStateUpdaterService(
         generation_runtime,
         provider=provider,
         fallback_provider=fallback_provider,

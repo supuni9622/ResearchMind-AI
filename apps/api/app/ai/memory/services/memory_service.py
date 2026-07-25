@@ -530,6 +530,29 @@ class MemoryService:
         )
         return context
 
+    async def get_latest_session_state(
+        self,
+        *,
+        owner_id: UUID,
+        session_id: UUID,
+        kind: str,
+        limit: int = 50,
+    ) -> MemoryRecord | None:
+        """The most recent SESSION record tagged `metadata["kind"] == kind`
+        -- used to upsert a single evolving "current state" slot per
+        session (see `SessionStateUpdaterService`) rather than growing an
+        unbounded pile of state snapshots. Bypasses `get_context()`'s
+        semantic-search/dedup machinery, both irrelevant here: this is a
+        plain tag lookup over the session's own recency window.
+        `SessionMemoryService.get_context()` returns oldest-first, so the
+        last match in the list is the most recent."""
+
+        records = await self._session.get_context(
+            owner_id=owner_id, session_id=session_id, limit=limit
+        )
+        matches = [record for record in records if record.metadata.get("kind") == kind]
+        return matches[-1] if matches else None
+
     @staticmethod
     def _deduplicate_session_history(
         memories: list[MemoryRecord],

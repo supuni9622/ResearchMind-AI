@@ -48,3 +48,10 @@ class ResearchEventType(StrEnum):
     RESEARCH_WEB_SEARCH_STARTED = "research_web_search_started"
     RESEARCH_WEB_SEARCH_COMPLETED = "research_web_search_completed"
     RESEARCH_WEB_SEARCH_SKIPPED = "research_web_search_skipped"
+
+    # Non-blocking, best-effort related-paper suggestion (Research
+    # Intelligence MCP) fired once after the report is persisted -- never
+    # gates the run, unlike the web-search approval checkpoint above.
+    RESEARCH_RELATED_PAPERS_STARTED = "research_related_papers_started"
+    RESEARCH_RELATED_PAPERS_COMPLETED = "research_related_papers_completed"
+    RESEARCH_RELATED_PAPERS_SKIPPED = "research_related_papers_skipped"

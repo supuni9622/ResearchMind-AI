@@ -55,12 +55,18 @@ from app.ai.knowledge.processing.statistics.service import (
 from app.ai.knowledge.processing.temporary_file_manager import (
     TemporaryFileManager,
 )
-from app.ai.memory.create import build_memory_extraction_service, build_memory_service
+from app.ai.memory.create import (
+    build_memory_extraction_service,
+    build_memory_service,
+    build_session_state_updater_service,
+)
 from app.ai.observability.create import get_observability_service
 from app.ai.research.service import ResearchService
+from app.ai.runtime.chat.paper_query import create_paper_query_extraction_service
 from app.ai.runtime.research.execution import ResearchRuntimeExecutionService
 from app.ai.runtime.research.run_service import ResearchRunService
 from app.ai.runtime.research.web_search.create import create_web_search_necessity_service
+from app.ai.tools.paper_search.create import create_paper_search_service
 from app.ai.tools.web_search.create import create_web_search_service
 from app.core.settings import settings
 from app.dependencies.context import get_context_builder
@@ -168,6 +174,7 @@ def create_research_runtime_worker(*, session: AsyncSession) -> ResearchRuntimeW
         artifact_policy_service=get_artifact_policy_service_dependency(),
         memory_service=memory_service,
         memory_extraction_service=build_memory_extraction_service(),
+        session_state_updater=build_session_state_updater_service(),
     )
     execution = ResearchRuntimeExecutionService(
         session=session,
@@ -181,6 +188,8 @@ def create_research_runtime_worker(*, session: AsyncSession) -> ResearchRuntimeW
         memory_service=memory_service,
         web_search=create_web_search_service(),
         web_search_necessity=create_web_search_necessity_service(),
+        paper_search=create_paper_search_service(),
+        paper_query_extraction=create_paper_query_extraction_service(),
     )
     runs = ResearchRunService(session)
     return ResearchRuntimeWorker(

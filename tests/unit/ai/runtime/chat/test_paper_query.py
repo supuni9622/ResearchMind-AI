@@ -1,0 +1,86 @@
+from __future__ import annotations
+
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
+from uuid import uuid4
+
+import pytest
+from app.ai.runtime.chat.paper_query import PaperQueryExtractionResult, PaperQueryExtractionService
+from app.ai.runtime.generation.enums import GenerationProvider
+
+
+@pytest.mark.asyncio
+async def test_uses_the_cheap_provider_when_configured() -> None:
+    runtime = AsyncMock()
+    runtime.execute.return_value = SimpleNamespace(
+        parsed_output=PaperQueryExtractionResult(query="retrieval augmented generation"),
+    )
+    service = PaperQueryExtractionService(
+        cheap_generation_runtime=runtime, cheap_provider=GenerationProvider.OPENAI
+    )
+
+    query = await service.extract(
+        user_prompt="can I have research papers about retrieval augmented generation?",
+        owner_id=uuid4(),
+        session_id=uuid4(),
+    )
+
+    assert query == "retrieval augmented generation"
+    runtime.execute.assert_awaited_once()
+    assert runtime.execute.await_args.kwargs["provider"] == GenerationProvider.OPENAI
+
+
+@pytest.mark.asyncio
+async def test_falls_back_to_the_shared_runtime_when_no_cheap_provider_configured() -> None:
+    cheap_runtime = AsyncMock()
+    fallback_runtime = AsyncMock()
+    fallback_runtime.execute.return_value = SimpleNamespace(
+        parsed_output=PaperQueryExtractionResult(query="earthquake mechanisms"),
+    )
+    service = PaperQueryExtractionService(
+        cheap_generation_runtime=cheap_runtime,
+        cheap_provider=None,
+        fallback_generation_runtime=fallback_runtime,
+    )
+
+    query = await service.extract(
+        user_prompt="why do earthquakes happen", owner_id=uuid4(), session_id=uuid4()
+    )
+
+    assert query == "earthquake mechanisms"
+    cheap_runtime.execute.assert_not_awaited()
+    fallback_runtime.execute.assert_awaited_once()
+    assert fallback_runtime.execute.await_args.kwargs["provider"] is None
+
+
+@pytest.mark.asyncio
+async def test_model_failure_falls_back_to_the_raw_truncated_prompt() -> None:
+    """Best-effort, matches `WebSearchNecessityService`'s fail-closed
+    behavior -- the query extraction step must never break a chat turn."""
+
+    runtime = AsyncMock()
+    runtime.execute.side_effect = RuntimeError("provider unavailable")
+    service = PaperQueryExtractionService(
+        cheap_generation_runtime=runtime, cheap_provider=GenerationProvider.OPENAI
+    )
+
+    query = await service.extract(
+        user_prompt="retrieval augmented generation", owner_id=uuid4(), session_id=uuid4()
+    )
+
+    assert query == "retrieval augmented generation"
+
+
+@pytest.mark.asyncio
+async def test_schema_invalid_output_falls_back_to_the_raw_prompt() -> None:
+    runtime = AsyncMock()
+    runtime.execute.return_value = SimpleNamespace(parsed_output="not a schema object")
+    service = PaperQueryExtractionService(
+        cheap_generation_runtime=runtime, cheap_provider=GenerationProvider.OPENAI
+    )
+
+    query = await service.extract(
+        user_prompt="tell me about earthquakes", owner_id=uuid4(), session_id=uuid4()
+    )
+
+    assert query == "tell me about earthquakes"

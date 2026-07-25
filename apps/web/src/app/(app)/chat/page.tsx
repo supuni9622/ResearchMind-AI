@@ -27,6 +27,7 @@ export default function ChatPage() {
   const [input, setInput] = useState('');
   const [provider, setProvider] = useState<GenerationProvider | 'auto'>('auto');
   const [webSearchEnabled, setWebSearchEnabled] = useState(false);
+  const [paperSearchEnabled, setPaperSearchEnabled] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   const lastMessageContent = messages[messages.length - 1]?.content;
@@ -47,8 +48,9 @@ export default function ChatPage() {
     void send(query, {
       provider: provider === 'auto' ? undefined : provider,
       webSearchEnabled,
+      paperSearchEnabled,
     });
-  }, [input, sending, send, provider, webSearchEnabled]);
+  }, [input, sending, send, provider, webSearchEnabled, paperSearchEnabled]);
 
   return (
     <div className="flex h-screen">
@@ -110,6 +112,8 @@ export default function ChatPage() {
           onProviderChange={setProvider}
           webSearchEnabled={webSearchEnabled}
           onWebSearchEnabledChange={setWebSearchEnabled}
+          paperSearchEnabled={paperSearchEnabled}
+          onPaperSearchEnabledChange={setPaperSearchEnabled}
         />
       </div>
     </div>

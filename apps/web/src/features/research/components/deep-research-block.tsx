@@ -6,7 +6,14 @@ import type {
   DeepResearchProgressEvent,
   DeepResearchTurn,
 } from '@/features/research/types';
-import { AlertIcon, ArrowDownIcon, CheckCircleIcon, NetworkIcon, TargetIcon } from '@/components/ui/icons';
+import {
+  AlertIcon,
+  ArrowDownIcon,
+  BookIcon,
+  CheckCircleIcon,
+  NetworkIcon,
+  TargetIcon,
+} from '@/components/ui/icons';
 import { isWebCitation } from '@/features/research/types';
 import { DraftReview } from '@/features/research/components/draft-review';
 import { PlanGoalReview } from '@/features/research/components/plan-goal-review';
@@ -426,6 +433,37 @@ export function DeepResearchBlock({
         {turn.stage === 'done' && (
           <div>
             <EventLog events={turn.events} live={false} />
+            {turn.relatedPapers && turn.relatedPapers.length > 0 && (
+              <div className="mb-3 flex flex-col gap-1.5">
+                <div className="flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-widest text-stone-600">
+                  <BookIcon size={10} />
+                  Related papers
+                </div>
+                <ul className="flex flex-col gap-1">
+                  {turn.relatedPapers.map((paper) => {
+                    const authors = paper.authors.slice(0, 3).join(', ') || 'Unknown authors';
+                    const year = paper.year ? ` (${paper.year})` : '';
+                    const label = `${paper.title} -- ${authors}${year}`;
+                    return (
+                      <li key={paper.title} className="text-[12px]">
+                        {paper.url ? (
+                          <a
+                            href={paper.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-sage-500 hover:text-sage-400 transition-colors"
+                          >
+                            {label}
+                          </a>
+                        ) : (
+                          <span className="text-stone-400">{label}</span>
+                        )}
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+            )}
             {turn.linearAnswer ? (
               <div>
                 <p className="text-stone-200 text-sm leading-relaxed mb-3 whitespace-pre-wrap">

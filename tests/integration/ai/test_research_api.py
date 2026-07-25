@@ -1385,6 +1385,50 @@ def test_create_research_proposal_returns_429_when_rate_limited(
     proposals.propose.assert_not_awaited()
 
 
+def test_create_research_proposal_forwards_the_paper_suggestions_toggle(
+    client: TestClient,
+    fakes: tuple[_FakeResearchService, dict],
+) -> None:
+    """Regression coverage for the production bug (2026-07-25): the route
+    parsed `paper_suggestions_enabled` off the request body but never
+    forwarded it to `ResearchProposalService.propose()`, so the toggle
+    silently had no effect no matter what the client sent."""
+
+    plan = ResearchPlan(
+        goal="How does RAG work?",
+        complexity=ResearchComplexity.MODERATE,
+        execution_strategy=ResearchExecutionStrategy.DECOMPOSED,
+        tasks=[ResearchPlanTask(task_id="t1", question="How does RAG work?")],
+        approval_required=True,
+    )
+    proposal = ResearchProposal(
+        id=uuid.uuid4(),
+        owner_id=_OWNER_ID,
+        conversation_id=None,
+        status="awaiting_approval",
+        request={"query": "how does rag work?", "paper_suggestions_enabled": True},
+        plan=plan.model_dump(mode="json"),
+        created_at=datetime.now(UTC),
+    )
+    proposals = AsyncMock()
+    proposals.propose.return_value = proposal
+    app.dependency_overrides[get_current_user] = _fake_user
+    app.dependency_overrides[get_research_proposal_service] = lambda: proposals
+
+    try:
+        response = client.post(
+            "/api/v1/research/proposals",
+            json={"query": "how does rag work?", "paper_suggestions_enabled": True},
+        )
+    finally:
+        del app.dependency_overrides[get_current_user]
+        del app.dependency_overrides[get_research_proposal_service]
+
+    assert response.status_code == 200
+    proposals.propose.assert_awaited_once()
+    assert proposals.propose.await_args.kwargs["paper_suggestions_enabled"] is True
+
+
 def test_escalation_check_returns_429_when_rate_limited(
     client: TestClient,
     fakes: tuple[_FakeResearchService, dict],

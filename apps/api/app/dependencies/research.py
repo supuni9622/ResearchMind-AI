@@ -20,7 +20,12 @@ from app.ai.knowledge.context.service import ContextBuilderService
 from app.ai.knowledge.retrieval.service import RetrievalService
 from app.ai.memory.extraction.service import MemoryExtractionService
 from app.ai.memory.services.memory_service import MemoryService
+from app.ai.memory.session.state_updater import SessionStateUpdaterService
 from app.ai.research.service import ResearchService
+from app.ai.runtime.chat.paper_query import (
+    PaperQueryExtractionService,
+    create_paper_query_extraction_service,
+)
 from app.ai.runtime.generation.orchestration.orchestrator import GenerationRuntime
 from app.ai.runtime.generation.streaming.service import StreamingService
 from app.ai.runtime.research.draft_inspection import ResearchDraftInspectionService
@@ -32,13 +37,19 @@ from app.ai.runtime.research.run_service import ResearchRunService
 from app.ai.runtime.research.web_search.create import create_web_search_necessity_service
 from app.ai.runtime.research.web_search.necessity import WebSearchNecessityService
 from app.ai.runtime.research.web_search_inspection import ResearchWebSearchInspectionService
+from app.ai.tools.paper_search.create import create_paper_search_service
+from app.ai.tools.paper_search.service import PaperSearchService
 from app.ai.tools.web_search.create import create_web_search_service
 from app.ai.tools.web_search.service import WebSearchService
 from app.core.settings import settings
 from app.db.session import SessionFactory, get_db
 from app.dependencies.context import get_context_builder
 from app.dependencies.generation import get_generation_runtime, get_streaming_service
-from app.dependencies.memory import get_memory_extraction_service, get_memory_service
+from app.dependencies.memory import (
+    get_memory_extraction_service,
+    get_memory_service,
+    get_session_state_updater_service,
+)
 from app.dependencies.retrieval import get_retrieval_service
 from app.dependencies.upload import get_document_storage
 from app.infrastructure.storage.interfaces import DocumentStorage
@@ -170,6 +181,16 @@ def get_web_search_necessity_service() -> WebSearchNecessityService:
     return create_web_search_necessity_service()
 
 
+@lru_cache
+def get_paper_search_service() -> PaperSearchService:
+    return create_paper_search_service()
+
+
+@lru_cache
+def get_paper_query_extraction_service() -> PaperQueryExtractionService:
+    return create_paper_query_extraction_service()
+
+
 def get_research_report_download_service(
     runs: ResearchRunRepository = Depends(get_research_run_repository),
     storage: DocumentStorage = Depends(get_document_storage),
@@ -191,6 +212,7 @@ def get_research_service(
     ),
     memory_service: MemoryService = Depends(get_memory_service),
     memory_extraction_service: MemoryExtractionService = Depends(get_memory_extraction_service),
+    session_state_updater: SessionStateUpdaterService = Depends(get_session_state_updater_service),
 ) -> ResearchService:
     """
     Return a request-scoped ResearchService bound to this request's
@@ -206,6 +228,7 @@ def get_research_service(
         streaming_service=streaming_service,
         research_artifact_writer=research_artifact_writer,
         artifact_policy_service=artifact_policy_service,
+        session_state_updater=session_state_updater,
         memory_service=memory_service,
         memory_extraction_service=memory_extraction_service,
     )
@@ -220,6 +243,10 @@ async def get_research_runtime_execution_service(
     memory_service: MemoryService = Depends(get_memory_service),
     web_search: WebSearchService = Depends(get_web_search_service),
     web_search_necessity: WebSearchNecessityService = Depends(get_web_search_necessity_service),
+    paper_search: PaperSearchService = Depends(get_paper_search_service),
+    paper_query_extraction: PaperQueryExtractionService = Depends(
+        get_paper_query_extraction_service
+    ),
 ) -> AsyncGenerator[ResearchRuntimeExecutionService | None, None]:
     """Construct the bridge only for the explicitly enabled durable path."""
 
@@ -243,4 +270,6 @@ async def get_research_runtime_execution_service(
             memory_service=memory_service,
             web_search=web_search,
             web_search_necessity=web_search_necessity,
+            paper_search=paper_search,
+            paper_query_extraction=paper_query_extraction,
         )

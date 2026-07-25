@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+from collections.abc import Mapping
 from datetime import UTC, datetime
 from time import perf_counter
 from typing import Any
@@ -22,6 +23,7 @@ from app.ai.memory.services.formatting import format_memory_context
 from app.ai.memory.services.memory_service import MemoryService
 from app.ai.research.models import ResearchOutcome, ResearchSource
 from app.ai.research.service import ResearchService
+from app.ai.runtime.chat.paper_query import PaperQueryExtractionService
 from app.ai.runtime.events.research.models import ResearchEventType
 from app.ai.runtime.generation.enums import GenerationProvider
 from app.ai.runtime.generation.orchestration.interfaces import GenerationRuntimeInterface
@@ -54,6 +56,7 @@ from app.ai.runtime.research.types import (
 from app.ai.runtime.research.web_search.models import WebSearchMode
 from app.ai.runtime.research.web_search.necessity import WebSearchNecessityService
 from app.ai.runtime.research.workflows.multi_wave_research import compile_multi_wave_research_graph
+from app.ai.tools.paper_search.service import PaperSearchService
 from app.ai.tools.web_search.service import WebSearchService
 from app.core.settings import settings
 from app.infrastructure.storage.interfaces import DocumentStorage
@@ -107,6 +110,8 @@ class ResearchRuntimeExecutionService:
         memory_service: MemoryService | None = None,
         web_search: WebSearchService | None = None,
         web_search_necessity: WebSearchNecessityService | None = None,
+        paper_search: PaperSearchService | None = None,
+        paper_query_extraction: PaperQueryExtractionService | None = None,
     ) -> None:
         self._session = session
         self._research_service = research_service
@@ -119,6 +124,8 @@ class ResearchRuntimeExecutionService:
         self._memory = memory_service
         self._web_search = web_search
         self._web_search_necessity = web_search_necessity
+        self._paper_search = paper_search
+        self._paper_query_extraction = paper_query_extraction
         self._runs = ResearchRunService(session)
         self._research_sessions = ResearchRepository(session)
         self._proposals = ResearchProposalRepository(session)
@@ -259,6 +266,9 @@ class ResearchRuntimeExecutionService:
                     web_search_auto_approve=bool(request.get("web_search_auto_approve") or False),
                     web_search_include_domains=list(request.get("include_domains") or []),
                     web_search_exclude_domains=list(request.get("exclude_domains") or []),
+                    paper_suggestions_enabled=bool(
+                        request.get("paper_suggestions_enabled") or False
+                    ),
                 )
         except ResearchReportRejectedError as exc:
             # A genuine user rejection no longer raises this -- it routes to
@@ -499,6 +509,13 @@ class ResearchRuntimeExecutionService:
         context_builder: ContextBuilderInterface,
         storage: DocumentStorage,
     ) -> Any:
+        async def progress(
+            event_type: ResearchEventType, extra_metadata: Mapping[str, Any] | None = None
+        ) -> None:
+            await self._publish_runtime_event(
+                run_id=run.id, event_type=event_type, extra_metadata=extra_metadata
+            )
+
         return compile_multi_wave_research_graph(
             checkpointer=checkpointer,
             task_retrieval=ResearchTaskRetrievalService(
@@ -510,13 +527,13 @@ class ResearchRuntimeExecutionService:
             final_report_writer=ResearchFinalReportArtifactWriter(storage),
             reviewer=ResearchReviewService(generation_runtime),
             review_writer=ResearchReviewArtifactWriter(storage),
-            progress=lambda event_type: self._publish_runtime_event(
-                run_id=run.id, event_type=event_type
-            ),
+            progress=progress,
             cancellation_check=lambda: self._is_cancellation_requested(run.id),
             cost_lookup=lambda: self._cost_so_far(run.id),
             web_search=self._web_search,
             web_search_necessity=self._web_search_necessity,
+            paper_search=self._paper_search,
+            paper_query_extraction=self._paper_query_extraction,
         )
 
     async def _execute_v1_graph(
@@ -535,6 +552,7 @@ class ResearchRuntimeExecutionService:
         web_search_auto_approve: bool = False,
         web_search_include_domains: list[str] | None = None,
         web_search_exclude_domains: list[str] | None = None,
+        paper_suggestions_enabled: bool = False,
     ) -> ResearchOutcome | None:
         generation_runtime, retrieval, context_builder, storage = self._v1_graph_dependencies()
 
@@ -600,6 +618,7 @@ class ResearchRuntimeExecutionService:
                     "web_search_include_domains": web_search_include_domains or [],
                     "web_search_exclude_domains": web_search_exclude_domains or [],
                     "web_search_count": 0,
+                    "paper_suggestions_enabled": paper_suggestions_enabled,
                 }
             try:
                 result = await asyncio.wait_for(
@@ -914,8 +933,23 @@ class ResearchRuntimeExecutionService:
                 return "web_search_approval"
         return "report_approval"
 
-    async def _publish_runtime_event(self, *, run_id: UUID, event_type: ResearchEventType) -> None:
-        await self._event_journal.publish(run_id=run_id, event_type=event_type)
+    async def _publish_runtime_event(
+        self,
+        *,
+        run_id: UUID,
+        event_type: ResearchEventType,
+        extra_metadata: Mapping[str, Any] | None = None,
+    ) -> None:
+        # Only forward `extra_metadata` when a call site actually sets it --
+        # keeps the recorded call shape identical to before this parameter
+        # existed for the (still far more common) plain calls, which several
+        # tests assert on via `assert_any_await(run_id=..., event_type=...)`.
+        if extra_metadata is not None:
+            await self._event_journal.publish(
+                run_id=run_id, event_type=event_type, extra_metadata=extra_metadata
+            )
+        else:
+            await self._event_journal.publish(run_id=run_id, event_type=event_type)
         await self._session.commit()
 
     @staticmethod

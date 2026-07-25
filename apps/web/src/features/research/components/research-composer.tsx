@@ -7,7 +7,7 @@ import {
   type DeepResearchWebSearchMode,
   type ResearchMode,
 } from '@/features/research/types';
-import { NetworkIcon, SparklesIcon, ZapIcon } from '@/components/ui/icons';
+import { BookIcon, NetworkIcon, SparklesIcon, ZapIcon } from '@/components/ui/icons';
 
 const MODE_OPTIONS: { value: ResearchMode; label: string; icon: typeof ZapIcon; title: string }[] = [
   { value: 'linear', label: 'Linear', icon: ZapIcon, title: 'Fast, one-shot cited answer' },
@@ -49,6 +49,8 @@ export function ResearchComposer({
   onWebSearchModeChange,
   webSearchAutoApprove,
   onWebSearchAutoApproveChange,
+  paperSuggestionsEnabled,
+  onPaperSuggestionsEnabledChange,
 }: {
   value: string;
   onChange: (v: string) => void;
@@ -62,6 +64,8 @@ export function ResearchComposer({
   onWebSearchModeChange: (m: DeepResearchWebSearchMode) => void;
   webSearchAutoApprove: boolean;
   onWebSearchAutoApproveChange: (v: boolean) => void;
+  paperSuggestionsEnabled: boolean;
+  onPaperSuggestionsEnabledChange: (v: boolean) => void;
 }) {
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -146,6 +150,22 @@ export function ResearchComposer({
                 </span>
               </label>
             )}
+            <label
+              title="Suggest related papers via the Research Intelligence MCP server after the report finishes -- non-blocking, never gates the run"
+              className="flex items-center gap-1.5 cursor-pointer"
+            >
+              <input
+                type="checkbox"
+                checked={paperSuggestionsEnabled}
+                disabled={loading}
+                onChange={(e) => onPaperSuggestionsEnabledChange(e.target.checked)}
+                className="accent-sage-600"
+              />
+              <BookIcon size={11} className="text-stone-600" />
+              <span className="font-mono text-stone-600 text-[10px] uppercase tracking-widest">
+                Suggest papers
+              </span>
+            </label>
           </div>
         )}
         <div className="flex gap-2.5 items-end">

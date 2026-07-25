@@ -20,6 +20,22 @@ export interface ChatWebSearchStatus {
   sources?: ChatWebSource[];
 }
 
+// Mirrors `ChatEventType` (chat_paper_search_started/completed/skipped) --
+// absent means the toggle was off or the search returned nothing usable.
+export type ChatPaperSearchStage = 'searching' | 'done' | 'skipped';
+
+export interface ChatPaperSource {
+  title: string;
+  authors: string[];
+  year: number | null;
+  url: string | null;
+}
+
+export interface ChatPaperSearchStatus {
+  stage: ChatPaperSearchStage;
+  sources?: ChatPaperSource[];
+}
+
 export interface ChatMessage {
   id: string;
   role: ChatMessageRole;
@@ -28,6 +44,7 @@ export interface ChatMessage {
   error?: string;
   createdAt: string;
   webSearch?: ChatWebSearchStatus;
+  paperSearch?: ChatPaperSearchStatus;
 }
 
 export interface ChatConversation {
@@ -47,4 +64,5 @@ export interface ChatConversationSummary {
 export interface ChatSendOptions {
   provider?: GenerationProvider;
   webSearchEnabled?: boolean;
+  paperSearchEnabled?: boolean;
 }

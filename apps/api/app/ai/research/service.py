@@ -35,7 +35,10 @@ from app.ai.memory.extraction.service import MemoryExtractionService
 from app.ai.memory.policy.models import MemoryTurnEvent
 from app.ai.memory.services.formatting import format_memory_context, with_memory_context
 from app.ai.memory.services.memory_service import MemoryService
-from app.ai.memory.session.state import state_from_user_turn
+from app.ai.memory.session.state_updater import (
+    SessionStateUpdaterService,
+    distill_and_upsert_session_state,
+)
 from app.ai.research.models import ResearchOutcome, ResearchSource
 from app.ai.runtime.events.enums import CoreEventType, EventCategory
 from app.ai.runtime.events.models import StreamEvent
@@ -70,6 +73,7 @@ class ResearchService:
         artifact_policy_service: ArtifactPolicyService | None = None,
         memory_service: MemoryService | None = None,
         memory_extraction_service: MemoryExtractionService | None = None,
+        session_state_updater: SessionStateUpdaterService | None = None,
     ) -> None:
         self._session = session
         self._repository = ResearchRepository(session)
@@ -90,6 +94,7 @@ class ResearchService:
         every other optional collaborator on this service degrades.
         """
         self._memory_extraction = memory_extraction_service
+        self._session_state_updater = session_state_updater
 
     async def research(
         self,
@@ -518,19 +523,19 @@ class ResearchService:
                         "research_id": str(research_id),
                     },
                 )
-            elif settings.memory_session_state_storage_enabled:
-                state = state_from_user_turn(
+            elif (
+                settings.memory_session_state_storage_enabled
+                and self._session_state_updater is not None
+            ):
+                await distill_and_upsert_session_state(
+                    memory_service=self._memory,
+                    session_state_updater=self._session_state_updater,
+                    owner_id=owner_id,
+                    session_id=session_id,
                     user_message=query,
-                    source_turn_id=str(research_id),
+                    assistant_message=answer,
+                    turn_id=str(research_id),
                 )
-                if state is not None:
-                    await self._memory.remember(
-                        owner_id=owner_id,
-                        type=MemoryType.SESSION,
-                        content=state.content,
-                        session_id=session_id,
-                        metadata=state.metadata(),
-                    )
         except Exception as exc:
             logger.warning(
                 "memory.research.session_remember_failed",

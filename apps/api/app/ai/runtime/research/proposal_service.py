@@ -59,6 +59,7 @@ class ResearchProposalService:
         web_search_auto_approve: bool = False,
         include_domains: list[str] | None = None,
         exclude_domains: list[str] | None = None,
+        paper_suggestions_enabled: bool = False,
     ) -> ResearchProposal:
         proposal = await self._repository.create(
             ResearchProposal(
@@ -76,6 +77,7 @@ class ResearchProposalService:
                     "web_search_auto_approve": web_search_auto_approve,
                     "include_domains": include_domains or [],
                     "exclude_domains": exclude_domains or [],
+                    "paper_suggestions_enabled": paper_suggestions_enabled,
                 },
             )
         )

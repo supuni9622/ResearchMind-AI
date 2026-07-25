@@ -1,5 +1,5 @@
 import type { ChatMessage } from '@/features/chat/types';
-import { AlertIcon, NetworkIcon, SparklesIcon } from '@/components/ui/icons';
+import { AlertIcon, BookIcon, NetworkIcon, SparklesIcon } from '@/components/ui/icons';
 
 function WebSearchStatus({ webSearch }: { webSearch: NonNullable<ChatMessage['webSearch']> }) {
   if (webSearch.stage === 'skipped') return null;
@@ -25,6 +25,51 @@ function WebSearchStatus({ webSearch }: { webSearch: NonNullable<ChatMessage['we
               </a>
             </li>
           ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+function PaperSearchStatus({
+  paperSearch,
+}: {
+  paperSearch: NonNullable<ChatMessage['paperSearch']>;
+}) {
+  if (paperSearch.stage === 'skipped') return null;
+
+  return (
+    <div className="mb-1.5 flex flex-col gap-1">
+      <div className="flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-widest text-stone-600">
+        <BookIcon size={10} className={paperSearch.stage === 'searching' ? 'animate-pulse' : ''} />
+        {paperSearch.stage === 'searching' ? 'Searching research papers…' : 'Searched research papers'}
+      </div>
+      {paperSearch.stage === 'done' && paperSearch.sources && paperSearch.sources.length > 0 && (
+        <ul className="flex flex-wrap gap-1.5">
+          {paperSearch.sources.map((source) => {
+            const label = source.year ? `${source.title} (${source.year})` : source.title;
+            const className =
+              'inline-block px-1.5 py-0.5 rounded-md bg-ink-800 border border-ink-600 text-stone-500 hover:text-sage-400 hover:border-sage-700 text-[10px] font-mono transition-colors max-w-[220px] truncate';
+            return (
+              <li key={source.title}>
+                {source.url ? (
+                  <a
+                    href={source.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    title={label}
+                    className={className}
+                  >
+                    {label}
+                  </a>
+                ) : (
+                  <span title={label} className={className}>
+                    {label}
+                  </span>
+                )}
+              </li>
+            );
+          })}
         </ul>
       )}
     </div>
@@ -58,6 +103,7 @@ export function MessageBubble({ message }: { message: ChatMessage }) {
       ) : (
         <div className="rounded-2xl rounded-tl-sm px-4 py-2.5 bg-ink-800/60">
           {message.webSearch && <WebSearchStatus webSearch={message.webSearch} />}
+          {message.paperSearch && <PaperSearchStatus paperSearch={message.paperSearch} />}
           <p className="text-stone-200 text-sm leading-relaxed whitespace-pre-wrap">
             {message.content}
             {message.stage === 'streaming' && (

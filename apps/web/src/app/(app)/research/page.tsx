@@ -57,6 +57,7 @@ export default function ResearchPage() {
   // has no runtime graph/interrupt machinery to act on these.
   const [webSearchMode, setWebSearchMode] = useState<DeepResearchWebSearchMode>('disabled');
   const [webSearchAutoApprove, setWebSearchAutoApprove] = useState(false);
+  const [paperSuggestionsEnabled, setPaperSuggestionsEnabled] = useState(false);
   const [checkingEscalation, setCheckingEscalation] = useState(false);
   const [creatingProposal, setCreatingProposal] = useState(false);
   const [pendingEscalation, setPendingEscalation] = useState<{
@@ -140,6 +141,7 @@ export default function ResearchPage() {
           conversationId: activeConversationId ?? undefined,
           webSearchMode,
           webSearchAutoApprove,
+          paperSuggestionsEnabled,
         });
         if (localId) {
           setFocusedTurnId(localId);
@@ -181,6 +183,7 @@ export default function ResearchPage() {
     ask,
     webSearchMode,
     webSearchAutoApprove,
+    paperSuggestionsEnabled,
   ]);
 
   const handleAcceptEscalation = useCallback(() => {
@@ -343,6 +346,8 @@ export default function ResearchPage() {
           onWebSearchModeChange={setWebSearchMode}
           webSearchAutoApprove={webSearchAutoApprove}
           onWebSearchAutoApproveChange={setWebSearchAutoApprove}
+          paperSuggestionsEnabled={paperSuggestionsEnabled}
+          onPaperSuggestionsEnabledChange={setPaperSuggestionsEnabled}
         />
       </div>
 

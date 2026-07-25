@@ -53,6 +53,71 @@ async def test_proposal_persists_a_plan_without_creating_or_running_research() -
 
 
 @pytest.mark.asyncio
+async def test_proposal_persists_the_paper_suggestions_toggle() -> None:
+    """Regression coverage for the production bug (2026-07-25): the
+    `/research/proposals` route parsed `paper_suggestions_enabled` off the
+    request but never forwarded it to `propose()`, and `propose()` never
+    wrote it into the persisted `request` dict either -- so the graph
+    always read it back as unset, no matter what the toggle was set to.
+    Both gaps are covered here: the value must actually reach
+    `proposal.request`."""
+
+    session = AsyncMock()
+    session.add = MagicMock()
+    runtime = AsyncMock()
+    runtime.execute.return_value = SimpleNamespace(
+        parsed_output=ResearchPlan(
+            goal="Compare methods",
+            complexity=ResearchComplexity.MODERATE,
+            execution_strategy=ResearchExecutionStrategy.DECOMPOSED,
+            tasks=[ResearchPlanTask(task_id="compare", question="Compare methods")],
+            approval_required=True,
+        )
+    )
+
+    proposal = await ResearchProposalService(session=session, generation_runtime=runtime).propose(
+        query="Compare methods",
+        top_k=5,
+        filters={},
+        owner_id=uuid4(),
+        provider=None,
+        routing_strategy=None,
+        conversation_id=None,
+        paper_suggestions_enabled=True,
+    )
+
+    assert proposal.request["paper_suggestions_enabled"] is True
+
+
+@pytest.mark.asyncio
+async def test_proposal_defaults_the_paper_suggestions_toggle_to_false() -> None:
+    session = AsyncMock()
+    session.add = MagicMock()
+    runtime = AsyncMock()
+    runtime.execute.return_value = SimpleNamespace(
+        parsed_output=ResearchPlan(
+            goal="Compare methods",
+            complexity=ResearchComplexity.MODERATE,
+            execution_strategy=ResearchExecutionStrategy.DECOMPOSED,
+            tasks=[ResearchPlanTask(task_id="compare", question="Compare methods")],
+            approval_required=True,
+        )
+    )
+
+    proposal = await ResearchProposalService(session=session, generation_runtime=runtime).propose(
+        query="Compare methods",
+        top_k=5,
+        filters={},
+        owner_id=uuid4(),
+        provider=None,
+        routing_strategy=None,
+        conversation_id=None,
+    )
+
+    assert proposal.request["paper_suggestions_enabled"] is False
+
+
+@pytest.mark.asyncio
 async def test_proposal_folds_retrieved_memory_context_into_the_plan_request() -> None:
     session = AsyncMock()
     session.add = MagicMock()

@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
+import asyncio
+from collections.abc import Awaitable, Callable, Mapping
 from typing import Annotated, Any, Literal, TypedDict
 from uuid import UUID
 
@@ -10,6 +11,7 @@ import structlog
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import Send, interrupt
 
+from app.ai.runtime.chat.paper_query import PaperQueryExtractionService
 from app.ai.runtime.events.research.models import ResearchEventType
 from app.ai.runtime.research.evidence import ResearchEvidenceBundle, build_evidence_bundle
 from app.ai.runtime.research.evidence_artifact import (
@@ -49,8 +51,11 @@ from app.ai.runtime.research.synthesis.service import (
 from app.ai.runtime.research.web_search.evidence import normalize_web_search_result
 from app.ai.runtime.research.web_search.models import WebSearchMode
 from app.ai.runtime.research.web_search.necessity import WebSearchNecessityService
+from app.ai.tools.paper_search.models import PaperSearchRequest
+from app.ai.tools.paper_search.service import PaperSearchService
 from app.ai.tools.web_search.models import WebSearchRequest
 from app.ai.tools.web_search.service import WebSearchService
+from app.core.settings import settings
 
 logger = structlog.get_logger()
 
@@ -90,6 +95,8 @@ class MultiWaveResearchState(TypedDict):
     web_search_suggestion: dict[str, object]
     web_search_decision: str
     web_search_rejection_reason: str | None
+    paper_suggestions_enabled: bool
+    related_papers_suggestion: dict[str, object]
 
 
 def compile_multi_wave_research_graph(
@@ -101,11 +108,15 @@ def compile_multi_wave_research_graph(
     final_report_writer: ResearchFinalReportArtifactWriter,
     reviewer: ResearchReviewService | None = None,
     review_writer: ResearchReviewArtifactWriter | None = None,
-    progress: Callable[[ResearchEventType], Awaitable[None]] | None = None,
+    progress: (
+        Callable[[ResearchEventType, Mapping[str, object] | None], Awaitable[None]] | None
+    ) = None,
     cancellation_check: Callable[[], Awaitable[bool]] | None = None,
     cost_lookup: Callable[[], Awaitable[float]] | None = None,
     web_search: WebSearchService | None = None,
     web_search_necessity: WebSearchNecessityService | None = None,
+    paper_search: PaperSearchService | None = None,
+    paper_query_extraction: PaperQueryExtractionService | None = None,
 ) -> Any:
     """Compile bounded waves through synthesis, review, and final artifacts.
 
@@ -114,9 +125,13 @@ def compile_multi_wave_research_graph(
     outputs; raw documents and provider responses never enter graph state.
     """
 
-    async def emit(event_type: ResearchEventType) -> None:
+    async def emit(
+        event_type: ResearchEventType,
+        *,
+        extra_metadata: Mapping[str, object] | None = None,
+    ) -> None:
         if progress is not None:
-            await progress(event_type)
+            await progress(event_type, extra_metadata)
 
     async def check_not_cancelled(research_run_id: str) -> None:
         if cancellation_check is not None and await cancellation_check():
@@ -893,6 +908,79 @@ def compile_multi_wave_research_graph(
             "final_report_pdf_ref": refs.pdf_ref,
         }
 
+    async def suggest_related_papers(state: MultiWaveResearchState) -> dict[str, object]:
+        """Non-blocking, best-effort: suggest related papers via the
+        Research Intelligence MCP server after the report is already
+        persisted. Never gates or pauses the run (unlike the web-search
+        approval checkpoint) -- any failure here is swallowed and reported
+        as a SKIPPED event, never raised, so a broken/slow MCP server can
+        never break report delivery."""
+
+        if not state.get("paper_suggestions_enabled"):
+            logger.info(
+                "research_runtime.graph.related_papers_skipped",
+                research_run_id=state["research_run_id"],
+                reason="disabled_for_this_run",
+            )
+            return {"related_papers_suggestion": {}}
+        if paper_search is None or not paper_search.available:
+            logger.info(
+                "research_runtime.graph.related_papers_skipped",
+                research_run_id=state["research_run_id"],
+                reason="service_unavailable",
+            )
+            return {"related_papers_suggestion": {}}
+
+        await emit(ResearchEventType.RESEARCH_RELATED_PAPERS_STARTED)
+        plan = state["plan"]
+        goal = str(plan.get("rewritten_goal") or plan.get("goal") or "")
+        # `goal` is typically a full sentence/question ("how tsunami
+        # works?"), not a topic phrase -- confirmed live (2026-07-25) that
+        # the MCP search backend returns zero results for that, the same
+        # class of issue already fixed for Chat's raw-prompt query. Reuse
+        # the same distillation service to get a short, focused query
+        # before searching.
+        query = goal
+        if paper_query_extraction is not None:
+            query = await paper_query_extraction.extract(
+                user_prompt=goal,
+                owner_id=UUID(state["owner_id"]),
+                session_id=UUID(state["research_run_id"]),
+            )
+
+        try:
+            result = await asyncio.wait_for(
+                paper_search.search(PaperSearchRequest(query=query)),
+                timeout=settings.mcp_papers_timeout_seconds,
+            )
+        except Exception as exc:
+            logger.warning(
+                "research_runtime.graph.related_papers_failed",
+                research_run_id=state["research_run_id"],
+                error_type=type(exc).__name__,
+            )
+            await emit(ResearchEventType.RESEARCH_RELATED_PAPERS_SKIPPED)
+            return {"related_papers_suggestion": {}}
+
+        if not result.items:
+            await emit(ResearchEventType.RESEARCH_RELATED_PAPERS_SKIPPED)
+            return {"related_papers_suggestion": {}}
+
+        papers = [
+            {
+                "title": item.title,
+                "authors": item.authors,
+                "year": item.year,
+                "url": item.url,
+            }
+            for item in result.items
+        ]
+        await emit(
+            ResearchEventType.RESEARCH_RELATED_PAPERS_COMPLETED,
+            extra_metadata={"papers": papers},
+        )
+        return {"related_papers_suggestion": {"query": query, "papers": papers}}
+
     graph = StateGraph(MultiWaveResearchState)
     graph.add_node("prepare_wave", prepare_wave)
     graph.add_node("retrieve_task", retrieve_task)
@@ -912,6 +1000,7 @@ def compile_multi_wave_research_graph(
     graph.add_node("evaluate_web_search_need", evaluate_web_search_need)
     graph.add_node("await_web_search_approval", await_web_search_approval)
     graph.add_node("search_web_gap", search_web_gap)
+    graph.add_node("suggest_related_papers", suggest_related_papers)
     graph.add_edge(START, "prepare_wave")
     graph.add_conditional_edges("prepare_wave", dispatch_wave, ["retrieve_task"])
     graph.add_edge("retrieve_task", "advance_wave")
@@ -929,6 +1018,7 @@ def compile_multi_wave_research_graph(
     graph.add_conditional_edges("evaluate_web_search_need", route_after_web_search_evaluation)
     graph.add_conditional_edges("await_web_search_approval", route_after_web_search_approval)
     graph.add_edge("search_web_gap", "aggregate_gap_evidence")
-    graph.add_edge("persist_final_report", END)
+    graph.add_edge("persist_final_report", "suggest_related_papers")
+    graph.add_edge("suggest_related_papers", END)
     graph.add_edge("fail", END)
     return graph.compile(checkpointer=checkpointer)

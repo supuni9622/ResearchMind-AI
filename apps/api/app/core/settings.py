@@ -304,6 +304,26 @@ class Settings(BaseSettings):
     web_search_decision_openai_model: str = "gpt-5-mini"
     web_search_decision_claude_model: str = "claude-haiku-4-5"
 
+    # Research Intelligence MCP Platform (paper search over MCP streamable-http,
+    # prds/3. mcp_server_setup.md). `mcp_papers_server_url` absent degrades
+    # `PaperSearchService.available` to `False` rather than raising -- mirrors
+    # `tavily_api_key`'s "unconfigured deployment never crashes" convention.
+    mcp_papers_enabled: bool = True
+    mcp_papers_server_url: str | None = None
+    mcp_papers_auth_token: str | None = None
+    mcp_papers_timeout_seconds: float = 20.0
+    mcp_papers_max_results_per_call: int = 5
+    mcp_papers_cache_enabled: bool = True
+    mcp_papers_cache_ttl_seconds: int = 3600
+    # Dedicated cheap-tier models for Chat's paper-search query-extraction
+    # call only -- deliberately separate from `openai_model`/`claude_model`
+    # (same reasoning as `web_search_decision_openai_model`: isolates this
+    # one bounded call's model choice from the rest of the app). Confirmed
+    # in production (2026-07-25) that sending the raw chat message straight
+    # to search_papers returns zero results for conversational phrasing.
+    mcp_papers_query_openai_model: str = "gpt-5-mini"
+    mcp_papers_query_claude_model: str = "claude-haiku-4-5"
+
     # Importance scoring (PRD §16)
     memory_importance_threshold: float = 0.1
 

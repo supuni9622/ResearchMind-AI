@@ -5,6 +5,7 @@ import { api } from '@/lib/api';
 import type {
   ChatConversationSummary,
   ChatMessage,
+  ChatPaperSource,
   ChatSendOptions,
   ChatWebSource,
 } from '@/features/chat/types';
@@ -119,6 +120,7 @@ export function useChat() {
           conversationId: conversationIdAtStart ?? undefined,
           provider: options.provider,
           webSearchEnabled: options.webSearchEnabled,
+          paperSearchEnabled: options.paperSearchEnabled,
         })) {
           if (event.session_id && !resolvedConversationId) {
             resolvedConversationId = event.session_id;
@@ -155,6 +157,30 @@ export function useChat() {
               patchMessage(prev, assistantId, (m) => ({
                 webSearch: { stage: 'skipped', query: m.webSearch?.query },
               }))
+            );
+            continue;
+          }
+
+          if (event.type === 'chat_paper_search_started') {
+            setMessages((prev) =>
+              patchMessage(prev, assistantId, { paperSearch: { stage: 'searching' } })
+            );
+            continue;
+          }
+
+          if (event.type === 'chat_paper_search_completed') {
+            const sources = Array.isArray(event.metadata?.sources)
+              ? (event.metadata.sources as ChatPaperSource[])
+              : [];
+            setMessages((prev) =>
+              patchMessage(prev, assistantId, { paperSearch: { stage: 'done', sources } })
+            );
+            continue;
+          }
+
+          if (event.type === 'chat_paper_search_skipped') {
+            setMessages((prev) =>
+              patchMessage(prev, assistantId, { paperSearch: { stage: 'skipped' } })
             );
             continue;
           }

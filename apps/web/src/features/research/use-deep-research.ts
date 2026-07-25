@@ -8,7 +8,11 @@ import {
   type DeepResearchProposal,
   type DeepResearchRun,
 } from '@/lib/api';
-import type { DeepResearchStage, DeepResearchTurn } from '@/features/research/types';
+import type {
+  DeepResearchRelatedPaper,
+  DeepResearchStage,
+  DeepResearchTurn,
+} from '@/features/research/types';
 
 const TERMINAL_RUN_STATUSES = new Set<DeepResearchRun['status']>([
   'completed',
@@ -49,6 +53,7 @@ function turnFromProposal(query: string, proposal: DeepResearchProposal): DeepRe
     draft: null,
     reportDownloadUrl: null,
     linearAnswer: null,
+    relatedPapers: null,
   };
 }
 
@@ -267,6 +272,15 @@ export function useDeepResearch(onConversationLearned?: (conversationId: string)
               if (event.type === 'research_awaiting_approval') {
                 setTurns((prev) => patchTurn(prev, localId, { stage: 'report_review' }));
                 void fetchDraft(localId, runId);
+              }
+
+              if (event.type === 'research_related_papers_completed') {
+                const papers = Array.isArray(event.metadata?.papers)
+                  ? (event.metadata.papers as DeepResearchRelatedPaper[])
+                  : [];
+                if (papers.length > 0) {
+                  setTurns((prev) => patchTurn(prev, localId, { relatedPapers: papers }));
+                }
               }
 
               if (TERMINAL_EVENT_TYPES.has(event.type)) {

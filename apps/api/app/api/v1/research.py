@@ -225,6 +225,7 @@ async def create_research_proposal(
         web_search_auto_approve=payload.web_search_auto_approve,
         include_domains=payload.include_domains,
         exclude_domains=payload.exclude_domains,
+        paper_suggestions_enabled=payload.paper_suggestions_enabled,
     )
     return _proposal_response(proposal)
 

@@ -72,6 +72,15 @@ export interface DeepResearchProgressEvent {
   timestamp: string;
 }
 
+/** Carried on the `research_related_papers_completed` event's metadata --
+ * a non-blocking, best-effort suggestion, never an approval checkpoint. */
+export interface DeepResearchRelatedPaper {
+  title: string;
+  authors: string[];
+  year: number | null;
+  url: string | null;
+}
+
 /** The plain-text answer/citations a rejected report still publishes as
  * (see `run.terminal_reason === 'report_rejected_returned_as_answer'`) --
  * rejecting only skips the polished PDF, not the synthesized content. */
@@ -99,6 +108,10 @@ export interface DeepResearchTurn {
   reportDownloadUrl: string | null;
   /** Set instead of `reportDownloadUrl` when the report was rejected but still published as a plain answer. */
   linearAnswer: DeepResearchLinearAnswer | null;
+  /** Populated from `research_related_papers_completed`'s metadata, if the
+   * proposal opted in via `paperSuggestionsEnabled`. Non-blocking -- absent
+   * whenever the toggle was off, MCP is unconfigured, or nothing was found. */
+  relatedPapers: DeepResearchRelatedPaper[] | null;
   error?: string;
 }
 

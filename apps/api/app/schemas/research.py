@@ -80,6 +80,17 @@ class ResearchProposalRequest(ResearchRequest):
 
     exclude_domains: list[str] = Field(default_factory=list, max_length=20)
 
+    paper_suggestions_enabled: bool = Field(
+        default=False,
+        description=(
+            "Opt-in, non-blocking: after the report is persisted, suggest "
+            "related papers via the Research Intelligence MCP server "
+            "(prds/3. mcp_server_setup.md) and emit it purely as run "
+            "events -- never gates or pauses the run, unlike web search's "
+            "approval checkpoint."
+        ),
+    )
+
 
 class ResearchDraftFindingEdit(BaseModel):
     """One edited findings section -- keeps the original's `citation_ids`

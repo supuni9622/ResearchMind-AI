@@ -337,6 +337,10 @@ export interface DeepResearchAskOptions {
   webSearchAutoApprove?: boolean;
   includeDomains?: string[];
   excludeDomains?: string[];
+  /** Opt-in, non-blocking: suggest related papers via the Research
+   * Intelligence MCP server after the report is persisted -- never gates
+   * the run (prds/3. mcp_server_setup.md). */
+  paperSuggestionsEnabled?: boolean;
 }
 
 // Matches `app/ai/runtime/events/models.py::StreamEvent`, as sent over SSE
@@ -449,6 +453,9 @@ export interface ChatStreamOptions {
   /** Pre-authorizes web search for this turn -- no approval pause in Chat,
    * enabling this toggle *is* the approval (web_search_tool_platform_prd.md). */
   webSearchEnabled?: boolean;
+  /** Same toggle-is-the-approval shape, against the Research Intelligence
+   * MCP server instead of Tavily (prds/3. mcp_server_setup.md). */
+  paperSearchEnabled?: boolean;
 }
 
 export interface ChatMessageResponse {
@@ -500,6 +507,7 @@ async function* streamChat(
         conversation_id: options.conversationId ?? null,
         provider: options.provider ?? null,
         web_search_enabled: options.webSearchEnabled ?? false,
+        paper_search_enabled: options.paperSearchEnabled ?? false,
       }),
     });
   } catch {
@@ -587,6 +595,7 @@ export const api = {
           web_search_auto_approve: options.webSearchAutoApprove ?? false,
           include_domains: options.includeDomains ?? [],
           exclude_domains: options.excludeDomains ?? [],
+          paper_suggestions_enabled: options.paperSuggestionsEnabled ?? false,
         }),
       }),
     approveProposal: (proposalId: string) =>

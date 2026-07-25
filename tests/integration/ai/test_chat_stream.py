@@ -20,6 +20,7 @@ import uuid
 from collections.abc import AsyncGenerator, Iterator
 from datetime import UTC, datetime
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 from uuid import UUID
 
 import pytest
@@ -34,9 +35,18 @@ from app.dependencies.generation import (
     get_generation_service,
     get_streaming_service,
 )
-from app.dependencies.memory import get_memory_extraction_service, get_memory_service
+from app.dependencies.memory import (
+    get_memory_extraction_service,
+    get_memory_service,
+    get_session_state_updater_service,
+)
 from app.dependencies.rate_limiting import get_rate_limiter
-from app.dependencies.research import get_web_search_necessity_service, get_web_search_service
+from app.dependencies.research import (
+    get_paper_query_extraction_service,
+    get_paper_search_service,
+    get_web_search_necessity_service,
+    get_web_search_service,
+)
 from app.infrastructure.rate_limiting import RateLimitResult
 from app.main import app
 from app.models.conversation import Conversation, Message
@@ -207,6 +217,12 @@ class _FakeMemoryService:
     async def remember(self, **kwargs) -> None:
         self.remembered.append(kwargs)
 
+    async def get_latest_session_state(self, **kwargs) -> None:
+        return None
+
+    async def update_memory(self, **kwargs) -> None:
+        self.remembered.append(kwargs)
+
 
 class _FakeMemoryExtractionService:
     """Stands in for MemoryExtractionService -- proposes no memories."""
@@ -262,23 +278,33 @@ def fakes() -> Iterator[
     conversation_service = _FakeConversationService()
     memory_service = _FakeMemoryService()
     memory_extraction_service = _FakeMemoryExtractionService()
+    # `distill()` returning None makes `distill_and_upsert_session_state()`
+    # a clean no-op (matches "no schema-valid output" failing open) --
+    # this avoids the real, network/API-key-requiring composition function.
+    session_state_updater = SimpleNamespace(distill=AsyncMock(return_value=None))
     generation_service = _FakeGenerationService()
     rate_limiter = _FakeRateLimiter()
-    # `web_search_enabled` defaults to False on every payload below, so
-    # `run_chat_web_search` always short-circuits before touching either of
-    # these -- they only need to exist, not do anything, so the real
-    # (network/API-key-requiring) composition functions never run in tests.
+    # `web_search_enabled`/`paper_search_enabled` default to False on every
+    # payload below, so `run_chat_web_search`/`run_chat_paper_search` always
+    # short-circuit before touching any of these -- they only need to
+    # exist, not do anything, so the real (network/API-key-requiring)
+    # composition functions never run in tests.
     web_search = SimpleNamespace(available=False)
     web_search_necessity = SimpleNamespace()
+    paper_search = SimpleNamespace(available=False)
+    paper_query_extraction = SimpleNamespace()
 
     app.dependency_overrides[get_streaming_service] = lambda: streaming_service
     app.dependency_overrides[get_generation_service] = lambda: generation_service
     app.dependency_overrides[get_conversation_service] = lambda: conversation_service
     app.dependency_overrides[get_memory_service] = lambda: memory_service
     app.dependency_overrides[get_memory_extraction_service] = lambda: memory_extraction_service
+    app.dependency_overrides[get_session_state_updater_service] = lambda: session_state_updater
     app.dependency_overrides[get_rate_limiter] = lambda: rate_limiter
     app.dependency_overrides[get_web_search_service] = lambda: web_search
     app.dependency_overrides[get_web_search_necessity_service] = lambda: web_search_necessity
+    app.dependency_overrides[get_paper_search_service] = lambda: paper_search
+    app.dependency_overrides[get_paper_query_extraction_service] = lambda: paper_query_extraction
 
     yield streaming_service, conversation_service, generation_service
 
@@ -287,9 +313,12 @@ def fakes() -> Iterator[
     del app.dependency_overrides[get_conversation_service]
     del app.dependency_overrides[get_memory_service]
     del app.dependency_overrides[get_memory_extraction_service]
+    del app.dependency_overrides[get_session_state_updater_service]
     del app.dependency_overrides[get_rate_limiter]
     del app.dependency_overrides[get_web_search_service]
     del app.dependency_overrides[get_web_search_necessity_service]
+    del app.dependency_overrides[get_paper_search_service]
+    del app.dependency_overrides[get_paper_query_extraction_service]
 
 
 def test_stream_chat_requires_authentication(

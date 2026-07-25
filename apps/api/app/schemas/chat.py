@@ -29,6 +29,12 @@ class ChatStreamRequest(BaseModel):
     # mechanism to pause on (web_search_tool_platform_prd.md).
     web_search_enabled: bool = False
 
+    # Same toggle-is-the-approval shape as `web_search_enabled`, but against
+    # the Research Intelligence MCP server (prds/3. mcp_server_setup.md)
+    # instead of Tavily -- searches papers relevant to this turn's
+    # `user_prompt` and folds them into the answer + a sources list.
+    paper_search_enabled: bool = False
+
 
 class ChatMessageResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")

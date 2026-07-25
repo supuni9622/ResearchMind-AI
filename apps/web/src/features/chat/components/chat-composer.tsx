@@ -2,7 +2,7 @@
 
 import { useRef } from 'react';
 import { PROVIDER_OPTIONS, type GenerationProvider } from '@/lib/api';
-import { NetworkIcon } from '@/components/ui/icons';
+import { BookIcon, NetworkIcon } from '@/components/ui/icons';
 
 export function ChatComposer({
   value,
@@ -13,6 +13,8 @@ export function ChatComposer({
   onProviderChange,
   webSearchEnabled,
   onWebSearchEnabledChange,
+  paperSearchEnabled,
+  onPaperSearchEnabledChange,
 }: {
   value: string;
   onChange: (v: string) => void;
@@ -22,6 +24,8 @@ export function ChatComposer({
   onProviderChange: (p: GenerationProvider | 'auto') => void;
   webSearchEnabled: boolean;
   onWebSearchEnabledChange: (v: boolean) => void;
+  paperSearchEnabled: boolean;
+  onPaperSearchEnabledChange: (v: boolean) => void;
 }) {
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -93,6 +97,20 @@ export function ChatComposer({
             >
               <NetworkIcon size={11} />
               Web search
+            </button>
+            <button
+              type="button"
+              title="Search research papers relevant to this turn (Research Intelligence MCP)"
+              disabled={loading}
+              onClick={() => onPaperSearchEnabledChange(!paperSearchEnabled)}
+              className={`flex items-center gap-1.5 px-2 py-0.5 rounded-md font-mono text-[10px] uppercase tracking-widest transition-colors duration-150 disabled:cursor-not-allowed ${
+                paperSearchEnabled
+                  ? 'bg-sage-600 text-stone-100'
+                  : 'bg-ink-800 border border-ink-600 text-stone-600 hover:text-stone-300'
+              }`}
+            >
+              <BookIcon size={11} />
+              Papers
             </button>
             <label className="flex items-center gap-1.5">
               <span className="font-mono text-stone-700 text-[10px] uppercase tracking-widest">

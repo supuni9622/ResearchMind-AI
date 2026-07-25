@@ -25,6 +25,7 @@ from app.ai.knowledge.context.models import PromptContext
 from app.ai.memory.create import (
     build_memory_extraction_service,
     build_memory_service,
+    build_session_state_updater_service,
     create_memory_availability_client,
     get_memory_metrics,
 )
@@ -34,7 +35,15 @@ from app.ai.memory.extraction.service import MemoryExtractionService
 from app.ai.memory.policy.models import MemoryTurnEvent
 from app.ai.memory.services.formatting import format_memory_context, with_memory_context
 from app.ai.memory.services.memory_service import MemoryService
-from app.ai.memory.session.state import state_from_user_turn
+from app.ai.memory.session.state_updater import (
+    SessionStateUpdaterService,
+    distill_and_upsert_session_state,
+)
+from app.ai.runtime.chat.paper_query import (
+    PaperQueryExtractionService,
+    create_paper_query_extraction_service,
+)
+from app.ai.runtime.chat.paper_search import run_chat_paper_search
 from app.ai.runtime.chat.web_search import run_chat_web_search
 from app.ai.runtime.events.enums import CoreEventType
 from app.ai.runtime.events.models import StreamEvent
@@ -48,6 +57,8 @@ from app.ai.runtime.generation.streaming.transports.websocket import run_websock
 from app.ai.runtime.generation.validation.runtime.enums import RuntimeType
 from app.ai.runtime.research.web_search.create import create_web_search_necessity_service
 from app.ai.runtime.research.web_search.necessity import WebSearchNecessityService
+from app.ai.tools.paper_search.create import create_paper_search_service
+from app.ai.tools.paper_search.service import PaperSearchService
 from app.ai.tools.web_search.create import create_web_search_service
 from app.ai.tools.web_search.service import WebSearchService
 from app.auth.dependencies import authenticate_token, get_current_user
@@ -60,9 +71,18 @@ from app.dependencies.generation import (
     get_generation_service,
     get_streaming_service,
 )
-from app.dependencies.memory import get_memory_extraction_service, get_memory_service
+from app.dependencies.memory import (
+    get_memory_extraction_service,
+    get_memory_service,
+    get_session_state_updater_service,
+)
 from app.dependencies.rate_limiting import enforce_rate_limit, get_rate_limiter
-from app.dependencies.research import get_web_search_necessity_service, get_web_search_service
+from app.dependencies.research import (
+    get_paper_query_extraction_service,
+    get_paper_search_service,
+    get_web_search_necessity_service,
+    get_web_search_service,
+)
 from app.exceptions.base import AppException, RateLimitExceededException
 from app.infrastructure.rate_limiting import ValkeyRateLimiter
 from app.models.conversation import Conversation, Message
@@ -204,6 +224,7 @@ async def _extract_and_store_memory(
     *,
     memory_service: MemoryService | None,
     memory_extraction_service: MemoryExtractionService | None,
+    session_state_updater: SessionStateUpdaterService | None,
     owner_id: UUID,
     conversation_id: UUID,
     user_prompt: str,
@@ -241,21 +262,16 @@ async def _extract_and_store_memory(
                     ),
                 },
             )
-        elif settings.memory_session_state_storage_enabled:
-            state = state_from_user_turn(
+        elif settings.memory_session_state_storage_enabled and session_state_updater is not None:
+            await distill_and_upsert_session_state(
+                memory_service=memory_service,
+                session_state_updater=session_state_updater,
+                owner_id=owner_id,
+                session_id=conversation_id,
                 user_message=user_prompt,
-                source_turn_id=turn_id,
-                source_user_message_id=user_message_id,
-                source_assistant_message_id=assistant_message_id,
+                assistant_message=assistant_content,
+                turn_id=turn_id,
             )
-            if state is not None:
-                await memory_service.remember(
-                    owner_id=owner_id,
-                    type=MemoryType.SESSION,
-                    content=state.content,
-                    session_id=conversation_id,
-                    metadata=state.metadata(),
-                )
     except Exception as exc:
         logger.warning(
             "memory.chat.session_remember_failed",
@@ -311,6 +327,23 @@ def _with_web_search_context(
     )
 
 
+def _with_paper_search_context(
+    prompt_context: PromptContext,
+    paper_context_text: str | None,
+) -> PromptContext:
+    """Appends after web-search context (if any) -- memory, then web,
+    then papers, freshest/most-specific evidence closest to the question."""
+
+    if not paper_context_text:
+        return prompt_context
+
+    return prompt_context.model_copy(
+        update={
+            "context": f"{prompt_context.context}\n\n{paper_context_text}".strip(),
+        },
+    )
+
+
 async def _build_request(
     *,
     payload: ChatStreamRequest,
@@ -319,6 +352,7 @@ async def _build_request(
     owner_id: UUID,
     memory_service: MemoryService | None,
     web_context_text: str | None = None,
+    paper_context_text: str | None = None,
 ) -> GenerationRequest:
     await conversation_service.compact_history_if_needed(
         conversation=conversation,
@@ -349,6 +383,7 @@ async def _build_request(
         memory_context_text,
     )
     prompt_context = _with_web_search_context(prompt_context, web_context_text)
+    prompt_context = _with_paper_search_context(prompt_context, paper_context_text)
 
     return GenerationRequest(
         prompt_context=prompt_context,
@@ -378,15 +413,17 @@ async def _prepare_chat_generation(
     memory_service: MemoryService | None,
     web_search: WebSearchService | None,
     web_search_necessity: WebSearchNecessityService | None,
+    paper_search: PaperSearchService | None,
+    paper_query_extraction: PaperQueryExtractionService | None,
 ) -> tuple[list[StreamEvent], GenerationRequest]:
-    """Runs the toggle-gated web search step (if any) before building the
-    `GenerationRequest`, so web evidence -- when found -- is already part
-    of the prompt context the very first token is generated against.
-    Returns the search step's own status events (empty when the toggle is
-    off, unconfigured, or no search was needed) to be yielded ahead of the
-    real generation stream."""
+    """Runs the toggle-gated web search and paper search steps (if any)
+    before building the `GenerationRequest`, so evidence -- when found --
+    is already part of the prompt context the very first token is
+    generated against. Returns each step's own status events (empty when
+    the toggle is off, unconfigured, or nothing was found) to be yielded
+    ahead of the real generation stream."""
 
-    outcome = await run_chat_web_search(
+    web_outcome = await run_chat_web_search(
         enabled=payload.web_search_enabled,
         user_prompt=payload.user_prompt,
         owner_id=owner_id,
@@ -395,15 +432,24 @@ async def _prepare_chat_generation(
         web_search=web_search,
         web_search_necessity=web_search_necessity,
     )
+    paper_outcome = await run_chat_paper_search(
+        enabled=payload.paper_search_enabled,
+        user_prompt=payload.user_prompt,
+        owner_id=owner_id,
+        session_id=conversation.id,
+        paper_search=paper_search,
+        query_extraction=paper_query_extraction,
+    )
     request = await _build_request(
         payload=payload,
         conversation_service=conversation_service,
         conversation=conversation,
         owner_id=owner_id,
         memory_service=memory_service,
-        web_context_text=outcome.context_text,
+        web_context_text=web_outcome.context_text,
+        paper_context_text=paper_outcome.context_text,
     )
-    return outcome.events, request
+    return [*web_outcome.events, *paper_outcome.events], request
 
 
 async def _persist_conversation_identity(
@@ -540,6 +586,7 @@ async def _persist_on_complete(
     generation_service: GenerationService | None = None,
     memory_service: MemoryService | None = None,
     memory_extraction_service: MemoryExtractionService | None = None,
+    session_state_updater: SessionStateUpdaterService | None = None,
 ) -> AsyncGenerator[StreamEvent, None]:
     """
     Forwards every event untouched, accumulating TOKEN content along the
@@ -573,6 +620,7 @@ async def _persist_on_complete(
             await _extract_and_store_memory(
                 memory_service=memory_service,
                 memory_extraction_service=memory_extraction_service,
+                session_state_updater=session_state_updater,
                 owner_id=owner_id,
                 conversation_id=conversation_id,
                 user_prompt=user_prompt,
@@ -707,9 +755,14 @@ async def stream_chat(
     ),
     memory_service: MemoryService = Depends(get_memory_service),
     memory_extraction_service: MemoryExtractionService = Depends(get_memory_extraction_service),
+    session_state_updater: SessionStateUpdaterService = Depends(get_session_state_updater_service),
     rate_limiter: ValkeyRateLimiter = Depends(get_rate_limiter),
     web_search: WebSearchService = Depends(get_web_search_service),
     web_search_necessity: WebSearchNecessityService = Depends(get_web_search_necessity_service),
+    paper_search: PaperSearchService = Depends(get_paper_search_service),
+    paper_query_extraction: PaperQueryExtractionService = Depends(
+        get_paper_query_extraction_service
+    ),
 ) -> StreamingResponse:
     """
     A `POST` consumed via `fetch` + `ReadableStream` on the frontend, not
@@ -733,7 +786,7 @@ async def stream_chat(
         created_at=conversation.created_at,
     )
 
-    web_search_events, request = await _prepare_chat_generation(
+    tool_events, request = await _prepare_chat_generation(
         payload=payload,
         conversation_service=conversation_service,
         conversation=conversation,
@@ -741,10 +794,12 @@ async def stream_chat(
         memory_service=memory_service,
         web_search=web_search,
         web_search_necessity=web_search_necessity,
+        paper_search=paper_search,
+        paper_query_extraction=paper_query_extraction,
     )
 
     events = _chain_events(
-        web_search_events,
+        tool_events,
         streaming_service.stream_generate(
             request=request,
             provider=payload.provider,
@@ -764,6 +819,7 @@ async def stream_chat(
             generation_service=generation_service,
             memory_service=memory_service,
             memory_extraction_service=memory_extraction_service,
+            session_state_updater=session_state_updater,
         )
     )
 
@@ -828,11 +884,14 @@ async def stream_chat_ws(
         # dependency graph (mirrors `ConversationService(session)` above).
         memory_service = build_memory_service(session)
         memory_extraction_service = build_memory_extraction_service()
+        session_state_updater = build_session_state_updater_service()
         # Same stateless-composition-function pattern as `get_streaming_service()`
         # above -- called directly, not through FastAPI `Depends`, since this
         # route manages its own object graph outside the dependency graph.
         web_search = create_web_search_service()
         web_search_necessity = create_web_search_necessity_service()
+        paper_search = create_paper_search_service()
+        paper_query_extraction = create_paper_query_extraction_service()
 
         conversation = await conversation_service.get_or_create(
             conversation_id=payload.conversation_id,
@@ -847,7 +906,7 @@ async def stream_chat_ws(
             created_at=conversation.created_at,
         )
 
-        web_search_events, request = await _prepare_chat_generation(
+        tool_events, request = await _prepare_chat_generation(
             payload=payload,
             conversation_service=conversation_service,
             conversation=conversation,
@@ -855,10 +914,12 @@ async def stream_chat_ws(
             memory_service=memory_service,
             web_search=web_search,
             web_search_necessity=web_search_necessity,
+            paper_search=paper_search,
+            paper_query_extraction=paper_query_extraction,
         )
 
         events = _chain_events(
-            web_search_events,
+            tool_events,
             streaming_service.stream_generate(
                 request=request,
                 provider=payload.provider,
@@ -880,6 +941,7 @@ async def stream_chat_ws(
                     generation_service=generation_service,
                     memory_service=memory_service,
                     memory_extraction_service=memory_extraction_service,
+                    session_state_updater=session_state_updater,
                 ),
             )
         finally:

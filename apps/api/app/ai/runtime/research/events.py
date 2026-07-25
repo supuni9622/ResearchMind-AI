@@ -59,12 +59,17 @@ class LangGraphResearchEventAdapter:
         *,
         research_run_id: UUID,
         event_type: ResearchEventType,
+        extra_metadata: Mapping[str, object] | None = None,
     ) -> StreamEvent:
         """Create a stable, user-safe runtime progress event.
 
         The intentionally small metadata shape is the public SSE/polling
         contract. Internal node names, task questions, evidence excerpts, and
-        checkpoint details never cross this boundary.
+        checkpoint details never cross this boundary. `extra_metadata` is an
+        explicit, opt-in exception to that rule for call sites that need to
+        carry a small public payload alongside the label (e.g. the related-
+        papers suggestion) -- default `None` leaves every other event
+        unaffected.
         """
 
         labels = {
@@ -94,10 +99,13 @@ class LangGraphResearchEventAdapter:
             ResearchEventType.RESEARCH_WEB_SEARCH_STARTED: "Searching the web",
             ResearchEventType.RESEARCH_WEB_SEARCH_COMPLETED: "Web search complete",
             ResearchEventType.RESEARCH_WEB_SEARCH_SKIPPED: "Web search skipped",
+            ResearchEventType.RESEARCH_RELATED_PAPERS_STARTED: "Looking for related papers",
+            ResearchEventType.RESEARCH_RELATED_PAPERS_COMPLETED: "Related papers found",
+            ResearchEventType.RESEARCH_RELATED_PAPERS_SKIPPED: "No related papers found",
         }
         return StreamEvent(
             session_id=research_run_id,
             category=EventCategory.RESEARCH,
             type=event_type.value,
-            metadata={"label": labels[event_type]},
+            metadata={"label": labels[event_type], **(extra_metadata or {})},
         )

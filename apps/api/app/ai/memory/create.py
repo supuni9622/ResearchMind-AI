@@ -29,6 +29,7 @@ from app.ai.memory.retrieval.availability import DurableMemoryAvailabilityServic
 from app.ai.memory.semantic.service import SemanticMemoryService
 from app.ai.memory.services.memory_service import MemoryService
 from app.ai.memory.session.service import SessionMemoryService
+from app.ai.memory.session.state_updater import SessionStateUpdaterService
 from app.ai.memory.storage.postgres_store import PostgresMemoryStore
 from app.ai.memory.storage.valkey_store import ValkeySessionStore
 from app.ai.memory.storage.vector_index import MemoryVectorIndex
@@ -142,8 +143,11 @@ def build_memory_service(
     )
 
 
-@lru_cache
-def build_memory_extraction_service() -> MemoryExtractionService:
+def _cheap_memory_providers() -> tuple[GenerationProvider | None, GenerationProvider | None]:
+    """Prefer inexpensive structured-output providers for background memory
+    work -- shared by extraction and session-state distillation, both
+    small/bounded/`temperature=0.0` calls, never the main synthesis tier."""
+
     provider = (
         GenerationProvider.GROQ
         if settings.groq_api_key
@@ -154,7 +158,23 @@ def build_memory_extraction_service() -> MemoryExtractionService:
     fallback_provider = (
         GenerationProvider.OPENAI if settings.groq_api_key and settings.openai_api_key else None
     )
+    return provider, fallback_provider
+
+
+@lru_cache
+def build_memory_extraction_service() -> MemoryExtractionService:
+    provider, fallback_provider = _cheap_memory_providers()
     return MemoryExtractionService(
+        create_generation_runtime(),
+        provider=provider,
+        fallback_provider=fallback_provider,
+    )
+
+
+@lru_cache
+def build_session_state_updater_service() -> SessionStateUpdaterService:
+    provider, fallback_provider = _cheap_memory_providers()
+    return SessionStateUpdaterService(
         create_generation_runtime(),
         provider=provider,
         fallback_provider=fallback_provider,

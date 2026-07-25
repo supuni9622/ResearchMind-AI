@@ -2,6 +2,7 @@
 
 import { useRef } from 'react';
 import { PROVIDER_OPTIONS, type GenerationProvider } from '@/lib/api';
+import { NetworkIcon } from '@/components/ui/icons';
 
 export function ChatComposer({
   value,
@@ -10,6 +11,8 @@ export function ChatComposer({
   loading,
   provider,
   onProviderChange,
+  webSearchEnabled,
+  onWebSearchEnabledChange,
 }: {
   value: string;
   onChange: (v: string) => void;
@@ -17,6 +20,8 @@ export function ChatComposer({
   loading: boolean;
   provider: GenerationProvider | 'auto';
   onProviderChange: (p: GenerationProvider | 'auto') => void;
+  webSearchEnabled: boolean;
+  onWebSearchEnabledChange: (v: boolean) => void;
 }) {
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -74,23 +79,39 @@ export function ChatComposer({
           <p className="font-mono text-stone-700 text-[10px]">
             Enter to send · Shift + Enter for new line
           </p>
-          <label className="flex items-center gap-1.5">
-            <span className="font-mono text-stone-700 text-[10px] uppercase tracking-widest">
-              Model
-            </span>
-            <select
-              value={provider}
-              onChange={(e) => onProviderChange(e.target.value as GenerationProvider | 'auto')}
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              title="Let the agent search the web when it decides this turn needs it"
               disabled={loading}
-              className="bg-ink-800 border border-ink-600 rounded-md px-1.5 py-0.5 font-mono text-stone-400 text-[10px] focus:outline-none focus:border-sage-600 transition-colors"
+              onClick={() => onWebSearchEnabledChange(!webSearchEnabled)}
+              className={`flex items-center gap-1.5 px-2 py-0.5 rounded-md font-mono text-[10px] uppercase tracking-widest transition-colors duration-150 disabled:cursor-not-allowed ${
+                webSearchEnabled
+                  ? 'bg-sage-600 text-stone-100'
+                  : 'bg-ink-800 border border-ink-600 text-stone-600 hover:text-stone-300'
+              }`}
             >
-              {PROVIDER_OPTIONS.map((opt) => (
-                <option key={opt.value} value={opt.value}>
-                  {opt.label}
-                </option>
-              ))}
-            </select>
-          </label>
+              <NetworkIcon size={11} />
+              Web search
+            </button>
+            <label className="flex items-center gap-1.5">
+              <span className="font-mono text-stone-700 text-[10px] uppercase tracking-widest">
+                Model
+              </span>
+              <select
+                value={provider}
+                onChange={(e) => onProviderChange(e.target.value as GenerationProvider | 'auto')}
+                disabled={loading}
+                className="bg-ink-800 border border-ink-600 rounded-md px-1.5 py-0.5 font-mono text-stone-400 text-[10px] focus:outline-none focus:border-sage-600 transition-colors"
+              >
+                {PROVIDER_OPTIONS.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
         </div>
       </form>
     </div>

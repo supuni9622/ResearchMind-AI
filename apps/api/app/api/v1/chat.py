@@ -35,6 +35,7 @@ from app.ai.memory.policy.models import MemoryTurnEvent
 from app.ai.memory.services.formatting import format_memory_context, with_memory_context
 from app.ai.memory.services.memory_service import MemoryService
 from app.ai.memory.session.state import state_from_user_turn
+from app.ai.runtime.chat.web_search import run_chat_web_search
 from app.ai.runtime.events.enums import CoreEventType
 from app.ai.runtime.events.models import StreamEvent
 from app.ai.runtime.generation.caching.enums import CachePolicy, CacheRuntime
@@ -45,6 +46,10 @@ from app.ai.runtime.generation.streaming.service import StreamingService
 from app.ai.runtime.generation.streaming.transports.sse import sse_stream_response
 from app.ai.runtime.generation.streaming.transports.websocket import run_websocket_stream
 from app.ai.runtime.generation.validation.runtime.enums import RuntimeType
+from app.ai.runtime.research.web_search.create import create_web_search_necessity_service
+from app.ai.runtime.research.web_search.necessity import WebSearchNecessityService
+from app.ai.tools.web_search.create import create_web_search_service
+from app.ai.tools.web_search.service import WebSearchService
 from app.auth.dependencies import authenticate_token, get_current_user
 from app.core.settings import settings
 from app.db.session import SessionFactory
@@ -57,6 +62,7 @@ from app.dependencies.generation import (
 )
 from app.dependencies.memory import get_memory_extraction_service, get_memory_service
 from app.dependencies.rate_limiting import enforce_rate_limit, get_rate_limiter
+from app.dependencies.research import get_web_search_necessity_service, get_web_search_service
 from app.exceptions.base import AppException, RateLimitExceededException
 from app.infrastructure.rate_limiting import ValkeyRateLimiter
 from app.models.conversation import Conversation, Message
@@ -287,6 +293,24 @@ async def _extract_and_store_memory(
         )
 
 
+def _with_web_search_context(
+    prompt_context: PromptContext,
+    web_context_text: str | None,
+) -> PromptContext:
+    """Appends (not prepends, unlike `with_memory_context`) web-search
+    findings after whatever's already in `context` -- background/memory
+    first, freshest evidence closest to the question."""
+
+    if not web_context_text:
+        return prompt_context
+
+    return prompt_context.model_copy(
+        update={
+            "context": f"{prompt_context.context}\n\n{web_context_text}".strip(),
+        },
+    )
+
+
 async def _build_request(
     *,
     payload: ChatStreamRequest,
@@ -294,6 +318,7 @@ async def _build_request(
     conversation: Conversation,
     owner_id: UUID,
     memory_service: MemoryService | None,
+    web_context_text: str | None = None,
 ) -> GenerationRequest:
     await conversation_service.compact_history_if_needed(
         conversation=conversation,
@@ -319,11 +344,14 @@ async def _build_request(
         transcript=transcript,
     )
 
+    prompt_context = with_memory_context(
+        PromptContext(context="", chunks=[]),
+        memory_context_text,
+    )
+    prompt_context = _with_web_search_context(prompt_context, web_context_text)
+
     return GenerationRequest(
-        prompt_context=with_memory_context(
-            PromptContext(context="", chunks=[]),
-            memory_context_text,
-        ),
+        prompt_context=prompt_context,
         user_prompt=transcript,
         stream=True,
         owner_id=owner_id,
@@ -339,6 +367,43 @@ async def _build_request(
         runtime=RuntimeType.CHAT,
         artifact_runtime=ArtifactRuntime.CHAT,
     )
+
+
+async def _prepare_chat_generation(
+    *,
+    payload: ChatStreamRequest,
+    conversation_service: ConversationService,
+    conversation: Conversation,
+    owner_id: UUID,
+    memory_service: MemoryService | None,
+    web_search: WebSearchService | None,
+    web_search_necessity: WebSearchNecessityService | None,
+) -> tuple[list[StreamEvent], GenerationRequest]:
+    """Runs the toggle-gated web search step (if any) before building the
+    `GenerationRequest`, so web evidence -- when found -- is already part
+    of the prompt context the very first token is generated against.
+    Returns the search step's own status events (empty when the toggle is
+    off, unconfigured, or no search was needed) to be yielded ahead of the
+    real generation stream."""
+
+    outcome = await run_chat_web_search(
+        enabled=payload.web_search_enabled,
+        user_prompt=payload.user_prompt,
+        owner_id=owner_id,
+        conversation_id=conversation.id,
+        session_id=conversation.id,
+        web_search=web_search,
+        web_search_necessity=web_search_necessity,
+    )
+    request = await _build_request(
+        payload=payload,
+        conversation_service=conversation_service,
+        conversation=conversation,
+        owner_id=owner_id,
+        memory_service=memory_service,
+        web_context_text=outcome.context_text,
+    )
+    return outcome.events, request
 
 
 async def _persist_conversation_identity(
@@ -444,6 +509,22 @@ async def _generate_and_store_title(
             error_type=type(exc).__name__,
             error=str(exc),
         )
+
+
+async def _chain_events(
+    prefix: list[StreamEvent],
+    events: AsyncGenerator[StreamEvent, None],
+) -> AsyncGenerator[StreamEvent, None]:
+    """Yields the web-search step's own status events (if any) before the
+    real generation stream -- these carry no TOKEN content, so
+    `_persist_on_complete` (wrapped around this generator's output) passes
+    them through untouched, same as it already does for START/etc."""
+
+    for event in prefix:
+        yield event
+
+    async for event in events:
+        yield event
 
 
 async def _persist_on_complete(
@@ -627,6 +708,8 @@ async def stream_chat(
     memory_service: MemoryService = Depends(get_memory_service),
     memory_extraction_service: MemoryExtractionService = Depends(get_memory_extraction_service),
     rate_limiter: ValkeyRateLimiter = Depends(get_rate_limiter),
+    web_search: WebSearchService = Depends(get_web_search_service),
+    web_search_necessity: WebSearchNecessityService = Depends(get_web_search_necessity_service),
 ) -> StreamingResponse:
     """
     A `POST` consumed via `fetch` + `ReadableStream` on the frontend, not
@@ -650,17 +733,22 @@ async def stream_chat(
         created_at=conversation.created_at,
     )
 
-    request = await _build_request(
+    web_search_events, request = await _prepare_chat_generation(
         payload=payload,
         conversation_service=conversation_service,
         conversation=conversation,
         owner_id=current_user.id,
         memory_service=memory_service,
+        web_search=web_search,
+        web_search_necessity=web_search_necessity,
     )
 
-    events = streaming_service.stream_generate(
-        request=request,
-        provider=payload.provider,
+    events = _chain_events(
+        web_search_events,
+        streaming_service.stream_generate(
+            request=request,
+            provider=payload.provider,
+        ),
     )
 
     return sse_stream_response(
@@ -740,6 +828,11 @@ async def stream_chat_ws(
         # dependency graph (mirrors `ConversationService(session)` above).
         memory_service = build_memory_service(session)
         memory_extraction_service = build_memory_extraction_service()
+        # Same stateless-composition-function pattern as `get_streaming_service()`
+        # above -- called directly, not through FastAPI `Depends`, since this
+        # route manages its own object graph outside the dependency graph.
+        web_search = create_web_search_service()
+        web_search_necessity = create_web_search_necessity_service()
 
         conversation = await conversation_service.get_or_create(
             conversation_id=payload.conversation_id,
@@ -754,17 +847,22 @@ async def stream_chat_ws(
             created_at=conversation.created_at,
         )
 
-        request = await _build_request(
+        web_search_events, request = await _prepare_chat_generation(
             payload=payload,
             conversation_service=conversation_service,
             conversation=conversation,
             owner_id=current_user.id,
             memory_service=memory_service,
+            web_search=web_search,
+            web_search_necessity=web_search_necessity,
         )
 
-        events = streaming_service.stream_generate(
-            request=request,
-            provider=payload.provider,
+        events = _chain_events(
+            web_search_events,
+            streaming_service.stream_generate(
+                request=request,
+                provider=payload.provider,
+            ),
         )
 
         try:

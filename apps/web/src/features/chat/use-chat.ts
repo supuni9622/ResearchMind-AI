@@ -6,6 +6,7 @@ import type {
   ChatConversationSummary,
   ChatMessage,
   ChatSendOptions,
+  ChatWebSource,
 } from '@/features/chat/types';
 
 function patchMessage(
@@ -117,10 +118,45 @@ export function useChat() {
         for await (const { data: event } of api.chat.stream(query, {
           conversationId: conversationIdAtStart ?? undefined,
           provider: options.provider,
+          webSearchEnabled: options.webSearchEnabled,
         })) {
           if (event.session_id && !resolvedConversationId) {
             resolvedConversationId = event.session_id;
             setActiveConversationId(resolvedConversationId);
+          }
+
+          if (event.type === 'chat_web_search_started') {
+            const query = event.metadata?.query;
+            setMessages((prev) =>
+              patchMessage(prev, assistantId, {
+                webSearch: {
+                  stage: 'searching',
+                  query: typeof query === 'string' ? query : undefined,
+                },
+              })
+            );
+            continue;
+          }
+
+          if (event.type === 'chat_web_search_completed') {
+            const sources = Array.isArray(event.metadata?.sources)
+              ? (event.metadata.sources as ChatWebSource[])
+              : [];
+            setMessages((prev) =>
+              patchMessage(prev, assistantId, (m) => ({
+                webSearch: { stage: 'done', query: m.webSearch?.query, sources },
+              }))
+            );
+            continue;
+          }
+
+          if (event.type === 'chat_web_search_skipped') {
+            setMessages((prev) =>
+              patchMessage(prev, assistantId, (m) => ({
+                webSearch: { stage: 'skipped', query: m.webSearch?.query },
+              }))
+            );
+            continue;
           }
 
           if (event.type === 'token' && event.content) {

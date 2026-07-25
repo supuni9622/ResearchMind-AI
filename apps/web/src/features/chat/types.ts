@@ -3,6 +3,23 @@ import type { GenerationProvider } from '@/lib/api';
 export type ChatMessageRole = 'user' | 'assistant';
 export type ChatMessageStage = 'streaming' | 'done' | 'error';
 
+// Mirrors `ChatEventType` (chat_web_search_started/completed/skipped) --
+// absent means the toggle was off or the agent decided it didn't need the
+// web for this turn, so no chip renders (web_search_tool_platform_prd.md).
+export type ChatWebSearchStage = 'searching' | 'done' | 'skipped';
+
+export interface ChatWebSource {
+  title: string;
+  url: string;
+  domain: string;
+}
+
+export interface ChatWebSearchStatus {
+  stage: ChatWebSearchStage;
+  query?: string;
+  sources?: ChatWebSource[];
+}
+
 export interface ChatMessage {
   id: string;
   role: ChatMessageRole;
@@ -10,6 +27,7 @@ export interface ChatMessage {
   stage: ChatMessageStage;
   error?: string;
   createdAt: string;
+  webSearch?: ChatWebSearchStatus;
 }
 
 export interface ChatConversation {
@@ -28,4 +46,5 @@ export interface ChatConversationSummary {
 
 export interface ChatSendOptions {
   provider?: GenerationProvider;
+  webSearchEnabled?: boolean;
 }

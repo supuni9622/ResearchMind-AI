@@ -1,5 +1,35 @@
 import type { ChatMessage } from '@/features/chat/types';
-import { AlertIcon, SparklesIcon } from '@/components/ui/icons';
+import { AlertIcon, NetworkIcon, SparklesIcon } from '@/components/ui/icons';
+
+function WebSearchStatus({ webSearch }: { webSearch: NonNullable<ChatMessage['webSearch']> }) {
+  if (webSearch.stage === 'skipped') return null;
+
+  return (
+    <div className="mb-1.5 flex flex-col gap-1">
+      <div className="flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-widest text-stone-600">
+        <NetworkIcon size={10} className={webSearch.stage === 'searching' ? 'animate-pulse' : ''} />
+        {webSearch.stage === 'searching' ? 'Searching the web…' : 'Searched the web'}
+      </div>
+      {webSearch.stage === 'done' && webSearch.sources && webSearch.sources.length > 0 && (
+        <ul className="flex flex-wrap gap-1.5">
+          {webSearch.sources.map((source) => (
+            <li key={source.url}>
+              <a
+                href={source.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                title={source.title}
+                className="inline-block px-1.5 py-0.5 rounded-md bg-ink-800 border border-ink-600 text-stone-500 hover:text-sage-400 hover:border-sage-700 text-[10px] font-mono transition-colors"
+              >
+                {source.domain}
+              </a>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
 
 export function MessageBubble({ message }: { message: ChatMessage }) {
   if (message.role === 'user') {
@@ -27,6 +57,7 @@ export function MessageBubble({ message }: { message: ChatMessage }) {
         </div>
       ) : (
         <div className="rounded-2xl rounded-tl-sm px-4 py-2.5 bg-ink-800/60">
+          {message.webSearch && <WebSearchStatus webSearch={message.webSearch} />}
           <p className="text-stone-200 text-sm leading-relaxed whitespace-pre-wrap">
             {message.content}
             {message.stage === 'streaming' && (

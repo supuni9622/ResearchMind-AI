@@ -22,6 +22,13 @@ class ChatStreamRequest(BaseModel):
 
     routing_strategy: RoutingStrategy | None = None
 
+    # Toggle, set once per turn (persisted client-side, not server-side --
+    # unlike Deep Research's mode enum, Chat has no DISABLED/REQUIRED
+    # distinction, just on/off). No approval checkpoint: enabling this *is*
+    # the approval, for every turn, since Chat has no interrupt/resume
+    # mechanism to pause on (web_search_tool_platform_prd.md).
+    web_search_enabled: bool = False
+
 
 class ChatMessageResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")

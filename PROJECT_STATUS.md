@@ -1766,6 +1766,40 @@ web round moved to this same early check (was a post-review-PASS check).
 
 Verified: full repo suite **1401 passed**, ruff/mypy clean.
 
+### 2026-07-25, same day, later still — AUTO mode model swap + Chat web search
+
+Two more changes closed out this feature for the day:
+
+- **AUTO's necessity-decision model swapped `gpt-5-nano` → `gpt-5-mini`.**
+  Production logs showed `gpt-5-nano` unreliably following the
+  structured-output contract for this one call (not truncation — genuinely
+  invalid/non-repairable JSON, twice in a row) so `decide()` silently
+  failed closed to "no search needed" every time, making AUTO mode appear
+  broken end-to-end. `gpt-5-mini` is this app's already-proven default
+  elsewhere; paired with a stricter JSON-only system prompt and higher
+  `max_tokens`/`max_regeneration_attempts` (300→600, 1→2). See ADR-036's
+  addendum.
+- **Chat can now use web search too** (Linear Research explicitly excluded,
+  per product decision). No approval checkpoint — Chat has no
+  interrupt/resume mechanism, so a new `web_search_enabled` toggle on
+  `ChatStreamRequest` *is* the approval, once, up front, for every turn.
+  Reuses the same `WebSearchService`/`WebSearchNecessityService`/
+  `normalize_web_search_result` Deep Research uses; new
+  `app/ai/runtime/chat/web_search.py::run_chat_web_search()` (best-effort,
+  degrades to no-op on any failure) and `ChatEventType`
+  (`chat_web_search_started/completed/skipped`, `category=TOOL`) wired into
+  both `stream_chat` (SSE) and `stream_chat_ws`. Frontend: a Web Search
+  toggle in the chat composer, `use-chat.ts` handles the three new event
+  types, and `message-bubble.tsx` renders a "Searching the web…"/"Searched
+  the web" chip with clickable source-domain pills once results land. See
+  ADR-036's addendum.
+
+Verified: full repo suite **1410 passed** (8 new tests for
+`run_chat_web_search`), ruff/mypy clean on all 1159 backend + test source
+files, frontend `tsc --noEmit`/`eslint`/`next build` all clean. Chat's
+toggle defaults off; Linear Research is untouched by construction (no
+`web_search_enabled` field on its request/response schemas).
+
 ## Not Yet Built
 
 - ❌ Web Search Tool Platform's standalone SSRF-hardened Web Fetch Platform,

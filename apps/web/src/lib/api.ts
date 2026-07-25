@@ -446,6 +446,9 @@ async function* streamResearchRunEvents(
 export interface ChatStreamOptions {
   conversationId?: string;
   provider?: GenerationProvider;
+  /** Pre-authorizes web search for this turn -- no approval pause in Chat,
+   * enabling this toggle *is* the approval (web_search_tool_platform_prd.md). */
+  webSearchEnabled?: boolean;
 }
 
 export interface ChatMessageResponse {
@@ -496,6 +499,7 @@ async function* streamChat(
         user_prompt: userPrompt,
         conversation_id: options.conversationId ?? null,
         provider: options.provider ?? null,
+        web_search_enabled: options.webSearchEnabled ?? false,
       }),
     });
   } catch {

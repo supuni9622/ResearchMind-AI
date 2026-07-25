@@ -180,6 +180,37 @@ and `/research/stream`. Chat has no dependency on the Research Runtime at
 all. Both therefore require zero code changes and their request/response
 contracts are byte-for-byte unchanged.
 
+## Addendum (2026-07-25, same day, latest) — Chat gets web search too, toggle-gated, no approval
+
+The three-flow scope in Context above named Deep Research as the only place
+this ADR's approval checkpoint applies, and left Chat and Linear Research
+untouched. The user separately asked for Chat to get web search as well
+(explicitly excluding Linear Research: "lieart research, don't need it").
+Chat has no LangGraph, no interrupt/resume mechanism, and no product reason
+to pause a fast conversational turn on an approval click — so this is not
+a fourth checkpoint. It reuses the same platform and necessity-decision
+service this ADR already built, with the approval question answered once,
+up front, by the toggle itself, mirroring `web_search_auto_approve=True`'s
+semantics without needing Deep Research's mode enum (Chat has no
+REQUIRED/DISABLED distinction, just on/off).
+
+New, Chat-scoped files: `apps/api/app/ai/runtime/chat/web_search.py`
+(`run_chat_web_search()` — best-effort, any failure degrades to "no web
+search for this turn" rather than failing the turn, matching how every
+other optional Chat collaborator — memory, title generation, artifacts —
+already behaves) and `apps/api/app/ai/runtime/events/chat/models.py`
+(`ChatEventType`: `chat_web_search_started/completed/skipped`, emitted with
+`category=EventCategory.TOOL` since Chat's stream had no prior use for that
+category). `ChatStreamRequest.web_search_enabled: bool = False` is the new
+toggle (schemas/chat.py); both `stream_chat` (SSE) and `stream_chat_ws`
+(WebSocket) routes call `run_chat_web_search()` before generation and
+prepend its context to the prompt when it found anything, via a small
+`_chain_events()` wrapper generator that yields the search's status events
+ahead of the underlying token stream. Reuses `WebSearchService`,
+`WebSearchNecessityService`, and `normalize_web_search_result` unchanged —
+no new provider, model, or evidence-normalization logic. Default off, so
+existing Chat behavior is unaffected until a user opts in per-turn.
+
 ## Addendum (2026-07-25, same day, later still) — AUTO mode's necessity model swapped from gpt-5-nano to gpt-5-mini
 
 `REQUIRED` mode never calls a model at all (`WebSearchNecessityService.

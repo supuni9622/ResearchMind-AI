@@ -36,6 +36,7 @@ from app.dependencies.generation import (
 )
 from app.dependencies.memory import get_memory_extraction_service, get_memory_service
 from app.dependencies.rate_limiting import get_rate_limiter
+from app.dependencies.research import get_web_search_necessity_service, get_web_search_service
 from app.infrastructure.rate_limiting import RateLimitResult
 from app.main import app
 from app.models.conversation import Conversation, Message
@@ -263,6 +264,12 @@ def fakes() -> Iterator[
     memory_extraction_service = _FakeMemoryExtractionService()
     generation_service = _FakeGenerationService()
     rate_limiter = _FakeRateLimiter()
+    # `web_search_enabled` defaults to False on every payload below, so
+    # `run_chat_web_search` always short-circuits before touching either of
+    # these -- they only need to exist, not do anything, so the real
+    # (network/API-key-requiring) composition functions never run in tests.
+    web_search = SimpleNamespace(available=False)
+    web_search_necessity = SimpleNamespace()
 
     app.dependency_overrides[get_streaming_service] = lambda: streaming_service
     app.dependency_overrides[get_generation_service] = lambda: generation_service
@@ -270,6 +277,8 @@ def fakes() -> Iterator[
     app.dependency_overrides[get_memory_service] = lambda: memory_service
     app.dependency_overrides[get_memory_extraction_service] = lambda: memory_extraction_service
     app.dependency_overrides[get_rate_limiter] = lambda: rate_limiter
+    app.dependency_overrides[get_web_search_service] = lambda: web_search
+    app.dependency_overrides[get_web_search_necessity_service] = lambda: web_search_necessity
 
     yield streaming_service, conversation_service, generation_service
 
@@ -279,6 +288,8 @@ def fakes() -> Iterator[
     del app.dependency_overrides[get_memory_service]
     del app.dependency_overrides[get_memory_extraction_service]
     del app.dependency_overrides[get_rate_limiter]
+    del app.dependency_overrides[get_web_search_service]
+    del app.dependency_overrides[get_web_search_necessity_service]
 
 
 def test_stream_chat_requires_authentication(

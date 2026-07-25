@@ -300,3 +300,41 @@ Third human-approval checkpoint, mirroring the plan-approval checkpoint's
   unhandled `RuntimeError` -- explicit user decision, applies uniformly to
   both `REVISE_SYNTHESIS` triggers. See ADR-036's second addendum.
   Full suite green (1402 tests), ruff/mypy clean.
+
+### AUTO model swap + Chat web search (2026-07-25, same day, latest)
+
+- [x] `WebSearchNecessityService`'s default OpenAI model swapped
+  `gpt-5-nano` → `gpt-5-mini`: production logs showed `gpt-5-nano`
+  unreliably following the structured-output contract for this call
+  (invalid/non-repairable JSON, not truncation), making AUTO mode silently
+  fail closed to "no search needed" on every run. Paired with a
+  JSON-only-output system prompt and higher `max_tokens`/
+  `max_regeneration_attempts` (300→600, 1→2).
+- [x] Chat gets web search (Linear Research explicitly excluded, per user
+  decision). No approval checkpoint — a new `web_search_enabled: bool`
+  toggle on `ChatStreamRequest` is itself the one-time-per-turn approval,
+  since Chat has no interrupt/resume mechanism to pause on. Reuses the
+  existing `WebSearchService`/`WebSearchNecessityService`/
+  `normalize_web_search_result` unchanged.
+  - New: `app/ai/runtime/chat/web_search.py::run_chat_web_search()`
+    (best-effort — any failure degrades to no search for that turn, never
+    fails the chat turn) and `ChatEventType`
+    (`chat_web_search_started/completed/skipped`, `category=TOOL`).
+  - `stream_chat` (SSE) and `stream_chat_ws` (WebSocket) both call
+    `run_chat_web_search()` before generation and prepend a formatted
+    web-context block to the prompt when results were found, via a
+    `_chain_events()` wrapper generator that emits the search's status
+    events ahead of the token stream.
+  - Frontend: a Web Search toggle button in `chat-composer.tsx`,
+    `use-chat.ts` handles the three new SSE event types (attaching
+    `webSearch: { stage, query, sources }` to the streaming assistant
+    message), and `message-bubble.tsx` renders a "Searching the
+    web…"/"Searched the web" chip plus clickable source-domain pills.
+  - [x] 8 new unit tests for `run_chat_web_search()` (toggle off, missing
+    collaborators, unavailable service, necessity failure, no-search-needed,
+    successful search, empty results, search failure) — all best-effort
+    degradation paths covered.
+  Full suite green (1410 tests), ruff/mypy clean across all 1159 backend +
+  test source files, frontend `tsc --noEmit`/`eslint`/`next build` clean.
+  Toggle defaults off; Linear Research's request/response schemas have no
+  `web_search_enabled` field, so it's untouched by construction.

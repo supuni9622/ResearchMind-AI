@@ -3,8 +3,6 @@ import { AlertIcon, BookIcon, NetworkIcon, SparklesIcon } from '@/components/ui/
 import { Markdown } from '@/components/ui/markdown';
 
 function WebSearchStatus({ webSearch }: { webSearch: NonNullable<ChatMessage['webSearch']> }) {
-  if (webSearch.stage === 'skipped') return null;
-
   return (
     <div className="mb-1.5 flex flex-col gap-1">
       <div className="flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-widest text-stone-600">
@@ -28,6 +26,11 @@ function WebSearchStatus({ webSearch }: { webSearch: NonNullable<ChatMessage['we
           ))}
         </ul>
       )}
+      {webSearch.stage === 'skipped' && (
+        <p className="text-stone-700 text-[11px]">
+          Nothing useful turned up — answered from general knowledge instead.
+        </p>
+      )}
     </div>
   );
 }
@@ -37,8 +40,6 @@ function PaperSearchStatus({
 }: {
   paperSearch: NonNullable<ChatMessage['paperSearch']>;
 }) {
-  if (paperSearch.stage === 'skipped') return null;
-
   return (
     <div className="mb-1.5 flex flex-col gap-1">
       <div className="flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-widest text-stone-600">
@@ -72,6 +73,11 @@ function PaperSearchStatus({
             );
           })}
         </ul>
+      )}
+      {paperSearch.stage === 'skipped' && (
+        <p className="text-stone-700 text-[11px]">
+          No matching papers found — answered from general knowledge instead.
+        </p>
       )}
     </div>
   );

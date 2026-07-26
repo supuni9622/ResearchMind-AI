@@ -136,6 +136,13 @@ async def test_research_tags_the_generation_request_for_the_research_runtime() -
     assert request.cache_runtime == CacheRuntime.RESEARCH
     assert request.artifact_runtime == ArtifactRuntime.RESEARCH
 
+    # L3 fix: `conversation_id` must be tagged on the request so
+    # `generation_usage` rows can be rolled up per conversation (see
+    # `GenerationUsageRepository.sum_for_conversation`) -- previously left
+    # unset, so every Linear Research usage row had a NULL conversation_id.
+    conversation = collaborators["session"].add.call_args_list[0].args[0]
+    assert request.conversation_id == conversation.id
+
 
 async def test_research_forwards_an_explicit_provider_override() -> None:
     service, collaborators = _make_service()
@@ -284,3 +291,7 @@ async def test_stream_research_emits_research_events_before_generation_events() 
 
     persisted = collaborators["session"].add.call_args.args[0]
     assert persisted.answer == "RAG works."
+
+    conversation = collaborators["session"].add.call_args_list[0].args[0]
+    request = collaborators["streaming_service"].stream_generate.call_args.kwargs["request"]
+    assert request.conversation_id == conversation.id

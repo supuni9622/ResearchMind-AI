@@ -31,6 +31,7 @@ from app.ai.runtime.research.web_search_inspection import (
 )
 from app.auth.dependencies import get_current_user
 from app.core.settings import settings
+from app.dependencies.generation_usage import get_generation_usage_repository
 from app.dependencies.rate_limiting import enforce_rate_limit, get_rate_limiter
 from app.dependencies.research import (
     get_research_conversation_service,
@@ -52,10 +53,12 @@ from app.models.research import ResearchSession
 from app.models.research_proposal import ResearchProposal
 from app.models.research_run import ResearchRun
 from app.models.user import User
+from app.repositories.generation_usage import GenerationUsageRepository
 from app.repositories.research import ResearchRepository
 from app.repositories.research_proposal import ResearchProposalRepository
 from app.repositories.research_run import ResearchRunRepository
 from app.repositories.research_run_event import ResearchRunEventRepository
+from app.schemas.generation_usage import ConversationUsageSummary
 from app.schemas.research import (
     DeepResearchTurnResponse,
     ResearchCitationsRequest,
@@ -430,6 +433,30 @@ async def get_research_conversation(
         title=conversation.title,
         turns=[_session_response(session) for session in sessions],
         deep_research_runs=deep_research_turns,
+    )
+
+
+@router.get(
+    "/conversations/{conversation_id}/cost",
+    response_model=ConversationUsageSummary,
+    summary="Roll up estimated generation cost for a research conversation's Linear Research turns",
+)
+async def get_research_conversation_cost(
+    conversation_id: UUID,
+    current_user: User = Depends(get_current_user),
+    conversation_service: ResearchConversationService = Depends(get_research_conversation_service),
+    usage: GenerationUsageRepository = Depends(get_generation_usage_repository),
+) -> ConversationUsageSummary:
+    conversation = await conversation_service.get_or_create(
+        conversation_id=conversation_id,
+        owner_id=current_user.id,
+    )
+
+    return ConversationUsageSummary(
+        **await usage.sum_for_conversation(
+            conversation_id=conversation.id,
+            owner_id=current_user.id,
+        )
     )
 
 

@@ -61,6 +61,35 @@ class GenerationUsageRepository:
         )
         return float((await self._session.execute(statement)).scalar_one())
 
+    async def sum_for_conversation(
+        self,
+        conversation_id: UUID,
+        owner_id: UUID,
+    ) -> dict[str, UUID | float | int]:
+        """Roll up cost/requests/tokens for every generation call tagged with
+        this conversation (Linear Research turns; Deep Research runs are
+        billed per-run under `session_id`, not `conversation_id`, so they
+        aren't included here). `owner_id` is a defense-in-depth scope, not
+        the only check -- callers must still verify the caller owns
+        `conversation_id` before invoking this.
+        """
+
+        statement = select(
+            func.coalesce(func.sum(GenerationUsage.estimated_cost_usd), 0),
+            func.count(GenerationUsage.id),
+            func.coalesce(func.sum(GenerationUsage.total_tokens), 0),
+        ).where(
+            GenerationUsage.conversation_id == conversation_id,
+            GenerationUsage.owner_id == owner_id,
+        )
+        cost, requests, tokens = (await self._session.execute(statement)).one()
+        return {
+            "conversation_id": conversation_id,
+            "total_cost_usd": float(cost),
+            "total_requests": int(requests),
+            "total_tokens": int(tokens),
+        }
+
     async def summary_for_owner(
         self,
         owner_id: UUID,

@@ -1,7 +1,12 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { api, type GenerationProvider, type ResearchSessionResponse } from '@/lib/api';
+import {
+  api,
+  type ConversationUsageSummary,
+  type GenerationProvider,
+  type ResearchSessionResponse,
+} from '@/lib/api';
 import type {
   ResearchConversationEntry,
   ResearchStage,
@@ -48,6 +53,7 @@ export function useResearch() {
   const [turns, setTurns] = useState<ResearchTurn[]>([]);
   const [conversations, setConversations] = useState<ResearchConversationEntry[]>([]);
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
+  const [conversationCost, setConversationCost] = useState<ConversationUsageSummary | null>(null);
 
   const refreshConversations = useCallback(async () => {
     try {
@@ -68,6 +74,34 @@ export function useResearch() {
   useEffect(() => {
     void refreshConversations();
   }, [refreshConversations]);
+
+  // Best-effort, Linear-Research-only cost rollup for the active
+  // conversation (L3 fix -- `GET /research/conversations/{id}/cost`). Keyed
+  // off the count of turns that have finished, not `turns` itself, so this
+  // doesn't refetch on every streamed token -- only once a turn actually
+  // lands (or a different/no conversation becomes active).
+  const doneTurnCount = turns.filter((t) => t.stage === 'done').length;
+
+  useEffect(() => {
+    if (!activeConversationId) {
+      setConversationCost(null);
+      return;
+    }
+    let cancelled = false;
+    api.research
+      .getConversationCost(activeConversationId)
+      .then((cost) => {
+        if (!cancelled) setConversationCost(cost);
+      })
+      .catch(() => {
+        // Cost display is informational only -- never block or disrupt
+        // the research flow on a failed lookup.
+        if (!cancelled) setConversationCost(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeConversationId, doneTurnCount]);
 
   const runAsk = useCallback(
     async (localId: string, query: string, conversationIdAtStart: string | null, provider?: GenerationProvider) => {
@@ -225,6 +259,7 @@ export function useResearch() {
     activeConversationId,
     setActiveConversationId,
     refreshConversations,
+    conversationCost,
     ask,
     selectConversation,
     loadFromHistory,

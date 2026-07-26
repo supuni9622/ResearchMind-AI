@@ -164,6 +164,17 @@ export interface ResearchConversationResponse {
   deep_research_runs: DeepResearchTurnResponse[];
 }
 
+// Matches `app/schemas/generation_usage.py::ConversationUsageSummary`
+// (GET /research/conversations/{id}/cost). Linear Research turns only --
+// Deep Research runs are billed per-run under `session_id`, not
+// `conversation_id`, so they're excluded from this rollup.
+export interface ConversationUsageSummary {
+  conversation_id: string;
+  total_cost_usd: number;
+  total_requests: number;
+  total_tokens: number;
+}
+
 // Matches `app/schemas/research.py::ResearchReportDownloadResponse`.
 export interface ResearchReportDownloadResponse {
   research_run_id: string;
@@ -583,6 +594,8 @@ export const api = {
       request<ResearchConversationListResponse>('/api/v1/research/conversations'),
     getConversation: (conversationId: string) =>
       request<ResearchConversationResponse>(`/api/v1/research/conversations/${conversationId}`),
+    getConversationCost: (conversationId: string) =>
+      request<ConversationUsageSummary>(`/api/v1/research/conversations/${conversationId}/cost`),
     // Deep Research (research_runtime_prd.md) -- explicit-consent escalation
     // from Linear Research, or a manual mode selection. See
     // RESEARCH_RUNTIME_IMPLEMENTATION_TRACKER.md's "Chat-to-Research

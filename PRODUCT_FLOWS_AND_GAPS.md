@@ -142,10 +142,11 @@ injected is the Memory Platform's session/semantic/research memory block
 This means: **Chat answers are never grounded in a user's uploaded documents.**
 A user who uploaded a PDF and asks about it in Chat gets an answer purely from the
 model's own knowledge plus whatever memory happens to be relevant — not from the
-document. This is a known, previously-documented gap (not new to this doc), but it
-belongs here because it's the single biggest functional difference between Chat and
-the other two paths, and nothing in the product surface currently tells the user
-that.
+document. **This is by design, not a gap** — it's the deliberate three-surface
+split described at the top of this file (Chat fast/conversational, Linear
+Research/Deep Research document-grounded), not an unfinished feature. It's called
+out here only because it's the single biggest functional difference between Chat
+and the other two paths, not as an open item.
 
 ### Optional tool augmentation (Web Search + Paper Search, both 2026-07-25/26)
 
@@ -284,10 +285,11 @@ review loop. "Linear" is accurate.
   itself doesn't have.
 - `session_id=research_id` is a **fresh UUID every call** (`service.py:129,160`),
   unlike Deep Research where `session_id=research_run_id` persists across an
-  entire multi-step run. This is correct for linear (one call = one cost record)
-  but means **cost visibility here is per-call, not per-conversation** — summing
-  cost across a research conversation's turns requires joining on
-  `conversation_id`, not a single `session_id`, if that's ever needed.
+  entire multi-step run. This is correct for linear (one call = one cost record).
+  **Fixed 2026-07-26 (L3):** `generation_usage.conversation_id` is now also
+  tagged on every Linear Research call (previously left `NULL`), so
+  `GET /research/conversations/{id}/cost` can roll up a conversation's total
+  cost directly by `conversation_id`, no join needed.
 
 ### Cost
 
@@ -311,7 +313,7 @@ review loop. "Linear" is accurate.
 |----|-------|----------|
 | L1 | Confirmed: retrieval (embedding + Qdrant query) runs on every `/research` call regardless of cache outcome — caching only saves the generation-provider call. A repeat/near-duplicate question still pays full retrieval cost every time. | Medium — real, recurring cost, not a one-time architecture note |
 | ~~L2~~ | ~~No rate limiting~~ — **Fixed 2026-07-23**: `/research`, `/research/stream`, and `/research/citations` share one `ValkeyRateLimiter` bucket per owner (default 15 req/60s, `research_rate_limit_requests`/`research_rate_limit_window_seconds`), checked before retrieval/generation starts. | Resolved |
-| L3 | No per-conversation cost rollup surfaced anywhere (cost is trackable via `generation_usage` but nothing queries it by `conversation_id` today) | Low |
+| ~~L3~~ | ~~No per-conversation cost rollup surfaced anywhere~~ — **Fixed 2026-07-26**: root cause was that `ResearchService.research()`/`.stream_research()` never set `GenerationRequest.conversation_id`, so every Linear Research `generation_usage` row had a `NULL` conversation_id even though the column existed (Chat already populated it). Both call sites now tag `conversation_id=conversation.id`; a new `GenerationUsageRepository.sum_for_conversation()` rolls up cost/requests/tokens scoped to `(conversation_id, owner_id)`; new `GET /research/conversations/{conversation_id}/cost` (owner-scoped via the same `ResearchConversationService.get_or_create()` 404-on-mismatch check the existing conversation-replay route uses) surfaces it. Deep Research runs are billed per-run under `session_id`, not `conversation_id`, so they're deliberately excluded from this rollup — only reflects Linear Research turns. Regression-tested (`tests/unit/ai/research/test_service.py`, `tests/unit/repositories/test_generation_usage.py`); full suite (1492 tests) green. | Resolved |
 
 ---
 
@@ -825,4 +827,3 @@ call each already makes.
 | ~~✓~~ | D5 | **Done (2026-07-24, missed in earlier passes of this document — corrected now)** — `expire_stale_awaiting_approval()` auto-cancels runs stuck at any of the three approval pauses past a 72h TTL (default), genuinely scheduled via the worker's own poll loop, not left as an unwired sweep. |
 | 2 | D7 | Consider parallelizing the escalation-check with Linear Research instead of gating it, so the UI's default path isn't paying a mandatory extra LLM call in serial |
 | 3 | L1 | Consider short-circuiting retrieval on an exact-cache hit for Linear Research (would need the cache lookup moved ahead of `_retrieve_and_build_context()`, a real flow change, not a config flip) |
-| 4 | C1 | Product decision, not a bug: whether/when Chat should get retrieval grounding (already tracked elsewhere as a known gap) |

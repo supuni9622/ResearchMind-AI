@@ -1,15 +1,36 @@
 # ResearchMind AI — Roadmap
 
-**Version:** 3.0 (Unified)
+**Version:** 3.1 (Unified)
 **Last Updated:** 2026-07-26
 **Status:** Living document — single source of truth for project progress, milestone traceability, and implementation order.
 
 **2026-07-26 note:** Phase 5 gained a Research Intelligence MCP paper-search
 platform (ADR-037) — see below. This is ResearchMind's first MCP **client**
 integration (one external server, one tool, two call sites), not the
-general-purpose Phase 6 (Agentic AI) / Phase 7 (MCP Ecosystem) work, both of
-which remain unstarted and deferred per ADR-033 exactly as before. Do not
-read Phase 5's new MCP-client work as progress on Phase 6/7.
+general-purpose Phase 6 (Agentic AI) / Phase 7 (MCP Ecosystem) work. Phase 6's
+*general-purpose, non-Research-scoped, multi-agent* work remains unstarted and
+deferred per ADR-033 exactly as before — but note Phase 5 itself is already a
+real, working **single-agent** platform (LangGraph planning/decomposition/
+retrieval/synthesis/review with three human-approval checkpoints), so Phase 6
+is "single-agent: done via Phase 5, general-purpose/multi-agent: not started,"
+not a flat 0%. The external "Research Intelligence MCP" **server** that Phase
+5's client connects to (`prds/3. mcp_server_setup.md`) lives in its own
+separate repository outside this monorepo — building/operating that server is
+not part of, and doesn't advance, Phase 7's MCP *Ecosystem* work (a
+ResearchMind-side registry/manager routing to multiple external servers),
+which remains unstarted. Do not read Phase 5's MCP-client work, or the
+existence of that separate server repo, as progress on Phase 6/7.
+
+**2026-07-26 note (Production Platform):** the Prometheus + Grafana slice of
+Phase 9 was pulled forward and built this session, ahead of the rest of that
+phase — see the corrected Phase 9 section and `prometheus-grafana-observability-platform`
+notes below. `apps/api/app/ai/observability/prometheus/` (recorder/registry/
+middleware/endpoint), `infra/observability/{prometheus,grafana}/` (scrape
+config, alerts, dashboards, provisioning) are real and wired into HTTP,
+Generation, Guardrails, Memory, Runtime Cache, Web Search, and MCP Paper
+Search. OpenTelemetry and Phoenix remain unstarted; Kubernetes/ECS, CI/CD
+beyond the GitHub Actions foundation, and blue/green/canary/performance work
+are all still Phase 9 gaps.
 
 ---
 
@@ -59,10 +80,10 @@ They're kept under `docs/archive/` for history, not deleted — do not treat the
 | 3 | AI Runtime / Generation Platform | ✅ Complete | Multi-provider LLM runtime, structured output, validation, guardrails, routing, caching, observability |
 | 4 | Research API (Linear) | ✅ Complete | `POST /research` — first live, cited, end-to-end product surface |
 | 5 | Research Runtime (Deep Research) | ✅ Complete | Single-agent LangGraph: proposal → plan → approval → multi-wave graph → report approval → PDF; web search (Tavily, 3rd checkpoint) and paper search (Research Intelligence MCP client, non-blocking post-report event) both also reachable from Chat |
-| 6 | Agentic AI Platform | ⏳ Planned | General-purpose (non-Research-scoped) agents; deferred per ADR-033 |
-| 7 | MCP Ecosystem | ⏳ Planned | External tool/capability integration via Model Context Protocol — the *ecosystem* (registry, manager, multi-server routing) is still unstarted; a narrow, single-server/single-tool MCP client now exists via Phase 5's ADR-037 (paper search), see below |
+| 6 | Agentic AI Platform | 🟡 Partial | Single-agent done via Phase 5 (Deep Research's LangGraph workflow); general-purpose, non-Research-scoped, multi-agent orchestration remains unstarted, deferred per ADR-033 |
+| 7 | MCP Ecosystem | ⏳ Planned | External tool/capability integration via Model Context Protocol — the ResearchMind-side *ecosystem* (registry, manager, multi-server routing) is still unstarted; a narrow, single-server/single-tool MCP client now exists via Phase 5's ADR-037 (paper search). The external MCP server it connects to lives in its own separate repo and is unrelated to this phase's scope |
 | 8 | AI Quality / Evaluation Platform | 🟡 Partial | Retrieval + generation benchmarks done; Experimentation Platform not started |
-| 9 | Production Platform | ⏳ Planned | Kubernetes/ECS, CI/CD, OpenTelemetry, Prometheus, Grafana |
+| 9 | Production Platform | 🟡 Partial | Prometheus + Grafana metrics/dashboards done (pulled forward, 2026-07-26); Kubernetes/ECS, CI/CD beyond GitHub Actions, OpenTelemetry, Phoenix, blue/green/canary, and performance optimization remain unstarted |
 | 10 | Enterprise Platform | ⏳ Planned | RBAC, multi-tenancy, billing, compliance, admin portal |
 
 Maturity ladder (informal, cross-cutting): `NotebookLM++ → Perplexity v1 → Open Deep Research → Manus / Glean`. As of 2026-07-23, the Deep Research path (Phase 5) reaches "Open Deep Research" territory; Chat and Linear Research remain at "NotebookLM++ + Perplexity v1."
@@ -329,7 +350,7 @@ Canonical, immutable, policy-gated persistence for AI Runtime executions.
 
 Real LangSmith tracing + metrics/statistics/report/artifact layer, wired into both Generation entry points (`generate()` and `stream_generate()` — so Research and Chat both get it) and the Knowledge Processing pipeline. Live-verified against a real LangSmith account/S3 bucket; found and fixed 3 real bugs (streaming path completely dark, missing artifact-policy rule silently dropped research artifacts, tracer never sent real input/output) plus a follow-up (streamed generations never scored for post-generation validation/guardrails — now do, informationally).
 
-Advanced observability (OpenTelemetry, Prometheus, Grafana, Phoenix): ⏳ Deferred to Phase 9.
+Prometheus + Grafana (metrics/dashboards): ✅ Built 2026-07-26, pulled forward from Phase 9 — see Phase 9 below. OpenTelemetry and Phoenix: ⏳ still deferred to Phase 9.
 
 **Phase 3 Deliverable:** ✅ Provider-independent generation runtime powering every downstream product surface (Chat, Linear Research, Deep Research).
 
@@ -465,9 +486,9 @@ See `docs/archive/` source files' equivalent sections, and `PRODUCT_FLOWS_AND_GA
 
 ---
 
-## Phase 6 — Agentic AI Platform ⏳
+## Phase 6 — Agentic AI Platform 🟡
 
-**Goal:** General-purpose (non-Research-scoped) agent orchestration — distinct from Phase 5's Deep Research, which is a single, purpose-built agent.
+**Goal:** General-purpose (non-Research-scoped) agent orchestration — distinct from Phase 5's Deep Research, which is a single, purpose-built agent **that is itself already real, working, production single-agent orchestration** (LangGraph planning, dependency-wave decomposition, parallel retrieval, synthesis, review, bounded repair loops, three human-approval checkpoints). This phase is about generalizing that pattern beyond Research, and about multi-agent collaboration — neither of which exists yet.
 
 | Milestone | Status |
 |---|---|
@@ -506,6 +527,13 @@ are marked 🟡 Partial rather than ✅ for that reason; every other milestone
 here (registry, manager, the other domain MCPs, evaluation) is unaffected
 and remains ⏳ Planned. See Phase 5's "Research Intelligence MCP Paper
 Search Platform" subsection and ADR-037 for what actually shipped.
+Separately: the external "Research Intelligence MCP" **server** itself
+(`prds/3. mcp_server_setup.md` — its own repo, `stdio`/`streamable-http`
+transports, Claude Desktop/Cursor/MCP Inspector as documented clients) is
+being built as its own standalone project outside this monorepo. That's real,
+ongoing work, but it isn't *this* phase's scope either — Phase 7 is about
+ResearchMind acting as an MCP client/hub across many external servers, not
+about authoring an MCP server for others to connect to.
 
 | Milestone | Status |
 |---|---|
@@ -556,16 +584,32 @@ Attack datasets, red-teaming — not begun.
 
 ---
 
-## Phase 9 — Production Platform ⏳
+## Phase 9 — Production Platform 🟡
 
 **Goal:** Prepare ResearchMind for production deployment.
+
+**2026-07-26 note:** Prometheus + Grafana were pulled forward and built this
+session (`prometheus_grafana_observability_prd.md`), ahead of the rest of this
+phase. `apps/api/app/ai/observability/prometheus/` (`recorder.py`,
+`registry.py`, `middleware.py`, `endpoint.py`, `names.py` — a single bounded
+metric registry) is real code, wired into HTTP (ASGI middleware), Generation,
+Guardrails, Memory, Runtime Cache, Web Search, and MCP Paper Search.
+`infra/observability/prometheus/` (scrape config + alerts) and
+`infra/observability/grafana/` (dashboards + provisioning) are real Compose
+services. Known, disclosed gaps: no `api` service in `docker-compose.yml`
+(Prometheus scrapes the host-run API via `host.docker.internal`), no
+multiprocess Prometheus support (single-worker only), and no
+`research_active_runs` gauge or web-search fetch/evidence metrics yet — see
+`prometheus-grafana-observability-platform` notes for the full list. Every
+other row below is unaffected and still reflects the prior, unstarted state.
 
 | Milestone | Status |
 |---|---|
 | Docker | ✅ (dev; production-grade multi-stage not verified) |
 | Kubernetes / ECS | ⏳ Planned |
 | CI/CD (build/test/security-scan/deploy/rollback) | 🟡 GitHub Actions foundation only |
-| OpenTelemetry, Prometheus, Grafana, Phoenix | ⏳ Planned — explicitly deferred by the Observability Platform's own non-goals |
+| Prometheus + Grafana (metrics, dashboards, alerts) | ✅ Built 2026-07-26 — see note above |
+| OpenTelemetry, Phoenix (distributed tracing) | ⏳ Planned |
 | Performance optimization (latency, throughput, memory, cost, startup) | ⏳ Planned |
 | Security Platform (prompt-injection/jailbreak/PII detection exist at the Guardrails layer already; tool policies, MCP permissions, secret management) | 🟡 Partial — see Phase 3.6 Guardrails for what already exists |
 | Blue/green deploy, canary releases, feature flags, backup/DR | ⏳ Planned |
@@ -595,8 +639,8 @@ These evolve continuously across every phase rather than belonging to one.
 | Capability | Starts | Matures | Current State |
 |---|---|---|---|
 | Structured Logging | Phase 0 | Phase 9 | ✅ Live everywhere |
-| Metrics | Phase 0 | Phase 9 | ✅ `GenerationMetricsService`, Prometheus-ready counters |
-| Tracing | Phase 2 | Phase 9 | ✅ Real LangSmith tracing (Phase 3.10) |
+| Metrics | Phase 0 | Phase 9 | ✅ `GenerationMetricsService` + a real Prometheus recorder/registry (Phase 9, 2026-07-26), scraped by a live Grafana/Prometheus stack |
+| Tracing | Phase 2 | Phase 9 | 🟡 Real LangSmith tracing (Phase 3.10); OpenTelemetry/distributed tracing still ⏳ Planned |
 | AI Evaluation | Phase 2 | Phase 8 | 🟡 Retrieval + generation done; agent/security eval pending |
 | Testing | Phase 0 | Continuous | ✅ Real pytest suite, ~1000+ tests, fakes/mocks over live services |
 | Security | Phase 0 | Phase 10 | 🟡 Guardrails MVP live; enterprise ACL/tool policy pending |

@@ -55,7 +55,7 @@ Active development. The backend (`apps/api`) is well past scaffolding — retrie
 | **Document ingestion** | Async pipeline: upload → storage → queue → worker → parse (Docling: PDF/DOCX/Markdown/TXT) → metadata/statistics enrichment → chunk → embed → index — see `docs/workflows/document-ingestion.md` |
 | **Generation runtime** | Multi-provider (Groq, others) with routing strategies, 3-tier semantic caching, schema/hallucination/runtime validation, and a guardrails layer (input/retrieval/generation/runtime stages) that can warn, block, escalate, or trigger regeneration |
 | **Memory** | Session, user, semantic, and research memory (Valkey + PostgreSQL + Qdrant), injected into prompts and extracted from completed turns |
-| **Web search & MCP** | Tavily web search (shared by Chat and Deep Research, approval-gated in Deep Research); MCP client to an external Research Intelligence paper-search server |
+| **Web search & MCP** | Tavily web search (shared by Chat and Deep Research, approval-gated in Deep Research); MCP client to the [Research Intelligence MCP server](https://github.com/supuni9622/research-intelligence-mcp) (paper search) — run it locally, see below |
 | **Observability** | Structured logs (`structlog`, request-id correlated), LangSmith tracing per generation, Prometheus + Grafana (4 dashboards, 5 alert rules) — see `docs/monitoring/` |
 | **Evaluation & benchmarking** | Deterministic groundedness/hallucination detection live in production; offline engineering benchmarks for chunking/embeddings/retrieval/reranking/generation with regression detection — see `docs/evaluation/` |
 | **Auth** | AWS Cognito Hosted UI, JWT-validated on every protected request |
@@ -276,6 +276,20 @@ python -m apps.worker.research_runtime_main
 This process runs `RESEARCH_RUNTIME_WORKER_CONCURRENCY` (default `1`) concurrent claim lanes, each with its own DB session. The Postgres outbox (`SELECT ... FOR UPDATE SKIP LOCKED`) also makes it safe to run multiple copies of this same process/container for true horizontal scaling — both knobs compose.
 
 **From now on: whenever you change a model, run `uv run alembic revision --autogenerate -m "..."`, read the generated file, then `./scripts/dev.sh` as usual.**
+
+---
+
+### 11. Connect the Research Intelligence MCP server (optional)
+
+Paper search (Chat + Deep Research) is powered by a separate MCP server, run locally alongside the API:
+
+```bash
+git clone https://github.com/supuni9622/research-intelligence-mcp
+cd research-intelligence-mcp
+# follow that repo's own setup instructions to run it
+```
+
+It's expected to be reachable at `MCP_PAPERS_SERVER_URL` (default `http://127.0.0.1:8080/mcp`) in `.env`. Paper search degrades cleanly if it's not running — set `MCP_PAPERS_ENABLED=false` or leave `MCP_PAPERS_SERVER_URL` unset to skip it without breaking Chat or Deep Research.
 
 ---
 

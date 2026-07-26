@@ -4,6 +4,39 @@
 
 ResearchMind lets you upload documents, chat with them, and escalate any question into a multi-step **Deep Research** run: the system plans a research task, gathers evidence across multiple waves of retrieval (and, with your approval, live web search), synthesizes a cited draft, reviews it against the evidence for unsupported claims, and produces a downloadable PDF report — pausing for your approval at each consequential step along the way.
 
+## Meet ResearchMind
+![research_mind_landing](docs/images/image.png)
+
+## Your analytics, at a glance
+![research_mind_dashboard](docs/images/image-1.png)
+
+## Build your paper library
+![document_ingestion](docs/images/image-12.png)
+
+## Brainstorm, search the web, find papers
+![chat_view](docs/images/image-2.png)
+
+## Ask your papers, get a grounded answer
+![linear_research](docs/images/image-3.png)
+
+## Go deep: multi-step reasoning, web access, related papers
+![deep_research_plan_approval](docs/images/image-4.png)
+
+## Approve web search — or skip approval entirely
+![web_search_approval_step](docs/images/image-5.png)
+
+## Review the summary before the report drops
+![summary_approval](docs/images/image-6.png)
+
+## Every claim, cited
+![cited_sources](docs/images/image-7.png)
+
+## Discover related papers
+![related_paper_search](docs/images/image-8.png)
+![research_papers](docs/images/image-11.png)
+
+## Your research report, ready
+![research_report](docs/images/image-9.png)
 ---
 
 ## Project Status
@@ -545,3 +578,19 @@ Start here, depending on what you need:
 | Debug a running instance | `docs/guides/debugging.md`, `docs/runbooks/troubleshooting.md` |
 | Follow repo coding conventions | `docs/guides/coding-standards.md` |
 | See current build status / what's next | `docs/project/01-current-state.md`, `docs/roadmap/` |
+
+### Monitoring dashboards
+
+```bash
+docker compose up -d prometheus grafana
+```
+
+| Service | URL | Credentials |
+|---|---|---|
+| Grafana | http://localhost:3001 | `admin` / `admin` (`GRAFANA_ADMIN_USER` / `GRAFANA_ADMIN_PASSWORD`) |
+| Prometheus | http://localhost:9090 | — |
+| Raw metrics exposition | http://localhost:8000/metrics | — |
+
+Dashboards, datasource, and alert rules are all auto-provisioned from `infra/observability/` — nothing to click together by hand. Four dashboards ship under the **ResearchMind** folder: Overview, Generation Runtime, Research Tools, Memory Runtime. See `docs/monitoring/grafana.md` and `docs/runbooks/prometheus-grafana-observability.md` for the full panel/alert reference.
+
+![grafana dashboard](docs/images/image-10.png)

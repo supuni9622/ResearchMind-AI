@@ -72,6 +72,10 @@ export default function DocumentsPage() {
   return (
     <div className="px-8 py-10 max-w-4xl">
       <PageHeader eyebrow="Knowledge Base" title="Documents" />
+      <p className="text-stone-500 text-[13px] -mt-5 mb-6">
+        Found a paper worth keeping in Chat? Download it and upload it here — Linear and Deep
+        Research only draw on what&apos;s in this library.
+      </p>
 
       <div
         onDragOver={(e) => {

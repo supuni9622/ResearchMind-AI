@@ -1,28 +1,28 @@
 'use client';
 
 import { motion } from 'framer-motion';
-import { FileTextIcon, LayersIcon, NetworkIcon, CheckCircleIcon, ArrowDownIcon } from '@/components/ui/icons';
+import { MessageIcon, FileTextIcon, NetworkIcon, CheckCircleIcon, ArrowDownIcon } from '@/components/ui/icons';
 
 const STAGES = [
   {
-    icon: FileTextIcon,
-    title: 'Documents',
-    description: 'PDFs, DOCX, and Markdown ingested into your library.',
+    icon: MessageIcon,
+    title: 'Chat',
+    description: 'Brainstorm your question and find papers worth reading, web and paper search included.',
   },
   {
-    icon: LayersIcon,
-    title: 'Knowledge Engine',
-    description: 'Chunking, embeddings, and hybrid indexing over every source.',
+    icon: FileTextIcon,
+    title: 'Documents',
+    description: 'Download what matters and upload it — PDFs, DOCX, and Markdown, chunked and indexed.',
   },
   {
     icon: NetworkIcon,
     title: 'Research Runtime',
-    description: 'Retrieval, context building, and multi-step reasoning.',
+    description: 'Linear Research answers fast and cited; Deep Research plans, gathers, and drafts with your approval at each step.',
   },
   {
     icon: CheckCircleIcon,
-    title: 'Grounded Answers',
-    description: 'Cited, verifiable answers — traceable to the originating passage.',
+    title: 'Grounded Draft',
+    description: 'A cited, verifiable answer or report — traceable to the originating passage, with related papers suggested.',
   },
 ];
 
@@ -44,7 +44,7 @@ export function ArchitectureSection() {
             className="font-display text-stone-100"
             style={{ fontSize: '1.75rem', fontVariationSettings: "'opsz' 40, 'SOFT' 0" }}
           >
-            From raw documents to grounded answers.
+            From open brainstorming to a grounded draft.
           </h2>
         </motion.div>
 

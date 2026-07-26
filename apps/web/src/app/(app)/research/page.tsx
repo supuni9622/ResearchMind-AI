@@ -65,10 +65,29 @@ export default function ResearchPage() {
     check: ResearchEscalationCheck;
   } | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [hasDocuments, setHasDocuments] = useState<boolean | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   const linearLoading = turns.some((t) => t.stage === 'searching' || t.stage === 'generating');
   const loading = linearLoading || checkingEscalation || creatingProposal || pendingEscalation !== null;
+
+  useEffect(() => {
+    // Best-effort only -- used purely to steer the empty-state copy
+    // ("upload something first" vs "you'll still get an answer"), never to
+    // gate submission. A failure here shouldn't affect the rest of the page.
+    let cancelled = false;
+    api.documents
+      .list()
+      .then((docs) => {
+        if (!cancelled) setHasDocuments(docs.length > 0);
+      })
+      .catch(() => {
+        if (!cancelled) setHasDocuments(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -246,11 +265,16 @@ export default function ResearchPage() {
           >
             Research
           </h1>
+          <p className="text-stone-500 text-[12px] mt-1">
+            {mode === 'deep'
+              ? 'Multi-step agentic research — plan, evidence, and report each need your approval before the run continues. Web and paper search available.'
+              : 'Grounded in your uploaded documents only — a fast, cited, one-shot answer. No web or paper search here.'}
+          </p>
         </div>
 
         <div className="flex-1 overflow-y-auto px-8 py-6 scrollbar-thin">
           {feed.length === 0 ? (
-            <EmptyWorkspace onSuggest={setInput} />
+            <EmptyWorkspace mode={mode} hasDocuments={hasDocuments} onSuggest={setInput} />
           ) : (
             <div className="max-w-2xl space-y-4">
               {feed.map((item) =>

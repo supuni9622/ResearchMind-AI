@@ -8,6 +8,7 @@ const NAV_ITEMS = [
   {
     href: '/dashboard',
     label: 'Dashboard',
+    title: 'Overview and quick actions',
     icon: (
       <svg width="15" height="15" viewBox="0 0 15 15" fill="none" aria-hidden="true">
         <rect x="1" y="1" width="5.5" height="5.5" rx="0.75" stroke="currentColor" strokeWidth="1.2" />
@@ -20,6 +21,7 @@ const NAV_ITEMS = [
   {
     href: '/chat',
     label: 'Chat',
+    title: 'Brainstorm freely — web and paper search, no document grounding',
     icon: (
       <svg width="15" height="15" viewBox="0 0 14 14" fill="none" aria-hidden="true">
         <path
@@ -34,6 +36,7 @@ const NAV_ITEMS = [
   {
     href: '/research',
     label: 'Research',
+    title: 'Grounded Q&A and deep, multi-step reports from your document library',
     icon: (
       <svg width="15" height="15" viewBox="0 0 15 15" fill="none" aria-hidden="true">
         <circle cx="6.5" cy="6.5" r="5" stroke="currentColor" strokeWidth="1.2" />
@@ -44,6 +47,7 @@ const NAV_ITEMS = [
   {
     href: '/documents',
     label: 'Documents',
+    title: 'Upload the papers Research should be grounded in',
     icon: (
       <svg width="15" height="15" viewBox="0 0 15 15" fill="none" aria-hidden="true">
         <path
@@ -86,13 +90,14 @@ export function Sidebar() {
 
       <nav className="flex-1 px-2 py-3">
         <ul className="space-y-0.5" role="list">
-          {NAV_ITEMS.map(({ href, label, icon }) => {
+          {NAV_ITEMS.map(({ href, label, title, icon }) => {
             const active =
               pathname === href || pathname.startsWith(`${href}/`);
             return (
               <li key={href}>
                 <Link
                   href={href}
+                  title={title}
                   className={`flex items-center gap-2.5 px-3 py-2 rounded-md text-[13px] transition-colors duration-100 ${
                     active
                       ? 'bg-ink-700 text-stone-100'

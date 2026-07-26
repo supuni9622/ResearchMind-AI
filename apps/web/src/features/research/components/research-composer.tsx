@@ -10,12 +10,18 @@ import {
 import { BookIcon, NetworkIcon, SparklesIcon, ZapIcon } from '@/components/ui/icons';
 
 const MODE_OPTIONS: { value: ResearchMode; label: string; icon: typeof ZapIcon; title: string }[] = [
-  { value: 'linear', label: 'Linear', icon: ZapIcon, title: 'Fast, one-shot cited answer' },
+  {
+    value: 'linear',
+    label: 'Linear',
+    icon: ZapIcon,
+    title: 'Grounded in your uploaded documents only -- fast, one-shot, cost-effective',
+  },
   {
     value: 'deep',
     label: 'Deep',
     icon: SparklesIcon,
-    title: 'Multi-step research report -- plan review, then an approved async run',
+    title:
+      'Agentic multi-step report with web + paper search -- you approve the plan and the final draft before anything publishes',
   },
 ];
 
@@ -178,7 +184,7 @@ export function ResearchComposer({
               placeholder={
                 mode === 'deep'
                   ? 'Describe what you want a comprehensive report on…'
-                  : 'Ask a research question…'
+                  : 'Ask a question about your uploaded documents…'
               }
               rows={1}
               disabled={loading}

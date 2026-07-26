@@ -72,6 +72,36 @@ async def test_model_failure_falls_back_to_the_raw_truncated_prompt() -> None:
 
 
 @pytest.mark.asyncio
+async def test_conversation_context_is_folded_into_the_extraction_prompt() -> None:
+    """Regression coverage for the production bug (2026-07-26): a topicless
+    follow-up like "find me some research articles in this field" has no
+    resolvable subject without the turns that came before it. When
+    `conversation_context` is supplied, it must reach the generation
+    request so the model can resolve the reference."""
+
+    runtime = AsyncMock()
+    runtime.execute.return_value = SimpleNamespace(
+        parsed_output=PaperQueryExtractionResult(query="earthquake mechanisms"),
+    )
+    service = PaperQueryExtractionService(
+        cheap_generation_runtime=runtime, cheap_provider=GenerationProvider.OPENAI
+    )
+
+    query = await service.extract(
+        user_prompt="find me some research articles in this field",
+        owner_id=uuid4(),
+        session_id=uuid4(),
+        conversation_context="User: why do earthquakes happen\nAssistant: ...",
+    )
+
+    assert query == "earthquake mechanisms"
+    sent_prompt = runtime.execute.await_args.args[0].user_prompt
+    assert "Conversation so far" in sent_prompt
+    assert "why do earthquakes happen" in sent_prompt
+    assert "find me some research articles in this field" in sent_prompt
+
+
+@pytest.mark.asyncio
 async def test_schema_invalid_output_falls_back_to_the_raw_prompt() -> None:
     runtime = AsyncMock()
     runtime.execute.return_value = SimpleNamespace(parsed_output="not a schema object")

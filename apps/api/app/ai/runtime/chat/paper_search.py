@@ -81,6 +81,7 @@ async def run_chat_paper_search(
     session_id: UUID,
     paper_search: PaperSearchService | None,
     query_extraction: PaperQueryExtractionService | None = None,
+    conversation_context: str | None = None,
 ) -> ChatPaperSearchOutcome:
     """Best-effort: any failure here degrades to "no paper search for this
     turn", never raises."""
@@ -90,7 +91,10 @@ async def run_chat_paper_search(
 
     if query_extraction is not None:
         query = await query_extraction.extract(
-            user_prompt=user_prompt, owner_id=owner_id, session_id=session_id
+            user_prompt=user_prompt,
+            owner_id=owner_id,
+            session_id=session_id,
+            conversation_context=conversation_context,
         )
     else:
         query = user_prompt.strip()[:_MAX_QUERY_CHARACTERS]

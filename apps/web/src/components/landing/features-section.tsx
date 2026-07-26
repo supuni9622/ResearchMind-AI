@@ -2,25 +2,31 @@
 
 import { motion } from 'framer-motion';
 import {
+  MessageIcon,
   UploadIcon,
-  SearchIcon,
+  ZapIcon,
   TagIcon,
-  LayersIcon,
-  NetworkIcon,
+  SparklesIcon,
 } from '@/components/ui/icons';
 
 const FEATURES = [
   {
+    icon: MessageIcon,
+    title: 'Chat',
+    description:
+      'Brainstorm ideas, search the web, and discover papers worth reading — an open space, not grounded in your library.',
+  },
+  {
     icon: UploadIcon,
     title: 'Upload',
     description:
-      'Bring PDFs, Word documents, and Markdown into a single research library — no folder structure required.',
+      'Found a paper worth keeping? Add it to your library — PDFs, Word documents, and Markdown, no folder structure required.',
   },
   {
-    icon: SearchIcon,
-    title: 'Query',
+    icon: ZapIcon,
+    title: 'Linear Research',
     description:
-      'Ask in plain language. ResearchMind retrieves the exact passages that matter, across every document you own.',
+      'A fast, one-shot, cited answer drawn only from your documents — no upload yet still answers, clearly flagged as ungrounded.',
   },
   {
     icon: TagIcon,
@@ -29,16 +35,10 @@ const FEATURES = [
       'Every claim traces back to a source, a page, and a passage — verify anything with one click.',
   },
   {
-    icon: LayersIcon,
-    title: 'Synthesize',
-    description:
-      'Cross-document reasoning surfaces patterns and contradictions a single-file search would miss.',
-  },
-  {
-    icon: NetworkIcon,
+    icon: SparklesIcon,
     title: 'Deep Research',
     description:
-      'Multi-step research sessions — planning, retrieval, and review — for questions that take more than one pass.',
+      'An agentic, multi-step report — plan, evidence, and draft each need your approval, with web and paper search along the way.',
   },
 ];
 

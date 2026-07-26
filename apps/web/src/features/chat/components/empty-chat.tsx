@@ -1,10 +1,10 @@
 import { MessageIcon } from '@/components/ui/icons';
 
 const SUGGESTIONS = [
-  'What is RAG?',
-  'Explain this paper.',
-  'Summarize section 3.',
-  'Compare these two papers.',
+  'Help me brainstorm angles for a research question on…',
+  'What papers should I be reading on this topic?',
+  'What are the recent developments in this field?',
+  'Poke holes in this hypothesis before I commit to it.',
 ];
 
 export function EmptyChat({ onSuggest }: { onSuggest: (q: string) => void }) {
@@ -13,10 +13,11 @@ export function EmptyChat({ onSuggest }: { onSuggest: (q: string) => void }) {
       <div className="w-12 h-12 rounded-xl bg-ink-800 border border-ink-600 flex items-center justify-center mb-4 text-stone-600">
         <MessageIcon size={18} />
       </div>
-      <h2 className="text-stone-300 text-sm font-medium mb-2">Ask ResearchMind anything</h2>
+      <h2 className="text-stone-300 text-sm font-medium mb-2">Your open research space</h2>
       <p className="text-stone-500 text-[13px] mb-8 leading-relaxed">
-        Quick questions, clarifications, and follow-ups — grounded in this conversation. For a
-        cited, document-grounded report, use Research instead.
+        Brainstorm ideas, search the web, and find papers worth reading — nothing here is
+        grounded in your uploaded library. Found something worth keeping? Download it and add it
+        to Documents, then ask about it in Research.
       </p>
       <div className="w-full space-y-2">
         {SUGGESTIONS.map((s) => (

@@ -16,6 +16,18 @@ zero -- likely a conjunctive/AND-like match under the hood that a 5+ term
 query rarely satisfies. The prompt below now explicitly caps the output at
 2-4 words, not just "short."
 
+A third gap found 2026-07-26: `extract()` only ever saw the single latest
+message, never prior turns. A topicless follow-up like "find me some
+research articles in this field" has no resolvable subject without the
+conversation that came before it, so the model either guessed a generic
+non-topic or produced something the search backend matched nothing
+against -- indistinguishable, from the caller's side, from "nothing was
+found," which is silently swallowed (see `paper_search.py`'s
+`chat_paper_search_skipped` event, which the frontend renders as no
+badge at all). `conversation_context` (optional, best-effort, recent
+turns only -- not the full history) lets the model resolve "this field"-
+style anaphora against what was actually being discussed.
+
 Mirrors `WebSearchNecessityService`'s cheap-model pattern (small, bounded,
 dedicated GenerationService/Runtime pair, `gpt-5-mini`/`claude-haiku-4-5`,
 never the main synthesis-tier model) minus the yes/no decision -- the
@@ -54,10 +66,10 @@ _MAX_PROMPT_CHARACTERS = 2000
 _FALLBACK_QUERY_CHARACTERS = 500
 
 _SYSTEM_PROMPT = (
-    "Distill the user's message into a SHORT academic search query of 2 to "
-    "4 words -- never more than 4 words, never a question or a request "
-    "sentence -- suitable for searching Semantic Scholar or arXiv. The "
-    "search backend matches short phrases well but returns nothing for "
+    "Distill the user's LATEST message into a SHORT academic search query "
+    "of 2 to 4 words -- never more than 4 words, never a question or a "
+    "request sentence -- suitable for searching Semantic Scholar or arXiv. "
+    "The search backend matches short phrases well but returns nothing for "
     "long, keyword-stuffed queries, so shorter is always better; when in "
     "doubt, pick the single most central 2-3 word topic rather than "
     "listing every related concept. Examples: 'can I have research papers "
@@ -66,9 +78,14 @@ _SYSTEM_PROMPT = (
     "mechanisms' (not 'earthquake mechanisms plate tectonics fault "
     "rupture seismicity'). If the message has no clear research subject, "
     "return your single best-guess topic in 2-4 words -- never an empty "
-    "or generic query like 'research papers'. Respond with ONLY a single "
-    "JSON object matching the requested schema -- no markdown code "
-    "fences, no prose before or after it."
+    "or generic query like 'research papers'. A 'Conversation so far' "
+    "block may precede the latest message -- use it ONLY to resolve "
+    "references the latest message makes to earlier topics (e.g. 'this "
+    "field', 'those papers', 'the same topic'); the query must still "
+    "describe the latest message's actual subject, not the whole "
+    "conversation. Respond with ONLY a single JSON object matching the "
+    "requested schema -- no markdown code fences, no prose before or "
+    "after it."
 )
 
 
@@ -95,16 +112,30 @@ class PaperQueryExtractionService:
         self._cheap_provider = cheap_provider
         self._fallback_runtime = fallback_generation_runtime
 
-    async def extract(self, *, user_prompt: str, owner_id: UUID, session_id: UUID) -> str:
+    async def extract(
+        self,
+        *,
+        user_prompt: str,
+        owner_id: UUID,
+        session_id: UUID,
+        conversation_context: str | None = None,
+    ) -> str:
         """Best-effort: any failure falls back to the raw (truncated)
         prompt, never raises -- mirrors `WebSearchNecessityService.decide()`'s
         fail-closed behavior."""
+
+        effective_prompt = user_prompt[:_MAX_PROMPT_CHARACTERS]
+        if conversation_context:
+            effective_prompt = (
+                f"Conversation so far:\n{conversation_context}\n\n"
+                f"Latest message: {effective_prompt}"
+            )
 
         try:
             request = GenerationRequest(
                 prompt_context=PromptContext(context="", chunks=[]),
                 system_prompt=_SYSTEM_PROMPT,
-                user_prompt=user_prompt[:_MAX_PROMPT_CHARACTERS],
+                user_prompt=effective_prompt,
                 response_format=ResponseFormat.STRUCTURED,
                 output_model=PaperQueryExtractionResult,
                 max_tokens=300,

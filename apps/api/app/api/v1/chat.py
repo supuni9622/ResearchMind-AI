@@ -94,7 +94,7 @@ from app.schemas.chat import (
     ChatMessageResponse,
     ChatStreamRequest,
 )
-from app.services.conversation import ConversationService
+from app.services.conversation import ConversationService, PromptHistory
 
 logger = structlog.get_logger()
 
@@ -177,6 +177,33 @@ def _format_transcript(
     lines.append(f"User: {user_prompt}")
 
     return "\n".join(lines)
+
+
+_PAPER_SEARCH_CONTEXT_MESSAGE_LIMIT = 6
+
+
+def _format_recent_context(
+    history: list[BaseMessage],
+    compacted_summary: str | None = None,
+) -> str | None:
+    """Short recent-turns text for collaborators that only need enough
+    context to resolve a follow-up's anaphora (e.g. "this field", "those
+    papers") -- distinct from `_format_transcript`, which folds the *full*
+    prompt history plus the current turn into the generation prompt itself.
+    `None` when there's nothing to add, so callers can treat it as "no
+    context available" rather than an empty string."""
+
+    if not history and not compacted_summary:
+        return None
+
+    lines: list[str] = []
+    if compacted_summary:
+        lines.append(f"Earlier conversation summary: {compacted_summary}")
+    lines.extend(
+        f"{'User' if isinstance(message, HumanMessage) else 'Assistant'}: {message.content}"
+        for message in history[-_PAPER_SEARCH_CONTEXT_MESSAGE_LIMIT:]
+    )
+    return "\n".join(lines) if lines else None
 
 
 async def _retrieve_memory_context(
@@ -347,22 +374,13 @@ def _with_paper_search_context(
 async def _build_request(
     *,
     payload: ChatStreamRequest,
-    conversation_service: ConversationService,
     conversation: Conversation,
     owner_id: UUID,
     memory_service: MemoryService | None,
+    prompt_history: PromptHistory,
     web_context_text: str | None = None,
     paper_context_text: str | None = None,
 ) -> GenerationRequest:
-    await conversation_service.compact_history_if_needed(
-        conversation=conversation,
-        recent_message_limit=settings.chat_prompt_recent_message_limit,
-        summary_max_characters=settings.chat_prompt_summary_max_characters,
-    )
-    prompt_history = await conversation_service.load_prompt_history(
-        conversation=conversation,
-        recent_message_limit=settings.chat_prompt_recent_message_limit,
-    )
     history = prompt_history.messages
     transcript = _format_transcript(
         history,
@@ -421,7 +439,24 @@ async def _prepare_chat_generation(
     is already part of the prompt context the very first token is
     generated against. Returns each step's own status events (empty when
     the toggle is off, unconfigured, or nothing was found) to be yielded
-    ahead of the real generation stream."""
+    ahead of the real generation stream.
+
+    History is loaded once, here, up front -- both so `run_chat_paper_search`
+    can resolve a follow-up's anaphora ("this field", "those papers")
+    against recent turns (2026-07-26 fix: it previously only ever saw the
+    single latest message), and so `_build_request` doesn't redundantly
+    reload/re-compact the same history a second time."""
+
+    await conversation_service.compact_history_if_needed(
+        conversation=conversation,
+        recent_message_limit=settings.chat_prompt_recent_message_limit,
+        summary_max_characters=settings.chat_prompt_summary_max_characters,
+    )
+    prompt_history = await conversation_service.load_prompt_history(
+        conversation=conversation,
+        recent_message_limit=settings.chat_prompt_recent_message_limit,
+    )
+    recent_context = _format_recent_context(prompt_history.messages, prompt_history.summary)
 
     web_outcome = await run_chat_web_search(
         enabled=payload.web_search_enabled,
@@ -439,13 +474,14 @@ async def _prepare_chat_generation(
         session_id=conversation.id,
         paper_search=paper_search,
         query_extraction=paper_query_extraction,
+        conversation_context=recent_context,
     )
     request = await _build_request(
         payload=payload,
-        conversation_service=conversation_service,
         conversation=conversation,
         owner_id=owner_id,
         memory_service=memory_service,
+        prompt_history=prompt_history,
         web_context_text=web_outcome.context_text,
         paper_context_text=paper_outcome.context_text,
     )

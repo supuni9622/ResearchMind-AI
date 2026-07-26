@@ -52,7 +52,7 @@ export function ChatComposer({
               value={value}
               onChange={(e) => onChange(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="Ask a question…"
+              placeholder="Brainstorm an idea, ask a question, or search the web and papers…"
               rows={1}
               disabled={loading}
               className="w-full bg-ink-800 border border-ink-500 rounded-xl px-4 py-2.5 text-stone-100 text-sm placeholder-stone-600 resize-none focus:outline-none focus:border-sage-600 transition-colors min-h-[42px] max-h-36 overflow-y-auto scrollbar-thin"
@@ -86,7 +86,7 @@ export function ChatComposer({
           <div className="flex items-center gap-3">
             <button
               type="button"
-              title="Let the agent search the web when it decides this turn needs it"
+              title="Let the agent search the web for this turn — useful for recent developments your library won't have"
               disabled={loading}
               onClick={() => onWebSearchEnabledChange(!webSearchEnabled)}
               className={`flex items-center gap-1.5 px-2 py-0.5 rounded-md font-mono text-[10px] uppercase tracking-widest transition-colors duration-150 disabled:cursor-not-allowed ${
@@ -100,7 +100,7 @@ export function ChatComposer({
             </button>
             <button
               type="button"
-              title="Search research papers relevant to this turn (Research Intelligence MCP)"
+              title="Search published research papers relevant to this turn — for discovering new papers, not your uploaded library"
               disabled={loading}
               onClick={() => onPaperSearchEnabledChange(!paperSearchEnabled)}
               className={`flex items-center gap-1.5 px-2 py-0.5 rounded-md font-mono text-[10px] uppercase tracking-widest transition-colors duration-150 disabled:cursor-not-allowed ${

@@ -57,6 +57,16 @@ export function ResearchBlock({
           </div>
         )}
 
+        {turn.stage === 'done' && turn.citations.length === 0 && (
+          <div className="flex items-start gap-2.5 mb-4 px-3 py-2 rounded-lg border border-amber-800/40 bg-amber-500/5 text-amber-500 text-[12px]">
+            <AlertIcon size={12} className="flex-shrink-0 mt-0.5" />
+            <span>
+              No matching passages were found in your documents -- this answer is generated from
+              general knowledge, not your library.
+            </span>
+          </div>
+        )}
+
         {turn.citations.length > 0 && (
           <div className="flex items-center gap-1.5 mb-4 flex-wrap">
             {turn.citations.map((c) => {

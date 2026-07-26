@@ -4,11 +4,11 @@ import { motion } from 'framer-motion';
 import { LoginButton } from '@/components/auth/login-button';
 
 const STRIP = [
+  { label: 'Chat', sub: 'Brainstorm, web & paper search' },
   { label: 'Upload', sub: 'PDF · DOCX · TXT' },
-  { label: 'Query', sub: 'Natural language' },
-  { label: 'Cite', sub: 'Source-grounded' },
-  { label: 'Synthesize', sub: 'Cross-document' },
-  { label: 'Deep Research', sub: 'Multi-step reasoning' },
+  { label: 'Linear Research', sub: 'Fast, cited answers' },
+  { label: 'Deep Research', sub: 'Multi-step, human-approved' },
+  { label: 'Draft', sub: 'Report with suggested papers' },
 ];
 
 export function Hero() {
@@ -38,8 +38,8 @@ export function Hero() {
           </h1>
 
           <p className="text-stone-400 text-lg leading-relaxed max-w-md mx-auto mb-12">
-            Upload your documents. Ask precise questions. Get answers grounded
-            in your sources, with citations you can verify.
+            Brainstorm freely, gather papers, then get answers and full reports
+            grounded in your own library — every claim cited and verifiable.
           </p>
 
           <LoginButton variant="primary" />

@@ -78,6 +78,10 @@ export default function ChatPage() {
           >
             Chat
           </h1>
+          <p className="text-stone-500 text-[12px] mt-1">
+            Brainstorm freely with web and paper search — not grounded in your uploaded
+            documents. For cited, document-grounded answers, use Research.
+          </p>
         </div>
 
         <div className="flex-1 overflow-y-auto px-8 py-6 scrollbar-thin">

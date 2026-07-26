@@ -33,9 +33,11 @@ from app.ai.memory.session.state_updater import SessionStateUpdaterService
 from app.ai.memory.storage.postgres_store import PostgresMemoryStore
 from app.ai.memory.storage.valkey_store import ValkeySessionStore
 from app.ai.memory.storage.vector_index import MemoryVectorIndex
+from app.ai.observability.prometheus.create import get_metrics_recorder
 from app.ai.runtime.generation.enums import GenerationProvider
 from app.ai.runtime.generation.orchestration.create import create_generation_runtime
 from app.core.settings import settings
+from app.infrastructure.metrics.composite import CompositeMetricsRecorder
 from app.infrastructure.metrics.interfaces import MetricsRecorder
 from app.infrastructure.storage import create_storage
 
@@ -94,7 +96,19 @@ def create_memory_availability_client() -> Redis:
 
 @lru_cache
 def get_memory_metrics() -> MetricsRecorder:
-    return StructuredMemoryMetricsRecorder()
+    """
+    Fans out to both the structured-log recorder (PRD §6, preserved so
+    nothing here regresses) and the Prometheus recorder (Prometheus
+    Grafana Observability PRD §20), so Memory keeps its existing
+    per-event logs while also feeding aggregate dashboards.
+    """
+
+    return CompositeMetricsRecorder(
+        [
+            StructuredMemoryMetricsRecorder(),
+            get_metrics_recorder(),
+        ]
+    )
 
 
 def build_memory_service(

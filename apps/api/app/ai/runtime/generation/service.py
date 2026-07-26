@@ -340,6 +340,10 @@ class GenerationService:
                 error_type=type(exc).__name__,
                 error=str(exc),
             )
+            self._metrics_service.record_failure(
+                runtime=(request.runtime.value if request.runtime else None),
+                failure_type=type(exc).__name__,
+            )
             raise
 
         snapshot = self._metrics_service.record(

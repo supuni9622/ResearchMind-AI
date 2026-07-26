@@ -61,6 +61,7 @@ from app.ai.memory.create import (
     build_session_state_updater_service,
 )
 from app.ai.observability.create import get_observability_service
+from app.ai.observability.prometheus.create import get_metrics_recorder
 from app.ai.research.service import ResearchService
 from app.ai.runtime.chat.paper_query import create_paper_query_extraction_service
 from app.ai.runtime.research.execution import ResearchRuntimeExecutionService
@@ -175,6 +176,7 @@ def create_research_runtime_worker(*, session: AsyncSession) -> ResearchRuntimeW
         memory_service=memory_service,
         memory_extraction_service=build_memory_extraction_service(),
         session_state_updater=build_session_state_updater_service(),
+        metrics=get_metrics_recorder(),
     )
     execution = ResearchRuntimeExecutionService(
         session=session,

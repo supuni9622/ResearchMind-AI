@@ -55,6 +55,7 @@ dependencies = [
     "langgraph-checkpoint-postgres>=3.0.0,<4.0.0",
     "reportlab>=4.4.10",
     "mcp>=1.28.1",
+    "prometheus-client>=0.26.0",
 ]
 
 [dependency-groups]

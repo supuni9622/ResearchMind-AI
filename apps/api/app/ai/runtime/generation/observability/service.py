@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import structlog
+from app.ai.observability.prometheus.labels import normalize_model_family
 from app.ai.runtime.generation.models import (
     GenerationResult,
 )
@@ -10,7 +11,12 @@ from app.ai.runtime.generation.observability.models import (
 )
 from app.infrastructure.metrics.generation import (
     GENERATION_CACHE_HITS_TOTAL,
+    GENERATION_COST_USD_TOTAL,
+    GENERATION_FAILURES_TOTAL,
+    GENERATION_GUARDRAIL_BLOCKS_TOTAL,
     GENERATION_HALLUCINATION_FLAGS_TOTAL,
+    GENERATION_INPUT_TOKENS_TOTAL,
+    GENERATION_OUTPUT_TOKENS_TOTAL,
     GENERATION_REGENERATIONS_TOTAL,
     GENERATION_REQUESTS_TOTAL,
     GENERATION_RETRIES_TOTAL,
@@ -56,43 +62,92 @@ class GenerationMetricsService:
             cumulative_session_cost_usd=cumulative_session_cost_usd,
         )
 
+        runtime_label = snapshot.runtime or "unknown"
+        provider_label = snapshot.provider.value
+        model_family_label = normalize_model_family(snapshot.model)
+
+        request_labels = {
+            "runtime": runtime_label,
+            "provider": provider_label,
+            "model_family": model_family_label,
+            "cache_hit": str(snapshot.cache_hit).lower(),
+        }
+
         self._metrics.increment(
             metric=GENERATION_REQUESTS_TOTAL,
+            labels=request_labels,
         )
 
         self._metrics.record_duration(
             operation="generation",
             duration_ms=snapshot.latency_ms,
+            labels={"runtime": runtime_label, "provider": provider_label},
+        )
+
+        token_cost_labels = {
+            "runtime": runtime_label,
+            "provider": provider_label,
+            "model_family": model_family_label,
+        }
+
+        self._metrics.increment(
+            metric=GENERATION_INPUT_TOKENS_TOTAL,
+            value=snapshot.prompt_tokens,
+            labels=token_cost_labels,
+        )
+
+        self._metrics.increment(
+            metric=GENERATION_OUTPUT_TOKENS_TOTAL,
+            value=snapshot.completion_tokens,
+            labels=token_cost_labels,
+        )
+
+        self._metrics.increment(
+            metric=GENERATION_COST_USD_TOTAL,
+            value=snapshot.estimated_cost_usd,
+            labels=token_cost_labels,
         )
 
         if snapshot.retries:
             self._metrics.increment(
                 metric=GENERATION_RETRIES_TOTAL,
+                labels={"runtime": runtime_label, "provider": provider_label},
             )
 
         if snapshot.regeneration_count:
             self._metrics.increment(
                 metric=GENERATION_REGENERATIONS_TOTAL,
+                labels={"runtime": runtime_label, "provider": provider_label},
             )
 
         if snapshot.cache_hit:
             self._metrics.increment(
                 metric=GENERATION_CACHE_HITS_TOTAL,
+                labels={"runtime": runtime_label},
             )
 
         if snapshot.validation_score is not None and snapshot.validation_score < 1.0:
             self._metrics.increment(
                 metric=GENERATION_VALIDATION_FAILURES_TOTAL,
+                labels={"runtime": runtime_label},
             )
 
         if snapshot.hallucination_score is not None and snapshot.hallucination_score < 1.0:
             self._metrics.increment(
                 metric=GENERATION_HALLUCINATION_FLAGS_TOTAL,
+                labels={"runtime": runtime_label},
             )
 
         if snapshot.runtime_score is not None and snapshot.runtime_score < 1.0:
             self._metrics.increment(
                 metric=GENERATION_RUNTIME_VALIDATION_FAILURES_TOTAL,
+                labels={"runtime": runtime_label},
+            )
+
+        if snapshot.guardrail_blocked:
+            self._metrics.increment(
+                metric=GENERATION_GUARDRAIL_BLOCKS_TOTAL,
+                labels={"runtime": runtime_label},
             )
 
         logger.info(
@@ -103,3 +158,22 @@ class GenerationMetricsService:
         )
 
         return snapshot
+
+    def record_failure(
+        self,
+        *,
+        runtime: str | None,
+        failure_type: str,
+    ) -> None:
+        """
+        Records a generation request that ultimately failed (every
+        provider/fallback attempt raised) -- called from
+        `GenerationService.generate()`'s `except GenerationError` branch,
+        the one path that never reaches `record()` because no
+        `GenerationResult` was produced.
+        """
+
+        self._metrics.increment(
+            metric=GENERATION_FAILURES_TOTAL,
+            labels={"runtime": runtime or "unknown", "failure_type": failure_type},
+        )

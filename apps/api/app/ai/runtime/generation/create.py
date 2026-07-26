@@ -23,6 +23,7 @@ from app.ai.guardrails.create import (
 from app.ai.observability.create import (
     get_observability_service,
 )
+from app.ai.observability.prometheus.create import get_metrics_recorder
 from app.ai.observability.providers.langsmith.create import (
     create_runtime_tracer,
 )
@@ -83,7 +84,6 @@ from app.ai.runtime.generation.validation.create import (
     get_validation_service,
 )
 from app.core.settings import settings
-from app.infrastructure.metrics.noop import NoOpMetricsRecorder
 from app.services.generation_usage import GenerationUsageService
 
 logger = structlog.get_logger()
@@ -256,7 +256,7 @@ def create_generation_service() -> GenerationService:
         artifact_writer=create_generation_artifact_writer(),
         artifact_policy_service=get_artifact_policy_service(),
         metrics_service=GenerationMetricsService(
-            metrics=NoOpMetricsRecorder(),
+            metrics=get_metrics_recorder(),
         ),
         observability_service=get_observability_service(),
         tracer=create_runtime_tracer(),

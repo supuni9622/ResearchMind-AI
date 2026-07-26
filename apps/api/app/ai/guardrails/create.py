@@ -31,13 +31,13 @@ from app.ai.guardrails.runtime.tool_policy import AllowAllToolPolicyProvider, To
 from app.ai.guardrails.service import GuardrailService
 from app.ai.guardrails.trust.trust_registry import TrustRegistry
 from app.ai.knowledge.context.guardrails.create import create_context_guardrail_service
+from app.ai.observability.prometheus.create import get_metrics_recorder
 from app.ai.runtime.generation.validation.output.hallucination_validator import (
     HallucinationValidator,
 )
 from app.ai.runtime.generation.validation.output.json_validator import JsonValidator
 from app.ai.runtime.generation.validation.output.schema_validator import SchemaValidator
 from app.core.settings import settings
-from app.infrastructure.metrics.noop import NoOpMetricsRecorder
 from app.infrastructure.storage import create_storage
 
 logger = structlog.get_logger()
@@ -162,7 +162,7 @@ def get_guardrail_service() -> GuardrailService:
     service = GuardrailService(
         registry=create_guardrail_registry(),
         artifact_writer=create_guardrail_artifact_writer(),
-        metrics=NoOpMetricsRecorder(),
+        metrics=get_metrics_recorder(),
     )
 
     logger.info(

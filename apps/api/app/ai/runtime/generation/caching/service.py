@@ -34,6 +34,16 @@ from app.ai.runtime.generation.models import (
 from app.ai.runtime.generation.routing.enums import (
     RoutingStrategy,
 )
+from app.infrastructure.metrics.cache import (
+    CACHE_COST_SAVED_USD_TOTAL,
+    CACHE_HITS_TOTAL,
+    CACHE_MISSES_TOTAL,
+    CACHE_OPERATION_DURATION,
+    CACHE_OPERATIONS_TOTAL,
+    CACHE_TOKENS_SAVED_TOTAL,
+)
+from app.infrastructure.metrics.interfaces import MetricsRecorder
+from app.infrastructure.metrics.noop import NoOpMetricsRecorder
 
 logger = structlog.get_logger()
 
@@ -67,6 +77,7 @@ class CachingService:
         semantic_provider: SemanticCacheProviderInterface,
         session_provider: SessionCacheProviderInterface,
         policy_resolver: CachePolicyResolver,
+        metrics: MetricsRecorder | None = None,
     ) -> None:
         self._exact_provider = exact_provider
 
@@ -75,6 +86,8 @@ class CachingService:
         self._session_provider = session_provider
 
         self._policy_resolver = policy_resolver
+
+        self._metrics = metrics or NoOpMetricsRecorder()
 
         self._statistics = CacheStatistics()
 
@@ -114,8 +127,10 @@ class CachingService:
             override=request.cache_policy,
         )
 
+        runtime = request.cache_runtime.value if request.cache_runtime else "unknown"
+
         if policy == CachePolicy.NEVER:
-            return self._record_miss(started)
+            return self._record_miss(started, runtime=runtime)
 
         if policy in _EXACT_POLICIES:
             key = build_exact_cache_key(
@@ -134,6 +149,7 @@ class CachingService:
                     level=CacheLevel.EXACT,
                     cached=cached,
                     started=started,
+                    runtime=runtime,
                 )
 
         if policy in _SEMANTIC_POLICIES:
@@ -157,9 +173,10 @@ class CachingService:
                     cached=cached,
                     started=started,
                     similarity=similarity,
+                    runtime=runtime,
                 )
 
-        return self._record_miss(started)
+        return self._record_miss(started, runtime=runtime)
 
     async def store(
         self,
@@ -307,6 +324,7 @@ class CachingService:
         level: CacheLevel,
         cached: GenerationResult,
         started: float,
+        runtime: str,
         similarity: float | None = None,
     ) -> CacheResult:
 
@@ -328,6 +346,35 @@ class CachingService:
 
         self._statistics.cost_saved += cost_saved
 
+        self._metrics.increment(
+            metric=CACHE_OPERATIONS_TOTAL,
+            labels={
+                "cache_level": level.value,
+                "runtime": runtime,
+                "operation": "lookup",
+                "status": "hit",
+            },
+        )
+        self._metrics.increment(
+            metric=CACHE_HITS_TOTAL,
+            labels={"cache_level": level.value, "runtime": runtime},
+        )
+        self._metrics.increment(
+            metric=CACHE_TOKENS_SAVED_TOTAL,
+            value=tokens_saved,
+            labels={"cache_level": level.value},
+        )
+        self._metrics.increment(
+            metric=CACHE_COST_SAVED_USD_TOTAL,
+            value=cost_saved,
+            labels={"cache_level": level.value},
+        )
+        self._metrics.record_duration(
+            operation=CACHE_OPERATION_DURATION,
+            duration_ms=latency_ms,
+            labels={"cache_level": level.value, "runtime": runtime, "operation": "lookup"},
+        )
+
         logger.info(
             "caching.lookup",
             cache_hit=True,
@@ -348,6 +395,8 @@ class CachingService:
     def _record_miss(
         self,
         started: float,
+        *,
+        runtime: str,
     ) -> CacheResult:
 
         latency_ms = round(
@@ -356,6 +405,25 @@ class CachingService:
         )
 
         self._statistics.misses += 1
+
+        self._metrics.increment(
+            metric=CACHE_OPERATIONS_TOTAL,
+            labels={
+                "cache_level": "none",
+                "runtime": runtime,
+                "operation": "lookup",
+                "status": "miss",
+            },
+        )
+        self._metrics.increment(
+            metric=CACHE_MISSES_TOTAL,
+            labels={"runtime": runtime},
+        )
+        self._metrics.record_duration(
+            operation=CACHE_OPERATION_DURATION,
+            duration_ms=latency_ms,
+            labels={"cache_level": "none", "runtime": runtime, "operation": "lookup"},
+        )
 
         logger.info(
             "caching.lookup",

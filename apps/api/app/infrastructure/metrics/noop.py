@@ -9,6 +9,7 @@ class NoOpMetricsRecorder(MetricsRecorder):
         *,
         operation: str,
         duration_ms: float,
+        labels: dict[str, str] | None = None,
     ) -> None:
         return
 
@@ -16,9 +17,29 @@ class NoOpMetricsRecorder(MetricsRecorder):
         self,
         *,
         metric: str,
+        value: float = 1.0,
+        labels: dict[str, str] | None = None,
+    ) -> None:
+        return
+
+    def set_gauge(
+        self,
+        *,
+        metric: str,
+        value: float,
+        labels: dict[str, str] | None = None,
+    ) -> None:
+        return
+
+    def observe(
+        self,
+        *,
+        metric: str,
+        value: float,
+        labels: dict[str, str] | None = None,
     ) -> None:
         return
 
 
-# Until Prometheus is added, use a no-op implementation.
-# This lets us instrument the code now without introducing Prometheus dependencies.
+# Used whenever Prometheus is disabled (PROMETHEUS_ENABLED=false) or a
+# platform hasn't been wired to a recorder yet.

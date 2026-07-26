@@ -11,5 +11,6 @@ Examples include:
 - Backup Procedures
 - Incident Response
 - Maintenance Tasks
+- [Prometheus & Grafana Observability](prometheus-grafana-observability.md)
 
 Runbooks focus on operational tasks rather than architecture.

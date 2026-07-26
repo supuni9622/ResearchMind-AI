@@ -10,6 +10,7 @@ from __future__ import annotations
 from functools import lru_cache
 
 import structlog
+from app.ai.observability.prometheus.create import get_metrics_recorder
 from app.ai.runtime.generation.caching.enums import (
     CachePolicy,
     CacheRuntime,
@@ -183,6 +184,7 @@ def create_caching_service() -> CachingService:
             profiles=profiles,
             default_profile=default_profile,
         ),
+        metrics=get_metrics_recorder(),
     )
 
     logger.info(

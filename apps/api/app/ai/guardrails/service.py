@@ -302,6 +302,7 @@ class GuardrailService:
         if report.blocked:
             self._metrics.increment(
                 metric=GUARDRAIL_BLOCKS_TOTAL,
+                labels={"action": report.final_action.value},
             )
 
             logger.warning(
@@ -371,6 +372,7 @@ class GuardrailService:
 
         self._metrics.increment(
             metric=GUARDRAIL_CHECKS_TOTAL,
+            labels={"stage": stage.value},
         )
 
         try:
@@ -380,6 +382,7 @@ class GuardrailService:
         except Exception as exc:
             self._metrics.increment(
                 metric=GUARDRAIL_FAILURES_TOTAL,
+                labels={"stage": stage.value},
             )
 
             logger.warning(
@@ -463,22 +466,27 @@ class GuardrailService:
         """PRD §12's per-category counters, derived from whatever issues a stage produced."""
 
         for issue in issues:
+            labels = {"stage": issue.stage.value, "category": issue.category.value}
+
             if issue.category in (
                 GuardrailCategory.PROMPT_INJECTION,
                 GuardrailCategory.JAILBREAK,
             ):
                 self._metrics.increment(
                     metric=PROMPT_INJECTION_ATTEMPTS,
+                    labels=labels,
                 )
 
             if issue.category == GuardrailCategory.PII:
                 self._metrics.increment(
                     metric=PII_DETECTIONS,
+                    labels=labels,
                 )
 
             if issue.severity in (GuardrailSeverity.ERROR, GuardrailSeverity.CRITICAL):
                 self._metrics.increment(
                     metric=POLICY_VIOLATIONS,
+                    labels=labels,
                 )
 
     def _derive_action(

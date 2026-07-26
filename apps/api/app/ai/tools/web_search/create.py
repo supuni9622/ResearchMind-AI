@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 
+from app.ai.observability.prometheus.create import get_metrics_recorder
 from app.ai.tools.web_search.interfaces import WebSearchProviderInterface
 from app.ai.tools.web_search.policies import WebSearchPolicy
 from app.ai.tools.web_search.providers.tavily import TavilyWebSearchProvider
@@ -43,4 +44,5 @@ def create_web_search_service() -> WebSearchService:
         registry=registry,
         policy=policy,
         default_provider=DEFAULT_PROVIDER,
+        metrics=get_metrics_recorder(),
     )

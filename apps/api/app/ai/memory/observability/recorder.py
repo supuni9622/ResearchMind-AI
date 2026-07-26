@@ -17,12 +17,43 @@ class StructuredMemoryMetricsRecorder(MetricsRecorder):
     keeps the call sites compatible with a later Prometheus implementation.
     """
 
-    def record_duration(self, *, operation: str, duration_ms: float) -> None:
+    def record_duration(
+        self,
+        *,
+        operation: str,
+        duration_ms: float,
+        labels: dict[str, str] | None = None,
+    ) -> None:
         logger.info(
             "memory.metric.duration",
             operation=operation,
             duration_ms=duration_ms,
+            labels=labels,
         )
 
-    def increment(self, *, metric: str) -> None:
-        logger.info("memory.metric.increment", metric=metric)
+    def increment(
+        self,
+        *,
+        metric: str,
+        value: float = 1.0,
+        labels: dict[str, str] | None = None,
+    ) -> None:
+        logger.info("memory.metric.increment", metric=metric, value=value, labels=labels)
+
+    def set_gauge(
+        self,
+        *,
+        metric: str,
+        value: float,
+        labels: dict[str, str] | None = None,
+    ) -> None:
+        logger.info("memory.metric.gauge", metric=metric, value=value, labels=labels)
+
+    def observe(
+        self,
+        *,
+        metric: str,
+        value: float,
+        labels: dict[str, str] | None = None,
+    ) -> None:
+        logger.info("memory.metric.observe", metric=metric, value=value, labels=labels)

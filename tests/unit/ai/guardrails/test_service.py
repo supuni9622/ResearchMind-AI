@@ -311,11 +311,41 @@ class _FakeMetricsRecorder(MetricsRecorder):
     def __init__(self) -> None:
         self.counts: dict[str, int] = {}
 
-    def record_duration(self, *, operation: str, duration_ms: float) -> None:
+    def record_duration(
+        self,
+        *,
+        operation: str,
+        duration_ms: float,
+        labels: dict[str, str] | None = None,
+    ) -> None:
         return
 
-    def increment(self, *, metric: str) -> None:
+    def increment(
+        self,
+        *,
+        metric: str,
+        value: float = 1.0,
+        labels: dict[str, str] | None = None,
+    ) -> None:
         self.counts[metric] = self.counts.get(metric, 0) + 1
+
+    def set_gauge(
+        self,
+        *,
+        metric: str,
+        value: float,
+        labels: dict[str, str] | None = None,
+    ) -> None:
+        return
+
+    def observe(
+        self,
+        *,
+        metric: str,
+        value: float,
+        labels: dict[str, str] | None = None,
+    ) -> None:
+        return
 
 
 class _FakeDocumentStorage(DocumentStorage):

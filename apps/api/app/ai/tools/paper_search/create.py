@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 
+from app.ai.observability.prometheus.create import get_metrics_recorder
 from app.ai.tools.paper_search.cache.create import create_paper_search_cache
 from app.ai.tools.paper_search.interfaces import PaperSearchProviderInterface
 from app.ai.tools.paper_search.policies import PaperSearchPolicy
@@ -18,6 +19,7 @@ from app.ai.tools.paper_search.providers.mcp_client import ResearchIntelligenceM
 from app.ai.tools.paper_search.registry import PaperSearchProviderRegistry
 from app.ai.tools.paper_search.service import PaperSearchService
 from app.core.settings import settings
+from app.infrastructure.metrics.mcp import MCP_SERVER_HEALTH
 
 DEFAULT_PROVIDER = "research_intelligence_mcp"
 
@@ -40,9 +42,19 @@ def create_paper_search_service() -> PaperSearchService:
         max_results_per_call=settings.mcp_papers_max_results_per_call,
         timeout_seconds=settings.mcp_papers_timeout_seconds,
     )
-    return PaperSearchService(
+    metrics = get_metrics_recorder()
+    service = PaperSearchService(
         registry=registry,
         policy=policy,
         default_provider=DEFAULT_PROVIDER,
         cache=create_paper_search_cache(),
+        metrics=metrics,
     )
+
+    metrics.set_gauge(
+        metric=MCP_SERVER_HEALTH,
+        value=1.0 if service.available else 0.0,
+        labels={"server": DEFAULT_PROVIDER},
+    )
+
+    return service

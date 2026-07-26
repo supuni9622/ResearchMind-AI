@@ -6,6 +6,15 @@
 **Status:** ✅ Phase 1 (Runtime Evaluation) Implemented — see note below
 **Last Updated:** 2026-07-18
 
+> **2026-07-26 update**: The "Future Telemetry" / Phase 6 aspiration below
+> (Prometheus, Grafana) is now implemented — see
+> `prds/prometheus_grafana_observability_prd.md` and the
+> [Prometheus & Grafana Observability runbook](../runbooks/prometheus-grafana-observability.md).
+> It is a separate, aggregate time-series layer (`app/ai/observability/
+> prometheus/`) sitting alongside — not replacing — the
+> `RuntimeMetricsCollector`/artifact-based system described below.
+> OpenTelemetry/distributed tracing remain unimplemented.
+
 > **2026-07-18 update**: Phase 1 (Runtime Evaluation) described in this
 > document is now implemented, but through the newer AI Runtime
 > Observability Platform (`oberservability_platform_prd.md`, repo root)

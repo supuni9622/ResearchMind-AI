@@ -1,0 +1,65 @@
+groups:
+  - name: researchmind.rules
+    rules:
+      - alert: ResearchMindHighApiErrorRate
+        expr: |
+          sum(rate(researchmind_http_requests_total{status_code=~"5.."}[5m]))
+          /
+          clamp_min(sum(rate(researchmind_http_requests_total[5m])), 1)
+          > 0.05
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: ResearchMind API error rate is above 5%
+
+      - alert: ResearchMindHighGenerationFailureRate
+        expr: |
+          sum(rate(researchmind_generation_failures_total[10m]))
+          /
+          clamp_min(sum(rate(researchmind_generation_requests_total[10m])), 1)
+          > 0.10
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: Generation failure rate is above 10%
+
+      - alert: ResearchMindHighWebSearchFailureRate
+        expr: |
+          sum(rate(researchmind_web_search_failures_total[10m]))
+          /
+          clamp_min(sum(rate(researchmind_web_search_requests_total[10m])), 1)
+          > 0.20
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: Web search failure rate is above 20%
+
+      - alert: ResearchMindHighMcpFailureRate
+        expr: |
+          sum(rate(researchmind_mcp_tool_failures_total[10m]))
+          /
+          clamp_min(sum(rate(researchmind_mcp_tool_requests_total[10m])), 1)
+          > 0.15
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: MCP tool failure rate is above 15%
+
+      - alert: ResearchMindUnexpectedMemoryExtractionRate
+        expr: |
+          sum(rate(researchmind_memory_extraction_requested_total[30m]))
+          /
+          clamp_min(
+            sum(rate(researchmind_memory_extraction_evaluated_total[30m])),
+            1
+          )
+          > 0.70
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: Memory extraction runs for more than 70% of evaluated turns

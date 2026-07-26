@@ -47,7 +47,9 @@ async def test_record_always_increments_requests_total_and_records_duration() ->
 
     service.record(make_result())
 
-    recorder.increment.assert_any_call(metric=GENERATION_REQUESTS_TOTAL)
+    incremented_metrics = {call.kwargs["metric"] for call in recorder.increment.call_args_list}
+
+    assert GENERATION_REQUESTS_TOTAL in incremented_metrics
     recorder.record_duration.assert_called_once()
 
 

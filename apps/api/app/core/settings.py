@@ -2,7 +2,7 @@
 
 import os
 
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from app.infrastructure.queue.enums import QueueProvider
@@ -326,6 +326,53 @@ class Settings(BaseSettings):
 
     # Importance scoring (PRD §16)
     memory_importance_threshold: float = 0.1
+
+    # ==========================================================================
+    # Prometheus / Grafana Observability (prometheus_grafana_observability_prd.md)
+    # ==========================================================================
+
+    prometheus_enabled: bool = True
+    prometheus_metrics_path: str = "/metrics"
+    prometheus_include_http_metrics: bool = True
+    prometheus_include_runtime_metrics: bool = True
+    prometheus_include_process_metrics: bool = True
+    prometheus_include_platform_metrics: bool = True
+
+    grafana_admin_user: str = "admin"
+    grafana_admin_password: str = "admin"
+    grafana_port: int = 3001
+
+    prometheus_port: int = 9090
+    prometheus_scrape_interval_seconds: int = 15
+    prometheus_retention_time: str = "15d"
+
+    @field_validator("prometheus_metrics_path")
+    @classmethod
+    def _validate_prometheus_metrics_path(cls, value: str) -> str:
+        if not value.startswith("/"):
+            raise ValueError("prometheus_metrics_path must begin with '/'.")
+        return value
+
+    @field_validator("grafana_port", "prometheus_port")
+    @classmethod
+    def _validate_port_range(cls, value: int) -> int:
+        if not (0 < value < 65536):
+            raise ValueError("Port must be between 1 and 65535.")
+        return value
+
+    @field_validator("prometheus_scrape_interval_seconds")
+    @classmethod
+    def _validate_scrape_interval(cls, value: int) -> int:
+        if value <= 0:
+            raise ValueError("prometheus_scrape_interval_seconds must be positive.")
+        return value
+
+    @field_validator("prometheus_retention_time")
+    @classmethod
+    def _validate_retention_time(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("prometheus_retention_time must not be empty.")
+        return value
 
 
 settings = Settings()  # pyright: ignore[reportCallIssue]

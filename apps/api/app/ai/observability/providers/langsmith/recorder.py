@@ -35,6 +35,7 @@ class LangSmithMetricsRecorder(MetricsRecorder):
         *,
         operation: str,
         duration_ms: float,
+        labels: dict[str, str] | None = None,
     ) -> None:
         self._send_feedback(key=f"{operation}_duration_ms", score=duration_ms)
 
@@ -42,8 +43,28 @@ class LangSmithMetricsRecorder(MetricsRecorder):
         self,
         *,
         metric: str,
+        value: float = 1.0,
+        labels: dict[str, str] | None = None,
     ) -> None:
-        self._send_feedback(key=metric, score=1)
+        self._send_feedback(key=metric, score=value)
+
+    def set_gauge(
+        self,
+        *,
+        metric: str,
+        value: float,
+        labels: dict[str, str] | None = None,
+    ) -> None:
+        self._send_feedback(key=metric, score=value)
+
+    def observe(
+        self,
+        *,
+        metric: str,
+        value: float,
+        labels: dict[str, str] | None = None,
+    ) -> None:
+        self._send_feedback(key=metric, score=value)
 
     def _send_feedback(self, *, key: str, score: float) -> None:
 

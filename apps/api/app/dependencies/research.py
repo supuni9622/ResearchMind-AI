@@ -21,6 +21,7 @@ from app.ai.knowledge.retrieval.service import RetrievalService
 from app.ai.memory.extraction.service import MemoryExtractionService
 from app.ai.memory.services.memory_service import MemoryService
 from app.ai.memory.session.state_updater import SessionStateUpdaterService
+from app.ai.observability.prometheus.create import get_metrics_recorder
 from app.ai.research.service import ResearchService
 from app.ai.runtime.chat.paper_query import (
     PaperQueryExtractionService,
@@ -231,6 +232,7 @@ def get_research_service(
         session_state_updater=session_state_updater,
         memory_service=memory_service,
         memory_extraction_service=memory_extraction_service,
+        metrics=get_metrics_recorder(),
     )
 
 

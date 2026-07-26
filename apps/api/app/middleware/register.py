@@ -1,5 +1,8 @@
 from fastapi import FastAPI
 
+from app.ai.observability.prometheus.create import get_prometheus_metric_registry
+from app.ai.observability.prometheus.middleware import PrometheusHTTPMiddleware
+from app.core.settings import settings
 from app.middleware.cors import get_cors_middleware
 from app.middleware.request_id import RequestIDMiddleware
 from app.middleware.request_logging import LoggingMiddleware
@@ -16,6 +19,11 @@ def register_middlewares(app: FastAPI) -> None:
     ------------
 
     Request
+        │
+        ▼
+    Prometheus HTTP Metrics (outermost -- measures the full request,
+    PRD §17; skipped entirely when Prometheus or HTTP metrics are
+    disabled)
         │
         ▼
     CORS
@@ -64,3 +72,13 @@ def register_middlewares(app: FastAPI) -> None:
     # ------------------------------------------------------------------
 
     app.add_middleware(TimingMiddleware)
+
+    # ------------------------------------------------------------------
+    # Prometheus HTTP Metrics (added last -> outermost, see docstring)
+    # ------------------------------------------------------------------
+
+    if settings.prometheus_enabled and settings.prometheus_include_http_metrics:
+        app.add_middleware(
+            PrometheusHTTPMiddleware,
+            metric_registry=get_prometheus_metric_registry(),
+        )

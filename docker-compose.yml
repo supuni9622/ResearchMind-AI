@@ -63,6 +63,58 @@ services:
     volumes:
       - semantic_cache_data:/data
 
+  prometheus:
+    image: prom/prometheus:v3.1.0
+    container_name: researchmind-prometheus
+
+    #
+    # Scrapes the API's /metrics endpoint (prometheus_grafana_
+    # observability_prd.md). There is no `api` service in this compose
+    # file -- the API runs on the host via uvicorn -- so
+    # prometheus.yml points at `host.docker.internal`, Docker Desktop's
+    # host gateway, instead of a Compose service name.
+    #
+
+    restart: unless-stopped
+
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=${PROMETHEUS_RETENTION_TIME:-15d}"
+
+    volumes:
+      - ./infra/observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./infra/observability/prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - prometheus_data:/prometheus
+
+    ports:
+      - "${PROMETHEUS_PORT:-9090}:9090"
+
+  grafana:
+    image: grafana/grafana:11.4.0
+    container_name: researchmind-grafana
+
+    restart: unless-stopped
+
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./infra/observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./infra/observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+
+    ports:
+      - "${GRAFANA_PORT:-3001}:3000"
+
+    depends_on:
+      - prometheus
+
 volumes:
 
   postgres_data:
@@ -72,3 +124,7 @@ volumes:
   qdrant_data:
 
   semantic_cache_data:
+
+  prometheus_data:
+
+  grafana_data:

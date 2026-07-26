@@ -53,11 +53,21 @@ from app.ai.runtime.generation.validation.runtime.enums import RuntimeType
 from app.ai.runtime.research.evidence import ResearchEvidenceBundle
 from app.ai.runtime.research.synthesis.models import ResearchDraft
 from app.core.settings import settings
+from app.infrastructure.metrics.interfaces import MetricsRecorder
+from app.infrastructure.metrics.noop import NoOpMetricsRecorder
+from app.infrastructure.metrics.research import (
+    RESEARCH_DURATION,
+    RESEARCH_RUNS_COMPLETED_TOTAL,
+    RESEARCH_RUNS_FAILED_TOTAL,
+    RESEARCH_RUNS_TOTAL,
+)
 from app.models.research import ResearchSession
 from app.repositories.research import ResearchRepository
 from app.services.research_conversation import ResearchConversationService
 
 logger = structlog.get_logger()
+
+_SOURCE_MODE = "linear"
 
 
 class ResearchService:
@@ -74,7 +84,9 @@ class ResearchService:
         memory_service: MemoryService | None = None,
         memory_extraction_service: MemoryExtractionService | None = None,
         session_state_updater: SessionStateUpdaterService | None = None,
+        metrics: MetricsRecorder | None = None,
     ) -> None:
+        self._metrics = metrics or NoOpMetricsRecorder()
         self._session = session
         self._repository = ResearchRepository(session)
         self._conversations = ResearchConversationService(session, self._repository)
@@ -136,76 +148,103 @@ class ResearchService:
 
         started = perf_counter()
 
-        history = await self._conversations.load_history(
-            conversation_id=conversation.id,
-            owner_id=owner_id,
+        self._metrics.increment(
+            metric=RESEARCH_RUNS_TOTAL,
+            labels={"source_mode": _SOURCE_MODE},
         )
 
-        memory_context_text = await self._retrieve_memory_context(
-            owner_id=owner_id,
-            session_id=session_id,
-            query=query,
-            transcript="\n".join(str(message.content) for message in history),
+        try:
+            history = await self._conversations.load_history(
+                conversation_id=conversation.id,
+                owner_id=owner_id,
+            )
+
+            memory_context_text = await self._retrieve_memory_context(
+                owner_id=owner_id,
+                session_id=session_id,
+                query=query,
+                transcript="\n".join(str(message.content) for message in history),
+            )
+
+            retrieval_result, context_result = await self._retrieve_and_build_context(
+                query=query,
+                top_k=top_k,
+                filters=filters,
+                owner_id=owner_id,
+            )
+
+            request = GenerationRequest(
+                prompt_context=with_memory_context(
+                    context_result.prompt_context,
+                    memory_context_text,
+                ),
+                user_prompt=self._format_transcript(history, query),
+                owner_id=owner_id,
+                session_id=research_id,
+                routing_strategy=routing_strategy,
+                cache_runtime=CacheRuntime.RESEARCH,
+                runtime=RuntimeType.RESEARCH,
+                artifact_runtime=ArtifactRuntime.RESEARCH,
+            )
+
+            result = await self._generation_runtime.execute(request, provider=provider)
+
+            duration_ms = (perf_counter() - started) * 1000
+
+            sources = self._build_sources(context_result)
+            citations = context_result.prompt_context.citations
+
+            await self._persist_session(
+                research_id=research_id,
+                conversation_id=conversation.id,
+                owner_id=owner_id,
+                query=query,
+                answer=result.content,
+                citations=citations,
+                sources=sources,
+                runtime_metadata={
+                    "provider": result.provider.value,
+                    "model": result.model,
+                },
+            )
+
+            await self._persist_artifact(
+                research_id=research_id,
+                owner_id=owner_id,
+                retrieval_result=retrieval_result,
+                citations=citations,
+                answer=result.content,
+                provider=result.provider.value,
+                model=result.model,
+            )
+
+            await self._extract_and_store_memory(
+                owner_id=owner_id,
+                session_id=session_id,
+                research_id=research_id,
+                query=query,
+                answer=result.content,
+            )
+        except Exception as exc:
+            self._metrics.increment(
+                metric=RESEARCH_RUNS_FAILED_TOTAL,
+                labels={"source_mode": _SOURCE_MODE, "failure_type": type(exc).__name__},
+            )
+            self._metrics.record_duration(
+                operation=RESEARCH_DURATION,
+                duration_ms=(perf_counter() - started) * 1000,
+                labels={"source_mode": _SOURCE_MODE},
+            )
+            raise
+
+        self._metrics.increment(
+            metric=RESEARCH_RUNS_COMPLETED_TOTAL,
+            labels={"source_mode": _SOURCE_MODE},
         )
-
-        retrieval_result, context_result = await self._retrieve_and_build_context(
-            query=query,
-            top_k=top_k,
-            filters=filters,
-            owner_id=owner_id,
-        )
-
-        request = GenerationRequest(
-            prompt_context=with_memory_context(
-                context_result.prompt_context,
-                memory_context_text,
-            ),
-            user_prompt=self._format_transcript(history, query),
-            owner_id=owner_id,
-            session_id=research_id,
-            routing_strategy=routing_strategy,
-            cache_runtime=CacheRuntime.RESEARCH,
-            runtime=RuntimeType.RESEARCH,
-            artifact_runtime=ArtifactRuntime.RESEARCH,
-        )
-
-        result = await self._generation_runtime.execute(request, provider=provider)
-
-        duration_ms = (perf_counter() - started) * 1000
-
-        sources = self._build_sources(context_result)
-        citations = context_result.prompt_context.citations
-
-        await self._persist_session(
-            research_id=research_id,
-            conversation_id=conversation.id,
-            owner_id=owner_id,
-            query=query,
-            answer=result.content,
-            citations=citations,
-            sources=sources,
-            runtime_metadata={
-                "provider": result.provider.value,
-                "model": result.model,
-            },
-        )
-
-        await self._persist_artifact(
-            research_id=research_id,
-            owner_id=owner_id,
-            retrieval_result=retrieval_result,
-            citations=citations,
-            answer=result.content,
-            provider=result.provider.value,
-            model=result.model,
-        )
-
-        await self._extract_and_store_memory(
-            owner_id=owner_id,
-            session_id=session_id,
-            research_id=research_id,
-            query=query,
-            answer=result.content,
+        self._metrics.record_duration(
+            operation=RESEARCH_DURATION,
+            duration_ms=duration_ms,
+            labels={"source_mode": _SOURCE_MODE},
         )
 
         return ResearchOutcome(

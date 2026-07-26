@@ -1,56 +1,69 @@
 # ResearchMind AI
 
-> Production-grade AI Research & Intelligence Platform
+> An AI research platform that retrieves, reasons over, and reports on both your own documents and the live web — with grounded citations and a human approving every consequential step.
 
-ResearchMind is an AI-powered research platform designed to help users search, analyze, reason over, and generate reports from both internal knowledge and external intelligence sources.
-
-The platform combines:
-
-- Retrieval-Augmented Generation (RAG)
-- LangGraph Agent Workflows
-- Persistent Memory
-- Semantic Caching
-- Model Context Protocol (MCP) Integration
-- AI Evaluation Framework
-- Observability & Monitoring
-- Production-grade Architecture
+ResearchMind lets you upload documents, chat with them, and escalate any question into a multi-step **Deep Research** run: the system plans a research task, gathers evidence across multiple waves of retrieval (and, with your approval, live web search), synthesizes a cited draft, reviews it against the evidence for unsupported claims, and produces a downloadable PDF report — pausing for your approval at each consequential step along the way.
 
 ---
 
 ## Project Status
 
-Currently Under Active Development
-
-Current Milestone: **Milestone 0.1 – Backend Foundation**
+Active development. The backend (`apps/api`) is well past scaffolding — retrieval, generation, Deep Research, memory, guardrails, and observability are all implemented and covered by a real test suite (~1,160+ tests). See `docs/project/01-current-state.md` and `docs/adrs/` for the detailed, up-to-date build log.
 
 ---
 
-## Planned Architecture
+## Core Capabilities
+
+| Area | What's implemented |
+|---|---|
+| **Three research surfaces** | Chat (conversational, optional live web search), Linear Research (single-shot grounded Q&A with citations), Deep Research (multi-wave planning + evidence gathering + synthesis + review + PDF) — see `docs/workflows/research-workflow.md` |
+| **Human-in-the-loop checkpoints** | Deep Research pauses for explicit approval at 3 points: plan approval, web-search approval, report approval — never escalates or spends a web search without consent |
+| **Retrieval** | Qdrant-native hybrid retrieval (dense Voyage AI embeddings + sparse SPLADE, Reciprocal Rank Fusion), reranking platform, metadata filtering |
+| **Document ingestion** | Async pipeline: upload → storage → queue → worker → parse (Docling: PDF/DOCX/Markdown/TXT) → metadata/statistics enrichment → chunk → embed → index — see `docs/workflows/document-ingestion.md` |
+| **Generation runtime** | Multi-provider (Groq, others) with routing strategies, 3-tier semantic caching, schema/hallucination/runtime validation, and a guardrails layer (input/retrieval/generation/runtime stages) that can warn, block, escalate, or trigger regeneration |
+| **Memory** | Session, user, semantic, and research memory (Valkey + PostgreSQL + Qdrant), injected into prompts and extracted from completed turns |
+| **Web search & MCP** | Tavily web search (shared by Chat and Deep Research, approval-gated in Deep Research); MCP client to an external Research Intelligence paper-search server |
+| **Observability** | Structured logs (`structlog`, request-id correlated), LangSmith tracing per generation, Prometheus + Grafana (4 dashboards, 5 alert rules) — see `docs/monitoring/` |
+| **Evaluation & benchmarking** | Deterministic groundedness/hallucination detection live in production; offline engineering benchmarks for chunking/embeddings/retrieval/reranking/generation with regression detection — see `docs/evaluation/` |
+| **Auth** | AWS Cognito Hosted UI, JWT-validated on every protected request |
+
+---
+
+## Architecture
 
 ```text
-                     User
-                      │
-                      ▼
-                Next.js Frontend
-                      │
-                      ▼
-               FastAPI API Gateway
-                      │
-        ┌─────────────┼─────────────┐
-        ▼             ▼             ▼
-   PostgreSQL      Valkey       Qdrant
-                      │
-                      ▼
-              LangGraph Runtime
-                      │
-          ┌───────────┼────────────┐
-          ▼           ▼            ▼
-      RAG Engine   AI Agents   MCP Manager
-                                      │
-                     ┌────────────────┼────────────────┐
-                     ▼                ▼                ▼
-              Research MCP     Climate MCP    Earthquake MCP
+                          User
+                           │
+                           ▼
+                    Next.js Frontend  (apps/web)
+                           │
+                           ▼
+                  FastAPI API Gateway  (apps/api)
+                           │
+        ┌──────────────────┼──────────────────┐
+        ▼                  ▼                   ▼
+   PostgreSQL           Valkey              Qdrant
+  (relational,      (cache, queues,     (vector store,
+   memory, usage)    rate limits)        hybrid retrieval)
+                           │
+                           ▼
+                  AI Platform  (app/ai/)
+                           │
+   ┌───────────┬───────────┼───────────┬────────────┐
+   ▼           ▼           ▼           ▼            ▼
+Knowledge   Generation   Research    Memory      Guardrails
+(ingest/   Runtime      Runtime    Platform    & Validation
+retrieve)  (routing,    (LangGraph                 │
+           caching,      multi-wave                ▼
+           validation)   Deep Research)      Observability
+                           │                  (LangSmith,
+                           ▼                   Prometheus,
+                    External tools:             Grafana)
+                 Tavily Web Search,
+              Research Intelligence MCP
 ```
+
+Background workers (`apps/worker/`) run document processing and Deep Research execution independently of the API process.
 
 ---
 
@@ -58,30 +71,21 @@ Current Milestone: **Milestone 0.1 – Backend Foundation**
 
 ### Backend
 
-- Python 3.12
-- FastAPI
-- uv
-- SQLAlchemy
-- Alembic
-
-### AI
-
-- LangGraph
-- LlamaIndex
-- LangSmith
+- Python 3.12, `uv`, FastAPI, SQLAlchemy, Alembic
+- LangGraph (Deep Research state machine), LangSmith (tracing)
+- Groq (generation), Voyage AI (dense embeddings), FastEmbed/SPLADE (sparse embeddings)
+- Qdrant (vector store), PostgreSQL (relational + memory), Valkey (cache/queue/rate-limit), Docling (document parsing)
+- `mcp` client, Tavily (web search)
+- Prometheus + Grafana (metrics/dashboards), `structlog` (structured logging)
 
 ### Frontend
 
-- Next.js
-- TypeScript
-- Tailwind CSS
+- Next.js 15, React 19, TypeScript, Tailwind CSS
 
 ### Infrastructure
 
-- Docker
-- PostgreSQL
-- Valkey
-- Qdrant
+- Docker Compose (PostgreSQL, Valkey, Qdrant, Prometheus, Grafana)
+- AWS Cognito (auth), AWS S3 (document storage)
 
 ---
 
@@ -89,31 +93,19 @@ Current Milestone: **Milestone 0.1 – Backend Foundation**
 
 ```text
 apps/
-agents/
-services/
-shared/
-docs/
-tests/
-infrastructure/
-datasets/
-experiments/
-benchmarks/
-scripts/
-tools/
+  api/          FastAPI backend — app/ai/ (retrieval, generation, research, memory, guardrails,
+                observability), app/api/v1/ (routes), app/services/, app/repositories/
+  worker/       Background workers: document processing, Deep Research execution
+  web/          Next.js frontend
+alembic/        Database migrations
+benchmarks/     Offline engineering benchmarks (chunking/embeddings/retrieval/reranking/generation)
+datasets/       Golden/raw/processed benchmark datasets
+docs/           ADRs, architecture, workflows, evaluation, monitoring, runbooks, guides
+infra/          Prometheus/Grafana provisioning and dashboards
+prds/           Product/design requirement docs
+scripts/        Dev/setup/benchmark scripts
+tests/          unit/, integration/, api/, evaluation/, security/, performance/
 ```
-
----
-
-## Roadmap
-
-- Project Planning
-- Architecture Design
-- Backend Foundation (in progress)
-- RAG Pipeline
-- AI Agents
-- MCP Integration
-- Evaluation Framework
-- Production Deployment
 
 ---
 
@@ -537,6 +529,19 @@ docker exec -it researchmind-valkey valkey-cli
 LRANGE document-processing 0 -1
 ```
 
-## License
+---
 
-MIT License
+## Documentation
+
+Start here, depending on what you need:
+
+| I want to... | Look at |
+|---|---|
+| Understand a specific design decision | `docs/adrs/` (37+ ADRs, e.g. ADR-034 Deep Research routing, ADR-036 web search, ADR-037 MCP paper search) |
+| Understand how a platform is built | `docs/platforms/`, `docs/architecture/` |
+| Understand an end-to-end flow | `docs/workflows/` (research, document ingestion, report generation, feedback loop) |
+| Check what's actually tested/evaluated | `docs/evaluation/`, `docs/guides/testing.md` |
+| Set up or debug Prometheus/Grafana/LangSmith | `docs/monitoring/`, `docs/runbooks/prometheus-grafana-observability.md` |
+| Debug a running instance | `docs/guides/debugging.md`, `docs/runbooks/troubleshooting.md` |
+| Follow repo coding conventions | `docs/guides/coding-standards.md` |
+| See current build status / what's next | `docs/project/01-current-state.md`, `docs/roadmap/` |

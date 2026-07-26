@@ -77,9 +77,9 @@ export default function ResearchPage() {
     // gate submission. A failure here shouldn't affect the rest of the page.
     let cancelled = false;
     api.documents
-      .list()
-      .then((docs) => {
-        if (!cancelled) setHasDocuments(docs.length > 0);
+      .list({ limit: 1 })
+      .then((res) => {
+        if (!cancelled) setHasDocuments(res.total > 0);
       })
       .catch(() => {
         if (!cancelled) setHasDocuments(null);

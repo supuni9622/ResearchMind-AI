@@ -58,6 +58,22 @@ export interface DocumentKnowledgeStats {
   embedding_count: number;
 }
 
+export type DocumentKind = 'pdf' | 'docx' | 'markdown' | 'other';
+
+export interface DocumentListParams {
+  limit?: number;
+  offset?: number;
+  search?: string;
+  kind?: DocumentKind;
+}
+
+export interface DocumentListResponse {
+  items: Document[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
 export interface GenerationUsageSummary {
   total_cost_usd: number;
   total_requests: number;
@@ -647,7 +663,15 @@ export const api = {
     streamRunEvents: streamResearchRunEvents,
   },
   documents: {
-    list: () => request<Document[]>('/api/v1/documents'),
+    list: (params?: DocumentListParams) => {
+      const query = new URLSearchParams();
+      if (params?.limit !== undefined) query.set('limit', String(params.limit));
+      if (params?.offset !== undefined) query.set('offset', String(params.offset));
+      if (params?.search) query.set('search', params.search);
+      if (params?.kind) query.set('kind', params.kind);
+      const qs = query.toString();
+      return request<DocumentListResponse>(`/api/v1/documents${qs ? `?${qs}` : ''}`);
+    },
     stats: () => request<DocumentKnowledgeStats>('/api/v1/documents/stats'),
     upload: async (file: File): Promise<Document> => {
       const token = getStoredToken();

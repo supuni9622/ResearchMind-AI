@@ -59,6 +59,18 @@ class DocumentResponse(BaseModel):
     processing_error: str | None = None
 
 
+class DocumentListResponse(BaseModel):
+    """Paginated page of a user's documents."""
+
+    items: list[DocumentResponse]
+
+    total: int
+
+    limit: int
+
+    offset: int
+
+
 class DocumentKnowledgeStats(BaseModel):
     """Owner-scoped knowledge-base counts backed by the vector index."""
 

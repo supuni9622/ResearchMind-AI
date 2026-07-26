@@ -5,6 +5,7 @@ from fastapi import (
     APIRouter,
     Depends,
     File,
+    Query,
     UploadFile,
     status,
 )
@@ -24,9 +25,10 @@ from app.dependencies import (
 )
 from app.exceptions.base import ValidationException
 from app.models.user import User
-from app.repositories.document import DocumentRepository
+from app.repositories.document import DocumentKind, DocumentRepository
 from app.schemas.document import (
     DocumentKnowledgeStats,
+    DocumentListResponse,
     DocumentResponse,
     DocumentUploadResponse,
 )
@@ -45,23 +47,39 @@ router = APIRouter(
 
 @router.get(
     "",
-    response_model=list[DocumentResponse],
+    response_model=DocumentListResponse,
     summary="List the current user's documents",
 )
 async def list_documents(
+    limit: int = Query(default=20, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    search: str | None = Query(default=None, min_length=1, max_length=200),
+    kind: DocumentKind | None = Query(default=None),
     current_user: User = Depends(get_current_user),
     repository: DocumentRepository = Depends(get_document_repository),
-) -> list[DocumentResponse]:
+) -> DocumentListResponse:
     """
-    List documents owned by the authenticated user.
+    List documents owned by the authenticated user, paginated.
 
     Newest first. Scoped to `current_user.id` — a user can never see
-    another user's documents.
+    another user's documents. `search` matches the filename
+    (case-insensitive substring); `kind` filters by document type.
     """
 
-    documents = await repository.list_by_owner(current_user.id)
+    documents, total = await repository.list_by_owner_page(
+        current_user.id,
+        limit=limit,
+        offset=offset,
+        search=search,
+        kind=kind,
+    )
 
-    return [DocumentResponse.model_validate(document) for document in documents]
+    return DocumentListResponse(
+        items=[DocumentResponse.model_validate(document) for document in documents],
+        total=total,
+        limit=limit,
+        offset=offset,
+    )
 
 
 @router.get(

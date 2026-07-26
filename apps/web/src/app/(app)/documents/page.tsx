@@ -1,59 +1,100 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, type Document } from '@/lib/api';
 import { PageHeader } from '@/components/ui/page-header';
 import { EmptyState } from '@/components/ui/empty-state';
 import { DocumentFilters } from '@/features/documents/components/document-filters';
 import { DocumentRow } from '@/features/documents/components/document-row';
 import { DocumentDetailsDrawer } from '@/features/documents/components/document-details-drawer';
-import { getDocKind, type DocKind } from '@/features/documents/mock-meta';
+import type { DocKind } from '@/features/documents/mock-meta';
+
+const PAGE_SIZE = 10;
+const SEARCH_DEBOUNCE_MS = 300;
 
 export default function DocumentsPage() {
   const [documents, setDocuments] = useState<Document[]>([]);
+  const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [fetching, setFetching] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [kindFilter, setKindFilter] = useState<DocKind | 'all'>('all');
   const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [selectedDoc, setSelectedDoc] = useState<Document | null>(null);
+  const [page, setPage] = useState(1);
+  const requestIdRef = useRef(0);
 
   useEffect(() => {
-    let cancelled = false;
+    const timer = setTimeout(() => setDebouncedSearch(search.trim()), SEARCH_DEBOUNCE_MS);
+    return () => clearTimeout(timer);
+  }, [search]);
 
-    api.documents
-      .list()
-      .then((docs) => {
-        if (!cancelled) setDocuments(docs);
-      })
-      .catch((err) => {
-        if (!cancelled) {
-          setError(err instanceof Error ? err.message : 'Failed to load documents');
+  // A kind/search change invalidates the current page's offset, so jump
+  // back to page 1 rather than showing a (likely empty) stale page.
+  useEffect(() => {
+    setPage(1);
+  }, [kindFilter, debouncedSearch]);
+
+  const loadDocuments = useCallback(
+    async (opts: { page: number; kindFilter: DocKind | 'all'; search: string }) => {
+      const requestId = ++requestIdRef.current;
+      setFetching(true);
+      try {
+        const res = await api.documents.list({
+          limit: PAGE_SIZE,
+          offset: (opts.page - 1) * PAGE_SIZE,
+          search: opts.search || undefined,
+          kind: opts.kindFilter === 'all' ? undefined : opts.kindFilter,
+        });
+        if (requestIdRef.current !== requestId) return;
+        setDocuments(res.items);
+        setTotal(res.total);
+        setError(null);
+      } catch (err) {
+        if (requestIdRef.current !== requestId) return;
+        setError(err instanceof Error ? err.message : 'Failed to load documents');
+      } finally {
+        if (requestIdRef.current === requestId) {
+          setLoading(false);
+          setFetching(false);
         }
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
+      }
+    },
+    []
+  );
 
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+  useEffect(() => {
+    loadDocuments({ page, kindFilter, search: debouncedSearch });
+  }, [page, kindFilter, debouncedSearch, loadDocuments]);
 
-  const handleFiles = useCallback(async (files: FileList | null) => {
-    if (!files || files.length === 0) return;
-    setUploading(true);
-    setError(null);
-    try {
-      const results = await Promise.all(Array.from(files).map((f) => api.documents.upload(f)));
-      setDocuments((prev) => [...results, ...prev]);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Upload failed');
-    } finally {
-      setUploading(false);
-    }
-  }, []);
+  const handleFiles = useCallback(
+    async (files: FileList | null) => {
+      if (!files || files.length === 0) return;
+      setUploading(true);
+      setError(null);
+      try {
+        await Promise.all(Array.from(files).map((f) => api.documents.upload(f)));
+        // Newly uploaded files sort first (newest first) — reset to an
+        // unfiltered page 1 so the upload is immediately visible.
+        setKindFilter('all');
+        setSearch('');
+        setDebouncedSearch('');
+        if (page === 1) {
+          await loadDocuments({ page: 1, kindFilter: 'all', search: '' });
+        } else {
+          setPage(1);
+        }
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Upload failed');
+      } finally {
+        setUploading(false);
+      }
+    },
+    [page, loadDocuments]
+  );
 
   function handleDrop(e: React.DragEvent) {
     e.preventDefault();
@@ -61,13 +102,8 @@ export default function DocumentsPage() {
     handleFiles(e.dataTransfer.files);
   }
 
-  const filteredDocuments = useMemo(() => {
-    return documents.filter((doc) => {
-      if (kindFilter !== 'all' && getDocKind(doc) !== kindFilter) return false;
-      if (search && !doc.filename.toLowerCase().includes(search.toLowerCase())) return false;
-      return true;
-    });
-  }, [documents, kindFilter, search]);
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const hasActiveFilter = kindFilter !== 'all' || debouncedSearch !== '';
 
   return (
     <div className="px-8 py-10 max-w-4xl">
@@ -140,7 +176,7 @@ export default function DocumentsPage() {
         <div className="text-center py-16 border border-dashed border-ink-600 rounded-xl">
           <p className="text-stone-600 text-sm">Loading documents…</p>
         </div>
-      ) : documents.length === 0 ? (
+      ) : total === 0 && !hasActiveFilter ? (
         <EmptyState
           title="No documents yet"
           description="Upload your first file above to start building your knowledge base."
@@ -154,13 +190,13 @@ export default function DocumentsPage() {
             onSearchChange={setSearch}
           />
 
-          {filteredDocuments.length === 0 ? (
+          {total === 0 ? (
             <EmptyState
               title="No documents match your filters"
               description="Try a different search term or clear the active filter."
             />
           ) : (
-            <div className="space-y-1.5">
+            <div className={`space-y-1.5 transition-opacity ${fetching ? 'opacity-60' : ''}`}>
               <div className="flex items-center px-3 pb-2 border-b border-ink-700 mb-1">
                 <span className="font-mono text-stone-600 text-[10px] tracking-widest uppercase flex-1">
                   File
@@ -179,9 +215,35 @@ export default function DocumentsPage() {
                 </span>
               </div>
 
-              {filteredDocuments.map((doc) => (
+              {documents.map((doc) => (
                 <DocumentRow key={doc.id} doc={doc} onClick={() => setSelectedDoc(doc)} />
               ))}
+
+              {totalPages > 1 && (
+                <div className="flex items-center justify-between pt-4">
+                  <span className="font-mono text-stone-600 text-[11px]">
+                    Page {page} of {totalPages}
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setPage((p) => Math.max(1, p - 1))}
+                      disabled={page === 1 || fetching}
+                      className="px-3 py-1.5 rounded-lg border border-ink-600 text-stone-300 text-[13px] hover:border-ink-400 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                    >
+                      Previous
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                      disabled={page === totalPages || fetching}
+                      className="px-3 py-1.5 rounded-lg border border-ink-600 text-stone-300 text-[13px] hover:border-ink-400 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                    >
+                      Next
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </>

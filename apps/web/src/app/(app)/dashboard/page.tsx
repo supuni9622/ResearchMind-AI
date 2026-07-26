@@ -24,6 +24,7 @@ import type {
 
 export default function DashboardPage() {
   const [documents, setDocuments] = useState<Document[]>([]);
+  const [documentTotal, setDocumentTotal] = useState(0);
   const [knowledgeStats, setKnowledgeStats] = useState<DocumentKnowledgeStats | null>(null);
   const [usageSummary, setUsageSummary] = useState<GenerationUsageSummary | null>(null);
   const [researchSessions, setResearchSessions] = useState<DashboardResearchSession[]>([]);
@@ -35,7 +36,7 @@ export default function DashboardPage() {
     let cancelled = false;
     async function loadDashboard() {
       const [docsResult, knowledgeStatsResult, usageResult, researchResult, chatResult] = await Promise.allSettled([
-        api.documents.list(),
+        api.documents.list({ limit: 5 }),
         api.documents.stats(),
         api.usage.summary(),
         api.research.listConversations(),
@@ -44,7 +45,8 @@ export default function DashboardPage() {
 
       if (cancelled) return;
 
-      const docs = docsResult.status === 'fulfilled' ? docsResult.value : [];
+      const docs = docsResult.status === 'fulfilled' ? docsResult.value.items : [];
+      const docsTotal = docsResult.status === 'fulfilled' ? docsResult.value.total : 0;
       const stats = knowledgeStatsResult.status === 'fulfilled' ? knowledgeStatsResult.value : null;
       const usage = usageResult.status === 'fulfilled' ? usageResult.value : null;
       const allResearchConversations =
@@ -71,6 +73,7 @@ export default function DashboardPage() {
       if (cancelled) return;
 
       setDocuments(docs);
+      setDocumentTotal(docsTotal);
       setKnowledgeStats(stats);
       setUsageSummary(usage);
       setResearchSessionCount(allResearchConversations.length);
@@ -175,7 +178,7 @@ export default function DashboardPage() {
 
       <div className="mb-8">
         <KnowledgeBaseStats
-          documentCount={documents.length}
+          documentCount={documentTotal}
           indexedChunkCount={knowledgeStats?.indexed_chunk_count ?? null}
           embeddingCount={knowledgeStats?.embedding_count ?? null}
           researchSessionCount={researchSessionCount}
@@ -192,7 +195,7 @@ export default function DashboardPage() {
         <div className="space-y-5">
           <PlatformHealth />
           <SuggestedResearch suggestions={suggestions} />
-          <RecentUploads documents={documents} loading={loading} />
+          <RecentUploads documents={documents} loading={loading} total={documentTotal} />
         </div>
       </div>
     </div>

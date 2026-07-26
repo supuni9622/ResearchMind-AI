@@ -1,11 +1,40 @@
 from __future__ import annotations
 
 import uuid
+from typing import Literal
 
-from sqlalchemy import exists, select
+from sqlalchemy import ColumnElement, and_, exists, func, not_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.document import Document
+
+DocumentKind = Literal["pdf", "docx", "markdown", "other"]
+
+
+def _kind_condition(kind: DocumentKind) -> ColumnElement[bool]:
+    """
+    Build the SQL condition for a document "kind" bucket.
+
+    Mirrors the classification in apps/web's `getDocKind` (content-type
+    first, filename extension as a fallback) so server-side filtering
+    agrees with the client's existing kind labels.
+    """
+
+    is_pdf = or_(Document.content_type.ilike("%pdf%"), Document.filename.ilike("%.pdf"))
+    is_docx = or_(
+        Document.content_type.ilike("%word%"),
+        Document.filename.ilike("%.docx"),
+        Document.filename.ilike("%.doc"),
+    )
+    is_markdown = or_(Document.content_type.ilike("%markdown%"), Document.filename.ilike("%.md"))
+
+    if kind == "pdf":
+        return is_pdf
+    if kind == "docx":
+        return is_docx
+    if kind == "markdown":
+        return is_markdown
+    return not_(or_(is_pdf, is_docx, is_markdown))
 
 
 class DocumentRepository:
@@ -142,6 +171,49 @@ class DocumentRepository:
         result = await self.session.execute(statement)
 
         return list(result.scalars().all())
+
+    # Paginated + filtered document listing (the /documents page)
+    async def list_by_owner_page(
+        self,
+        owner_id: uuid.UUID,
+        *,
+        limit: int,
+        offset: int,
+        search: str | None = None,
+        kind: DocumentKind | None = None,
+    ) -> tuple[list[Document], int]:
+        """
+        Retrieve one page of documents owned by a user, newest first.
+
+        `search` matches against the filename (case-insensitive substring).
+        Returns the page alongside the total count matching the filters,
+        so callers can render "page X of Y" without a second round trip.
+        """
+
+        conditions: list[ColumnElement[bool]] = [Document.owner_id == owner_id]
+
+        if search:
+            conditions.append(Document.filename.ilike(f"%{search}%"))
+
+        if kind:
+            conditions.append(_kind_condition(kind))
+
+        filters = and_(*conditions)
+
+        count_statement = select(func.count()).select_from(Document).where(filters)
+        total = await self.session.scalar(count_statement) or 0
+
+        statement = (
+            select(Document)
+            .where(filters)
+            .order_by(Document.created_at.desc())
+            .limit(limit)
+            .offset(offset)
+        )
+
+        result = await self.session.execute(statement)
+
+        return list(result.scalars().all()), total
 
     # Fast duplicate check
     async def exists_by_checksum(

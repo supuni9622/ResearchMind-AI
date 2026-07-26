@@ -15,13 +15,21 @@ function formatDate(iso: string): string {
   return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
-export function RecentUploads({ documents, loading }: { documents: Document[]; loading: boolean }) {
+export function RecentUploads({
+  documents,
+  loading,
+  total,
+}: {
+  documents: Document[];
+  loading: boolean;
+  total?: number;
+}) {
   const recent = documents.slice(0, 5);
 
   return (
     <div className="border border-ink-600 rounded-xl overflow-hidden">
       <div className="px-5 py-3.5 border-b border-ink-700 flex items-center justify-between">
-        <SectionLabel count={documents.length}>Recent Uploads</SectionLabel>
+        <SectionLabel count={total ?? documents.length}>Recent Uploads</SectionLabel>
         <Link
           href="/documents"
           className="font-mono text-stone-600 hover:text-sage-400 text-[10px] transition-colors"

@@ -4,45 +4,15 @@ import type { ReactNode } from 'react';
 import type { Citation } from '@/lib/api';
 import { isWebCitation, type ResearchTurn } from '@/features/research/types';
 import { AlertIcon, ClockIcon, LayersIcon, NetworkIcon } from '@/components/ui/icons';
+import { Markdown } from '@/components/ui/markdown';
 import { StreamingStatus } from '@/features/research/components/streaming-status';
 
-// Matches both document citations (`S1`) and web citations (`W1-1`).
-const CITATION_TOKEN = /\[?(S\d+|W\d+-\d+)\]?/g;
-
 /** Shared with `DeepResearchBlock` for rendering a rejected report's
- * plain-text answer the same way a Linear Research turn's is rendered. */
-export function renderAnswer(answer: string, citations: Citation[]): ReactNode[] {
-  const knownIds = new Set(citations.map((c) => c.citation_id));
-  if (knownIds.size === 0) return [answer];
-
-  const parts: ReactNode[] = [];
-  let lastIndex = 0;
-  let match: RegExpExecArray | null;
-  let key = 0;
-
-  while ((match = CITATION_TOKEN.exec(answer)) !== null) {
-    const id = match[1];
-    if (!knownIds.has(id)) continue;
-    const web = isWebCitation(id);
-    parts.push(answer.slice(lastIndex, match.index));
-    parts.push(
-      <span
-        key={key++}
-        title={web ? 'Found via web search' : undefined}
-        className={`inline-flex items-center gap-0.5 font-mono text-[0.82em] px-1 py-0.5 rounded border whitespace-nowrap ${
-          web
-            ? 'text-sky-400 border-sky-800/40 bg-sky-500/5'
-            : 'text-amber-500 border-amber-800/40 bg-amber-500/5'
-        }`}
-      >
-        {web && <NetworkIcon size={9} />}
-        [{id.slice(1)}]
-      </span>
-    );
-    lastIndex = match.index + match[0].length;
-  }
-  parts.push(answer.slice(lastIndex));
-  return parts;
+ * answer the same way a Linear Research turn's is rendered -- markdown
+ * formatting plus inline citation badges (`[S1]`/`[W1-1]`) for any id
+ * present in `citations`. */
+export function renderAnswer(answer: string, citations: Citation[]): ReactNode {
+  return <Markdown content={answer} citations={citations} />;
 }
 
 export function ResearchBlock({
@@ -75,12 +45,12 @@ export function ResearchBlock({
             <span>{turn.error}</span>
           </div>
         ) : turn.answer ? (
-          <p className="text-stone-200 text-sm leading-relaxed mb-4 whitespace-pre-wrap">
+          <div className="text-stone-200 text-sm mb-4">
             {renderAnswer(turn.answer, turn.citations)}
             {turn.stage === 'generating' && (
               <span className="inline-block w-1.5 h-3.5 ml-0.5 bg-sage-500 animate-pulse align-middle" />
             )}
-          </p>
+          </div>
         ) : (
           <div className="mb-2">
             <StreamingStatus stage={turn.stage} chunkCount={turn.chunkCount} />

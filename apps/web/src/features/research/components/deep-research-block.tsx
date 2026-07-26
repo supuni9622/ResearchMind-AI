@@ -466,9 +466,9 @@ export function DeepResearchBlock({
             )}
             {turn.linearAnswer ? (
               <div>
-                <p className="text-stone-200 text-sm leading-relaxed mb-3 whitespace-pre-wrap">
+                <div className="text-stone-200 text-sm mb-3">
                   {renderAnswer(turn.linearAnswer.answer, turn.linearAnswer.citations)}
-                </p>
+                </div>
                 {turn.linearAnswer.citations.length > 0 && (
                   <div className="flex items-center gap-1.5 mb-3 flex-wrap">
                     {turn.linearAnswer.citations.map((c) => {

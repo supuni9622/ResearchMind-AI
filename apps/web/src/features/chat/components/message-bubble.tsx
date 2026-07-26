@@ -1,5 +1,6 @@
 import type { ChatMessage } from '@/features/chat/types';
 import { AlertIcon, BookIcon, NetworkIcon, SparklesIcon } from '@/components/ui/icons';
+import { Markdown } from '@/components/ui/markdown';
 
 function WebSearchStatus({ webSearch }: { webSearch: NonNullable<ChatMessage['webSearch']> }) {
   if (webSearch.stage === 'skipped') return null;
@@ -104,12 +105,12 @@ export function MessageBubble({ message }: { message: ChatMessage }) {
         <div className="rounded-2xl rounded-tl-sm px-4 py-2.5 bg-ink-800/60">
           {message.webSearch && <WebSearchStatus webSearch={message.webSearch} />}
           {message.paperSearch && <PaperSearchStatus paperSearch={message.paperSearch} />}
-          <p className="text-stone-200 text-sm leading-relaxed whitespace-pre-wrap">
-            {message.content}
+          <div className="text-stone-200 text-sm">
+            <Markdown content={message.content} />
             {message.stage === 'streaming' && (
               <span className="inline-block w-1.5 h-3.5 ml-0.5 bg-sage-500 animate-pulse align-middle" />
             )}
-          </p>
+          </div>
         </div>
       )}
     </div>

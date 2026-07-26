@@ -1,6 +1,6 @@
 # ResearchMind AI — Project Status
 
-**Last Updated:** 2026-07-25 (+ Chat gained web search — toggle-gated, no approval, reusing the Deep Research Web Search Tool Platform unchanged — and citation chips across both surfaces now visually distinguish web-sourced citations from document ones. See the "AUTO model swap + Chat web search" and "Citation web-source UI + composer label" sections under Phase 6 below. Prior update, 2026-07-24: + A user-driven testing pass against the real, working Deep Research frontend surfaced six concrete UX/correctness gaps in the flow verified end-to-end the day before — all six are now fixed: the progress-step log no longer disappears once a run reaches report-review/done/failed, PDF citation references resolve to filenames instead of raw document UUIDs, Linear and Deep Research turns now correctly share one conversation instead of forking a new one per Deep Research call, a Deep Research run now survives a page refresh (conversation replay reconstructs its live/paused/completed state, not just Linear turns), rejecting a report no longer discards the synthesized content as a terminal `failed` run — it now still publishes as a plain answer, just without the PDF — and the report-approval step is no longer blind: a new `GET /research/runs/{id}/draft` endpoint reads the pending draft straight out of the paused run's LangGraph checkpoint, and the frontend now shows (and lets a reviewer edit, citation-safely) the report before deciding. See Phase 6's new "2026-07-24 UX/reliability pass" section below and `PRODUCT_FLOWS_AND_GAPS.md` for the code-verified detail. + Prior update, 2026-07-23: Deep Research became a complete, working, end-to-end single-agent workflow with a real frontend — memory-aware planning, a second human checkpoint via a real LangGraph report-approval `interrupt()`, real per-owner rate limiting across all three product paths, a fixed cross-run cache-leakage risk in synthesis/review, a full Research-UI Deep Research destination consuming live SSE progress events for the first time, and a same-day manual browser click-through that surfaced and fixed two worker session-staleness bugs — see Phase 6's "2026-07-23 verification pass" below.)
+**Last Updated:** 2026-07-26 (+ ResearchMind became an MCP **client** for the first time — a narrow, single-tool "Research Intelligence MCP" paper-search platform (`app/ai/tools/paper_search/`, ADR-037) reachable from both Chat (toggle-gated, query-distilled) and Deep Research (a non-blocking post-report suggestion, not a 4th approval checkpoint). This is a scoped-down MCP **client** integration for one external capability, not the general-purpose Phase 6/7 Agentic/MCP Ecosystem — that remains explicitly out of scope, deferred per ADR-033, and unaffected by this work; see the new "2026-07-25/26 Research Intelligence MCP Paper Search Platform" section under Phase 6 below. Same session: a real production bug fix in the Memory Platform — Deep Research/Chat follow-ups using a pronoun ("so how is magma related to it?") had nothing to resolve the pronoun against, since no session-level "what is this about" state was ever persisted; a new `SessionStateUpdaterService` (`app/ai/memory/session/state_updater.py`, replacing the old narrow-trigger-phrase `state_from_user_turn`) now maintains one evolving, upserted-in-place SESSION memory summary per session after every turn. Also (uncommitted as of 2026-07-26): Chat, Research, and Deep Research answers now render as real Markdown (`apps/web/src/components/ui/markdown.tsx`, `react-markdown`+`remark-gfm`+`remark-breaks`) instead of raw `whitespace-pre-wrap` text — lists/headings/bold/tables/code blocks now format correctly, and citation badges (`[S1]`/`[W1-1]`) are now produced by a remark plugin operating on the parsed markdown tree rather than a hand-rolled string-splitting regex, fixing a real bug where a web-citation marker embedded in a rejected-report's fallback answer rendered as plain unstyled text. Prior update, 2026-07-25: + Chat gained web search — toggle-gated, no approval, reusing the Deep Research Web Search Tool Platform unchanged — and citation chips across both surfaces now visually distinguish web-sourced citations from document ones. See the "AUTO model swap + Chat web search" and "Citation web-source UI + composer label" sections under Phase 6 below. Prior update, 2026-07-24: + A user-driven testing pass against the real, working Deep Research frontend surfaced six concrete UX/correctness gaps in the flow verified end-to-end the day before — all six are now fixed: the progress-step log no longer disappears once a run reaches report-review/done/failed, PDF citation references resolve to filenames instead of raw document UUIDs, Linear and Deep Research turns now correctly share one conversation instead of forking a new one per Deep Research call, a Deep Research run now survives a page refresh (conversation replay reconstructs its live/paused/completed state, not just Linear turns), rejecting a report no longer discards the synthesized content as a terminal `failed` run — it now still publishes as a plain answer, just without the PDF — and the report-approval step is no longer blind: a new `GET /research/runs/{id}/draft` endpoint reads the pending draft straight out of the paused run's LangGraph checkpoint, and the frontend now shows (and lets a reviewer edit, citation-safely) the report before deciding. See Phase 6's new "2026-07-24 UX/reliability pass" section below and `PRODUCT_FLOWS_AND_GAPS.md` for the code-verified detail. + Prior update, 2026-07-23: Deep Research became a complete, working, end-to-end single-agent workflow with a real frontend — memory-aware planning, a second human checkpoint via a real LangGraph report-approval `interrupt()`, real per-owner rate limiting across all three product paths, a fixed cross-run cache-leakage risk in synthesis/review, a full Research-UI Deep Research destination consuming live SSE progress events for the first time, and a same-day manual browser click-through that surfaced and fixed two worker session-staleness bugs — see Phase 6's "2026-07-23 verification pass" below.)
 
 **Current Maturity:** NotebookLM++ + Perplexity Foundation — Hybrid Retrieval, Reranking, Parent Expansion, and Context Guardrails are all in place, putting the platform ahead of NotebookLM and closing in on a Perplexity v1 experience. The Context Platform's Compression stage is now complete end to end (V1-V4 — Token Budget, Embedding Redundancy, LangChain Contextual, and LLM per-chunk summarization — per `context_platform_complexion_prd.md`), with LangChain compression wired into `ContextBuilderService.build()`'s default pipeline behind an opt-in `settings.enable_langchain_compression` flag. A platform-wide Guardrails Platform (input/retrieval/generation/runtime stages, Source Trust, policies, scoring, artifacts) now sits alongside the Validation Platform as a completed foundation layer, and — per `guardrail_integration_prd.md` — is wired directly into both `GenerationService` (input gate before every provider call, full evaluate() report attached to `GenerationResult.guardrails`) and `ContextBuilderService` (retrieval-stage gate before context building). The Generation Platform is now fully complete, per `generation_platform_complexion_prd.md`: Routing Platform (model/provider selection, scored catalog, strategy-weighted fallback chains), Runtime Caching Platform (L1 exact/L2 semantic/L3 session caching, policy resolution, wired into `GenerationService`), Streaming Platform (canonical event protocol, SSE + WebSocket transports, `stream_generate()`, cache-hit replay), five per-runtime Validation Contracts (Research/Planner/Reviewer/Agent/MCP), a Validation Policy Layer, every PRD output validator, and Runtime Metrics Integration are all done. Critically, the Generation Platform is now reachable over HTTP for the first time — `POST /api/v1/chat/stream` (SSE) and `/api/v1/chat/ws` (WebSocket) are live, backed by a new minimal Conversation/Message persistence layer. A new, centralized Artifact Platform (`app/ai/artifacts/`, per `artifacts_platform_prd.md`) now persists every generation call, completed stream, and conversation turn as an immutable, versioned, policy-gated artifact in S3 — the canonical execution history layer the ingestion side has always had, now extended to the runtime side. A thin Generation Runtime Platform (`app/ai/runtime/generation/orchestration/`, per `generation_runtime_platform_prd.md`) then gave every future caller one canonical entrypoint, `execute_generation()`, into that already-complete `GenerationService.generate()` flow instead of reaching into `GenerationService` directly — and that entrypoint now has its first real caller: the new Research API Platform (Phase 4, per `research_api_prd.md`) is ResearchMind's **first live, end-to-end product surface** — `POST /api/v1/research` (plus `/research/stream`, `/research/citations`, `GET /research/{research_id}`) lets a user upload documents, ask a question, and get back a grounded, cited, streamable answer, via a new `ResearchService` composing Retrieval (hybrid search + rerank) + Context (dedup/expand/merge/compress/cite) + Generation Runtime + Streaming + best-effort Artifact persistence. This is also the first live code exercising `RuntimeType.RESEARCH` and `ArtifactRuntime.RESEARCH` — previously reserved-but-unused enum values — and the first live caller of the previously scaffold-only Research Artifact writer. Session/Agent/Evaluation artifacts remain built but scaffold-only, since those runtimes still don't exist yet. Most recently, an **AI Runtime Observability Platform** (`oberservability_platform_prd.md`, Phase 3.9) shipped and was hardened through several rounds of real-world verification against a live LangSmith account and S3 bucket: canonical metrics/statistics/report-builder subpackages under a new `app/ai/observability/`, real (not stubbed) LangSmith tracing + artifact persistence wired into **both** Generation entry points — `generate()` and, after a bug found via live testing, `stream_generate()` too (meaning Research, Chat, and any future streaming caller all get it "for free") — plus the Knowledge Processing pipeline (parse/chunk/embed/index, no LLM call, so metrics/report only, no trace). Three real bugs were found and fixed by testing against the actual frontend rather than trusting the initial implementation: (1) tracing/artifacts were wired into `generate()` only, silently dark for every streamed request; (2) a missing `(RESEARCH, OBSERVABILITY)` artifact policy rule silently skipped every research artifact write even with tracing working; (3) the tracer only ever sent metadata tags as LangSmith's "input" and never sent an "output" at all. A follow-up closed a real product gap surfaced by the same verification: streamed generations never ran post-generation validation/guardrail scoring at all (only pre-generation input checks) — `GenerationService.score_completed_stream()` now runs the same checks `generate()` does, informationally, never blocking (there's nothing left to stop once tokens reached the client). Separately, verifying the Research feature surfaced an unrelated, real product gap: **Research has no multi-turn conversation memory at all** — every query is a fully standalone retrieval + generation call with no history, no query rewriting, and no session continuity, unlike Chat (which has persisted history, just flattened at the provider boundary). See `AI_ENGINEERING_AUDIT.md` for the full write-up. Most recently, `evaluation_platform_prd.md` (Phase 4.1 in its own header, a number already taken in this file by Research Frontend Integration) asked for a full new Evaluation Platform — datasets/evaluators/benchmarks/experiments/regression/reports under a new `app/ai/evaluation/`. Investigation found that would have duplicated two things that already exist under different names: the "Engineering Benchmarks" layer described in `docs/architecture/evaluation-strategy.md` is already real, working code at repo-root `benchmarks/` (not the empty `app/ai/quality/` scaffold the PRD's folder layout would have paralleled), and the "Runtime Evaluation" layer described in `docs/architecture/evaluation-platform.md` is already implemented as the AI Runtime Observability Platform above — confirmed by `STRUCTURE.md`'s own annotation on that doc's sibling. The PRD's Experiment Platform section was also deferred, since it would have forked the separately-designed, not-yet-built async Experimentation Platform before it exists. What was real and missing — Generation evaluation and Regression Detection — was built directly into `benchmarks/` instead; see the Engineering Benchmark Platform section below for detail, including a real citation-accuracy bug found and fixed via live verification against Groq/OpenAI/Claude. Since then, the Retrieval Platform closed its last two tracked gaps (see "Recently Completed" below): **Parent/Child Retrieval** now has a real producer (`HierarchicalChunkingProvider`) feeding the previously-orphaned `ParentExpansionService`, and **Parallel Retrieval** grew from a dense+sparse 2-way `asyncio.gather()` to a 3-way one with a new filter-only Metadata branch. Most recently, a new **Memory Platform** (`app/ai/memory/`, per `memory_platform_prd.md`) closed the multi-turn conversation memory gap flagged earlier in this file — SESSION (Valkey)/USER+SEMANTIC+RESEARCH (Postgres+Qdrant) storage, a `MemoryService` orchestrator, and a new `/memory` API, extended same-session against a follow-up 5-pipeline architecture review (Reciprocal Rank Fusion search, LLM-driven extraction, a lifecycle sweep), then wired into **both** live surfaces via Runtime Memory Injection — `ResearchService` first, then `chat.py` in a further follow-up. Wiring Chat to memory surfaced that `chat.py` was actually crashing on **every single message, unconditionally** (`GenerationService._validate()` hard-rejected the empty `PromptContext.context` every unretrieval-backed chat request always had) — fixed, along with a second, independent latent bug where `GenerationRequest.output_model` couldn't be serialized for artifact persistence. Separately, the Routing Platform's `AUTO` strategy now hard-defaults to Groq instead of the scoring engine's own top pick (previously claude-sonnet-5 essentially always), per explicit request. See Milestone 12 and the Milestone 2.9.7 Addendum below for full detail. Most recently, **Chat got its own frontend surface** (Phase 4.2, `apps/web`'s new `/chat` page) — closing the product-IA gap flagged at the end of Phase 4.1: Chat (user knows the question — fast, interactive, ungrounded) and Research (user knows the goal — slow, cited, report-generating) are now two visibly separate surfaces instead of Chat existing only as a backend API with no way to reach it. This needed one small but load-bearing backend fix first: `chat.py` never populated `GenerationRequest.session_id`, so a client starting a new conversation had no way to learn the server-assigned `conversation_id` from the stream after turn 1 (`ConversationService.get_or_create()` 404s on an unknown client-supplied id rather than creating one, so the frontend can't just mint its own) — permanently blocking multi-turn chat from a fresh session. Fixed with `session_id=conversation_id`, the exact pattern `ResearchService` already used for the same reason. See Phase 4.2 below for full detail. Maturity ladder: `NotebookLM++ → Perplexity v1 (reached) → Open Deep Research → Manus / Glean`.
 
@@ -1840,6 +1840,100 @@ above, once web search was actually reachable end to end:
 Verified: frontend `tsc --noEmit`/`eslint`/`next build` all clean
 (backend untouched by this entry).
 
+## 2026-07-25/26 Research Intelligence MCP Paper Search Platform — ResearchMind's first MCP client
+
+**Not general-purpose MCP/multi-agent work.** ResearchMind became an MCP
+**client** of exactly one external server, for exactly one tool
+(`search_papers`), reachable from exactly two call sites. The Phase 6
+Agentic AI Platform and Phase 7 MCP Ecosystem (a general MCP manager,
+registry, multiple external servers, planner-driven capability routing) are
+unaffected and remain deferred per ADR-033 — see ADR-037's own framing of
+this distinction. See ADR-037 for the full decision record.
+
+- **New platform**, `app/ai/tools/paper_search/` — mirrors
+  `app/ai/tools/web_search/` file-for-file: canonical
+  `PaperSearchRequest`/`PaperSearchResult` models, a
+  `PaperSearchProviderInterface`, a `PaperSearchService`
+  (policy/caching/normalization), a provider registry. No LangGraph or
+  Chat-runtime imports — both runtimes depend on it, not the other way
+  around.
+- **`ResearchIntelligenceMCPProvider`** (`providers/mcp_client.py`) — the
+  official `mcp` SDK's `streamablehttp_client` + `ClientSession`, a fresh
+  connection per call (no persistent session; acceptable given both call
+  sites fire at most once per Chat turn / Deep Research run). Only
+  `search_papers` is wired; the other 6 tools the server exposes
+  (`get_paper`, `get_paper_citations`, etc.) are explicitly out of scope.
+  Auth is an optional static bearer token
+  (`settings.mcp_papers_auth_token`) — no cached/refreshed JWT
+  service-token provider, no retry-with-backoff, no 9-category error
+  taxonomy (all part of a fuller PRD, `prds/1.researchmind_mcp_integration_prd.md`,
+  explicitly deferred as a later hardening pass).
+- **Caching** (`cache/`) — a Valkey-backed, fail-open, TTL cache keyed by
+  `sha256(query|max_results)`, mirroring the query-embedding cache's shape
+  rather than the Generation Runtime's L1/L2/L3 caching platform (wrong fit
+  for a tool call's JSON result).
+- **Chat**: `ChatStreamRequest.paper_search_enabled` (default off) mirrors
+  `web_search_enabled` exactly — the toggle *is* the approval, once per
+  turn. Deliberately **no** necessity-decision LLM call first (unlike Web
+  Search's AUTO mode) — `run_chat_paper_search()`
+  (`app/ai/runtime/chat/paper_search.py`) always searches when enabled,
+  confirmed cheaper/simpler and avoids a second fragile-structured-output
+  necessity surface after ADR-036 already hit that failure mode once.
+- **Deep Research**: `ResearchProposalRequest.paper_suggestions_enabled`
+  (default off, Deep-Research-only — never added to Linear Research's
+  request schema). **Not a 4th approval checkpoint** — a new
+  `suggest_related_papers` graph node runs sequentially between
+  `persist_final_report` and `END`, wrapped in a broad `try/except` plus an
+  `asyncio.wait_for` timeout on top of the provider's own timeout. The
+  report is already durably persisted by the time this node runs, so a
+  slow/broken MCP server can never hold report delivery hostage — any
+  failure (disabled, unconfigured, empty result, exception) emits
+  `RESEARCH_RELATED_PAPERS_SKIPPED` and the run reaches `END` exactly as it
+  would have without the feature; success emits
+  `RESEARCH_RELATED_PAPERS_COMPLETED` carrying up to 5 suggested papers
+  (title/authors/year/url) directly in the event's metadata.
+- **Query distillation, not raw prompt/goal.** Confirmed live (2026-07-25)
+  that both a raw conversational Chat prompt and Deep Research's
+  `rewritten_goal` (a full sentence/question, not a topic phrase) return
+  zero results from `search_papers`. Both call sites now distill through
+  `PaperQueryExtractionService` (`app/ai/runtime/chat/paper_query.py`) first,
+  falling back to the raw text if extraction is unavailable or fails.
+- **`LangGraphResearchEventAdapter.progress()` gained an opt-in
+  `extra_metadata` param** — every other Research Runtime event carries
+  only a stable `{"label": ...}` payload by design (internal node
+  names/task questions/evidence excerpts never cross this boundary, per
+  ADR-032/ADR-036); surfacing the actual paper list needed one narrow,
+  additive exception. Default `None` leaves all ~15 existing call sites
+  unaffected.
+- **Frontend**: the SSE event log needed almost no new plumbing — it
+  already generically logs `{type, label, timestamp}` for any event, so the
+  three new event types render automatically. Only the paper list itself
+  needed new code: a `DeepResearchTurn.relatedPapers` field and a small
+  read-only card rendered after the report completes (no approve/reject
+  controls — there's no checkpoint to decide on). Chat gained a
+  `PaperSearchStatus` chip in `message-bubble.tsx` and a toggle in the
+  composer, alongside the existing web-search toggle.
+- **Session-state-updater fix, same session** (Memory Platform,
+  `app/ai/memory/session/state_updater.py`) — a real production bug: a
+  Deep Research follow-up using a pronoun ("so how is magma related to
+  it?") had no durable session-level "what is this about" state to resolve
+  against, since the old `state_from_user_turn`'s narrow trigger-phrase
+  gate never captured ordinary topic drift. A new
+  `SessionStateUpdaterService` asks a cheap model to maintain one evolving,
+  ≤300-character sentence describing the session's current subject after
+  every turn, upserted in place via a new
+  `MemoryService.get_latest_session_state()` (tag lookup by
+  `metadata["kind"]`, not appended as a growing pile of snapshots). Mirrors
+  `MemoryExtractionService`'s shape (Generation Runtime call, structured
+  output, fail-open), not the dedicated-cheap-model-registry pattern
+  `WebSearchNecessityService`/`PaperQueryExtractionService` use — this is
+  Memory-Platform-native work, so it follows that platform's own
+  composition precedent instead.
+
+Enabling paper search requires both `MCP_PAPERS_ENABLED` and
+`MCP_PAPERS_SERVER_URL`; either being absent degrades
+`PaperSearchService.available` to `False` and both surfaces silently no-op.
+
 ## Not Yet Built
 
 - ❌ Web Search Tool Platform's standalone SSRF-hardened Web Fetch Platform,
@@ -1861,7 +1955,7 @@ Verified: frontend `tsc --noEmit`/`eslint`/`next build` all clean
   escalation-check planner call before running Linear Research — a deliberate, requested
   tradeoff, not a bug, but it means the UI's "fast path" is slower than the raw
   `POST /research` API. Parallelizing instead of gating is a documented follow-up.
-- ❌ MCP integration, multi-agent orchestration — explicitly deferred per ADR-033 until the single-agent runtime proves a measurable limitation it can't address.
+- ❌ General-purpose MCP ecosystem (MCP manager/registry, multiple external servers, planner-driven capability routing) and multi-agent orchestration (Phase 6/7) — explicitly deferred per ADR-033 until the single-agent runtime proves a measurable limitation it can't address. Not affected by the narrow MCP **client** integration added 2026-07-25/26 for paper search (ADR-037, one server, one tool, two call sites) — see the section above; that work does not start Phase 6/7.
 
 ---
 

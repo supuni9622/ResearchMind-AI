@@ -1,8 +1,15 @@
 # ResearchMind AI — Roadmap
 
 **Version:** 3.0 (Unified)
-**Last Updated:** 2026-07-25
+**Last Updated:** 2026-07-26
 **Status:** Living document — single source of truth for project progress, milestone traceability, and implementation order.
+
+**2026-07-26 note:** Phase 5 gained a Research Intelligence MCP paper-search
+platform (ADR-037) — see below. This is ResearchMind's first MCP **client**
+integration (one external server, one tool, two call sites), not the
+general-purpose Phase 6 (Agentic AI) / Phase 7 (MCP Ecosystem) work, both of
+which remain unstarted and deferred per ADR-033 exactly as before. Do not
+read Phase 5's new MCP-client work as progress on Phase 6/7.
 
 ---
 
@@ -51,9 +58,9 @@ They're kept under `docs/archive/` for history, not deleted — do not treat the
 | 2 | Knowledge Platform | ✅ Complete | Upload → Processing → Chunking → Embedding → Vector Store → Retrieval → Reranking → Context |
 | 3 | AI Runtime / Generation Platform | ✅ Complete | Multi-provider LLM runtime, structured output, validation, guardrails, routing, caching, observability |
 | 4 | Research API (Linear) | ✅ Complete | `POST /research` — first live, cited, end-to-end product surface |
-| 5 | Research Runtime (Deep Research) | ✅ Complete | Single-agent LangGraph: proposal → plan → approval → multi-wave graph → report approval → PDF; web search (Tavily, 3rd checkpoint) now also reachable from Chat |
+| 5 | Research Runtime (Deep Research) | ✅ Complete | Single-agent LangGraph: proposal → plan → approval → multi-wave graph → report approval → PDF; web search (Tavily, 3rd checkpoint) and paper search (Research Intelligence MCP client, non-blocking post-report event) both also reachable from Chat |
 | 6 | Agentic AI Platform | ⏳ Planned | General-purpose (non-Research-scoped) agents; deferred per ADR-033 |
-| 7 | MCP Ecosystem | ⏳ Planned | External tool/capability integration via Model Context Protocol |
+| 7 | MCP Ecosystem | ⏳ Planned | External tool/capability integration via Model Context Protocol — the *ecosystem* (registry, manager, multi-server routing) is still unstarted; a narrow, single-server/single-tool MCP client now exists via Phase 5's ADR-037 (paper search), see below |
 | 8 | AI Quality / Evaluation Platform | 🟡 Partial | Retrieval + generation benchmarks done; Experimentation Platform not started |
 | 9 | Production Platform | ⏳ Planned | Kubernetes/ECS, CI/CD, OpenTelemetry, Prometheus, Grafana |
 | 10 | Enterprise Platform | ⏳ Planned | RBAC, multi-tenancy, billing, compliance, admin portal |
@@ -387,6 +394,8 @@ GET  /research/runs/{id}/report           → presigned PDF download URL
 | Worker session-staleness bugs (long-lived `AsyncSession` poisoning, stale cached `report_decision` on resume) | ✅ found via manual browser verification (2026-07-23) and fixed, regression-tested |
 | Plan-approval `interrupt()` — second human checkpoint between evidence aggregation and synthesis, view/edit-goal/reject-with-reason | ✅ (2026-07-24) |
 | Web Search Tool Platform — third human checkpoint (`await_web_search_approval`), Tavily-backed, AUTO/REQUIRED/DISABLED modes + pre-authorize toggle | ✅ (2026-07-25, ADR-036) — see subsection below |
+| Research Intelligence MCP Paper Search Platform — ResearchMind's first MCP client, non-blocking post-report suggestion node (not a checkpoint) | ✅ (2026-07-25/26, ADR-037) — see subsection below |
+| Session-state pronoun-resolution fix (Memory Platform, benefits Chat too) | ✅ (2026-07-25/26) — see subsection below |
 
 ### Web Search Tool Platform ✅ (2026-07-25, ADR-036)
 
@@ -404,6 +413,42 @@ Frontend: Deep Research composer gained an Off/Auto/Required toggle + "skip appr
 
 Not built this pass (deferred, see ADR-036): the standalone SSRF-hardened Web Fetch Platform (Tavily already extracts page content server-side, so there's no new SSRF surface yet), multi-provider fallback (Exa/Brave/MCP), org-wide domain policy management, the full evaluation/benchmark harness.
 
+### Research Intelligence MCP Paper Search Platform ✅ (2026-07-25/26, ADR-037)
+
+ResearchMind's **first MCP client** integration — narrowly scoped to one
+external "Research Intelligence MCP" server, one tool (`search_papers`),
+two call sites. This is explicitly **not** the general-purpose Phase 6/7
+MCP Ecosystem work (a client-agnostic MCP manager/registry, multiple
+servers, planner-driven capability routing) — that remains fully
+unstarted, per the Phase 6/7 tables below.
+
+| Consumer | Approval model | Status |
+|---|---|---|
+| Chat (`app/ai/runtime/chat/paper_search.py`) | Toggle-only (`ChatStreamRequest.paper_search_enabled`), no necessity-decision call — deliberately simpler than Web Search's AUTO mode. | ✅ |
+| Deep Research (`multi_wave_research.py`'s `suggest_related_papers` node) | **Not** an `interrupt()` checkpoint — a plain sequential node between `persist_final_report` and `END`, since the report is already durably persisted by the time it runs. Any failure degrades to a `SKIPPED` event; the run reaches `END` exactly as it would without the feature. | ✅ |
+| Linear Research | — | ❌ Excluded, same as Web Search |
+
+`app/ai/tools/paper_search/` mirrors `app/ai/tools/web_search/`'s file
+layout exactly (canonical models, provider interface/registry, a
+Valkey-backed TTL cache, a composition root that degrades `.available` to
+`False` when unconfigured). `ResearchIntelligenceMCPProvider` uses the
+official `mcp` SDK's `streamablehttp_client`, a fresh connection per call,
+optional static bearer-token auth — explicitly not the fuller
+JWT-service-token/retry-with-backoff/9-category-error-taxonomy spec in
+`prds/1.researchmind_mcp_integration_prd.md`, which is deferred as a later
+hardening pass. Both call sites distill the search query through
+`PaperQueryExtractionService` first (a raw prompt or `rewritten_goal`
+sentence returns zero results from the paper-search backend).
+
+Same session, a real bug fix in the Memory Platform (not paper-search-
+specific, but shipped alongside it): a `SessionStateUpdaterService`
+(`app/ai/memory/session/state_updater.py`) now maintains one evolving
+SESSION-memory summary of "what this session is about" after every turn,
+fixing pronoun follow-ups ("how is magma related to *it*?") that previously
+had nothing to resolve against.
+
+See ADR-037 for the full decision record.
+
 ### Not yet built (explicitly retained, not dropped)
 
 | Item | Status |
@@ -411,7 +456,7 @@ Not built this pass (deferred, see ADR-036): the standalone SSRF-hardened Web Fe
 | Plan edits/rejection before approval | ❌ Not started |
 | Horizontal worker scaling | ❌ Single serial process by default; DB-safe to add more, none currently running |
 | Expiry/auto-reject for a run stuck awaiting report approval | ❌ Not started |
-| MCP / general-purpose agent integration into this runtime | ❌ Deferred per ADR-033 until the single-agent design proves a limitation it can't address |
+| General-purpose MCP manager/registry, multi-agent integration into this runtime | ❌ Deferred per ADR-033 until the single-agent design proves a limitation it can't address. Distinct from the narrow, single-tool MCP client added by ADR-037 above, which does not count toward this. |
 | Chat → Deep Research escalation | ❌ **Explicitly out of scope, will not be built** — Chat stays a standalone fast conversational surface. (Do not confuse with the Research-interface Linear → Deep escalation, which *is* built.) |
 
 **In progress, uncommitted as of 2026-07-24:** refinements to the planner/prompts, `run_service.py`, worker bootstrap, `research_run` repository, and structured-output helpers, with new/updated unit tests — incremental hardening, not a new capability.
@@ -448,15 +493,29 @@ See `docs/archive/` source files' equivalent sections, and `PRODUCT_FLOWS_AND_GA
 Planner → MCP Manager → Capability Routing → External MCP Servers
 ```
 
+**2026-07-26 note:** the *ecosystem* this phase describes — a reusable,
+client-agnostic MCP manager that discovers/routes/fails-over across
+*multiple* external servers on a planner's behalf — is still entirely
+unstarted, exactly as before. What changed is narrower: Phase 5 shipped a
+single, hand-wired MCP client (`app/ai/tools/paper_search/`,
+ADR-037) that talks to exactly one external server for exactly one tool
+(`search_papers`), with no manager, registry, discovery, routing, or
+failover of any kind — it's a point integration, not an instance of this
+phase's architecture. The two milestones below it's directly relevant to
+are marked 🟡 Partial rather than ✅ for that reason; every other milestone
+here (registry, manager, the other domain MCPs, evaluation) is unaffected
+and remains ⏳ Planned. See Phase 5's "Research Intelligence MCP Paper
+Search Platform" subsection and ADR-037 for what actually shipped.
+
 | Milestone | Status |
 |---|---|
-| MCP client (protocol, session lifecycle, auth, connection management) | ⏳ Planned |
-| MCP registry | ⏳ Planned |
-| MCP manager (discovery, routing, health monitoring, failover, permissions) | ⏳ Planned |
-| Research MCP (academic search, paper retrieval, DOI/citation lookup) | ⏳ Planned |
+| MCP client (protocol, session lifecycle, auth, connection management) | 🟡 Partial — a single-server, single-tool client exists (ADR-037, official `mcp` SDK's `streamablehttp_client`, fresh connection per call, optional static bearer token); no reusable/generalized client abstraction, no persistent session management, no cached/refreshed service-token auth (deferred per ADR-037, see `prds/1.researchmind_mcp_integration_prd.md`) |
+| MCP registry | ⏳ Planned — no registry of any kind; the one configured server is wired by direct construction, not looked up |
+| MCP manager (discovery, routing, health monitoring, failover, permissions) | ⏳ Planned — not started; ADR-037's client has no discovery, routing, health checks, or failover |
+| Research MCP (academic search, paper retrieval, DOI/citation lookup) | 🟡 Partial — academic search (`search_papers`) is live (ADR-037), reachable from Chat and Deep Research; paper retrieval, citation lookup, DOI lookup, and the other 5 tools the server exposes (`get_paper`, `get_paper_citations`, etc.) are explicitly out of scope for this pass |
 | Development MCP (GitHub, docs, package lookup) | ⏳ Planned |
 | Domain MCPs (Climate, Earthquake, Space, Crypto, Finance, Healthcare) | ⏳ Planned |
-| MCP evaluation (tool latency, success/failure rate, availability) | ⏳ Planned |
+| MCP evaluation (tool latency, success/failure rate, availability) | ⏳ Planned — ADR-037's paper search has no dedicated evaluation/benchmark harness either |
 
 ---
 

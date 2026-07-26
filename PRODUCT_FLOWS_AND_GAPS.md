@@ -7,6 +7,24 @@ against PRDs or trackers) as of 2026-07-23. Where a claim is about behavior rath
 than a file, the file(s) it was checked against are named so it can be re-verified
 after future changes.
 
+**2026-07-25/26 update (paper search MCP client, markdown rendering, session-state fix):**
+ResearchMind became an MCP **client** for the first time — a narrow,
+single-tool "Research Intelligence MCP" paper-search platform
+(`app/ai/tools/paper_search/`, ADR-037) reachable from Chat (toggle-gated
+subsection below) and Deep Research (a non-blocking post-report suggestion
+node, not a 4th approval checkpoint). This is scoped strictly to one
+external server/one tool/two call sites — it does **not** start the
+general-purpose Phase 6/7 Agentic/MCP Ecosystem work, which remains
+deferred per ADR-033; see each path's new subsection below. Separately, a
+real production bug in the Memory Platform was fixed the same session: a
+Deep Research/Chat follow-up using a pronoun ("so how is magma related to
+it?") had no durable session-level "what is this about" state to resolve
+against — a new `SessionStateUpdaterService` now maintains one evolving,
+upserted-in-place summary per session after every turn. And (uncommitted
+as of 2026-07-26): Chat, Linear Research, and Deep Research answers now
+render as real Markdown instead of raw `whitespace-pre-wrap` text — see
+each path's Frontend note.
+
 **2026-07-23 update (rate limiting):** shipped for all three paths — Loopholes C2,
 L2, and D3 are resolved, and X1 (cross-cutting) is fully closed at the per-owner
 level. See each path's Cost section and the updated X1 entry for what's covered
@@ -129,6 +147,41 @@ belongs here because it's the single biggest functional difference between Chat 
 the other two paths, and nothing in the product surface currently tells the user
 that.
 
+### Optional tool augmentation (Web Search + Paper Search, both 2026-07-25/26)
+
+Two independent, opt-in tool platforms can now add context to a Chat turn.
+Neither is retrieval (Loophole C1 above still stands — a user's own
+documents are never consulted in Chat) — both reach *external* sources
+instead:
+
+- **Web Search** (ADR-036) — `ChatStreamRequest.web_search_enabled`
+  (default off). Reuses the same `WebSearchService`/
+  `WebSearchNecessityService`/evidence-normalizer Deep Research uses.
+  `run_chat_web_search()` (`app/ai/runtime/chat/web_search.py`).
+- **Paper Search** (ADR-037) — `ChatStreamRequest.paper_search_enabled`
+  (default off), reaching a Research Intelligence MCP server (ResearchMind's
+  first MCP **client** integration — one external server, one tool,
+  `search_papers`; not the general Phase 6/7 MCP Ecosystem). Deliberately
+  **no** necessity-decision call, unlike Web Search — enabling the toggle
+  always searches, using a query distilled from the user's prompt via
+  `PaperQueryExtractionService`. `run_chat_paper_search()`
+  (`app/ai/runtime/chat/paper_search.py`).
+
+Both: toggle *is* the approval (Chat has no interrupt/resume mechanism to
+pause on), both degrade silently to a no-op on any failure or when
+unconfigured (never fail the turn), and both surface a status chip +
+source pills in `message-bubble.tsx` once results land. A user can enable
+both at once — the two run independently and both contexts get folded into
+the same generation call.
+
+### Frontend rendering (2026-07-26, uncommitted)
+
+Chat answers now render through a shared `Markdown` component
+(`apps/web/src/components/ui/markdown.tsx`, `react-markdown` +
+`remark-gfm` + `remark-breaks`) instead of raw `whitespace-pre-wrap` text —
+lists, headings, bold, tables, and code blocks in a model's answer now
+format correctly instead of showing literal markdown syntax.
+
 ### Performance
 
 - Streaming (SSE/WS) — first token latency dominated by routing + provider TTFB,
@@ -163,9 +216,8 @@ that.
 
 | ID | Issue | Severity |
 |----|-------|----------|
-| C1 | Zero RAG grounding — `chunks=[]` always, `RetrievalService` never called | High (product gap, not new) |
-| ~~C2~~ | ~~No rate limiting on chat turns~~ — **Fixed 2026-07-23**: `ValkeyRateLimiter`, wired into both `/chat/stream` and `/chat/ws` ahead of any conversation/generation work. Default 20 req/60s per owner (`chat_rate_limit_requests`/`chat_rate_limit_window_seconds`). No test coverage yet on the `/chat/ws` close-path specifically (only the shared check function + the HTTP 429 path are tested) — see note below. | Resolved |
-| C3 | Semantic cache (`AUTO`) could theoretically surface a stale/wrong answer for a near-duplicate question from a *different* conversation if cache keys aren't tightly owner+context scoped — not verified false-positive-tested in this pass | Low/Unverified |
+| ~~C1~~ | ~~No rate limiting on chat turns~~ — **Fixed 2026-07-23**: `ValkeyRateLimiter`, wired into both `/chat/stream` and `/chat/ws` ahead of any conversation/generation work. Default 20 req/60s per owner (`chat_rate_limit_requests`/`chat_rate_limit_window_seconds`). No test coverage yet on the `/chat/ws` close-path specifically (only the shared check function + the HTTP 429 path are tested) — see note below. | Resolved |
+| C2 | Semantic cache (`AUTO`) could theoretically surface a stale/wrong answer for a near-duplicate question from a *different* conversation if cache keys aren't tightly owner+context scoped — not verified false-positive-tested in this pass | Low/Unverified |
 
 ---
 
@@ -424,6 +476,37 @@ Cancellation (`POST /research/runs/{id}/cancel`) is cooperative: it flags
 wave, before a new synthesis attempt, and — as of this session — before resuming
 from the report-approval pause). It is not a synchronous abort.
 
+### Two optional tool augmentations added after this flow diagram was written (2026-07-25/26)
+
+The numbered flow above predates both; noted here rather than renumbering
+every step:
+
+- **Web Search (ADR-036, 2026-07-25)** — a **third** `interrupt()`
+  checkpoint (`await_web_search_approval`), reused inside the existing
+  bounded gap-research loop between `aggregate`/`await_plan_approval` and
+  `synthesize`. `web_search_mode` (disabled/auto/required) +
+  `web_search_auto_approve` on `ResearchProposalRequest`. `AUTO` asks
+  unless pre-authorized; `REQUIRED` never asks; a decline falls back to the
+  pre-existing doc-only gap-research node. See `PROJECT_STATUS.md`'s
+  "2026-07-25 Web Search Tool Platform" section for full detail (this file
+  was not updated with a dedicated flow diagram change at the time).
+- **Paper Search (ADR-037, 2026-07-25/26)** — **not** a 4th approval
+  checkpoint. `ResearchProposalRequest.paper_suggestions_enabled` (default
+  off) adds one new node, `suggest_related_papers`, sequential between
+  step 5's `persist_final_report` and `END` — after the report is already
+  durably persisted, so there's nothing left to gate. A Research
+  Intelligence MCP server (ResearchMind's first MCP **client**
+  integration — one server, one tool, not the general Phase 6/7 MCP
+  Ecosystem) is queried for papers related to the run's goal (query
+  distilled via `PaperQueryExtractionService`, since the raw
+  `rewritten_goal` sentence returns zero results from the paper-search
+  backend). Wrapped in a broad `try/except` + `asyncio.wait_for` timeout:
+  any failure emits `RESEARCH_RELATED_PAPERS_SKIPPED` and the run reaches
+  `END` exactly as it would have without the feature; success emits
+  `RESEARCH_RELATED_PAPERS_COMPLETED` with up to 5 papers
+  (title/authors/year/url) in the event metadata, rendered as a read-only
+  card (no approve/reject) after the report completes.
+
 ### Frontend (2026-07-23 — new; previously this path had no UI at all)
 
 `apps/web/src/app/(app)/research/page.tsx` now has a Linear/Deep mode toggle
@@ -476,6 +559,15 @@ earlier, previously with zero frontend consumers) canonical progress events —
 live, not polled. The stream reconnects (resuming from the last event cursor)
 up to 5 times on a dropped connection before surfacing an error. This resolves
 Loophole D6.
+
+**Frontend rendering (2026-07-26, uncommitted):** the linear-answer/rejected-
+report answer path (`renderAnswer()` in `research-block.tsx`, shared with
+`deep-research-block.tsx`) now renders through the same shared `Markdown`
+component Chat uses, replacing a hand-rolled string-splitting regex for
+citation badges with a remark plugin operating on the parsed markdown tree.
+This also fixed a real bug: the old regex only matched `S\d+`, so a web
+citation marker (`[W1-1]`) embedded in a rejected report's fallback answer
+rendered as plain unstyled text instead of a citation chip.
 
 **Known, disclosed scope trims** (not regressions, never built):
 - The citations/sources side panel stays Linear-Research-only — a focused Deep
@@ -700,6 +792,23 @@ user can't chat, research, or run Deep Research. Verified in `chat.py`
 `research_runtime.execution.memory_retrieval_failed`) — all three swallow
 exceptions from `MemoryService.get_context()` and continue without memory
 context rather than failing the request.
+
+### X5 — Session-state pronoun resolution (fixed 2026-07-25/26, all paths)
+
+A real production bug, found live: a Deep Research follow-up using a
+pronoun ("so how is magma related to it?") had nothing to resolve "it"
+against, since nothing about the session's actual topic had ever been
+persisted anywhere retrievable — the old `state_from_user_turn` only fired
+on a narrow set of trigger phrases, not ordinary topic drift. Fixed with a
+new `SessionStateUpdaterService`
+(`app/ai/memory/session/state_updater.py`) that, after every Chat/Deep
+Research turn, asks a cheap model to maintain one evolving, ≤300-character
+SESSION memory sentence describing what the session is currently about,
+upserted in place (`MemoryService.get_latest_session_state()`, a tag
+lookup by `metadata["kind"]`) rather than appended as a growing pile of
+snapshots. This benefits all three paths that read session memory context,
+not just Deep Research, since it's the same `MemoryService.get_context()`
+call each already makes.
 
 ---
 

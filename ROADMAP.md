@@ -453,9 +453,9 @@ See ADR-037 for the full decision record.
 
 | Item | Status |
 |---|---|
-| Plan edits/rejection before approval | ❌ Not started |
-| Horizontal worker scaling | ❌ Single serial process by default; DB-safe to add more, none currently running |
-| Expiry/auto-reject for a run stuck awaiting report approval | ❌ Not started |
+| Plan edits/rejection before approval | ✅ Done — `await_plan_approval` interrupt (2026-07-24), see above |
+| Horizontal worker scaling | ✅ Done — in-process worker concurrency + global load-shedding (2026-07-24), see above. Still static config, not autoscaling |
+| Expiry/auto-reject for a run stuck awaiting report approval | ✅ Done (2026-07-24, commit `95a6c8c` — missed in earlier passes of this document, corrected now) — `ResearchRunService.expire_stale_awaiting_approval()` auto-cancels runs stuck at any of the three approval pauses (report/plan/web-search) past a 72h TTL (`research_runtime_awaiting_approval_ttl_hours`), scheduled via `ResearchRuntimeWorker`'s own poll loop rather than a separate cron process |
 | General-purpose MCP manager/registry, multi-agent integration into this runtime | ❌ Deferred per ADR-033 until the single-agent design proves a limitation it can't address. Distinct from the narrow, single-tool MCP client added by ADR-037 above, which does not count toward this. |
 | Chat → Deep Research escalation | ❌ **Explicitly out of scope, will not be built** — Chat stays a standalone fast conversational surface. (Do not confuse with the Research-interface Linear → Deep escalation, which *is* built.) |
 

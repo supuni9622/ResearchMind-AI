@@ -1945,12 +1945,20 @@ Enabling paper search requires both `MCP_PAPERS_ENABLED` and
   scope, will not be built.** The Research-interface equivalent (Linear → Deep) is built
   and is a distinct surface (see above); Chat is intended to stay a standalone fast
   conversational surface with no path into Deep Research.
-- ❌ Horizontal worker scaling — single serial process by default; the claim query
-  (`SELECT ... FOR UPDATE SKIP LOCKED`) is already safe for multiple processes, nothing
-  currently runs more than one. Under concurrent load, later runs queue behind earlier ones
-  for their full duration (up to 10 minutes for COMPLEX plans).
-- ❌ No expiry/auto-reject for a run stuck in `awaiting_approval` — if a user never submits
-  a report decision, the run just sits there indefinitely.
+- ✅ Horizontal worker scaling — **fixed 2026-07-24, this bullet was stale, corrected now.**
+  `research_runtime_main.py` runs `settings.research_runtime_worker_concurrency` concurrent
+  claim lanes in-process (each its own DB session), and the claim query
+  (`SELECT ... FOR UPDATE SKIP LOCKED`) already made running more copies of the process safe
+  too. Global load-shedding (`deep_research_max_queued_runs`, `503`+`Retry-After` on
+  `/proposals/{id}/approve`) bounds the queue depth either way. Residual: both are static
+  config, not autoscaling.
+- ✅ Expiry/auto-reject for a run stuck in `awaiting_approval` — **fixed 2026-07-24
+  (commit `95a6c8c`), this bullet was stale, corrected now.**
+  `ResearchRunService.expire_stale_awaiting_approval()` auto-cancels (not auto-approves) any
+  run left at `AWAITING_APPROVAL`, `AWAITING_PLAN_APPROVAL`, or `AWAITING_WEB_SEARCH_APPROVAL`
+  past a 72h TTL (`research_runtime_awaiting_approval_ttl_hours`), genuinely scheduled via
+  `ResearchRuntimeWorker`'s own poll loop (piggybacked, at most once/hour) rather than a
+  separate cron process — wired in `app/bootstrap/worker.py::create_research_runtime_worker()`.
 - 🟡 The Research UI's default (Linear-mode) submission path now waits on a full
   escalation-check planner call before running Linear Research — a deliberate, requested
   tradeoff, not a bug, but it means the UI's "fast path" is slower than the raw

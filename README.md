@@ -593,6 +593,15 @@ Start here, depending on what you need:
 | Follow repo coding conventions | `docs/guides/coding-standards.md` |
 | See current build status / what's next | `docs/project/01-current-state.md`, `docs/roadmap/` |
 
+## Explore the codebase with graphify
+
+This is a large, multi-platform monorepo — `apps/api/app/ai/` alone spans knowledge/retrieval, generation runtime, research runtime, memory, guardrails, and observability, each with its own providers, artifacts, and composition roots. Reading through 800+ files to build a mental model of how it fits together is slow, especially for someone who just cloned the repo and doesn't yet know where things live. [graphify](https://github.com/Graphify-Labs/graphify) ([PyPI](https://pypi.org/project/graphifyy/)) solves that by turning the whole codebase into a queryable knowledge graph: it AST-parses every source file, clusters related code into labeled communities (e.g. "Runtime Caching Platform", "Guardrail Artifacts", "Research Planner Scheduling"), surfaces the most-connected "god nodes" (like `GenerationRequest`/`GenerationResult`, the shared contract that nearly every generation-adjacent subsystem imports), and flags surprising cross-module connections and import cycles — all before you've read a single file. It ships an interactive HTML graph, a plain-language `GRAPH_REPORT.md` audit, and a `graphify query`/`graphify explain` CLI for asking questions like "why does `GenerationRequest` bridge so many communities?" directly against the graph. For an external contributor, this turns "clone the repo, then spend a day reading code" into "clone the repo, run `graphify`, and start from an already-labeled map of the system."
+
+```bash
+uv tool install graphifyy
+graphify apps/  # or point it at any subfolder
+```
+
 ### Monitoring dashboards
 
 ```bash

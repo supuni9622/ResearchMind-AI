@@ -34,6 +34,7 @@ from app.ai.runtime.generation.caching.policies.service import (
 )
 from app.ai.runtime.generation.caching.semantic.embeddings_adapter import (
     OpenAISemanticCacheEmbeddings,
+    VoyageAISemanticCacheEmbeddings,
 )
 from app.ai.runtime.generation.caching.semantic.null import (
     NullSemanticCacheProvider,
@@ -51,9 +52,11 @@ from app.ai.runtime.generation.caching.session.provider import (
     ValkeySessionCacheProvider,
 )
 from app.core.settings import settings
+from langchain_core.embeddings import Embeddings
 from langchain_redis import RedisSemanticCache
 from openai import OpenAI
 from redis.asyncio import Redis
+from voyageai.client import Client as VoyageAIClient
 
 logger = structlog.get_logger()
 
@@ -128,12 +131,21 @@ def create_semantic_cache_provider() -> SemanticCacheProviderInterface:
     if not settings.semantic_cache_enabled:
         return NullSemanticCacheProvider()
 
-    embeddings = OpenAISemanticCacheEmbeddings(
-        client=OpenAI(
-            api_key=settings.openai_api_key,
-        ),
-        model=settings.semantic_cache_embedding_model,
-    )
+    embeddings: Embeddings
+    if settings.semantic_cache_embedding_provider == "voyage_ai":
+        embeddings = VoyageAISemanticCacheEmbeddings(
+            client=VoyageAIClient(
+                api_key=settings.voyage_api_key,
+            ),
+            model=settings.semantic_cache_embedding_model,
+        )
+    else:
+        embeddings = OpenAISemanticCacheEmbeddings(
+            client=OpenAI(
+                api_key=settings.openai_api_key,
+            ),
+            model=settings.semantic_cache_embedding_model,
+        )
 
     #
     # RedisSemanticCache's distance_threshold is a *distance*
@@ -143,12 +155,22 @@ def create_semantic_cache_provider() -> SemanticCacheProviderInterface:
     #
     distance_threshold = 1 - settings.semantic_cache_similarity_threshold
 
+    cache_name = "_".join(
+        (
+            "researchmind_generation_semantic_cache",
+            settings.semantic_cache_embedding_provider,
+            settings.semantic_cache_embedding_model,
+        )
+    ).replace("-", "_")
+
     cache = RedisSemanticCache(
         embeddings=embeddings,
         redis_url=settings.semantic_cache_redis_url,
         distance_threshold=distance_threshold,
         ttl=settings.semantic_cache_ttl_seconds,
-        name="researchmind_generation_semantic_cache",
+        # Keep indexes separate when providers/models have different vector
+        # dimensions (for example OpenAI 1536 vs Voyage 512).
+        name=cache_name,
     )
 
     return RedisSemanticCacheProvider(

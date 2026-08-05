@@ -1,6 +1,7 @@
 # Contains application configuration values.
 
 import os
+from typing import Literal
 
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -159,7 +160,8 @@ class Settings(BaseSettings):
     semantic_cache_redis_url: str = "redis://localhost:6380"
     semantic_cache_similarity_threshold: float = 0.92
     semantic_cache_ttl_seconds: int = 60 * 60 * 24
-    semantic_cache_embedding_model: str = "text-embedding-3-small"
+    semantic_cache_embedding_provider: Literal["openai", "voyage_ai"] = "voyage_ai"
+    semantic_cache_embedding_model: str = "voyage-3-lite"
 
     # L3 Session Cache (Valkey)
 

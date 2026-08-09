@@ -151,15 +151,18 @@ def build_ollama_format(
 ) -> Literal["json"] | dict[str, Any] | None:
 
     #
-    # Structured Outputs (schema-constrained decoding)
+    # JSON-constrained decoding
     #
 
-    if request.response_format == ResponseFormat.STRUCTURED and request.output_schema:
-        return request.output_schema
-
-    #
-    # JSON Mode
-    #
+    # Do not pass the full Pydantic JSON Schema to Ollama. Some local
+    # runtimes/models (confirmed with gemma4:12b) fail while compiling
+    # schemas containing `$defs`/`$ref`, nullable `anyOf`, and validation
+    # bounds into a grammar, returning HTTP 400 before generation starts.
+    # The structured request already includes the schema in its prompt, and
+    # GenerationService validates the parsed result against `output_model`,
+    # including its normal repair/regeneration path. JSON mode therefore
+    # preserves correctness without relying on model-specific grammar
+    # support.
 
     if request.response_format in (
         ResponseFormat.JSON,

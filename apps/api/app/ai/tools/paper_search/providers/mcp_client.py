@@ -137,10 +137,15 @@ class ResearchIntelligenceMCPProvider(PaperSearchProviderInterface):
                 ClientSession(read, write) as session,
             ):
                 await session.initialize()
-                result: CallToolResult = await session.call_tool(
-                    _SEARCH_TOOL_NAME,
-                    {"query": request.query, "limit": request.max_results},
-                )
+                arguments: dict[str, Any] = {
+                    "query": request.query,
+                    "limit": request.max_results,
+                }
+                if request.year_from is not None:
+                    arguments["year_from"] = request.year_from
+                if request.year_to is not None:
+                    arguments["year_to"] = request.year_to
+                result: CallToolResult = await session.call_tool(_SEARCH_TOOL_NAME, arguments)
         except TimeoutError as exc:
             raise PaperSearchTimeoutError("Research Intelligence MCP search timed out.") from exc
         except PaperSearchProviderError:

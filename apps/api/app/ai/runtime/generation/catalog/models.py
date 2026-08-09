@@ -437,6 +437,35 @@ DEEPSEEK_R1_DISTILL_70B = ModelMetadata(
     priority=55,
 )
 
+GEMMA_4_12B = ModelMetadata(
+    provider=GenerationProvider.OLLAMA,
+    model_name="gemma4:12b",
+    display_name="Gemma 4 12B",
+    context_window=32_768,
+    capabilities=ProviderCapabilities(
+        streaming=True,
+        structured_output=True,
+        tool_calling=False,
+        reasoning=False,
+        vision=False,
+        json_mode=True,
+    ),
+    average_latency_ms=None,
+    quality_score=0.65,
+    reasoning_score=0.60,
+    coding_score=0.55,
+    summarization_score=0.65,
+    classification_score=0.60,
+    extraction_score=0.60,
+    planning_score=0.50,
+    review_score=0.50,
+    speed_score=0.50,
+    reliability_score=0.60,
+    priority=89,
+    experimental=True,
+    local=True,
+)
+
 QWEN3 = ModelMetadata(
     provider=GenerationProvider.OLLAMA,
     model_name="qwen3:latest",
@@ -535,6 +564,7 @@ ALL_MODELS: list[ModelMetadata] = [
     GEMINI_2_5_FLASH,
     LLAMA_3_3_70B,
     DEEPSEEK_R1_DISTILL_70B,
+    GEMMA_4_12B,
     QWEN3,
     DEEPSEEK_R1,
     PHI4,

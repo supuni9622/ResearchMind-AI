@@ -57,7 +57,9 @@ class Settings(BaseSettings):
     anthropic_api_key: str | None = None
     gemini_api_key: str | None = None
     groq_api_key: str | None = None
-    ollama_host: str = "http://localhost:11434"
+    ollama_enabled: bool = False
+    ollama_base_url: str = "http://localhost:11434"
+    ollama_timeout_seconds: int = Field(default=120, ge=1)
     langsmith_tracing: bool = False
     langsmith_endpoint: str | None = None
     langsmith_api_key: str | None = None
@@ -75,7 +77,7 @@ class Settings(BaseSettings):
 
     groq_model: str = "llama-3.3-70b-versatile"
 
-    ollama_model: str = "qwen3:latest"
+    ollama_model: str = "gemma4:12b"
 
     # ==========================================================================
     # AWS (Future)
@@ -313,10 +315,13 @@ class Settings(BaseSettings):
     mcp_papers_enabled: bool = True
     mcp_papers_server_url: str | None = None
     mcp_papers_auth_token: str | None = None
-    mcp_papers_timeout_seconds: float = 20.0
+    mcp_papers_timeout_seconds: float = 60.0
     mcp_papers_max_results_per_call: int = 5
     mcp_papers_cache_enabled: bool = True
     mcp_papers_cache_ttl_seconds: int = 3600
+    mcp_papers_query_provider: Literal["auto", "groq", "openai", "claude", "gemini", "ollama"] = (
+        "auto"
+    )
     # Dedicated cheap-tier models for Chat's paper-search query-extraction
     # call only -- deliberately separate from `openai_model`/`claude_model`
     # (same reasoning as `web_search_decision_openai_model`: isolates this

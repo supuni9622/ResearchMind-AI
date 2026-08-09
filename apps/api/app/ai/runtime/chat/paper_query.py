@@ -84,7 +84,10 @@ _SYSTEM_PROMPT = (
     "field', 'those papers', 'the same topic'); the query must still "
     "describe the latest message's actual subject, not the whole "
     "conversation. Respond with ONLY a single JSON object matching the "
-    "requested schema -- no markdown code fences, no prose before or "
+    "requested schema. Set year_from/year_to only when the user explicitly "
+    "requests a publication year or date range; otherwise return null for "
+    "both and the search service will apply its recent-two-years default. "
+    "Do not include years in the query text. No markdown code fences or prose before or "
     "after it."
 )
 
@@ -93,6 +96,8 @@ class PaperQueryExtractionResult(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     query: str = Field(min_length=1, max_length=60)
+    year_from: int | None = Field(default=None, ge=1900, le=2100)
+    year_to: int | None = Field(default=None, ge=1900, le=2100)
 
 
 class PaperQueryExtractionService:
@@ -112,14 +117,14 @@ class PaperQueryExtractionService:
         self._cheap_provider = cheap_provider
         self._fallback_runtime = fallback_generation_runtime
 
-    async def extract(
+    async def extract_details(
         self,
         *,
         user_prompt: str,
         owner_id: UUID,
         session_id: UUID,
         conversation_context: str | None = None,
-    ) -> str:
+    ) -> PaperQueryExtractionResult:
         """Best-effort: any failure falls back to the raw (truncated)
         prompt, never raises -- mirrors `WebSearchNecessityService.decide()`'s
         fail-closed behavior."""
@@ -157,13 +162,47 @@ class PaperQueryExtractionService:
                 if self._cheap_provider is not None
                 else (self._fallback_runtime or self._cheap_runtime)
             )
-            result = await runtime.execute(request, provider=self._cheap_provider)
+            extraction_provider = (
+                self._cheap_provider.value
+                if self._cheap_provider is not None
+                else "classification_routing"
+            )
+            try:
+                result = await runtime.execute(request, provider=self._cheap_provider)
+            except Exception as preferred_exc:
+                if self._cheap_provider is None or self._fallback_runtime is None:
+                    raise
+                logger.warning(
+                    "chat.paper_search.query_extraction_provider_fallback",
+                    session_id=str(session_id),
+                    failed_provider=self._cheap_provider.value,
+                    error_type=type(preferred_exc).__name__,
+                )
+                fallback_request = request.model_copy(
+                    update={"routing_strategy": RoutingStrategy.CLASSIFICATION}
+                )
+                result = await self._fallback_runtime.execute(
+                    fallback_request,
+                    provider=None,
+                )
+                extraction_provider = "classification_fallback"
             parsed = result.parsed_output
             if isinstance(parsed, dict):
                 parsed = PaperQueryExtractionResult.model_validate(parsed)
             if not isinstance(parsed, PaperQueryExtractionResult):
                 raise ValueError("Query extraction did not return a schema-valid result.")
-            return parsed.query
+            logger.info(
+                "chat.paper_search.query_extraction_completed",
+                session_id=str(session_id),
+                provider=extraction_provider,
+                extracted_query=parsed.query,
+                extracted_word_count=len(parsed.query.split()),
+                year_from=parsed.year_from,
+                year_to=parsed.year_to,
+                source_prompt_length=len(user_prompt),
+                conversation_context_used=bool(conversation_context),
+            )
+            return parsed
         except Exception as exc:
             logger.warning(
                 "chat.paper_search.query_extraction_failed",
@@ -171,11 +210,42 @@ class PaperQueryExtractionService:
                 error_type=type(exc).__name__,
                 error=str(exc),
             )
-            return user_prompt[:_FALLBACK_QUERY_CHARACTERS]
+            return PaperQueryExtractionResult(query=user_prompt[:_FALLBACK_QUERY_CHARACTERS])
+
+    async def extract(
+        self,
+        *,
+        user_prompt: str,
+        owner_id: UUID,
+        session_id: UUID,
+        conversation_context: str | None = None,
+    ) -> str:
+        """Compatibility wrapper for callers that only need the topic text."""
+
+        result = await self.extract_details(
+            user_prompt=user_prompt,
+            owner_id=owner_id,
+            session_id=session_id,
+            conversation_context=conversation_context,
+        )
+        return result.query
 
 
 @lru_cache
 def create_paper_query_extraction_service() -> PaperQueryExtractionService:
+    configured_provider = settings.mcp_papers_query_provider
+    shared_runtime = get_generation_runtime()
+
+    # Explicit provider selection uses the normal configured generation
+    # registry, so local Ollama (and any other registered provider) can own
+    # query extraction without an implicit OpenAI dependency.
+    if configured_provider != "auto":
+        return PaperQueryExtractionService(
+            cheap_generation_runtime=shared_runtime,
+            cheap_provider=GenerationProvider(configured_provider),
+            fallback_generation_runtime=shared_runtime,
+        )
+
     providers: list[GenerationProviderInterface] = []
     preferred_provider: GenerationProvider | None = None
 
@@ -209,5 +279,5 @@ def create_paper_query_extraction_service() -> PaperQueryExtractionService:
     return PaperQueryExtractionService(
         cheap_generation_runtime=cheap_runtime,
         cheap_provider=preferred_provider,
-        fallback_generation_runtime=get_generation_runtime(),
+        fallback_generation_runtime=shared_runtime,
     )

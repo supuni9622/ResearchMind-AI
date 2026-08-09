@@ -51,6 +51,7 @@ from app.ai.runtime.research.synthesis.service import (
 from app.ai.runtime.research.web_search.evidence import normalize_web_search_result
 from app.ai.runtime.research.web_search.models import WebSearchMode
 from app.ai.runtime.research.web_search.necessity import WebSearchNecessityService
+from app.ai.tools.paper_search.exceptions import PaperSearchTimeoutError
 from app.ai.tools.paper_search.models import PaperSearchRequest
 from app.ai.tools.paper_search.service import PaperSearchService
 from app.ai.tools.web_search.models import WebSearchRequest
@@ -941,29 +942,64 @@ def compile_multi_wave_research_graph(
         # the same distillation service to get a short, focused query
         # before searching.
         query = goal
+        year_from = None
+        year_to = None
         if paper_query_extraction is not None:
-            query = await paper_query_extraction.extract(
+            extracted = await paper_query_extraction.extract_details(
                 user_prompt=goal,
                 owner_id=UUID(state["owner_id"]),
                 session_id=UUID(state["research_run_id"]),
             )
+            query = extracted.query
+            year_from = extracted.year_from
+            year_to = extracted.year_to
 
         try:
             result = await asyncio.wait_for(
-                paper_search.search(PaperSearchRequest(query=query)),
+                paper_search.search(
+                    PaperSearchRequest(
+                        query=query,
+                        year_from=year_from,
+                        year_to=year_to,
+                    )
+                ),
                 timeout=settings.mcp_papers_timeout_seconds,
             )
         except Exception as exc:
+            timed_out = isinstance(
+                exc,
+                (TimeoutError, asyncio.TimeoutError, PaperSearchTimeoutError),
+            )
             logger.warning(
                 "research_runtime.graph.related_papers_failed",
                 research_run_id=state["research_run_id"],
                 error_type=type(exc).__name__,
+                reason="timeout" if timed_out else "provider_error",
+                query=query,
             )
-            await emit(ResearchEventType.RESEARCH_RELATED_PAPERS_SKIPPED)
+            await emit(
+                ResearchEventType.RESEARCH_RELATED_PAPERS_SKIPPED,
+                extra_metadata={
+                    "label": (
+                        "Related paper search timed out"
+                        if timed_out
+                        else "Related paper search unavailable"
+                    ),
+                    "reason": "timeout" if timed_out else "provider_error",
+                },
+            )
             return {"related_papers_suggestion": {}}
 
         if not result.items:
-            await emit(ResearchEventType.RESEARCH_RELATED_PAPERS_SKIPPED)
+            logger.info(
+                "research_runtime.graph.related_papers_empty",
+                research_run_id=state["research_run_id"],
+                query=query,
+            )
+            await emit(
+                ResearchEventType.RESEARCH_RELATED_PAPERS_SKIPPED,
+                extra_metadata={"reason": "no_results"},
+            )
             return {"related_papers_suggestion": {}}
 
         papers = [

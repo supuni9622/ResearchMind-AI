@@ -54,6 +54,33 @@ async def test_falls_back_to_the_shared_runtime_when_no_cheap_provider_configure
 
 
 @pytest.mark.asyncio
+async def test_falls_back_to_shared_runtime_when_preferred_provider_fails() -> None:
+    cheap_runtime = AsyncMock()
+    cheap_runtime.execute.side_effect = RuntimeError("quota exhausted")
+    fallback_runtime = AsyncMock()
+    fallback_runtime.execute.return_value = SimpleNamespace(
+        parsed_output=PaperQueryExtractionResult(query="large language models"),
+    )
+    service = PaperQueryExtractionService(
+        cheap_generation_runtime=cheap_runtime,
+        cheap_provider=GenerationProvider.OPENAI,
+        fallback_generation_runtime=fallback_runtime,
+    )
+
+    query = await service.extract(
+        user_prompt="find papers about large language models",
+        owner_id=uuid4(),
+        session_id=uuid4(),
+    )
+
+    assert query == "large language models"
+    fallback_runtime.execute.assert_awaited_once()
+    fallback_request = fallback_runtime.execute.await_args.args[0]
+    assert fallback_request.routing_strategy.value == "classification"
+    assert fallback_runtime.execute.await_args.kwargs["provider"] is None
+
+
+@pytest.mark.asyncio
 async def test_model_failure_falls_back_to_the_raw_truncated_prompt() -> None:
     """Best-effort, matches `WebSearchNecessityService`'s fail-closed
     behavior -- the query extraction step must never break a chat turn."""

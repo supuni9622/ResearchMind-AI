@@ -3,11 +3,11 @@
 import { useRef } from 'react';
 import type { GenerationProvider } from '@/lib/api';
 import {
-  PROVIDER_OPTIONS,
   type DeepResearchWebSearchMode,
   type ResearchMode,
 } from '@/features/research/types';
 import { BookIcon, NetworkIcon, SparklesIcon, ZapIcon } from '@/components/ui/icons';
+import { useProviderOptions } from '@/hooks/use-provider-options';
 
 const MODE_OPTIONS: { value: ResearchMode; label: string; icon: typeof ZapIcon; title: string }[] = [
   {
@@ -74,6 +74,7 @@ export function ResearchComposer({
   onPaperSuggestionsEnabledChange: (v: boolean) => void;
 }) {
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const providerOptions = useProviderOptions();
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -226,7 +227,7 @@ export function ResearchComposer({
               disabled={loading}
               className="bg-ink-800 border border-ink-600 rounded-md px-1.5 py-0.5 font-mono text-stone-400 text-[10px] focus:outline-none focus:border-sage-600 transition-colors"
             >
-              {PROVIDER_OPTIONS.map((opt) => (
+              {providerOptions.map((opt) => (
                 <option key={opt.value} value={opt.value}>
                   {opt.label}
                 </option>

@@ -103,7 +103,7 @@ def _build_chat_model(
             model=model_name,
             base_url=getattr(
                 settings,
-                "ollama_host",
+                "ollama_base_url",
                 None,
             ),
         )

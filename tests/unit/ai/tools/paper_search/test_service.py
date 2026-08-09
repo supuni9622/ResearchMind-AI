@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 import pytest
 from app.ai.tools.paper_search.cache.interfaces import PaperSearchCache
 from app.ai.tools.paper_search.exceptions import (
@@ -62,6 +64,18 @@ async def test_search_returns_canonical_result() -> None:
     assert result.provider == "fake"
     assert len(result.items) == 1
     assert fake.calls[0].query == "retrieval augmented generation"
+    assert fake.calls[0].year_from == datetime.now(UTC).year - 1
+    assert fake.calls[0].year_to == datetime.now(UTC).year
+
+
+@pytest.mark.asyncio
+async def test_explicit_year_range_overrides_recent_two_year_default() -> None:
+    service, fake = _service()
+    await service.search(
+        PaperSearchRequest(query="retrieval augmented generation", year_from=2018, year_to=2020)
+    )
+    assert fake.calls[0].year_from == 2018
+    assert fake.calls[0].year_to == 2020
 
 
 @pytest.mark.asyncio
@@ -130,3 +144,16 @@ async def test_different_queries_do_not_share_a_cache_entry() -> None:
     await service.search(PaperSearchRequest(query="hybrid retrieval"))
 
     assert len(fake.calls) == 2
+
+
+@pytest.mark.asyncio
+async def test_empty_results_are_not_cached() -> None:
+    cache = _InMemoryCache()
+    provider = FakePaperSearchProvider(items=[])
+    service, fake = _service(provider=provider, cache=cache)
+
+    await service.search(PaperSearchRequest(query="large language models"))
+    await service.search(PaperSearchRequest(query="large language models"))
+
+    assert len(fake.calls) == 2
+    assert cache.sets == 0

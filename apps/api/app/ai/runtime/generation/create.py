@@ -33,9 +33,9 @@ from app.ai.runtime.generation.caching.create import (
 from app.ai.runtime.generation.catalog.models import (
     CLAUDE_SONNET_4,
     GEMINI_2_5_FLASH,
+    GEMMA_4_12B,
     GPT_5_MINI,
     LLAMA_3_3_70B,
-    QWEN3,
 )
 from app.ai.runtime.generation.config import (
     ClaudeGenerationConfig,
@@ -202,24 +202,21 @@ def create_generation_registry() -> GenerationRegistry:
     # Ollama
     #
 
-    if getattr(
-        settings,
-        "ollama_host",
-        None,
-    ):
+    if settings.ollama_enabled:
         providers.append(
             OllamaProvider(
                 config=OllamaGenerationConfig(
-                    host=settings.ollama_host,
+                    host=settings.ollama_base_url,
+                    timeout_seconds=settings.ollama_timeout_seconds,
                     model_name=(
                         getattr(
                             settings,
                             "ollama_model",
-                            QWEN3.model_name,
+                            GEMMA_4_12B.model_name,
                         )
                     ),
-                    cost_per_input_1m=QWEN3.cost_per_input_1m,
-                    cost_per_output_1m=QWEN3.cost_per_output_1m,
+                    cost_per_input_1m=GEMMA_4_12B.cost_per_input_1m,
+                    cost_per_output_1m=GEMMA_4_12B.cost_per_output_1m,
                 ),
             )
         )

@@ -49,6 +49,25 @@ async def test_required_mode_never_calls_the_model() -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("mode", [WebSearchMode.DISABLED, WebSearchMode.REQUIRED])
+async def test_deterministic_modes_bound_long_goal_to_query_schema(mode: WebSearchMode) -> None:
+    runtime = AsyncMock()
+    service = WebSearchNecessityService(cheap_generation_runtime=runtime, cheap_provider=None)
+
+    decision = await service.decide(
+        mode=mode,
+        goal="x" * 450,
+        gap_question=None,
+        evidence=_empty_bundle(),
+        owner_id=uuid4(),
+        research_run_id=uuid4(),
+    )
+
+    assert decision.query == "x" * 400
+    runtime.execute.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_auto_mode_uses_the_cheap_provider_when_configured() -> None:
     runtime = AsyncMock()
     runtime.execute.return_value = SimpleNamespace(
@@ -119,3 +138,24 @@ async def test_model_failure_fails_closed_to_no_search() -> None:
         research_run_id=uuid4(),
     )
     assert decision.needs_web_search is False
+
+
+@pytest.mark.asyncio
+async def test_auto_failure_bounds_long_goal_in_fallback_decision() -> None:
+    runtime = AsyncMock()
+    runtime.execute.side_effect = RuntimeError("provider unavailable")
+    service = WebSearchNecessityService(
+        cheap_generation_runtime=runtime, cheap_provider=GenerationProvider.OPENAI
+    )
+
+    decision = await service.decide(
+        mode=WebSearchMode.AUTO,
+        goal="x" * 450,
+        gap_question=None,
+        evidence=_empty_bundle(),
+        owner_id=uuid4(),
+        research_run_id=uuid4(),
+    )
+
+    assert decision.needs_web_search is False
+    assert decision.query == "x" * 400

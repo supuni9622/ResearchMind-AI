@@ -30,6 +30,7 @@ from app.ai.runtime.generation.providers.helpers.structured import (
     _require_every_property,
     _strip_unsupported_claude_schema_keywords,
     build_claude_output_config,
+    build_ollama_format,
     build_openai_text_config,
 )
 
@@ -45,6 +46,30 @@ def _make_request(
         response_format=response_format,
         output_schema=output_schema,
     )
+
+
+def test_build_ollama_format_uses_json_mode_for_complex_structured_schema() -> None:
+    schema = {
+        "$defs": {"Task": {"type": "object"}},
+        "properties": {
+            "task": {"$ref": "#/$defs/Task"},
+            "note": {"anyOf": [{"type": "string"}, {"type": "null"}]},
+        },
+        "type": "object",
+    }
+    request = _make_request(
+        response_format=ResponseFormat.STRUCTURED,
+        output_schema=schema,
+    )
+
+    assert build_ollama_format(request) == "json"
+    assert request.output_schema == schema
+
+
+def test_build_ollama_format_returns_none_for_text() -> None:
+    request = _make_request(response_format=ResponseFormat.TEXT)
+
+    assert build_ollama_format(request) is None
 
 
 def test_strip_removes_min_and_max_items_from_a_top_level_array() -> None:

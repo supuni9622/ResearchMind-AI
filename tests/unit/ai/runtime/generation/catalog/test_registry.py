@@ -118,6 +118,7 @@ def test_default_registry_is_seeded_from_all_models() -> None:
 
     assert registry.total_models() > 0
     assert registry.has(GenerationProvider.OPENAI, "gpt-5")
+    assert registry.has(GenerationProvider.OLLAMA, "gemma4:12b")
 
 
 def test_get_model_catalog_registry_is_a_cached_singleton() -> None:

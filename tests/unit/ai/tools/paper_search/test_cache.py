@@ -97,3 +97,13 @@ def test_key_builder_distinguishes_query_and_max_results() -> None:
     )
     assert base != different_query
     assert base != different_limit
+
+
+def test_key_builder_distinguishes_year_ranges() -> None:
+    recent = build_paper_search_cache_key(
+        query="earthquakes", max_results=5, year_from=2025, year_to=2026
+    )
+    historical = build_paper_search_cache_key(
+        query="earthquakes", max_results=5, year_from=2010, year_to=2015
+    )
+    assert recent != historical

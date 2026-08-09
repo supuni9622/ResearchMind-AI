@@ -118,6 +118,22 @@ def test_provider_identifier() -> None:
     assert provider.provider == GenerationProvider.OLLAMA
 
 
+def test_default_model_matches_local_gemma() -> None:
+    provider, _ = _make_provider()
+
+    assert provider.config.model_name == "gemma4:12b"
+
+
+def test_connection_settings_are_kept_in_provider_config() -> None:
+    provider, _ = _make_provider(
+        host="http://ollama.internal:11434",
+        timeout_seconds=180,
+    )
+
+    assert provider.config.host == "http://ollama.internal:11434"
+    assert provider.config.timeout_seconds == 180
+
+
 async def test_generate_returns_result_with_expected_content_and_tokens() -> None:
     provider, client = _make_provider()
     client.chat.return_value = _make_chat_response()

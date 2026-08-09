@@ -101,6 +101,10 @@ export interface HealthStatus {
 // Matches `app/ai/runtime/generation/enums.py::GenerationProvider`.
 export type GenerationProvider = 'groq' | 'openai' | 'claude' | 'gemini' | 'ollama';
 
+export interface GenerationProvidersResponse {
+  providers: GenerationProvider[];
+}
+
 // Matches `app/ai/knowledge/context/citations/models.py::Citation`.
 export interface Citation {
   citation_id: string;
@@ -396,6 +400,14 @@ export const PROVIDER_OPTIONS: { value: GenerationProvider | 'auto'; label: stri
   { value: 'groq', label: 'Groq' },
 ];
 
+export const PROVIDER_LABELS: Record<GenerationProvider, string> = {
+  claude: 'Claude',
+  openai: 'OpenAI',
+  gemini: 'Gemini',
+  groq: 'Groq',
+  ollama: 'Ollama (Local)',
+};
+
 export interface ResearchAskOptions {
   topK?: number;
   filters?: Record<string, unknown>;
@@ -557,6 +569,14 @@ export const api = {
     get: async () => {
       const response = await request<{ data: HealthStatus }>('/api/v1/health');
       return response.data;
+    },
+  },
+  generation: {
+    providers: async () => {
+      const response = await request<{ data: GenerationProvidersResponse }>(
+        '/api/v1/generation/providers'
+      );
+      return response.data.providers;
     },
   },
   usage: {

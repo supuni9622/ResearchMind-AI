@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock
 from uuid import uuid4
 
 import pytest
-from app.ai.runtime.chat.paper_query import PaperQueryExtractionService
+from app.ai.runtime.chat.paper_query import PaperQueryExtractionResult, PaperQueryExtractionService
 from app.ai.runtime.chat.paper_search import run_chat_paper_search
 from app.ai.runtime.events.chat.models import ChatEventType
 from app.ai.tools.paper_search.models import (
@@ -24,7 +24,7 @@ def _paper_search(*, available: bool = True, search: AsyncMock | None = None) ->
 
 def _query_extraction(*, query: str = "extracted topic") -> AsyncMock:
     extraction = AsyncMock(spec=PaperQueryExtractionService)
-    extraction.extract.return_value = query
+    extraction.extract_details.return_value = PaperQueryExtractionResult(query=query)
     return extraction
 
 
@@ -175,8 +175,37 @@ async def test_query_extraction_result_is_used_as_the_search_query() -> None:
         query_extraction=extraction,
     )
 
-    extraction.extract.assert_awaited_once()
+    extraction.extract_details.assert_awaited_once()
     search.assert_awaited_once_with(PaperSearchRequest(query="earthquake mechanisms"))
+
+
+@pytest.mark.asyncio
+async def test_explicit_extracted_year_range_is_sent_to_search() -> None:
+    search = AsyncMock(
+        return_value=PaperSearchResult(
+            query="earthquake mechanisms",
+            items=[],
+            provider="research_intelligence_mcp",
+            duration_ms=1.0,
+        )
+    )
+    extraction = _query_extraction(query="earthquake mechanisms")
+    extraction.extract_details.return_value = PaperQueryExtractionResult(
+        query="earthquake mechanisms", year_from=2018, year_to=2020
+    )
+
+    await run_chat_paper_search(
+        enabled=True,
+        user_prompt="earthquake papers from 2018 to 2020",
+        owner_id=uuid4(),
+        session_id=uuid4(),
+        paper_search=_paper_search(search=search),
+        query_extraction=extraction,
+    )
+
+    search.assert_awaited_once_with(
+        PaperSearchRequest(query="earthquake mechanisms", year_from=2018, year_to=2020)
+    )
 
 
 @pytest.mark.asyncio

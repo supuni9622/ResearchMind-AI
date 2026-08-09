@@ -13,6 +13,7 @@ from unittest.mock import AsyncMock
 from uuid import uuid4
 
 import pytest
+from app.ai.runtime.chat.paper_query import PaperQueryExtractionResult
 from app.ai.runtime.research.evidence_artifact import ResearchEvidenceArtifactWriter
 from app.ai.runtime.research.planner.models import ResearchPlanTask
 from app.ai.runtime.research.report_artifact import (
@@ -193,14 +194,19 @@ async def test_query_extraction_distills_the_goal_before_searching() -> None:
     run_id, owner_id = uuid4(), uuid4()
     paper_search = _fake_paper_search()
     extraction = AsyncMock()
-    extraction.extract = AsyncMock(return_value="earthquake mechanisms")
+    extraction.extract_details = AsyncMock(
+        return_value=PaperQueryExtractionResult(query="earthquake mechanisms")
+    )
     graph = _compile(paper_search=paper_search, paper_query_extraction=extraction)
     config = {"configurable": {"thread_id": str(run_id)}}
 
     await _run_to_completion(graph, config, run_id, owner_id, enabled=True)
 
-    extraction.extract.assert_awaited_once()
-    assert extraction.extract.await_args.kwargs["user_prompt"] == "retrieval augmented generation"
+    extraction.extract_details.assert_awaited_once()
+    assert (
+        extraction.extract_details.await_args.kwargs["user_prompt"]
+        == "retrieval augmented generation"
+    )
     paper_search.search.assert_awaited_once()
     assert paper_search.search.await_args.args[0].query == "earthquake mechanisms"
 

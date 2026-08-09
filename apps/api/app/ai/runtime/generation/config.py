@@ -183,7 +183,7 @@ class OllamaGenerationConfig(
 ):
     host: str = "http://localhost:11434"
 
-    model_name: str = "qwen3:latest"
+    model_name: str = "gemma4:12b"
 
     temperature: float = 0.1
 

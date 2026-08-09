@@ -90,14 +90,19 @@ async def run_chat_paper_search(
         return ChatPaperSearchOutcome()
 
     if query_extraction is not None:
-        query = await query_extraction.extract(
+        extracted = await query_extraction.extract_details(
             user_prompt=user_prompt,
             owner_id=owner_id,
             session_id=session_id,
             conversation_context=conversation_context,
         )
+        query = extracted.query
+        year_from = extracted.year_from
+        year_to = extracted.year_to
     else:
         query = user_prompt.strip()[:_MAX_QUERY_CHARACTERS]
+        year_from = None
+        year_to = None
 
     events: list[StreamEvent] = [
         StreamEvent(
@@ -110,7 +115,9 @@ async def run_chat_paper_search(
 
     items: list[PaperSearchResultItem] = []
     try:
-        result = await paper_search.search(PaperSearchRequest(query=query))
+        result = await paper_search.search(
+            PaperSearchRequest(query=query, year_from=year_from, year_to=year_to)
+        )
         items = result.items
     except Exception as exc:
         logger.warning(

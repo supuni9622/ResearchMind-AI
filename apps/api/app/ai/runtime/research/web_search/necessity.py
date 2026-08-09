@@ -22,6 +22,7 @@ from app.ai.runtime.research.web_search.models import WebSearchMode, WebSearchNe
 logger = structlog.get_logger()
 
 _MAX_EVIDENCE_ITEMS = 8
+_MAX_QUERY_CHARACTERS = 400
 _SYSTEM_PROMPT = (
     "You decide whether a bounded research task needs a public web search. "
     "The private evidence already gathered is summarized below. Say yes when "
@@ -70,7 +71,11 @@ class WebSearchNecessityService:
         owner_id: UUID,
         research_run_id: UUID,
     ) -> WebSearchNecessityDecision:
-        query = gap_question or goal
+        # Deterministic REQUIRED/DISABLED paths and AUTO's failure fallback
+        # bypass the model that normally produces a short search phrase. Keep
+        # their raw goal/gap text within WebSearchNecessityDecision.query's
+        # schema bound so a long research proposal cannot abort the graph.
+        query = (gap_question or goal).strip()[:_MAX_QUERY_CHARACTERS]
         if mode is WebSearchMode.DISABLED:
             return WebSearchNecessityDecision(
                 needs_web_search=False, query=query, reason="Web search is disabled for this run."

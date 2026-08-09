@@ -6,6 +6,7 @@ depend on this, never on a provider SDK directly (mirrors
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from time import perf_counter
 
 import structlog
@@ -70,8 +71,16 @@ class PaperSearchService:
             )
 
         bounded_max_results = min(request.max_results, self._policy.max_results_per_call)
+        current_year = datetime.now(UTC).year
+        year_from = request.year_from if request.year_from is not None else current_year - 1
+        year_to = request.year_to if request.year_to is not None else current_year
+        if year_from > year_to:
+            year_from, year_to = year_to, year_from
         cache_key = build_paper_search_cache_key(
-            query=request.query, max_results=bounded_max_results
+            query=request.query,
+            max_results=bounded_max_results,
+            year_from=year_from,
+            year_to=year_to,
         )
 
         cached = await self._cache.get(cache_key)
@@ -95,7 +104,21 @@ class PaperSearchService:
 
         try:
             provider = self._registry.get(self._default_provider)
-            bounded_request = request.model_copy(update={"max_results": bounded_max_results})
+            bounded_request = request.model_copy(
+                update={
+                    "max_results": bounded_max_results,
+                    "year_from": year_from,
+                    "year_to": year_to,
+                }
+            )
+            logger.info(
+                "paper_search.service.provider_request_started",
+                provider=self._default_provider,
+                query=bounded_request.query,
+                max_results=bounded_request.max_results,
+                year_from=bounded_request.year_from,
+                year_to=bounded_request.year_to,
+            )
             result = await provider.search(bounded_request)
         except Exception as exc:
             self._metrics.increment(
@@ -143,5 +166,11 @@ class PaperSearchService:
             duration_ms=result.duration_ms,
         )
 
-        await self._cache.set(cache_key, result)
+        # Do not cache empty searches. A failed query-extraction step can
+        # degrade to a long conversational sentence that the academic
+        # backend legitimately matches to zero papers; caching that result
+        # would keep returning "no papers" after the extractor/provider is
+        # healthy again.
+        if result.items:
+            await self._cache.set(cache_key, result)
         return result

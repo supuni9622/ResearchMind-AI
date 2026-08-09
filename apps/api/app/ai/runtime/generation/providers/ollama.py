@@ -29,9 +29,6 @@ from app.ai.runtime.generation.providers.helpers.structured import (
 from app.ai.runtime.generation.providers.helpers.usage import (
     Usage,
 )
-from app.core.settings import (
-    settings,
-)
 from ollama import (
     AsyncClient,
     RequestError,
@@ -53,7 +50,8 @@ class OllamaProvider(
         )
 
         self._client = AsyncClient(
-            host=settings.ollama_host,
+            host=config.host,
+            timeout=config.timeout_seconds,
         )
 
     @property
@@ -139,9 +137,9 @@ class OllamaProvider(
         request: GenerationRequest,
     ) -> GenerationResult:
         """
-        Native `format: <json_schema>` (wired in `_create_chat` /
-        `stream` via `build_ollama_format`) whenever `output_schema`
-        is set, falling back to `format: "json"` mode otherwise.
+        Generate JSON and let the shared structured-output pipeline enforce
+        the request's full Pydantic schema. This avoids grammar-compilation
+        failures in local Ollama models that reject complex JSON Schema.
         """
 
         return await self.generate(

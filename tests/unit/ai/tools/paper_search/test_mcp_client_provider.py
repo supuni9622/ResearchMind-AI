@@ -85,7 +85,9 @@ async def test_search_maps_structured_content_into_canonical_items() -> None:
         ),
     ):
         provider = ResearchIntelligenceMCPProvider(server_url="http://127.0.0.1:8080/mcp")
-        result = await provider.search(PaperSearchRequest(query="retrieval augmented generation"))
+        result = await provider.search(
+            PaperSearchRequest(query="retrieval augmented generation", year_from=2025, year_to=2026)
+        )
 
     assert result.provider == "research_intelligence_mcp"
     assert len(result.items) == 1
@@ -99,7 +101,13 @@ async def test_search_maps_structured_content_into_canonical_items() -> None:
 
     session.initialize.assert_awaited_once()
     session.call_tool.assert_awaited_once_with(
-        "search_papers", {"query": "retrieval augmented generation", "limit": 5}
+        "search_papers",
+        {
+            "query": "retrieval augmented generation",
+            "limit": 5,
+            "year_from": 2025,
+            "year_to": 2026,
+        },
     )
 
 

@@ -4,6 +4,16 @@
 
 ResearchMind lets you upload documents, chat with them, and escalate any question into a multi-step **Deep Research** run: the system plans a research task, gathers evidence across multiple waves of retrieval (and, with your approval, live web search), synthesizes a cited draft, reviews it against the evidence for unsupported claims, and produces a downloadable PDF report — pausing for your approval at each consequential step along the way.
 
+## Watch ResearchMind in action
+
+**Product demo**
+
+[![ResearchMind product demo](https://img.youtube.com/vi/vs1JUuWV0nM/0.jpg)](https://youtu.be/vs1JUuWV0nM)
+
+**Tech summary**
+
+[![ResearchMind tech summary](https://img.youtube.com/vi/9eVPTXU0b90/0.jpg)](https://youtu.be/9eVPTXU0b90)
+
 ## Meet ResearchMind
 ![research_mind_landing](docs/images/image.png)
 
@@ -597,8 +607,10 @@ Start here, depending on what you need:
 
 This is a large, multi-platform monorepo — `apps/api/app/ai/` alone spans knowledge/retrieval, generation runtime, research runtime, memory, guardrails, and observability, each with its own providers, artifacts, and composition roots. Reading through 800+ files to build a mental model of how it fits together is slow, especially for someone who just cloned the repo and doesn't yet know where things live. [graphify](https://github.com/Graphify-Labs/graphify) ([PyPI](https://pypi.org/project/graphifyy/)) solves that by turning the whole codebase into a queryable knowledge graph: it AST-parses every source file, clusters related code into labeled communities (e.g. "Runtime Caching Platform", "Guardrail Artifacts", "Research Planner Scheduling"), surfaces the most-connected "god nodes" (like `GenerationRequest`/`GenerationResult`, the shared contract that nearly every generation-adjacent subsystem imports), and flags surprising cross-module connections and import cycles — all before you've read a single file. It ships an interactive HTML graph, a plain-language `GRAPH_REPORT.md` audit, and a `graphify query`/`graphify explain` CLI for asking questions like "why does `GenerationRequest` bridge so many communities?" directly against the graph. For an external contributor, this turns "clone the repo, then spend a day reading code" into "clone the repo, run `graphify`, and start from an already-labeled map of the system."
 
+![graphify](docs/images/graphify.png)
+
 ```bash
-uv tool install graphifyy
+uv tool install graphify
 graphify apps/  # or point it at any subfolder
 ```
 

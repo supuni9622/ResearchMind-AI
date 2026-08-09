@@ -100,11 +100,11 @@ export function PlanGoalReview({
         <div>
           <label className={labelClass}>Sources found so far</label>
           <div className="flex flex-wrap gap-1.5">
-            {plan.citations.map((c) => {
+            {plan.citations.map((c, index) => {
               const web = isWebCitation(c.citation_id);
               return (
                 <span
-                  key={c.citation_id}
+                  key={`${c.citation_id}:${c.filename}:${index}`}
                   title={web ? `${c.excerpt} · found via web search` : c.excerpt}
                   className={`inline-flex items-center gap-1 font-mono text-[11px] px-1.5 py-0.5 rounded border ${
                     web

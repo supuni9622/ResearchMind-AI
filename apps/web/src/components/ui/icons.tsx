@@ -235,3 +235,17 @@ export function BookIcon({ className, size = 14 }: IconProps) {
     </svg>
   );
 }
+
+export function RefreshIcon({ className, size = 14 }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 14 14" {...base} className={className}>
+      <path
+        d="M12 7A5 5 0 1 1 10.5 3.3M12 1.5v3.2h-3.2"
+        stroke="currentColor"
+        strokeWidth="1.25"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}

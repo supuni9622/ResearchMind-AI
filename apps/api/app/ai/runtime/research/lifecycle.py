@@ -66,7 +66,10 @@ _ALLOWED_TRANSITIONS: dict[ResearchRunStatus, set[ResearchRunStatus]] = {
     ResearchRunStatus.COMPLETED: set(),
     ResearchRunStatus.COMPLETED_WITH_LIMITATIONS: set(),
     ResearchRunStatus.CANCELLED: set(),
-    ResearchRunStatus.FAILED: set(),
+    # The sole legal exit from FAILED: an explicit user-triggered retry
+    # (ResearchRunService.retry_run) resuming from the run's last LangGraph
+    # checkpoint. Not reachable via any automatic path.
+    ResearchRunStatus.FAILED: {ResearchRunStatus.RESEARCHING},
 }
 
 

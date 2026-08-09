@@ -229,6 +229,21 @@ class _FakeResearchRunService:
         run.budget_usage = {**(run.budget_usage or {}), "plan_decision": decision}
         return run
 
+    async def retry_run(self, *, run_id, owner_id):
+        run = self._runs.get(run_id)
+        if run is None or run.owner_id != owner_id:
+            return None
+        if run.status != "failed":
+            raise ValueError(f"Research run '{run.id}' is not in a failed state.")
+        if run.retry_count >= 2:
+            raise ValueError(f"Research run '{run.id}' has exhausted its retry attempts.")
+        run.status = "researching"
+        run.completed_at = None
+        run.terminal_reason = None
+        run.error_summary = {}
+        run.retry_count += 1
+        return run
+
 
 class _FakeResearchConversationService:
     def __init__(self, conversations: dict[uuid.UUID, ResearchConversation]) -> None:
@@ -478,6 +493,7 @@ def test_get_research_run_draft_returns_the_pending_draft_with_resolved_citation
             graph_thread_id=str(uuid.uuid4()),
             status="awaiting_approval",
             attempt_count=1,
+            retry_count=0,
             cancellation_requested=False,
             budget_profile={},
             budget_usage={},
@@ -526,6 +542,7 @@ def test_get_research_run_draft_returns_409_when_not_awaiting_approval(
             graph_thread_id=str(uuid.uuid4()),
             status="researching",
             attempt_count=1,
+            retry_count=0,
             cancellation_requested=False,
             budget_profile={},
             budget_usage={},
@@ -560,6 +577,7 @@ def test_get_research_run_draft_returns_409_when_the_checkpoint_has_no_draft_yet
             graph_thread_id=str(uuid.uuid4()),
             status="awaiting_approval",
             attempt_count=1,
+            retry_count=0,
             cancellation_requested=False,
             budget_profile={},
             budget_usage={},
@@ -598,6 +616,7 @@ def test_get_research_run_plan_returns_the_pending_plan_with_gathered_evidence(
             graph_thread_id=str(uuid.uuid4()),
             status="awaiting_plan_approval",
             attempt_count=1,
+            retry_count=0,
             cancellation_requested=False,
             budget_profile={},
             budget_usage={},
@@ -650,6 +669,7 @@ def test_get_research_run_plan_returns_409_when_not_awaiting_plan_approval(
             graph_thread_id=str(uuid.uuid4()),
             status="awaiting_approval",
             attempt_count=1,
+            retry_count=0,
             cancellation_requested=False,
             budget_profile={},
             budget_usage={},
@@ -684,6 +704,7 @@ def test_get_research_run_plan_returns_409_when_the_checkpoint_has_no_evidence_y
             graph_thread_id=str(uuid.uuid4()),
             status="awaiting_plan_approval",
             attempt_count=1,
+            retry_count=0,
             cancellation_requested=False,
             budget_profile={},
             budget_usage={},
@@ -722,6 +743,7 @@ def test_submit_plan_decision_approves_a_run_awaiting_plan_approval(
             graph_thread_id=str(uuid.uuid4()),
             status="awaiting_plan_approval",
             attempt_count=1,
+            retry_count=0,
             cancellation_requested=False,
             budget_profile={},
             budget_usage={},
@@ -759,6 +781,7 @@ def test_submit_plan_decision_approves_with_an_edited_goal(
             graph_thread_id=str(uuid.uuid4()),
             status="awaiting_plan_approval",
             attempt_count=1,
+            retry_count=0,
             cancellation_requested=False,
             budget_profile={},
             budget_usage={},
@@ -800,6 +823,7 @@ def test_submit_plan_decision_rejects_with_a_reason(
             graph_thread_id=str(uuid.uuid4()),
             status="awaiting_plan_approval",
             attempt_count=1,
+            retry_count=0,
             cancellation_requested=False,
             budget_profile={},
             budget_usage={},
@@ -837,6 +861,7 @@ def test_submit_plan_decision_returns_409_when_run_is_not_awaiting_plan_approval
             graph_thread_id=str(uuid.uuid4()),
             status="researching",
             attempt_count=1,
+            retry_count=0,
             cancellation_requested=False,
             budget_profile={},
             budget_usage={},
@@ -869,6 +894,7 @@ def test_submit_plan_decision_returns_404_for_another_owners_run(
             graph_thread_id=str(uuid.uuid4()),
             status="awaiting_plan_approval",
             attempt_count=1,
+            retry_count=0,
             cancellation_requested=False,
             budget_profile={},
             budget_usage={},
@@ -901,6 +927,7 @@ def test_get_research_run_returns_only_the_owners_lifecycle_view(
             graph_thread_id=str(uuid.uuid4()),
             status="researching",
             attempt_count=1,
+            retry_count=0,
             cancellation_requested=False,
             budget_profile={},
             budget_usage={},
@@ -935,6 +962,7 @@ def test_cancel_research_run_flags_a_non_terminal_run(
             graph_thread_id=str(uuid.uuid4()),
             status="researching",
             attempt_count=1,
+            retry_count=0,
             cancellation_requested=False,
             budget_profile={},
             budget_usage={},
@@ -967,6 +995,7 @@ def test_cancel_research_run_returns_404_for_another_owners_run(
             graph_thread_id=str(uuid.uuid4()),
             status="researching",
             attempt_count=1,
+            retry_count=0,
             cancellation_requested=False,
             budget_profile={},
             budget_usage={},
@@ -978,6 +1007,137 @@ def test_cancel_research_run_returns_404_for_another_owners_run(
 
     try:
         response = client.post(f"/api/v1/research/runs/{run_id}/cancel")
+    finally:
+        del app.dependency_overrides[get_current_user]
+        del app.dependency_overrides[get_research_run_service]
+
+    assert response.status_code == 404
+
+
+def test_retry_research_run_resumes_a_failed_run(
+    client: TestClient,
+    fakes: tuple[_FakeResearchService, dict],
+) -> None:
+    run_id = uuid.uuid4()
+    runs = {
+        run_id: ResearchRun(
+            id=run_id,
+            owner_id=_OWNER_ID,
+            graph_thread_id=str(uuid.uuid4()),
+            status="failed",
+            attempt_count=1,
+            retry_count=0,
+            cancellation_requested=False,
+            budget_profile={},
+            budget_usage={},
+            error_summary={"type": "RuntimeError", "message": "boom"},
+            terminal_reason="runtime_or_compatibility_bridge_failed",
+        )
+    }
+    app.dependency_overrides[get_current_user] = _fake_user
+    app.dependency_overrides[get_research_run_service] = lambda: _FakeResearchRunService(runs)
+
+    try:
+        response = client.post(f"/api/v1/research/runs/{run_id}/retry")
+    finally:
+        del app.dependency_overrides[get_current_user]
+        del app.dependency_overrides[get_research_run_service]
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "researching"
+    assert body["retry_count"] == 1
+    assert body["terminal_reason"] is None
+    assert runs[run_id].status == "researching"
+    assert runs[run_id].retry_count == 1
+
+
+def test_retry_research_run_returns_409_for_a_non_failed_run(
+    client: TestClient,
+    fakes: tuple[_FakeResearchService, dict],
+) -> None:
+    run_id = uuid.uuid4()
+    runs = {
+        run_id: ResearchRun(
+            id=run_id,
+            owner_id=_OWNER_ID,
+            graph_thread_id=str(uuid.uuid4()),
+            status="researching",
+            attempt_count=1,
+            retry_count=0,
+            cancellation_requested=False,
+            budget_profile={},
+            budget_usage={},
+            error_summary={},
+        )
+    }
+    app.dependency_overrides[get_current_user] = _fake_user
+    app.dependency_overrides[get_research_run_service] = lambda: _FakeResearchRunService(runs)
+
+    try:
+        response = client.post(f"/api/v1/research/runs/{run_id}/retry")
+    finally:
+        del app.dependency_overrides[get_current_user]
+        del app.dependency_overrides[get_research_run_service]
+
+    assert response.status_code == 409
+
+
+def test_retry_research_run_returns_409_once_the_retry_cap_is_reached(
+    client: TestClient,
+    fakes: tuple[_FakeResearchService, dict],
+) -> None:
+    run_id = uuid.uuid4()
+    runs = {
+        run_id: ResearchRun(
+            id=run_id,
+            owner_id=_OWNER_ID,
+            graph_thread_id=str(uuid.uuid4()),
+            status="failed",
+            attempt_count=3,
+            retry_count=2,
+            cancellation_requested=False,
+            budget_profile={},
+            budget_usage={},
+            error_summary={},
+        )
+    }
+    app.dependency_overrides[get_current_user] = _fake_user
+    app.dependency_overrides[get_research_run_service] = lambda: _FakeResearchRunService(runs)
+
+    try:
+        response = client.post(f"/api/v1/research/runs/{run_id}/retry")
+    finally:
+        del app.dependency_overrides[get_current_user]
+        del app.dependency_overrides[get_research_run_service]
+
+    assert response.status_code == 409
+
+
+def test_retry_research_run_returns_404_for_another_owners_run(
+    client: TestClient,
+    fakes: tuple[_FakeResearchService, dict],
+) -> None:
+    run_id = uuid.uuid4()
+    runs = {
+        run_id: ResearchRun(
+            id=run_id,
+            owner_id=_OTHER_OWNER_ID,
+            graph_thread_id=str(uuid.uuid4()),
+            status="failed",
+            attempt_count=1,
+            retry_count=0,
+            cancellation_requested=False,
+            budget_profile={},
+            budget_usage={},
+            error_summary={},
+        )
+    }
+    app.dependency_overrides[get_current_user] = _fake_user
+    app.dependency_overrides[get_research_run_service] = lambda: _FakeResearchRunService(runs)
+
+    try:
+        response = client.post(f"/api/v1/research/runs/{run_id}/retry")
     finally:
         del app.dependency_overrides[get_current_user]
         del app.dependency_overrides[get_research_run_service]
@@ -997,6 +1157,7 @@ def test_submit_report_decision_approves_a_run_awaiting_approval(
             graph_thread_id=str(uuid.uuid4()),
             status="awaiting_approval",
             attempt_count=1,
+            retry_count=0,
             cancellation_requested=False,
             budget_profile={},
             budget_usage={},
@@ -1034,6 +1195,7 @@ def test_submit_report_decision_rejects_with_a_reason(
             graph_thread_id=str(uuid.uuid4()),
             status="awaiting_approval",
             attempt_count=1,
+            retry_count=0,
             cancellation_requested=False,
             budget_profile={},
             budget_usage={},
@@ -1071,6 +1233,7 @@ def test_submit_report_decision_returns_409_when_run_is_not_awaiting_approval(
             graph_thread_id=str(uuid.uuid4()),
             status="researching",
             attempt_count=1,
+            retry_count=0,
             cancellation_requested=False,
             budget_profile={},
             budget_usage={},
@@ -1103,6 +1266,7 @@ def test_submit_report_decision_returns_404_for_another_owners_run(
             graph_thread_id=str(uuid.uuid4()),
             status="awaiting_approval",
             attempt_count=1,
+            retry_count=0,
             cancellation_requested=False,
             budget_profile={},
             budget_usage={},
@@ -1290,6 +1454,7 @@ def test_get_research_conversation_includes_deep_research_runs(
         graph_thread_id=str(uuid.uuid4()),
         status="awaiting_approval",
         attempt_count=1,
+        retry_count=0,
         cancellation_requested=False,
         budget_profile={},
         budget_usage={},

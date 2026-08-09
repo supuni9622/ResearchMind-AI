@@ -20,6 +20,10 @@ import { PlanGoalReview } from '@/features/research/components/plan-goal-review'
 import { WebSearchApprovalReview } from '@/features/research/components/web-search-approval-review';
 import { renderAnswer } from '@/features/research/components/research-block';
 
+/** Mirrors `_MAX_RESEARCH_RUN_RETRIES` in `app/ai/runtime/research/run_service.py` --
+ * only gates when the Retry button is shown; the backend is the authoritative cap. */
+const MAX_RESEARCH_RUN_RETRIES = 2;
+
 /** Ordered progress-step log, shared by every post-approval-flow stage so the
  * run's history stays visible instead of disappearing once it moves past
  * `running` (into `report_review`, `done`, or `failed`). `live` controls
@@ -97,6 +101,7 @@ export function DeepResearchBlock({
   onFocus,
   onApprove,
   onCancel,
+  onRetry,
   onPlanDecision,
   onReportDecision,
   onWebSearchDecision,
@@ -106,6 +111,7 @@ export function DeepResearchBlock({
   onFocus: () => void;
   onApprove: () => void;
   onCancel: () => void;
+  onRetry: () => void;
   onPlanDecision: (approved: boolean, reason?: string, editedGoal?: string) => void;
   onReportDecision: (approved: boolean, reason?: string, editedDraft?: DeepResearchDraftEdit) => void;
   onWebSearchDecision: (approved: boolean, reason?: string) => void;
@@ -531,6 +537,26 @@ export function DeepResearchBlock({
                   : `This run ${turn.run?.status === 'cancelled' ? 'was cancelled' : 'failed'}.`}
               </span>
             </div>
+            {turn.run?.status === 'failed' &&
+              turn.run.terminal_reason !== 'plan_rejected_by_user' &&
+              (turn.run.retry_count < MAX_RESEARCH_RUN_RETRIES ? (
+                <div className="flex items-center gap-2 pt-3 border-t border-ink-700">
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onRetry();
+                    }}
+                    className="px-3 py-1.5 rounded-lg bg-sage-600 hover:bg-sage-500 text-stone-100 text-[12px] font-medium transition-colors duration-150"
+                  >
+                    Retry
+                  </button>
+                </div>
+              ) : (
+                <p className="text-stone-600 text-[11px] mt-2">
+                  Retry limit reached for this run.
+                </p>
+              ))}
           </div>
         )}
       </div>

@@ -328,6 +328,10 @@ export default function ResearchPage() {
                         ? deepResearch.cancel(item.turn.localId, item.turn.run.research_run_id)
                         : deepResearch.dismiss(item.turn.localId)
                     }
+                    onRetry={() =>
+                      item.turn.run &&
+                      deepResearch.retry(item.turn.localId, item.turn.run.research_run_id)
+                    }
                     onPlanDecision={(approved, reason, editedGoal) =>
                       item.turn.run &&
                       deepResearch.submitPlanDecision(

@@ -48,6 +48,7 @@ class ResearchRun(TimestampMixin, Base):
     idempotency_key: Mapped[str | None] = mapped_column(String(255), nullable=True)
     request_fingerprint: Mapped[str | None] = mapped_column(String(64), nullable=True)
     attempt_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    retry_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     cancellation_requested: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     budget_profile: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
     budget_usage: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)

@@ -251,6 +251,7 @@ export interface DeepResearchRun {
   status: DeepResearchRunStatus;
   current_phase: string | null;
   attempt_count: number;
+  retry_count: number;
   cancellation_requested: boolean;
   research_id: string | null;
   conversation_id: string | null;
@@ -654,6 +655,8 @@ export const api = {
     getRun: (runId: string) => request<DeepResearchRun>(`/api/v1/research/runs/${runId}`),
     cancelRun: (runId: string) =>
       request<DeepResearchRun>(`/api/v1/research/runs/${runId}/cancel`, { method: 'POST' }),
+    retryRun: (runId: string) =>
+      request<DeepResearchRun>(`/api/v1/research/runs/${runId}/retry`, { method: 'POST' }),
     submitReportDecision: (
       runId: string,
       approved: boolean,

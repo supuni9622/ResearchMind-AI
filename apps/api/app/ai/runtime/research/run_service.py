@@ -24,6 +24,10 @@ from app.repositories.research_run_event import ResearchRunEventRepository
 
 logger = structlog.get_logger()
 
+# How many times a user may retry a run that ended FAILED, before
+# `retry_run` refuses further attempts.
+_MAX_RESEARCH_RUN_RETRIES = 2
+
 
 class ResearchRunService:
     """Owns lifecycle creation; graph nodes do not create run records."""
@@ -284,6 +288,45 @@ class ResearchRunService:
             research_run_id=str(run.id),
             owner_id=str(owner_id),
             approved=approved,
+        )
+        return run
+
+    async def retry_run(self, *, run_id: UUID, owner_id: UUID) -> ResearchRun | None:
+        """Retry a FAILED run by resuming it from its last LangGraph checkpoint.
+
+        Nothing about the checkpoint itself needs touching here -- it
+        already survives a FAILED transition untouched, keyed by the run's
+        immutable `graph_thread_id`. This only needs to move the run's
+        status back into a status `execution.py::_begin`'s
+        `allow_resume_in_progress` branch already treats as resumable
+        (`RESEARCHING`), and re-queue its dispatch so the worker picks it
+        back up -- the same mechanism already used for crash-resume, just
+        triggered explicitly instead of by a dead worker's expired lease.
+
+        Bounded by `_MAX_RESEARCH_RUN_RETRIES` so a run that keeps failing
+        can't be retried forever.
+        """
+
+        run = await self._repository.get_by_id_for_owner(run_id=run_id, owner_id=owner_id)
+        if run is None:
+            return None
+        if run.status != ResearchRunStatus.FAILED.value:
+            raise ValueError(f"Research run '{run.id}' is not in a failed state.")
+        if (run.retry_count or 0) >= _MAX_RESEARCH_RUN_RETRIES:
+            raise ValueError(f"Research run '{run.id}' has exhausted its retry attempts.")
+
+        transition_run(run, target=ResearchRunStatus.RESEARCHING, phase="runtime_retry")
+        run.completed_at = None
+        run.terminal_reason = None
+        run.error_summary = {}
+        run.retry_count = (run.retry_count or 0) + 1
+        await self._dispatches.reopen(run_id=run.id)
+        await self._session.commit()
+        logger.info(
+            "research_runtime.run.retry_requested",
+            research_run_id=str(run.id),
+            owner_id=str(owner_id),
+            retry_count=run.retry_count,
         )
         return run
 

@@ -121,6 +121,7 @@ def _run_response(run: ResearchRun) -> ResearchRunResponse:
         status=ResearchRunStatus(run.status),
         current_phase=run.current_phase,
         attempt_count=run.attempt_count,
+        retry_count=run.retry_count,
         cancellation_requested=run.cancellation_requested,
         research_id=run.research_session_id,
         conversation_id=run.conversation_id,
@@ -516,6 +517,33 @@ async def cancel_research_run(
     """
 
     run = await runs.request_cancellation(run_id=research_run_id, owner_id=current_user.id)
+    if run is None:
+        raise NotFoundException(message=f"Research run '{research_run_id}' was not found.")
+    return _run_response(run)
+
+
+@router.post(
+    "/runs/{research_run_id}/retry",
+    response_model=ResearchRunResponse,
+    summary="Retry a failed Research Runtime run, resuming from its last checkpoint",
+)
+async def retry_research_run(
+    research_run_id: UUID,
+    current_user: User = Depends(get_current_user),
+    runs: ResearchRunService = Depends(get_research_run_service),
+) -> ResearchRunResponse:
+    """Move a FAILED run back to RESEARCHING and re-queue its dispatch.
+
+    The worker's next poll resumes the LangGraph checkpoint that already
+    exists for this run's `graph_thread_id` -- the same mechanism used for
+    crash-resume, triggered explicitly instead of by a dead worker's
+    expired lease. Bounded to a small number of attempts per run.
+    """
+
+    try:
+        run = await runs.retry_run(run_id=research_run_id, owner_id=current_user.id)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     if run is None:
         raise NotFoundException(message=f"Research run '{research_run_id}' was not found.")
     return _run_response(run)

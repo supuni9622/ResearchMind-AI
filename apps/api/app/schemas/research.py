@@ -330,6 +330,7 @@ class ResearchRunResponse(BaseModel):
     status: ResearchRunStatus
     current_phase: str | None = None
     attempt_count: int = Field(ge=0)
+    retry_count: int = Field(ge=0)
     cancellation_requested: bool
     research_id: UUID | None = None
     conversation_id: UUID | None = None

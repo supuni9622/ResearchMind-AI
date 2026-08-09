@@ -449,6 +449,27 @@ export function useDeepResearch(onConversationLearned?: (conversationId: string)
     }
   }, []);
 
+  const retry = useCallback(
+    async (localId: string, runId: string) => {
+      try {
+        const run = await api.research.retryRun(runId);
+        // Clear the frozen failed-run log -- `streamRun` replays the run's
+        // full persisted event history from cursor 0, so keeping the old
+        // entries here would duplicate them.
+        setTurns((prev) => patchTurn(prev, localId, { run, stage: stageForRun(run), events: [] }));
+        streamRun(localId, run.research_run_id);
+      } catch (err) {
+        setTurns((prev) =>
+          patchTurn(prev, localId, {
+            stage: 'error',
+            error: errorMessage(err, 'Could not retry this research run.'),
+          })
+        );
+      }
+    },
+    [streamRun]
+  );
+
   /**
    * Reconstructs every Deep Research turn in a conversation thread -- the
    * counterpart to `useResearch()`'s `selectConversation`, called alongside
@@ -515,6 +536,7 @@ export function useDeepResearch(onConversationLearned?: (conversationId: string)
     hydrateFromConversation,
     reset,
     cancel,
+    retry,
     dismiss,
   };
 }

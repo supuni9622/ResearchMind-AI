@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, type Document } from '@/lib/api';
 import { PageHeader } from '@/components/ui/page-header';
 import { EmptyState } from '@/components/ui/empty-state';
+import { RefreshIcon } from '@/components/ui/icons';
 import { DocumentFilters } from '@/features/documents/components/document-filters';
 import { DocumentRow } from '@/features/documents/components/document-row';
 import { DocumentDetailsDrawer } from '@/features/documents/components/document-details-drawer';
@@ -107,7 +108,22 @@ export default function DocumentsPage() {
 
   return (
     <div className="px-8 py-10 max-w-4xl">
-      <PageHeader eyebrow="Knowledge Base" title="Documents" />
+      <PageHeader
+        eyebrow="Knowledge Base"
+        title="Documents"
+        actions={
+          <button
+            type="button"
+            onClick={() => loadDocuments({ page, kindFilter, search: debouncedSearch })}
+            disabled={fetching}
+            title="Refresh upload/processing status"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-ink-600 text-stone-400 text-[13px] hover:border-ink-400 hover:text-stone-200 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+          >
+            <RefreshIcon size={13} className={fetching ? 'animate-spin' : ''} />
+            Refresh
+          </button>
+        }
+      />
       <p className="text-stone-500 text-[13px] -mt-5 mb-6">
         Found a paper worth keeping in Chat? Download it and upload it here — Linear and Deep
         Research only draw on what&apos;s in this library.

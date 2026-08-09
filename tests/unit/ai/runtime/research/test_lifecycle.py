@@ -43,6 +43,18 @@ def test_terminal_and_invalid_transitions_are_rejected() -> None:
         transition_run(run, target=ResearchRunStatus.PLANNING)
 
 
+def test_failed_run_can_only_transition_to_researching() -> None:
+    run = _run(status=ResearchRunStatus.FAILED)
+
+    with pytest.raises(ValueError, match="Cannot transition"):
+        transition_run(run, target=ResearchRunStatus.COMPLETED)
+    with pytest.raises(ValueError, match="Cannot transition"):
+        transition_run(run, target=ResearchRunStatus.PLANNING)
+
+    transition_run(run, target=ResearchRunStatus.RESEARCHING, phase="runtime_retry")
+    assert run.status == ResearchRunStatus.RESEARCHING.value
+
+
 def test_checkpoint_url_uses_psycopg_compatible_scheme() -> None:
     assert postgres_checkpoint_url("postgresql+asyncpg://user:pass@db/research") == (
         "postgresql://user:pass@db/research"

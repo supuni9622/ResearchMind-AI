@@ -64,7 +64,7 @@ def make_retrieval_result(
     resolved_chunks = chunks if chunks is not None else [make_retrieved_chunk()]
 
     return RetrievalResult(
-        query=RetrievalQuery(query=query, top_k=10, filters={}),
+        query=RetrievalQuery(query=query, top_k=10, filters={}, owner_id="owner-1"),
         execution=RetrievalExecution(operation=RetrievalOperation.SEARCH),
         statistics=RetrievalStatistics(
             provider=RetrievalProvider.QDRANT,

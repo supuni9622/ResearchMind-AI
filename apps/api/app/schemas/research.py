@@ -222,7 +222,7 @@ class ResearchReportDownloadResponse(BaseModel):
 
     research_run_id: UUID
     download_url: str
-    expires_in_seconds: int = 300
+    expires_in_seconds: int
 
 
 class ResearchDraftFindingResponse(BaseModel):

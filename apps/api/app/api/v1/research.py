@@ -904,6 +904,7 @@ async def get_research_report_download(
     return ResearchReportDownloadResponse(
         research_run_id=research_run_id,
         download_url=download_url,
+        expires_in_seconds=ResearchReportDownloadService.EXPIRES_IN_SECONDS,
     )
 
 

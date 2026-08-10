@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import TypedDict
 from uuid import UUID
 
 from sqlalchemy import func, select
@@ -11,6 +12,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.runtime.generation.models import GenerationResult
 from app.models.generation_usage import GenerationUsage
+
+
+class ConversationUsageRollup(TypedDict):
+    conversation_id: UUID
+    total_cost_usd: float
+    total_requests: int
+    total_tokens: int
 
 
 class GenerationUsageRepository:
@@ -65,7 +73,7 @@ class GenerationUsageRepository:
         self,
         conversation_id: UUID,
         owner_id: UUID,
-    ) -> dict[str, UUID | float | int]:
+    ) -> ConversationUsageRollup:
         """Roll up cost/requests/tokens for every generation call tagged with
         this conversation (Linear Research turns; Deep Research runs are
         billed per-run under `session_id`, not `conversation_id`, so they

@@ -1,27 +1,28 @@
 """
 Metadata filtering benchmark.
 
-Validates owner_id metadata filtering (see
-docs/architecture/metadata-filtering.md) against a real Qdrant index and
-quantifies its effect on retrieval quality and latency.
+Validates owner_id scoping (see docs/architecture/metadata-filtering.md)
+against a real Qdrant index and quantifies retrieval quality and latency.
 
 Each benchmark document is assigned its own synthetic owner_id,
-simulating per-user document isolation. For every benchmark query, a
-"filtered" run constrains search to the owner of the query's relevant
-document and is compared against an "unfiltered" baseline, across the
-same dense, sparse, and hybrid retrieval strategies exercised by
-RetrievalBenchmark.
+simulating per-user document isolation. Every benchmark query is run
+owner-scoped, across the same dense, sparse, and hybrid retrieval
+strategies exercised by RetrievalBenchmark.
+
+`RetrievalQuery.owner_id` is a required field (PRODUCTION_READINESS_
+EVALUATION.md item 5) -- an unscoped, cross-tenant query is no longer
+constructible, so this benchmark no longer has an "unfiltered" baseline
+to compare against. What it validates instead: leakage_rate should be
+exactly 0.0 for every candidate, complementing the unit tests in
+tests/unit/ai/knowledge/retrieval/providers/test_qdrant_filters.py by
+exercising the filter against a real index end-to-end.
 
 Metrics reported per candidate:
 
 - Recall@5/10/20, Precision@5/10, MRR (benchmarks/retrieval/metrics.py)
 - Latency (avg/p95/p99)
 - leakage_rate: fraction of retrieved chunks belonging to a different
-  owner than the one requested. This is the benchmark's primary
-  correctness signal -- it should be exactly 0.0 for every filtered
-  candidate, complementing the unit tests in
-  tests/unit/ai/knowledge/retrieval/providers/test_qdrant_filters.py by
-  exercising the filter against a real index end-to-end.
+  owner than the one requested.
 
 Queries whose relevant documents span more than one owner are skipped
 (a single equality filter cannot select multiple owners at once) and
@@ -74,7 +75,7 @@ PRECISION_KS = (5, 10)
 QUERY_DATASET_FILENAME = "retrieval_queries.json"
 
 SearchFn = Callable[
-    [str, int, dict[str, Any]],
+    [str, int, str],
     Awaitable[tuple[list[RetrievedChunk], float]],
 ]
 
@@ -137,46 +138,22 @@ class MetadataFilteringBenchmark(Benchmark):
 
         candidates = [
             await self._evaluate(
-                name="dense_unfiltered",
+                name="dense",
                 queries=evaluable_queries,
                 owner_by_filename=owner_by_filename,
                 search=self._search_dense,
-                apply_filter=False,
             ),
             await self._evaluate(
-                name="dense_filtered",
-                queries=evaluable_queries,
-                owner_by_filename=owner_by_filename,
-                search=self._search_dense,
-                apply_filter=True,
-            ),
-            await self._evaluate(
-                name="sparse_unfiltered",
+                name="sparse",
                 queries=evaluable_queries,
                 owner_by_filename=owner_by_filename,
                 search=self._search_sparse,
-                apply_filter=False,
             ),
             await self._evaluate(
-                name="sparse_filtered",
-                queries=evaluable_queries,
-                owner_by_filename=owner_by_filename,
-                search=self._search_sparse,
-                apply_filter=True,
-            ),
-            await self._evaluate(
-                name="hybrid_unfiltered",
+                name="hybrid",
                 queries=evaluable_queries,
                 owner_by_filename=owner_by_filename,
                 search=self._search_hybrid,
-                apply_filter=False,
-            ),
-            await self._evaluate(
-                name="hybrid_filtered",
-                queries=evaluable_queries,
-                owner_by_filename=owner_by_filename,
-                search=self._search_hybrid,
-                apply_filter=True,
             ),
         ]
 
@@ -197,7 +174,7 @@ class MetadataFilteringBenchmark(Benchmark):
         self,
         query_text: str,
         top_k: int,
-        filters: dict[str, Any],
+        owner_id: str,
     ) -> tuple[list[RetrievedChunk], float]:
         with Timer() as timer:
             query_vector = await self._query_embedding_service.embed(
@@ -208,7 +185,7 @@ class MetadataFilteringBenchmark(Benchmark):
                 query=RetrievalQuery(
                     query=query_text,
                     top_k=top_k,
-                    filters=filters,
+                    owner_id=owner_id,
                 ),
                 query_vector=query_vector,
             )
@@ -219,7 +196,7 @@ class MetadataFilteringBenchmark(Benchmark):
         self,
         query_text: str,
         top_k: int,
-        filters: dict[str, Any],
+        owner_id: str,
     ) -> tuple[list[RetrievedChunk], float]:
         with Timer() as timer:
             sparse_query = await self._sparse_query_embedding_service.embed(
@@ -230,7 +207,7 @@ class MetadataFilteringBenchmark(Benchmark):
                 query=RetrievalQuery(
                     query=query_text,
                     top_k=top_k,
-                    filters=filters,
+                    owner_id=owner_id,
                 ),
                 sparse_query=sparse_query,
             )
@@ -241,16 +218,16 @@ class MetadataFilteringBenchmark(Benchmark):
         self,
         query_text: str,
         top_k: int,
-        filters: dict[str, Any],
+        owner_id: str,
     ) -> tuple[list[RetrievedChunk], float]:
         # Mirrors RetrievalService.search_hybrid: retrieve a larger
-        # candidate pool from each retriever (with the same filter
-        # applied to both) so RRF has enough overlap to fuse
-        # meaningfully, then fuse back down to top_k.
+        # candidate pool from each retriever (owner-scoped identically
+        # for both) so RRF has enough overlap to fuse meaningfully, then
+        # fuse back down to top_k.
         candidate_query = RetrievalQuery(
             query=query_text,
             top_k=top_k * 2,
-            filters=filters,
+            owner_id=owner_id,
         )
 
         with Timer() as timer:
@@ -287,11 +264,11 @@ class MetadataFilteringBenchmark(Benchmark):
         queries: list[RetrievalBenchmarkQuery],
         owner_by_filename: dict[str, str],
         search: SearchFn,
-        apply_filter: bool,
     ) -> BenchmarkCandidate:
         """
-        Run every evaluable query through a candidate retriever and
-        aggregate Recall@K, Precision@K, MRR, latency, and leakage_rate.
+        Run every evaluable query, owner-scoped, through a candidate
+        retriever and aggregate Recall@K, Precision@K, MRR, latency, and
+        leakage_rate.
         """
 
         recall_scores: dict[int, list[float]] = {k: [] for k in RECALL_KS}
@@ -305,12 +282,11 @@ class MetadataFilteringBenchmark(Benchmark):
         try:
             for query in queries:
                 expected_owner = owner_by_filename[query.relevant_documents[0]]
-                filters = {"owner_id": expected_owner} if apply_filter else {}
 
                 chunks, latency_ms = await search(
                     query.query,
                     TOP_K,
-                    filters,
+                    expected_owner,
                 )
 
                 retrieved_filenames = [chunk.filename for chunk in chunks]
@@ -359,7 +335,6 @@ class MetadataFilteringBenchmark(Benchmark):
 
         notes: dict[str, object] = {
             "top_k_evaluated": TOP_K,
-            "filtered": apply_filter,
         }
 
         if error is not None:
@@ -402,29 +377,14 @@ def _build_summary(
     skipped_queries: int,
 ) -> dict[str, Any]:
     """
-    Summarize the unfiltered vs. filtered comparison per strategy, per
-    docs/architecture/metadata-filtering.md's "Evaluation Driven
-    Development" section.
+    Summarize owner-scoped retrieval quality and leakage_rate per
+    strategy. leakage_rate should be exactly 0.0 for every strategy --
+    any non-zero value is a regression in owner_id scoping.
     """
 
-    by_name = {candidate.name: candidate for candidate in candidates}
     summary: dict[str, Any] = {"skipped_queries": skipped_queries}
 
-    for strategy in ("dense", "sparse", "hybrid"):
-        unfiltered = by_name.get(f"{strategy}_unfiltered")
-        filtered = by_name.get(f"{strategy}_filtered")
-
-        if unfiltered is None or filtered is None:
-            continue
-
-        summary[f"{strategy}_precision_at_5_delta"] = round(
-            float(filtered.metrics["precision_at_5"]) - float(unfiltered.metrics["precision_at_5"]),
-            4,
-        )
-        summary[f"{strategy}_latency_overhead_ms"] = round(
-            float(filtered.metrics["avg_latency_ms"]) - float(unfiltered.metrics["avg_latency_ms"]),
-            2,
-        )
-        summary[f"{strategy}_leakage_rate"] = filtered.metrics["leakage_rate"]
+    for candidate in candidates:
+        summary[f"{candidate.name}_leakage_rate"] = candidate.metrics["leakage_rate"]
 
     return summary

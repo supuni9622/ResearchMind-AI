@@ -626,15 +626,16 @@ class ResearchService:
         owner_id: UUID,
     ) -> RetrievalQuery:
         """
-        `owner_id` is always overridden by the authenticated caller, never
-        trusted from request-supplied filters -- mirrors
-        `api/v1/retrieval.py::_scoped_filters`.
+        `owner_id` always comes from the authenticated caller, never from
+        request-supplied filters -- mirrors
+        `api/v1/retrieval.py::_scoped_owner_id`.
         """
 
         return RetrievalQuery(
             query=query,
             top_k=top_k,
-            filters={**filters, "owner_id": str(owner_id)},
+            filters=filters,
+            owner_id=str(owner_id),
         )
 
     async def _retrieve_and_build_context(

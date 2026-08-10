@@ -16,6 +16,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from uuid import UUID
 
+import structlog
 from app.ai.knowledge.retrieval.base import (
     BaseRetrievalProvider,
 )
@@ -24,6 +25,9 @@ from app.ai.knowledge.retrieval.config import (
 )
 from app.ai.knowledge.retrieval.enums import (
     RetrievalProvider,
+)
+from app.ai.knowledge.retrieval.exceptions import (
+    RetrievalExecutionError,
 )
 from app.ai.knowledge.retrieval.models import (
     RetrievalExecution,
@@ -41,10 +45,13 @@ from app.ai.knowledge.vectorstores.providers.qdrant import (
 from qdrant_client import AsyncQdrantClient
 from qdrant_client.http import models as qdrant
 from qdrant_client.models import (
+    Condition,
     FieldCondition,
     Filter,
     MatchValue,
 )
+
+logger = structlog.get_logger()
 
 
 class QdrantRetrievalProvider(
@@ -78,19 +85,28 @@ class QdrantRetrievalProvider(
         """
 
         search_filter = self._build_filter(
-            query.filters,
+            owner_id=query.owner_id,
+            filters=query.filters,
         )
 
-        response = await self._client.query_points(
-            collection_name=self._config.collection_name,
-            query=query_vector,
-            using=DENSE_VECTOR_NAME,
-            query_filter=search_filter,
-            limit=query.top_k,
-            with_payload=self._config.with_payload,
-            with_vectors=self._config.with_vectors,
-            score_threshold=self._config.score_threshold,
-        )
+        try:
+            response = await self._client.query_points(
+                collection_name=self._config.collection_name,
+                query=query_vector,
+                using=DENSE_VECTOR_NAME,
+                query_filter=search_filter,
+                limit=query.top_k,
+                with_payload=self._config.with_payload,
+                with_vectors=self._config.with_vectors,
+                score_threshold=self._config.score_threshold,
+            )
+        except Exception as exc:
+            logger.exception(
+                "retrieval.qdrant.search.failed",
+                collection=self._config.collection_name,
+                owner_id=query.owner_id,
+            )
+            raise RetrievalExecutionError("Dense retrieval failed.") from exc
 
         return RetrievalResult(
             query=query,
@@ -112,35 +128,31 @@ class QdrantRetrievalProvider(
         Execute metadata-filtered retrieval.
 
         Uses Qdrant's `scroll()` to return chunks matching structured
-        filters only -- no vector similarity is involved. Requires at
-        least one filter: an unfiltered scroll would ignore tenant
-        scoping (owner_id) and return arbitrary points from the whole
-        collection, so with no filters this returns an empty result
-        without querying Qdrant at all.
+        filters only -- no vector similarity is involved. `owner_id` is
+        always present on `query`, so the built filter always scopes to
+        the tenant even when no additional filters are supplied.
         """
 
         search_filter = self._build_filter(
-            query.filters,
+            owner_id=query.owner_id,
+            filters=query.filters,
         )
 
-        if search_filter is None:
-            return RetrievalResult(
-                query=query,
-                execution=RetrievalExecution(
-                    completed_at=datetime.now(
-                        UTC,
-                    ),
-                ),
-                chunks=[],
+        try:
+            points, _next_offset = await self._client.scroll(
+                collection_name=self._config.collection_name,
+                scroll_filter=search_filter,
+                limit=query.top_k,
+                with_payload=self._config.with_payload,
+                with_vectors=False,
             )
-
-        points, _next_offset = await self._client.scroll(
-            collection_name=self._config.collection_name,
-            scroll_filter=search_filter,
-            limit=query.top_k,
-            with_payload=self._config.with_payload,
-            with_vectors=False,
-        )
+        except Exception as exc:
+            logger.exception(
+                "retrieval.qdrant.search_metadata.failed",
+                collection=self._config.collection_name,
+                owner_id=query.owner_id,
+            )
+            raise RetrievalExecutionError("Metadata-filtered retrieval failed.") from exc
 
         return RetrievalResult(
             query=query,
@@ -172,6 +184,14 @@ class QdrantRetrievalProvider(
         `default_score` is used for point types that carry no
         similarity score (e.g. `scroll()` records from metadata-only
         retrieval, which has no vector to rank against).
+
+        A payload missing a required field (chunk_id/document_id)
+        indicates a corrupted or partially-indexed record -- rather
+        than silently producing a bad chunk, this fails fast. It's
+        raised as RetrievalExecutionError (not a raw KeyError) so it
+        gets the same structured logging and meaningful API response
+        as every other failure in this provider, instead of escaping
+        as an opaque 500.
         """
 
         chunks: list[RetrievedChunk] = []
@@ -179,31 +199,42 @@ class QdrantRetrievalProvider(
         for point in points:
             payload = point.payload or {}
 
-            chunk = RetrievedChunk(
-                chunk_id=UUID(str(payload["chunk_id"])),
-                document_id=UUID(str(payload["document_id"])),
-                filename=payload.get(
-                    "filename",
-                    "",
-                ),
-                owner_id=payload.get(
-                    "owner_id",
-                    "",
-                ),
-                chunk_index=payload.get(
-                    "chunk_index",
-                    0,
-                ),
-                content=payload.get(
-                    "content",
-                    "",
-                ),
-                score=(default_score if default_score is not None else float(point.score)),
-                metadata=payload.get(
-                    "additional_metadata",
-                    {},
-                ),
-            )
+            try:
+                chunk = RetrievedChunk(
+                    chunk_id=UUID(str(payload["chunk_id"])),
+                    document_id=UUID(str(payload["document_id"])),
+                    filename=payload.get(
+                        "filename",
+                        "",
+                    ),
+                    owner_id=payload.get(
+                        "owner_id",
+                        "",
+                    ),
+                    chunk_index=payload.get(
+                        "chunk_index",
+                        0,
+                    ),
+                    content=payload.get(
+                        "content",
+                        "",
+                    ),
+                    score=(default_score if default_score is not None else float(point.score)),
+                    metadata=payload.get(
+                        "additional_metadata",
+                        {},
+                    ),
+                )
+            except KeyError as exc:
+                logger.exception(
+                    "retrieval.qdrant.map_points.malformed_payload",
+                    point_id=str(getattr(point, "id", "")),
+                    missing_field=str(exc),
+                )
+                raise RetrievalExecutionError(
+                    "A retrieved chunk is missing required indexed fields; "
+                    "the index may be corrupted."
+                ) from exc
 
             chunks.append(chunk)
 
@@ -211,37 +242,31 @@ class QdrantRetrievalProvider(
 
     def _build_filter(
         self,
+        *,
+        owner_id: str,
         filters: dict,
-    ) -> Filter | None:
+    ) -> Filter:
         """
         Build Qdrant metadata filters.
 
-        Supported filters:
+        `owner_id` is a required, separate parameter (not read out of
+        `filters`) so a caller can never smuggle a different owner_id in
+        through the filters dict -- it always scopes to the caller's own
+        tenant. Additional supported filters:
 
-        - owner_id
         - document_id
         - filename
         - language
         """
 
-        if not filters:
-            return None
-
-        must_conditions = []
-
-        owner_id = filters.get(
-            "owner_id",
-        )
-
-        if owner_id:
-            must_conditions.append(
-                FieldCondition(
-                    key="owner_id",
-                    match=MatchValue(
-                        value=owner_id,
-                    ),
-                )
+        must_conditions: list[Condition] = [
+            FieldCondition(
+                key="owner_id",
+                match=MatchValue(
+                    value=owner_id,
+                ),
             )
+        ]
 
         document_id = filters.get(
             "document_id",
@@ -285,9 +310,6 @@ class QdrantRetrievalProvider(
                 )
             )
 
-        if not must_conditions:
-            return None
-
         return Filter(
             must=must_conditions,
         )
@@ -303,20 +325,29 @@ class QdrantRetrievalProvider(
         Uses SPLADE sparse vectors stored in Qdrant.
         """
 
-        response = await self._client.query_points(
-            collection_name=self._config.collection_name,
-            query=qdrant.SparseVector(
-                indices=sparse_query.indices,
-                values=sparse_query.values,
-            ),
-            using=SPARSE_VECTOR_NAME,
-            query_filter=self._build_filter(
-                query.filters,
-            ),
-            limit=query.top_k,
-            with_payload=self._config.with_payload,
-            with_vectors=False,
-        )
+        try:
+            response = await self._client.query_points(
+                collection_name=self._config.collection_name,
+                query=qdrant.SparseVector(
+                    indices=sparse_query.indices,
+                    values=sparse_query.values,
+                ),
+                using=SPARSE_VECTOR_NAME,
+                query_filter=self._build_filter(
+                    owner_id=query.owner_id,
+                    filters=query.filters,
+                ),
+                limit=query.top_k,
+                with_payload=self._config.with_payload,
+                with_vectors=False,
+            )
+        except Exception as exc:
+            logger.exception(
+                "retrieval.qdrant.search_sparse.failed",
+                collection=self._config.collection_name,
+                owner_id=query.owner_id,
+            )
+            raise RetrievalExecutionError("Sparse retrieval failed.") from exc
 
         return RetrievalResult(
             query=query,

@@ -203,16 +203,7 @@ async def test_delete_document_wraps_client_failures_in_vector_deletion_error() 
 # ---------------------------------------------------------------------------
 
 
-async def test_count_returns_client_reported_count() -> None:
-    provider, client = _make_provider()
-    client.count = AsyncMock(return_value=SimpleNamespace(count=42))
-
-    result = await provider.count("researchmind_knowledge")
-
-    assert result == 42
-
-
-async def test_count_filters_vectors_by_owner_when_requested() -> None:
+async def test_count_scopes_to_owner() -> None:
     provider, client = _make_provider()
     client.count = AsyncMock(return_value=SimpleNamespace(count=12))
 
@@ -229,7 +220,7 @@ async def test_count_wraps_client_failures_in_collection_operation_error() -> No
     client.count = AsyncMock(side_effect=RuntimeError("boom"))
 
     with pytest.raises(CollectionOperationError):
-        await provider.count("researchmind_knowledge")
+        await provider.count("researchmind_knowledge", owner_id="owner-1")
 
 
 # ---------------------------------------------------------------------------

@@ -57,6 +57,10 @@ from benchmarks.retrieval.metrics import (
 # touch production data.
 BENCHMARK_COLLECTION_NAME = "benchmark_retrieval"
 
+# Matches BenchmarkRetrievalIndexer's default owner_id fallback when no
+# owner_ids_by_document_id mapping is supplied.
+BENCHMARK_OWNER_ID = "benchmark"
+
 # Chunks retrieved per query. Large enough to compute Recall@20 in a
 # single search call per candidate (see ADR-020).
 TOP_K = 20
@@ -174,6 +178,7 @@ class RetrievalBenchmark(Benchmark):
                 query=RetrievalQuery(
                     query=query_text,
                     top_k=top_k,
+                    owner_id=BENCHMARK_OWNER_ID,
                 ),
                 query_vector=query_vector,
             )
@@ -194,6 +199,7 @@ class RetrievalBenchmark(Benchmark):
                 query=RetrievalQuery(
                     query=query_text,
                     top_k=top_k,
+                    owner_id=BENCHMARK_OWNER_ID,
                 ),
                 sparse_query=sparse_query,
             )
@@ -211,6 +217,7 @@ class RetrievalBenchmark(Benchmark):
         candidate_query = RetrievalQuery(
             query=query_text,
             top_k=top_k * 2,
+            owner_id=BENCHMARK_OWNER_ID,
         )
 
         with Timer() as timer:

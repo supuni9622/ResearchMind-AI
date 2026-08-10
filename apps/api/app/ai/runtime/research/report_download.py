@@ -9,9 +9,9 @@ from app.repositories.research_run import ResearchRunRepository
 
 
 class ResearchReportDownloadService:
-    """Returns a short-lived PDF URL only for the run owner."""
+    """Returns an owner-authorized PDF URL, valid for EXPIRES_IN_SECONDS."""
 
-    _EXPIRES_IN_SECONDS = 300
+    EXPIRES_IN_SECONDS = 30 * 24 * 60 * 60  # 30 days
 
     def __init__(self, *, runs: ResearchRunRepository, storage: DocumentStorage) -> None:
         self._runs = runs
@@ -26,5 +26,5 @@ class ResearchReportDownloadService:
             return None
         return await self._storage.generate_presigned_url(
             key=key,
-            expires_in=self._EXPIRES_IN_SECONDS,
+            expires_in=self.EXPIRES_IN_SECONDS,
         )

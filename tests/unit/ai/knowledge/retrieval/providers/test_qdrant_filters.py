@@ -2,13 +2,15 @@
 Unit tests for QdrantRetrievalProvider._build_filter.
 
 Covers:
-- No filters supplied returns None (Qdrant treats this as "no filter")
-- A single recognized filter key produces exactly one must-condition
-- Multiple recognized filter keys each produce their own must-condition
+- owner_id is always required and always produces a must-condition, even
+  when no additional filters are supplied (PRODUCTION_READINESS_EVALUATION.md
+  item 5: an unscoped, cross-tenant query must be structurally impossible)
+- Additional recognized filter keys each produce their own must-condition
 - document_id values are coerced to str before being matched
 - Unrecognized filter keys are ignored and contribute no conditions
-- Falsy filter values (e.g. empty string) are treated as absent, matching
-  the provider's `if value:` guard
+- Falsy additional filter values (e.g. empty string) are treated as absent,
+  matching the provider's `if value:` guard -- this does not apply to
+  owner_id, which is always included regardless
 """
 
 from __future__ import annotations
@@ -29,13 +31,12 @@ def create_provider() -> QdrantRetrievalProvider:
     )
 
 
-def _must_conditions(result: Filter | None) -> list[FieldCondition]:
+def _must_conditions(result: Filter) -> list[FieldCondition]:
     """
     Narrow `Filter.must` (a broad condition union) down to the plain
     FieldCondition list that `_build_filter` is documented to produce.
     """
 
-    assert result is not None
     assert isinstance(result.must, list)
 
     for condition in result.must:
@@ -50,22 +51,10 @@ def _match_value(condition: FieldCondition) -> object:
     return condition.match.value
 
 
-def test_empty_filters() -> None:
+def test_owner_id_alone_produces_a_single_condition() -> None:
     provider = create_provider()
 
-    result = provider._build_filter({})
-
-    assert result is None
-
-
-def test_owner_filter() -> None:
-    provider = create_provider()
-
-    result = provider._build_filter(
-        {
-            "owner_id": "abc",
-        }
-    )
+    result = provider._build_filter(owner_id="abc", filters={})
 
     conditions = _must_conditions(result)
     assert len(conditions) == 1
@@ -73,14 +62,14 @@ def test_owner_filter() -> None:
     assert _match_value(conditions[0]) == "abc"
 
 
-def test_multiple_filters() -> None:
+def test_multiple_filters_alongside_owner_id() -> None:
     provider = create_provider()
 
     result = provider._build_filter(
-        {
-            "owner_id": "abc",
+        owner_id="abc",
+        filters={
             "language": "en",
-        }
+        },
     )
 
     conditions = _must_conditions(result)
@@ -93,36 +82,43 @@ def test_document_id_filter_is_coerced_to_string() -> None:
     document_id = uuid.uuid4()
 
     result = provider._build_filter(
-        {
+        owner_id="abc",
+        filters={
             "document_id": document_id,
-        }
+        },
     )
 
     conditions = _must_conditions(result)
-    assert len(conditions) == 1
-    assert conditions[0].key == "document_id"
-    assert _match_value(conditions[0]) == str(document_id)
+    assert {condition.key for condition in conditions} == {"owner_id", "document_id"}
+    document_condition = next(c for c in conditions if c.key == "document_id")
+    assert _match_value(document_condition) == str(document_id)
 
 
 def test_unsupported_filter_key_is_ignored() -> None:
     provider = create_provider()
 
     result = provider._build_filter(
-        {
+        owner_id="abc",
+        filters={
             "unsupported_key": "value",
-        }
+        },
     )
 
-    assert result is None
+    conditions = _must_conditions(result)
+    assert len(conditions) == 1
+    assert conditions[0].key == "owner_id"
 
 
-def test_falsy_filter_value_is_treated_as_absent() -> None:
+def test_falsy_additional_filter_value_is_treated_as_absent() -> None:
     provider = create_provider()
 
     result = provider._build_filter(
-        {
-            "owner_id": "",
-        }
+        owner_id="abc",
+        filters={
+            "filename": "",
+        },
     )
 
-    assert result is None
+    conditions = _must_conditions(result)
+    assert len(conditions) == 1
+    assert conditions[0].key == "owner_id"

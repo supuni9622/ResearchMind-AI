@@ -5,10 +5,10 @@ Covers:
 - Queries whose relevant documents all share one owner are evaluable;
   queries spanning multiple owners are skipped (a single equality filter
   cannot select more than one owner at a time)
-- The unfiltered vs. filtered summary reports precision delta, latency
-  overhead, and leakage_rate per strategy
-- Strategies missing either their filtered or unfiltered candidate are
-  omitted from the summary rather than raising
+- The summary reports leakage_rate per candidate. There is no unfiltered
+  baseline to diff against: RetrievalQuery.owner_id is a required field
+  (PRODUCTION_READINESS_EVALUATION.md item 5), so an unscoped query is no
+  longer constructible.
 """
 
 from __future__ import annotations
@@ -62,18 +62,18 @@ def _make_candidate(name: str, **metrics: float) -> BenchmarkCandidate:
     return BenchmarkCandidate(name=name, metrics=metrics)
 
 
-def test_build_summary_reports_deltas_per_strategy() -> None:
+def test_build_summary_reports_leakage_rate_per_candidate() -> None:
     candidates = [
         _make_candidate(
-            "dense_unfiltered",
-            precision_at_5=0.2,
-            avg_latency_ms=100.0,
+            "dense",
+            precision_at_5=1.0,
+            avg_latency_ms=120.0,
             leakage_rate=0.0,
         ),
         _make_candidate(
-            "dense_filtered",
-            precision_at_5=1.0,
-            avg_latency_ms=120.0,
+            "sparse",
+            precision_at_5=0.9,
+            avg_latency_ms=80.0,
             leakage_rate=0.0,
         ),
     ]
@@ -81,24 +81,11 @@ def test_build_summary_reports_deltas_per_strategy() -> None:
     summary = _build_summary(candidates, skipped_queries=2)
 
     assert summary["skipped_queries"] == 2
-    assert summary["dense_precision_at_5_delta"] == 0.8
-    assert summary["dense_latency_overhead_ms"] == 20.0
     assert summary["dense_leakage_rate"] == 0.0
-    assert "sparse_precision_at_5_delta" not in summary
-    assert "hybrid_precision_at_5_delta" not in summary
+    assert summary["sparse_leakage_rate"] == 0.0
 
 
-def test_build_summary_omits_strategy_missing_a_candidate() -> None:
-    candidates = [
-        _make_candidate(
-            "sparse_unfiltered",
-            precision_at_5=0.2,
-            avg_latency_ms=10.0,
-            leakage_rate=0.0,
-        ),
-    ]
+def test_build_summary_with_no_candidates_reports_only_skipped_queries() -> None:
+    summary = _build_summary([], skipped_queries=0)
 
-    summary = _build_summary(candidates, skipped_queries=0)
-
-    assert "sparse_precision_at_5_delta" not in summary
     assert summary == {"skipped_queries": 0}

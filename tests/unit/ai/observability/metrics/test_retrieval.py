@@ -45,7 +45,7 @@ def _make_chunk() -> RetrievedChunk:
 
 def _make_result(*, statistics: RetrievalStatistics | None = None) -> RetrievalResult:
     return RetrievalResult(
-        query=RetrievalQuery(query="rag"),
+        query=RetrievalQuery(query="rag", owner_id="owner-1"),
         execution=RetrievalExecution(),
         statistics=statistics,
         chunks=[_make_chunk()],

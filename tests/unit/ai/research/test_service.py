@@ -99,6 +99,14 @@ def _make_service(
 
 
 async def test_research_scopes_retrieval_to_owner_id() -> None:
+    """
+    owner_id always comes from the authenticated caller, never from
+    request-supplied filters. It lives on `RetrievalQuery.owner_id` (a
+    required, dedicated field) rather than inside `filters`, so a
+    filters-dict "owner_id" a caller sneaks in is inert -- the provider
+    never reads owner_id out of `filters`.
+    """
+
     owner_id = uuid4()
 
     service, collaborators = _make_service()
@@ -112,7 +120,7 @@ async def test_research_scopes_retrieval_to_owner_id() -> None:
 
     query = collaborators["retrieval_service"].search_hybrid.await_args.kwargs["query"]
 
-    assert query.filters["owner_id"] == str(owner_id)
+    assert query.owner_id == str(owner_id)
     assert query.filters["language"] == "en"
 
 

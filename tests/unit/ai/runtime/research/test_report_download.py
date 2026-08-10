@@ -24,7 +24,7 @@ async def test_report_download_returns_short_lived_url_for_run_owner() -> None:
     runs.get_by_id_for_owner.assert_awaited_once_with(run_id=run_id, owner_id=owner_id)
     storage.generate_presigned_url.assert_awaited_once_with(
         key=f"artifacts/research-runs/{run_id}/final-report.pdf",
-        expires_in=300,
+        expires_in=ResearchReportDownloadService.EXPIRES_IN_SECONDS,
     )
 
 

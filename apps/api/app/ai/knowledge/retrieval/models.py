@@ -33,6 +33,15 @@ class RetrievalQuery(BaseModel):
         description="User search query.",
     )
 
+    owner_id: str = Field(
+        min_length=1,
+        description=(
+            "Tenant/owner scope. Required so an unscoped, cross-tenant "
+            "query is a type error rather than a possible bug -- see "
+            "PRODUCTION_READINESS_EVALUATION.md item 5."
+        ),
+    )
+
     top_k: int = Field(
         default=5,
         ge=1,

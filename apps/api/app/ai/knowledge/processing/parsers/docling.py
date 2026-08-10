@@ -41,7 +41,13 @@ class DoclingParser(BaseDocumentParser):
     """
 
     def __init__(self) -> None:
-        pipeline_options = PdfPipelineOptions(do_ocr=False)
+        # Scanned/image-only pages have no extractable text layer -- with
+        # OCR off, `export_to_text()`/`export_to_markdown()` silently
+        # returned near-empty content for them instead of erroring, so a
+        # scanned PDF looked "processed" but was invisible to retrieval.
+        # Docling only runs OCR on pages that actually need it, so a normal
+        # digitally-generated PDF's parse latency is unaffected.
+        pipeline_options = PdfPipelineOptions(do_ocr=True)
         self._converter = DocumentConverter(
             format_options={
                 InputFormat.PDF: PdfFormatOption(pipeline_options=pipeline_options),

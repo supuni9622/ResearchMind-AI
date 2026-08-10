@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from typing import Any
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
 import pytest
@@ -24,6 +24,7 @@ from app.ai.runtime.research.synthesis.service import (
     ResearchSynthesisService,
 )
 from app.ai.runtime.research.workflows.multi_wave_research import compile_multi_wave_research_graph
+from app.infrastructure.metrics.research import RESEARCH_REVIEW_DECISIONS_TOTAL
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.types import Command
 
@@ -64,12 +65,14 @@ async def test_multi_wave_graph_waits_for_dependencies_before_aggregation() -> N
         report_ref="artifacts/research-runs/final-report.json",
         pdf_ref="artifacts/research-runs/final-report.pdf",
     )
+    metrics = MagicMock()
     graph = compile_multi_wave_research_graph(
         checkpointer=InMemorySaver(),
         task_retrieval=retrieval,
         evidence_writer=writer,
         synthesis=synthesis,
         final_report_writer=final_report_writer,
+        metrics=metrics,
     )
     first = ResearchPlanTask(task_id="first", question="first")
     parallel = ResearchPlanTask(task_id="parallel", question="parallel")
@@ -110,6 +113,10 @@ async def test_multi_wave_graph_waits_for_dependencies_before_aggregation() -> N
     assert synthesis.synthesize.await_count == 1
     assert result["final_report_pdf_ref"].endswith("final-report.pdf")
     assert final_report_writer.write.await_count == 1
+    metrics.increment.assert_any_call(
+        metric=RESEARCH_REVIEW_DECISIONS_TOTAL,
+        labels={"decision": "pass"},
+    )
 
 
 @pytest.mark.asyncio
@@ -157,6 +164,7 @@ async def test_multi_wave_graph_runs_one_targeted_gap_retrieval_then_finalizes_l
         report_ref="artifacts/research-runs/final-report.json",
         pdf_ref="artifacts/research-runs/final-report.pdf",
     )
+    metrics = MagicMock()
     graph = compile_multi_wave_research_graph(
         checkpointer=InMemorySaver(),
         task_retrieval=retrieval,
@@ -164,6 +172,7 @@ async def test_multi_wave_graph_runs_one_targeted_gap_retrieval_then_finalizes_l
         synthesis=synthesis,
         final_report_writer=final_report_writer,
         reviewer=reviewer,
+        metrics=metrics,
     )
     initial = ResearchPlanTask(task_id="initial", question="initial")
     config = {"configurable": {"thread_id": str(run_id)}}
@@ -187,6 +196,22 @@ async def test_multi_wave_graph_runs_one_targeted_gap_retrieval_then_finalizes_l
     assert result["plan_version"] == 2
     assert synthesis.synthesize.await_count == 2
     assert result["review"]["decision"] == ReviewDecision.FINALIZE_WITH_LIMITATIONS.value
+    # Fires on every review cycle, not just the terminal decision -- both
+    # loop-back RESEARCH_GAPS reviews are recorded even though the run
+    # itself ultimately finalizes with limitations, a decision the
+    # `review()` node itself never sees from `reviewer.review()`.
+    assert (
+        metrics.increment.call_args_list.count(
+            (
+                (),
+                {
+                    "metric": RESEARCH_REVIEW_DECISIONS_TOTAL,
+                    "labels": {"decision": "research_gaps"},
+                },
+            )
+        )
+        == 2
+    )
 
 
 @pytest.mark.asyncio

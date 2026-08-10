@@ -59,6 +59,8 @@ from app.ai.runtime.research.workflows.multi_wave_research import compile_multi_
 from app.ai.tools.paper_search.service import PaperSearchService
 from app.ai.tools.web_search.service import WebSearchService
 from app.core.settings import settings
+from app.infrastructure.metrics.interfaces import MetricsRecorder
+from app.infrastructure.metrics.noop import NoOpMetricsRecorder
 from app.infrastructure.storage.interfaces import DocumentStorage
 from app.models.research_run import ResearchRun
 from app.repositories.generation_usage import GenerationUsageRepository
@@ -112,6 +114,7 @@ class ResearchRuntimeExecutionService:
         web_search_necessity: WebSearchNecessityService | None = None,
         paper_search: PaperSearchService | None = None,
         paper_query_extraction: PaperQueryExtractionService | None = None,
+        metrics: MetricsRecorder | None = None,
     ) -> None:
         self._session = session
         self._research_service = research_service
@@ -126,6 +129,7 @@ class ResearchRuntimeExecutionService:
         self._web_search_necessity = web_search_necessity
         self._paper_search = paper_search
         self._paper_query_extraction = paper_query_extraction
+        self._metrics = metrics or NoOpMetricsRecorder()
         self._runs = ResearchRunService(session)
         self._research_sessions = ResearchRepository(session)
         self._proposals = ResearchProposalRepository(session)
@@ -534,6 +538,7 @@ class ResearchRuntimeExecutionService:
             web_search_necessity=self._web_search_necessity,
             paper_search=self._paper_search,
             paper_query_extraction=self._paper_query_extraction,
+            metrics=self._metrics,
         )
 
     async def _execute_v1_graph(

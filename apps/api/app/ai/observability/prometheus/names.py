@@ -88,6 +88,7 @@ from app.infrastructure.metrics.mcp import (
 )
 from app.infrastructure.metrics.research import (
     RESEARCH_DURATION,
+    RESEARCH_REVIEW_DECISIONS_TOTAL,
     RESEARCH_RUNS_COMPLETED_TOTAL,
     RESEARCH_RUNS_FAILED_TOTAL,
     RESEARCH_RUNS_TOTAL,
@@ -362,6 +363,18 @@ COUNTER_METRICS: dict[str, MetricSpec] = {
         "Total research runs that failed.",
         "counter",
         ("source_mode", "failure_type"),
+    ),
+    #
+    # Deep Research review (Research Runtime V1 graph's report-quality
+    # checkpoint, distinct from run-level completed/failed above) -- fires
+    # on every review cycle, including ones that loop back into revision,
+    # not just the terminal one a run ends on.
+    #
+    RESEARCH_REVIEW_DECISIONS_TOTAL: MetricSpec(
+        "researchmind_research_review_decisions_total",
+        "Total Deep Research report reviews, by decision.",
+        "counter",
+        ("decision",),
     ),
     #
     # Memory (PRD §20) -- no labels at existing call sites today.

@@ -57,6 +57,9 @@ from app.ai.tools.paper_search.service import PaperSearchService
 from app.ai.tools.web_search.models import WebSearchRequest
 from app.ai.tools.web_search.service import WebSearchService
 from app.core.settings import settings
+from app.infrastructure.metrics.interfaces import MetricsRecorder
+from app.infrastructure.metrics.noop import NoOpMetricsRecorder
+from app.infrastructure.metrics.research import RESEARCH_REVIEW_DECISIONS_TOTAL
 
 logger = structlog.get_logger()
 
@@ -118,6 +121,7 @@ def compile_multi_wave_research_graph(
     web_search_necessity: WebSearchNecessityService | None = None,
     paper_search: PaperSearchService | None = None,
     paper_query_extraction: PaperQueryExtractionService | None = None,
+    metrics: MetricsRecorder | None = None,
 ) -> Any:
     """Compile bounded waves through synthesis, review, and final artifacts.
 
@@ -125,6 +129,8 @@ def compile_multi_wave_research_graph(
     review/finalization handoff. Durable artifact keys are the long-lived graph
     outputs; raw documents and provider responses never enter graph state.
     """
+
+    metrics_recorder = metrics or NoOpMetricsRecorder()
 
     async def emit(
         event_type: ResearchEventType,
@@ -402,6 +408,10 @@ def compile_multi_wave_research_graph(
             decision=result.decision.value,
             citation_integrity_score=result.citation_integrity_score,
             completeness_score=result.completeness_score,
+        )
+        metrics_recorder.increment(
+            metric=RESEARCH_REVIEW_DECISIONS_TOTAL,
+            labels={"decision": result.decision.value},
         )
         await emit(ResearchEventType.REVIEW_COMPLETED)
         return update

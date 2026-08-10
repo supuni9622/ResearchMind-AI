@@ -101,8 +101,12 @@ cache level.
 
 **3. Research Tools** — Web Search and MCP paper search: request rates,
 success/failure, P95 latency, result counts, selected-result ratio, MCP
-server health, and research-run outcomes/duration. Useful when a research
-run feels slow or a research answer is thin on evidence.
+server health, research-run outcomes/duration, and Deep Research review
+decisions (`ResearchReview.decision`, one series per pass/
+finalize_with_limitations/research_gaps/revise_synthesis/fail, per review
+cycle). Useful when a research run feels slow, a research answer is thin
+on evidence, or reports are routinely finalizing with limitations rather
+than passing cleanly.
 
 **4. Memory Runtime** — Memory platform internals: context-build rate,
 durable-retrieval skip rate, semantic/research search rates, extraction

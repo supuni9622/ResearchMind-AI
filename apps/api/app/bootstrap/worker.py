@@ -192,6 +192,7 @@ def create_research_runtime_worker(*, session: AsyncSession) -> ResearchRuntimeW
         web_search_necessity=create_web_search_necessity_service(),
         paper_search=create_paper_search_service(),
         paper_query_extraction=create_paper_query_extraction_service(),
+        metrics=get_metrics_recorder(),
     )
     runs = ResearchRunService(session)
     return ResearchRuntimeWorker(

@@ -274,4 +274,5 @@ async def get_research_runtime_execution_service(
             web_search_necessity=web_search_necessity,
             paper_search=paper_search,
             paper_query_extraction=paper_query_extraction,
+            metrics=get_metrics_recorder(),
         )

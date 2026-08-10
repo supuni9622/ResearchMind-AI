@@ -37,6 +37,7 @@ Dashboards, datasource, and alert rules are all provisioned from files under `in
 - Web searches over time / success-failure rate / P95 latency / results returned per search / selected-result ratio / failures by type
 - MCP tool requests by tool / failure rate / P95 latency / server health
 - Research runs by outcome / P95 duration
+- Deep Research review decisions (`ResearchReview.decision` — pass/finalize_with_limitations/research_gaps/revise_synthesis/fail — one series per decision, per review cycle)
 
 ### Memory Runtime
 

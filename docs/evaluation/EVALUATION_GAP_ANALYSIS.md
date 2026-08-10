@@ -94,6 +94,26 @@ ResearchMind can compare individual AI components and detect selected metric cha
 
 ## Final implementation plan: streamlined production evaluation
 
+**Superseded (2026-08-10) by [`docs/EVALUATION_PLAN.md`](../EVALUATION_PLAN.md).**
+The architecture below (a new bespoke `apps/api/app/ai/quality/evaluation/`
+service, a new `EvaluationRecord` schema, 7 new REST endpoints, and a
+4-view admin frontend) was written before a fuller review of what
+LangSmith already provides — datasets, experiments, trace storage,
+feedback attachment, and online evaluators. `EVALUATION_PLAN.md` reaches a
+different conclusion: wire into LangSmith as the control plane instead of
+building a parallel bespoke service, API, and dashboard, per its explicit
+"don't rebuild what already exists as a product" principle. Building both
+would mean two overlapping API surfaces and schemas doing the same job.
+This section's specific ideas aren't wasted — the record-level field list
+below (`prompt_version`, `latency_ms`, `cost_usd`, etc.) is a reasonable
+shape for the `eval_scores` table `EVALUATION_PLAN.md` already calls for —
+but treat the service/API/frontend architecture here as historical, not a
+build target. Also note: this section assumes user feedback capture
+already exists ("Existing feedback capability") — confirmed false as of
+2026-08-10, `apps/api/app/api/v1/feedback.py` is a 0-byte stub, not
+registered in the router. That gap is real and still open, tracked in
+`EVALUATION_PLAN.md` phase 3 / `PHASE_2_3_ROADMAP.md` 1c.
+
 The production version should cover two evaluation paths through one shared service:
 
 ```text

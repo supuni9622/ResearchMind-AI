@@ -1,0 +1,41 @@
+# Production Readiness Evaluation
+
+Evaluated against the standard "Production Readiness Checklist" (cost, latency, fallback, quotas, multitenancy, HITL, feedback, tracing, CI eval, degradation, honest UX). Findings are based on direct codebase inspection of `apps/api/app/` and `apps/web/` on 2026-08-10.
+
+**For execution order, see [`docs/PRIORITIZED_ROADMAP.md`](docs/PRIORITIZED_ROADMAP.md)** — the gaps below feed directly into that value×ease-ranked build sequence (most items here map onto its Wave 0–2).
+
+**Legend:** ✅ Done · 🟡 Partial · ❌ Gap
+
+| # | Checklist Item | Status | What We Have | The Gap |
+|---|---|:---:|---|---|
+| 1 | Cost per request measured & forecast | 🟡 | Real per-request `$` cost computed in [`cost.py`](apps/api/app/ai/runtime/generation/providers/helpers/cost.py) and persisted per request/owner in the `GenerationUsage` ledger ([`generation_usage.py`](apps/api/app/repositories/generation_usage.py)) with monthly rollups. Hard budget ceiling enforced via [`budget_guardrail.py`](apps/api/app/ai/guardrails/runtime/budget_guardrail.py) (`DEFAULT_MAX_COST_USD = 5.0`). | No **forecasting** — nothing projects future spend from usage trends (per-user burn rate, monthly run-rate). It's a ledger + hard cap, not a forecast. |
+| 2 | Latency budget defined & measured per stage | 🟡 | p50/p90/p95/p99 latency is measured and aggregated ([`statistics/models.py`](apps/api/app/ai/observability/statistics/models.py), `aggregator.py`). | No **budgets/SLOs exist** — no `target_latency`/`SLO` concept in code, and `alerts.yml` only alerts on error-rate ratios, never on latency thresholds. We measure, but never say what "too slow" means per stage (retrieval vs. generation vs. rerank). |
+| 3 | Model fallback chain configured | ✅ | Real cross-provider fallback: `_build_fallback_chain()` builds an ordered list preferring alternate providers ([`routing/service.py:275`](apps/api/app/ai/runtime/generation/routing/service.py)); `_generate_with_routing()` walks candidates on failure and logs `generation.routing.fallback_used` ([`generation/service.py:565`](apps/api/app/ai/runtime/generation/service.py)). | None — this is solid. Only nit: AUTO strategy itself hard-defaults selection to Groq, which is a separate routing-policy decision from the fallback chain. |
+| 4 | Rate limits & quotas enforced | ✅ | Valkey/Redis fixed-window limiter ([`rate_limiting.py`](apps/api/app/infrastructure/rate_limiting.py)) wired via dependency into `chat.py` and `research.py` routes, returns HTTP 429 with `retry_after_seconds`. Separate guardrail-side rate check exists too. | None — enforced at the route layer per owner/scope. |
+| 5 | Multitenancy isolated at data layer | 🟡 | Postgres repos consistently filter `WHERE owner_id ==` ([`document.py`](apps/api/app/repositories/document.py), `memory.py`). Qdrant retrieval passes `owner_id` as a payload filter in the actual retrieval path. | Isolation is a **convention, not a guarantee**. No Postgres row-level security (zero RLS policies in `alembic/`). The Qdrant vectorstore API accepts `owner_id: str | None = None` — an unscoped, all-tenant search is possible if any future caller forgets to pass it. One shared collection, not per-tenant. |
+| 6 | Human-in-the-loop on irreversible actions | 🟡 | Deep-research plan-approval and report-approval are real LangGraph interrupts requiring explicit user confirmation before proceeding. | Everywhere else, irreversible actions are **not gated**: `memory.py` `forget_memory` deletes on a plain DELETE call with no confirmation step; there's no document-delete endpoint at all (so nothing to gate, but also nothing to build on). The generic `approval_gate.py` abstraction is an explicit unfinished stub — `GuardrailAction.ESCALATE` is not wired to anything end-to-end. |
+| 7 | Feedback wired into evaluation set | ❌ | Nothing. No thumbs up/down, rating, or correction endpoint anywhere in the API. | This is a real gap. `docs/evaluation/EVALUATION_GAP_ANALYSIS.md` already self-flags it: `api/v1/evaluation.py` and `ai/quality/evaluation/` are empty scaffolds. No feedback → eval-dataset pipeline exists at all. |
+| 8 | Full request tracing with cost attribution | 🟡 | LangSmith traces carry provider/model/token usage so LangSmith's own cost calculator can price a run. Separately, the Postgres `GenerationUsage` ledger and a Prometheus counter (`researchmind_generation_cost_usd_total`) attribute cost per owner. | The two systems aren't joined: LangSmith trace tags carry `provider`/`model`/`runtime` but **no `owner_id`/tenant tag**, so you can't drill from a trace to "which user, how much." Cost attribution lives in a side ledger, not on the trace itself. |
+| 9 | Regression evaluation running in CI | ❌ | `benchmarks/regression/` (detector + thresholds) exists and works when invoked manually via `benchmarks/runner.py --check-regression`. | It's **not wired into CI**. `.github/workflows/ci.yml` runs ruff/mypy/pytest/coverage only — no eval or benchmark job. Confirmed as a self-identified P0 gap in the repo's own gap-analysis doc. |
+| 10 | Graceful degradation path implemented | 🟡 | Multi-provider fallback chain (item 3) prevents a single-provider outage from hard-failing a request. Response cache returns a prior good answer instead of regenerating (with `cost_saved`/`tokens_saved` metadata). Structured 429/503 errors carry `retry_after_seconds`. | No circuit breaker — degradation is purely retry-through-fallback-chain + caching. If all providers in the chain fail, it's still a hard failure (acceptable, but means degradation, not fault-tolerance). |
+| 11 | Honest UX: citations, confidence, easy correction | 🟡 | Citations are real and rendered in the UI (`citation-card.tsx`) — filename, heading, page number, web-vs-document badge. | No confidence score shown anywhere in the frontend (zero occurrences). No regenerate / retry / "report an issue" / correction affordance in the chat UI — consistent with the missing feedback endpoint in item 7. Users see sources but never a sense of how sure the system is, or a way to flag a wrong answer. |
+
+## Score: 3 / 11 fully done, 6 partial, 2 absent
+
+## Priority to close before calling this "shipped"
+
+**P0 — structural risk if skipped:**
+1. **Item 5 (multitenancy)** — make `owner_id` non-optional on the Qdrant search API (not `str | None`) so an unscoped cross-tenant query is a type error, not a possible bug. This is the one gap with real data-leak blast radius.
+2. **Item 7 + 11 (feedback loop)** — ship a minimal thumbs up/down + optional comment on chat/research responses. Even a bare `POST /feedback` writing to Postgres unblocks both the UX honesty gap and gives item 9 something to build a golden set from.
+3. **Item 9 (CI regression eval)** — the benchmark tooling already exists (`benchmarks/regression/`); the only work is adding a CI job that runs `benchmarks/runner.py --check-regression` on PRs touching `app/ai/**`. This is mostly wiring, not new capability.
+
+**P1 — do next:**
+4. **Item 6 (HITL on deletes)** — add a confirmation step (or at minimum an undo window / soft-delete) to `forget_memory`, and design the still-missing document-delete endpoint with deletion gated from day one rather than retrofitted.
+5. **Item 2 (latency budgets)** — define target p95 per stage (retrieval, generation, rerank) as constants, add a Prometheus alert rule when the measured percentile breaches it. The measurement infra already exists; this is threshold definition + one alert rule.
+6. **Item 8 (cost-attributed tracing)** — add `owner_id`/tenant as a LangSmith trace tag alongside the existing provider/model tags so cost-per-request is queryable directly from a trace, not just from the side ledger.
+
+**P2 — lower urgency, easy wins:**
+7. **Item 1 (cost forecast)** — derive a simple linear/rolling-average projection from the existing `GenerationUsage` ledger (`summary_for_owner()` already computes `month_cost_usd`); no new data collection needed.
+8. **Item 11 (confidence display)** — if the generation pipeline has any retrieval-score or self-consistency signal available, surface it as a simple low/medium/high indicator next to citations.
+
+**Already solid, no action needed:** Item 3 (model fallback), Item 4 (rate limits/quotas), and the retry/caching half of Item 10 (graceful degradation).

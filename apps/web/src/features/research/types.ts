@@ -43,6 +43,21 @@ export function isWebCitation(citationId: string): boolean {
 }
 
 /**
+ * Relevance percentage relative to the best score in the same list, not an
+ * absolute scale. `Citation.score`/`ResearchSource.score` come from RRF
+ * fusion (`app/ai/knowledge/retrieval/fusion/rrf.py`, k=60 across up to 3
+ * ranked lists) -- its raw value tops out around 3-5% even for the best
+ * possible match, so rendering it directly as `score * 100` reads as "weak"
+ * no matter how relevant the result actually is. Normalizing against the
+ * top score in the current answer's own list keeps the bar meaningful
+ * (best match ~100%) regardless of what scale the backend's retrieval
+ * strategy happens to produce.
+ */
+export function relativeScorePercent(score: number, maxScore: number): number {
+  return maxScore > 0 ? Math.round((score / maxScore) * 100) : 0;
+}
+
+/**
  * Client-side view of where one Deep Research turn sits:
  * `plan_review` (awaiting approve/cancel, before a run exists at all) ->
  * `running` (approved, polling status) -> `goal_review` (graph paused at

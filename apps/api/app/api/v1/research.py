@@ -789,6 +789,8 @@ async def get_research_run_draft(
             citation_integrity_score=pending.review.citation_integrity_score,
             completeness_score=pending.review.completeness_score,
             limitations=pending.review.limitations,
+            model_quality_score=pending.review.model_quality_score,
+            gap_questions=pending.review.gap_questions,
         ),
     )
 

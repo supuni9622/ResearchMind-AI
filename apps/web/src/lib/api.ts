@@ -110,6 +110,7 @@ export interface Citation {
   citation_id: string;
   filename: string;
   document_id: string;
+  score: number;
   page_numbers: number[];
   heading: string | null;
   heading_path: string[];
@@ -288,6 +289,8 @@ export interface DeepResearchDraftReview {
   citation_integrity_score: number;
   completeness_score: number;
   limitations: string[];
+  model_quality_score: number | null;
+  gap_questions: string[];
 }
 
 // Matches `app/schemas/research.py::ResearchDraftResponse`.

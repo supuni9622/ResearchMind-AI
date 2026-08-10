@@ -1,9 +1,16 @@
 import type { Citation } from '@/lib/api';
-import { isWebCitation } from '@/features/research/types';
+import { isWebCitation, relativeScorePercent } from '@/features/research/types';
 import { FileTextIcon, NetworkIcon } from '@/components/ui/icons';
 
-export function CitationCard({ citation }: { citation: Citation }) {
+export function CitationCard({
+  citation,
+  maxScore,
+}: {
+  citation: Citation;
+  maxScore: number;
+}) {
   const web = isWebCitation(citation.citation_id);
+  const scorePct = relativeScorePercent(citation.score, maxScore);
   return (
     <div className="border border-ink-600 rounded-lg p-3.5 hover:border-ink-400 transition-colors duration-100">
       <div className="flex items-start gap-2.5">
@@ -34,6 +41,12 @@ export function CitationCard({ citation }: { citation: Citation }) {
               p. {citation.page_numbers.join(', ')}
             </p>
           )}
+          <div className="flex items-center gap-2 mt-2">
+            <div className="flex-1 h-1 rounded-full bg-ink-700 overflow-hidden">
+              <div className="h-full bg-sage-600" style={{ width: `${scorePct}%` }} />
+            </div>
+            <span className="font-mono text-stone-600 text-[10px] tabular-nums">{scorePct}%</span>
+          </div>
         </div>
       </div>
     </div>

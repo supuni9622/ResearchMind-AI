@@ -26,6 +26,13 @@ class Citation(
 
     document_id: UUID
 
+    # Defaulted, not required: `ResearchSession.citations` persists this
+    # model as JSONB and replays it via `Citation.model_validate()`
+    # (`execution.py::_session_response`) -- rows written before this field
+    # existed have no `score` key, and a required field would break replay
+    # of that historical data.
+    score: float = 0.0
+
     page_numbers: list[int] = Field(
         default_factory=list,
     )

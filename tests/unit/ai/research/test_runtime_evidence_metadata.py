@@ -85,6 +85,17 @@ def test_document_and_web_evidence_coexist_in_the_same_bundle() -> None:
     assert document_citation.document_id == UUID("32b24391-4f53-43b8-92d5-e5f44f3cc37d")
 
 
+def test_citation_score_is_threaded_from_the_evidence_reference() -> None:
+    bundle = ResearchEvidenceBundle(
+        evidence=[_document_reference()], completed_task_count=1, failed_task_count=0
+    )
+
+    citations, sources = ResearchService._runtime_evidence_metadata(bundle)
+
+    assert citations[0].score == 0.8
+    assert sources[0].score == 0.8
+
+
 def test_second_web_search_round_gets_distinct_citation_markers() -> None:
     bundle = ResearchEvidenceBundle(
         evidence=[_web_reference("W1-1"), _web_reference("W2-1")],

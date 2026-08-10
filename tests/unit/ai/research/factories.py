@@ -103,11 +103,13 @@ def make_citation(
     citation_id: str = "c1",
     document_id: UUID | None = None,
     filename: str = "paper.pdf",
+    score: float = 0.9,
 ) -> Citation:
     return Citation(
         citation_id=citation_id,
         filename=filename,
         document_id=document_id or uuid4(),
+        score=score,
     )
 
 

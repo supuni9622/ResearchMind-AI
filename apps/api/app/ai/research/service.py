@@ -743,6 +743,7 @@ class ResearchService:
                         citation_id=item.citation_id,
                         filename=item.filename,
                         document_id=document_id,
+                        score=item.score,
                         chunk_ids=[chunk_id],
                     )
                 )

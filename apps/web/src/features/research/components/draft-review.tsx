@@ -184,6 +184,32 @@ export function DraftReview({
         )}
       </div>
 
+      {draft.limitations.length > 0 && (
+        <div>
+          <label className={labelClass}>Limitations</label>
+          <ul className="list-disc list-inside space-y-0.5">
+            {draft.limitations.map((limitation, i) => (
+              <li key={i} className="text-stone-400 text-[13px] leading-relaxed">
+                {limitation}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {draft.review.gap_questions.length > 0 && (
+        <div>
+          <label className={labelClass}>Open questions from review</label>
+          <ul className="list-disc list-inside space-y-0.5">
+            {draft.review.gap_questions.map((question, i) => (
+              <li key={i} className="text-stone-400 text-[13px] leading-relaxed">
+                {question}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       {draft.citations.length > 0 && (
         <div>
           <label className={labelClass}>Sources</label>
@@ -213,7 +239,15 @@ export function DraftReview({
         Quality review: {draft.review.decision} · citation integrity{' '}
         {Math.round(draft.review.citation_integrity_score * 100)}% · completeness{' '}
         {Math.round(draft.review.completeness_score * 100)}%
+        {draft.review.model_quality_score !== null && (
+          <> · model quality {Math.round(draft.review.model_quality_score * 100)}%</>
+        )}
       </p>
+      {draft.review.limitations.length > 0 && (
+        <p className="font-mono text-[10px] text-stone-600">
+          Reviewer notes: {draft.review.limitations.join(' · ')}
+        </p>
+      )}
     </div>
   );
 }

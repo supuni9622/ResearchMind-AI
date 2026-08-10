@@ -92,7 +92,7 @@ def _outcome(*, query: str = "How does RAG work?") -> ResearchOutcome:
         query=query,
         answer="RAG retrieves relevant context before generating an answer.",
         citations=[
-            Citation(citation_id="c1", filename="paper.pdf", document_id=document_id),
+            Citation(citation_id="c1", filename="paper.pdf", document_id=document_id, score=0.9),
         ],
         sources=[
             ResearchSource(
@@ -140,7 +140,9 @@ class _FakeResearchService:
 
     async def citations_only(self, **kwargs) -> list[Citation]:
         self.citations_calls.append(kwargs)
-        return [Citation(citation_id="c1", filename="paper.pdf", document_id=uuid.uuid4())]
+        return [
+            Citation(citation_id="c1", filename="paper.pdf", document_id=uuid.uuid4(), score=0.9)
+        ]
 
 
 class _FakeResearchRepository:
@@ -308,6 +310,7 @@ def _pending_draft_snapshot() -> PendingDraftSnapshot:
             decision=ReviewDecision.PASS,
             citation_integrity_score=1.0,
             completeness_score=1.0,
+            model_quality_score=0.82,
         ),
     )
 
@@ -528,6 +531,11 @@ def test_get_research_run_draft_returns_the_pending_draft_with_resolved_citation
         }
     ]
     assert body["review"]["decision"] == "pass"
+    # The report's own self-declared limitations (`ResearchDraft.limitations`,
+    # distinct from the reviewer's `ResearchReview.limitations`).
+    assert body["limitations"] == ["Small sample size."]
+    assert body["review"]["model_quality_score"] == pytest.approx(0.82)
+    assert body["review"]["gap_questions"] == []
 
 
 def test_get_research_run_draft_returns_409_when_not_awaiting_approval(

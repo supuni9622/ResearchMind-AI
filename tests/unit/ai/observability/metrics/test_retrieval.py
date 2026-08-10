@@ -123,7 +123,9 @@ async def test_context_fields_populate_only_when_context_result_supplied() -> No
             context="some context",
             chunks=[],
             citations=[
-                Citation(citation_id="S1", filename="test.pdf", document_id=uuid.uuid4()),
+                Citation(
+                    citation_id="S1", filename="test.pdf", document_id=uuid.uuid4(), score=0.9
+                ),
             ],
         ),
         statistics=ContextStatistics(

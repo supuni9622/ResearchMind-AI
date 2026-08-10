@@ -38,6 +38,7 @@ class CitationService(
                 citation_id=(citation_id),
                 filename=(chunk.filename),
                 document_id=(chunk.document_id),
+                score=(chunk.score),
                 page_numbers=(chunk.page_numbers),
                 heading=(chunk.heading),
                 heading_path=(chunk.heading_path),

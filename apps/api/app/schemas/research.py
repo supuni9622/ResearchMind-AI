@@ -252,6 +252,8 @@ class ResearchDraftReviewSummary(BaseModel):
     citation_integrity_score: float
     completeness_score: float
     limitations: list[str]
+    model_quality_score: float | None
+    gap_questions: list[str]
 
 
 class ResearchDraftResponse(BaseModel):

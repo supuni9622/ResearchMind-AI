@@ -18,6 +18,14 @@ from app.ai.knowledge.vectorstores.exceptions import (
     VectorStoreValidationError,
 )
 from app.exceptions.base import AppException
+from app.infrastructure.storage.exceptions import (
+    StorageDeleteError,
+    StorageDownloadError,
+    StorageError,
+    StorageListError,
+    StorageNotFoundError,
+    StorageUploadError,
+)
 from app.schemas.common import ErrorDetail, ErrorResponse
 
 logger = structlog.get_logger()
@@ -67,6 +75,34 @@ _VECTOR_STORE_ERROR_RESPONSES: dict[type[VectorStoreError], tuple[int, str, str]
         503,
         "VECTOR_STORE_UNAVAILABLE",
         "The knowledge base is temporarily unavailable. Please try again.",
+    ),
+}
+
+_STORAGE_ERROR_RESPONSES: dict[type[StorageError], tuple[int, str, str]] = {
+    StorageNotFoundError: (
+        503,
+        "STORAGE_NOT_FOUND_CHECK_FAILED",
+        "File storage is temporarily unavailable. Please try again.",
+    ),
+    StorageUploadError: (
+        503,
+        "STORAGE_UPLOAD_FAILED",
+        "File storage is temporarily unavailable. Please try again.",
+    ),
+    StorageDownloadError: (
+        503,
+        "STORAGE_DOWNLOAD_FAILED",
+        "File storage is temporarily unavailable. Please try again.",
+    ),
+    StorageDeleteError: (
+        503,
+        "STORAGE_DELETE_FAILED",
+        "File storage is temporarily unavailable. Please try again.",
+    ),
+    StorageListError: (
+        503,
+        "STORAGE_LIST_FAILED",
+        "File storage is temporarily unavailable. Please try again.",
     ),
 }
 
@@ -164,6 +200,44 @@ def register_exception_handlers(app: FastAPI) -> None:
 
         logger.warning(
             "vector_store.exception",
+            code=code,
+            error_type=type(exc).__name__,
+            error_message=str(exc),
+        )
+
+        response = ErrorResponse(
+            error=ErrorDetail(
+                code=code,
+                message=message,
+            )
+        )
+
+        return JSONResponse(
+            status_code=status_code,
+            content=response.model_dump(),
+        )
+
+    @app.exception_handler(StorageError)
+    async def storage_exception_handler(
+        request: Request,
+        exc: StorageError,
+    ) -> JSONResponse:
+        """
+        Handle object-storage (S3) exceptions.
+
+        Mirrors retrieval_exception_handler/vector_store_exception_handler
+        for the storage layer's own exception hierarchy -- without this,
+        a failed upload/download/delete/presigned-URL check falls through
+        to the generic 500 handler with no actionable message.
+        """
+
+        status_code, code, message = _STORAGE_ERROR_RESPONSES.get(
+            type(exc),
+            (500, "STORAGE_ERROR", "An unexpected file storage error occurred."),
+        )
+
+        logger.warning(
+            "storage.exception",
             code=code,
             error_type=type(exc).__name__,
             error_message=str(exc),

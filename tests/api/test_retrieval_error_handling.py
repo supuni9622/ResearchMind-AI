@@ -1,8 +1,8 @@
 """
-Integration tests for how RetrievalError/VectorStoreError surface to
-the frontend.
+Integration tests for how RetrievalError/VectorStoreError/StorageError
+surface to the frontend.
 
-Both exception hierarchies are plain `Exception` subclasses, not
+All three exception hierarchies are plain `Exception` subclasses, not
 `AppException`, so without a dedicated handler they'd fall through to
 the generic 500 "An unexpected error occurred." -- correct in that the
 app never crashes, but not a meaningful message for the frontend to
@@ -18,6 +18,8 @@ Covers:
   transient, retry-worthy failure rather than a hard error
 - CollectionOperationError (the vector store's equivalent, raised by
   GET /documents/stats) -> 503
+- StorageNotFoundError (a failed S3 `exists()` check during report
+  download, e.g. GET /research/runs/{id}/report) -> 503
 - The response body always matches ErrorResponse/ErrorDetail, which
   apps/web/src/lib/errors.ts::extractErrorMessage already knows how to
   read -- no frontend change needed, only a more specific `message`
@@ -27,6 +29,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Generator
+from unittest.mock import AsyncMock
 
 import pytest
 from app.ai.knowledge.retrieval.exceptions import (
@@ -38,8 +41,10 @@ from app.ai.knowledge.retrieval.models import RetrievalQuery
 from app.ai.knowledge.vectorstores.exceptions import CollectionOperationError
 from app.ai.knowledge.vectorstores.service import VectorStoreService
 from app.auth.dependencies import get_current_user
+from app.dependencies.research import get_research_report_download_service
 from app.dependencies.retrieval import get_retrieval_service
 from app.dependencies.vector_store import get_vectorstore_service
+from app.infrastructure.storage.exceptions import StorageNotFoundError
 from app.main import app
 from app.models.user import User
 from fastapi.testclient import TestClient
@@ -144,5 +149,24 @@ def test_vector_store_error_returns_meaningful_response(client: TestClient) -> N
     assert response.status_code == 503
     body = response.json()
     assert body["error"]["code"] == "VECTOR_STORE_UNAVAILABLE"
+    assert body["error"]["message"]
+    assert body["error"]["message"] != "An unexpected error occurred."
+
+
+def test_storage_error_returns_meaningful_response(client: TestClient) -> None:
+    report_downloads = AsyncMock()
+    report_downloads.get_download_url.side_effect = StorageNotFoundError(
+        "Failed to check 'artifacts/research-runs/.../final-report.pdf'."
+    )
+    app.dependency_overrides[get_research_report_download_service] = lambda: report_downloads
+
+    try:
+        response = client.get(f"/api/v1/research/runs/{uuid.uuid4()}/report")
+    finally:
+        app.dependency_overrides.pop(get_research_report_download_service, None)
+
+    assert response.status_code == 503
+    body = response.json()
+    assert body["error"]["code"] == "STORAGE_NOT_FOUND_CHECK_FAILED"
     assert body["error"]["message"]
     assert body["error"]["message"] != "An unexpected error occurred."

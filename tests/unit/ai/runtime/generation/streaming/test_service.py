@@ -374,6 +374,7 @@ async def test_live_stream_is_traced_and_metrics_recorded_on_success() -> None:
     assert tracer.trace.call_args.kwargs["inputs"] == {"prompt": _make_request().user_prompt}
     assert tracer.trace.call_args.kwargs["tags"]["provider"] == GenerationProvider.GROQ.value
     assert tracer.trace.call_args.kwargs["tags"]["streamed"] is True
+    assert tracer.trace.call_args.kwargs["tags"]["owner_id"] is None
 
     trace_handle = tracer.trace.return_value.__enter__.return_value
     trace_handle.set_output.assert_called_once_with(content="hi")

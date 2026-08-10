@@ -1111,6 +1111,7 @@ async def test_generate_skips_observability_when_not_wired() -> None:
 
 async def test_generate_wraps_the_provider_call_in_the_configured_tracer() -> None:
     request = _make_request()
+    request.owner_id = uuid4()
     result = _make_result(request)
 
     provider = _make_provider()
@@ -1133,6 +1134,7 @@ async def test_generate_wraps_the_provider_call_in_the_configured_tracer() -> No
     assert tracer.trace.call_args.kwargs["name"] == "generation"
     assert tracer.trace.call_args.kwargs["inputs"] == {"prompt": request.user_prompt}
     assert tracer.trace.call_args.kwargs["tags"]["provider"] == GenerationProvider.GROQ.value
+    assert tracer.trace.call_args.kwargs["tags"]["owner_id"] == str(request.owner_id)
 
     trace_handle.set_output.assert_called_once_with(
         content=result.content,
@@ -1140,6 +1142,29 @@ async def test_generate_wraps_the_provider_call_in_the_configured_tracer() -> No
         completion_tokens=result.statistics.completion_tokens,
         total_tokens=result.statistics.total_tokens,
     )
+
+
+async def test_generate_trace_owner_id_tag_is_none_when_the_request_has_no_owner() -> None:
+    request = _make_request()
+    assert request.owner_id is None
+    result = _make_result(request)
+
+    provider = _make_provider()
+    provider.generate = AsyncMock(return_value=result)
+
+    from app.ai.observability.providers.langsmith.tracing import RuntimeTracer
+
+    tracer = MagicMock(spec=RuntimeTracer)
+    trace_handle = MagicMock()
+    tracer.trace.return_value.__enter__ = MagicMock(return_value=trace_handle)
+    tracer.trace.return_value.__exit__ = MagicMock(return_value=False)
+
+    registry = GenerationRegistry(providers=[provider])
+    service = GenerationService(registry=registry, tracer=tracer)
+
+    await service.generate(provider=GenerationProvider.GROQ, request=request)
+
+    assert tracer.trace.call_args.kwargs["tags"]["owner_id"] is None
 
 
 # ==========================================================

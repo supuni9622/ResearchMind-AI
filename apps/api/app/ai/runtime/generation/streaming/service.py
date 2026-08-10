@@ -269,6 +269,7 @@ class StreamingService:
                     "provider": provider.value,
                     "model": generation_provider_config_model,
                     "runtime": (request.runtime.value if request.runtime else None),
+                    "owner_id": (str(request.owner_id) if request.owner_id else None),
                     "streamed": True,
                 },
             ) as trace_handle:

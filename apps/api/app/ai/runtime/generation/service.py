@@ -947,6 +947,7 @@ class GenerationService:
                     "provider": provider.value,
                     "model": generation_provider.config.model_name,
                     "runtime": (request.runtime.value if request.runtime else None),
+                    "owner_id": (str(request.owner_id) if request.owner_id else None),
                 },
             ) as trace_handle:
                 result = (

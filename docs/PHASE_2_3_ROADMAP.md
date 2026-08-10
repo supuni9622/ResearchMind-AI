@@ -365,7 +365,7 @@ same request/response, zero added latency.
 |---|---|---|
 | Chat / Linear Research, next to citations | Per-chunk retrieval similarity (Qdrant cosine, or RRF fusion score for hybrid) | Already computed on every retrieval (`RetrievedChunk.score`, `apps/api/app/ai/knowledge/retrieval/`) and survives into `ContextChunk.score` — but `CitationService.build()` never copies it onto the `Citation` object the frontend receives. **It's computed, then silently dropped.** Threading it through is a small fix, not new infrastructure. |
 | Deep Research, report-approval screen (`draft-review.tsx`) | Review `decision`, `citation_integrity_score`, `completeness_score` | **Already shown today**, live — `draft-review.tsx:212-216` renders exactly these three fields as a one-line summary before the user approves. Note what these actually measure: `citation_integrity_score` is binary (do cited IDs exist in the evidence bundle, not "does the text match the citation"), `completeness_score` is a ratio of research tasks that finished, not topical coverage — both are cheap deterministic proxies, not faithfulness scores. |
-| Same screen, not yet shown | `limitations` (text), `model_quality_score` (the one LLM-judged number that exists today), `gap_questions`/`revision_instructions` | The backend already returns all of these (`ResearchDraftInspectionService.get_pending_draft()`) — the frontend component just never renders them. Also a small fix, no backend work needed. |
+| Same screen | ✅ Done — `limitations` (both `ResearchDraft.limitations`, the report's own self-declared caveats, and `ResearchReview.limitations`, the reviewer's), `model_quality_score`, `gap_questions` | Correction to this row's original claim: the backend did **not** already return `model_quality_score`/`gap_questions` -- `ResearchDraftReviewSummary` (`schemas/research.py`) was missing both fields even though `ResearchReview` (`ai/runtime/research/review.py`) already computed them, so a small schema + mapping addition (`api/v1/research.py::get_research_run_draft`) was needed alongside the frontend render. `revision_instructions` remains unrendered -- deliberately out of scope, since it's only populated on `REVISE_SYNTHESIS`, a decision that never reaches this screen (it triggers an automatic re-synthesis loop instead of pausing for approval), so it would always be empty here. |
 
 **Tier 2 — real faithfulness/relevancy (Ragas or LLM-judge), from Part 1b.**
 Requires its own LLM call, so it cannot be synchronous without adding latency
@@ -532,8 +532,8 @@ additions to what 1a–1f already build, not a parallel system.
 
 | Step | What | Depends on |
 |---|---|---|
-| 0a | Thread `chunk.score` through `CitationService.build()` into `Citation`, render it as a lightweight relevance signal next to citations (Chat/Linear Research) | Nothing — the score already exists, this is one dropped field |
-| 0b | Render `limitations`, `model_quality_score`, `gap_questions` in `draft-review.tsx` (Deep Research) | Nothing — the API already returns these, this is frontend-only |
+| 0a | ✅ Thread `chunk.score` through `CitationService.build()` into `Citation`, render it as a lightweight relevance signal next to citations (Chat/Linear Research) — Done | Nothing — the score already exists, this is one dropped field |
+| 0b | ✅ Render `limitations`, `model_quality_score`, `gap_questions` in `draft-review.tsx` (Deep Research) — Done | Nothing — the API already returns these, this is frontend-only |
 | 1 | Golden QA set (50-150 examples) + Ragas scoring function | Nothing — can start immediately |
 | 2 | Wire `benchmarks/runner.py --check-regression` into CI (already-built tooling, just needs a workflow job) | Nothing — independent, do in parallel with step 1 |
 | 3 | Implement `POST /feedback` (real logic in the empty stub) + minimal frontend thumbs up/down | Nothing — independent, do in parallel |

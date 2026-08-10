@@ -39,8 +39,8 @@ instruction, not derived:
 | Wave | Item | Value | Ease | Why here |
 |---|---|---|---|---|
 | 0 | ✅ **Make `owner_id` non-optional on the Qdrant search API** — Done | **Very High** | Very High | Readiness P0 — the one gap with real data-leak blast radius; a type-signature change, not new logic |
-| 0 | Thread `chunk.score` into `Citation` | Med | Very High | Already computed, one dropped field |
-| 0 | Render `limitations`/`model_quality_score`/`gap_questions` in `draft-review.tsx` | Med | Very High | Already returned by the API, frontend-only |
+| 0 | ✅ Thread `chunk.score` into `Citation` — Done | Med | Very High | Already computed, one dropped field |
+| 0 | ✅ Render `limitations`/`model_quality_score`/`gap_questions` in `draft-review.tsx` — Done | Med | Very High | Already returned by the API, frontend-only |
 | 0 | Add `owner_id` as LangSmith trace tag | Med | Very High | One tag, closes readiness item 8 |
 | 0 | OCR: `do_ocr=True` in Docling config | Med | Very High | Literally a config flip |
 | 0 | Roll `ResearchReview.decision` into the eval dashboard | Med | Very High | Already computed every run, zero new logic |

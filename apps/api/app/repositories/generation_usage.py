@@ -6,12 +6,13 @@ from datetime import datetime
 from typing import TypedDict
 from uuid import UUID
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.runtime.generation.models import GenerationResult
 from app.models.generation_usage import GenerationUsage
+from app.models.research_run import ResearchRun
 
 
 class ConversationUsageRollup(TypedDict):
@@ -75,20 +76,28 @@ class GenerationUsageRepository:
         owner_id: UUID,
     ) -> ConversationUsageRollup:
         """Roll up cost/requests/tokens for every generation call tagged with
-        this conversation (Linear Research turns; Deep Research runs are
-        billed per-run under `session_id`, not `conversation_id`, so they
-        aren't included here). `owner_id` is a defense-in-depth scope, not
-        the only check -- callers must still verify the caller owns
-        `conversation_id` before invoking this.
+        this conversation: Linear Research turns (tagged `conversation_id`
+        directly) plus Deep Research runs belonging to it (tagged
+        `session_id = research_run.id` instead, since Deep Research bills
+        per-run -- see `ResearchPlanner.plan` et al.). `owner_id` is a
+        defense-in-depth scope, not the only check -- callers must still
+        verify the caller owns `conversation_id` before invoking this.
         """
 
+        run_ids = select(ResearchRun.id).where(
+            ResearchRun.conversation_id == conversation_id,
+            ResearchRun.owner_id == owner_id,
+        )
         statement = select(
             func.coalesce(func.sum(GenerationUsage.estimated_cost_usd), 0),
             func.count(GenerationUsage.id),
             func.coalesce(func.sum(GenerationUsage.total_tokens), 0),
         ).where(
-            GenerationUsage.conversation_id == conversation_id,
             GenerationUsage.owner_id == owner_id,
+            or_(
+                GenerationUsage.conversation_id == conversation_id,
+                GenerationUsage.session_id.in_(run_ids),
+            ),
         )
         cost, requests, tokens = (await self._session.execute(statement)).one()
         return {

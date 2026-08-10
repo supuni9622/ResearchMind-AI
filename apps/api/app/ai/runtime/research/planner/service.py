@@ -46,11 +46,14 @@ class ResearchPlanner:
         provider: GenerationProvider | None = None,
         routing_strategy: RoutingStrategy | None = None,
         memory_context: str | None = None,
+        transcript: str | None = None,
     ) -> ResearchPlan:
         result = await self._generation_runtime.execute(
             GenerationRequest(
                 prompt_context=PromptContext(context="", chunks=[]),
-                user_prompt=planner_user_prompt(query=query, memory_context=memory_context),
+                user_prompt=planner_user_prompt(
+                    query=query, memory_context=memory_context, transcript=transcript
+                ),
                 system_prompt=planner_system_prompt(),
                 response_format=ResponseFormat.STRUCTURED,
                 output_model=ResearchPlan,
@@ -111,5 +114,6 @@ class ResearchPlanner:
             execution_strategy=plan.execution_strategy.value,
             task_count=len(plan.tasks),
             memory_context_used=bool(memory_context),
+            transcript_used=bool(transcript),
         )
         return plan

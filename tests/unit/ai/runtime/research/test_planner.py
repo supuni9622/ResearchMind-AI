@@ -39,7 +39,7 @@ async def test_planner_uses_the_generation_runtime_with_a_structured_contract() 
     request = runtime.execute.await_args.args[0]
     assert request.output_model is ResearchPlan
     assert request.max_tokens == 2000
-    assert request.metadata["prompt_version"] == "research-planner-v2"
+    assert request.metadata["prompt_version"] == "research-planner-v3"
 
 
 @pytest.mark.asyncio
@@ -57,6 +57,29 @@ async def test_planner_folds_memory_context_into_the_user_prompt() -> None:
 
     request = runtime.execute.await_args.args[0]
     assert "Prefers concise answers" in request.user_prompt
+
+
+@pytest.mark.asyncio
+async def test_planner_folds_conversation_transcript_into_the_user_prompt() -> None:
+    """Regression: a Deep Research request made mid-conversation (e.g.
+    "conduct a literature review" right after a Linear Research turn about
+    earthquakes) previously had no way to resolve what it was about, since
+    the planner only ever saw the bare follow-up text -- see
+    `ResearchProposalService._load_transcript`."""
+
+    runtime = AsyncMock()
+    runtime.execute.return_value = SimpleNamespace(parsed_output=_focused_plan())
+    planner = ResearchPlanner(runtime)
+
+    await planner.plan(
+        query="conduct a literature review",
+        owner_id=uuid4(),
+        research_run_id=uuid4(),
+        transcript="User: what causes earthquakes?\nAssistant: Tectonic plate movement.",
+    )
+
+    request = runtime.execute.await_args.args[0]
+    assert "what causes earthquakes?" in request.user_prompt
 
 
 @pytest.mark.asyncio

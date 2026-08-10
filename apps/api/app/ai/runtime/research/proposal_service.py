@@ -6,6 +6,7 @@ from typing import Any, cast
 from uuid import UUID, uuid4
 
 import structlog
+from langchain_core.messages import HumanMessage
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.memory.services.formatting import format_memory_context
@@ -23,6 +24,7 @@ from app.core.settings import settings
 from app.models.research_proposal import ResearchProposal
 from app.repositories.research_proposal import ResearchProposalRepository
 from app.repositories.research_run_dispatch import ResearchRunDispatchRepository
+from app.services.research_conversation import ResearchConversationService
 
 logger = structlog.get_logger()
 
@@ -44,6 +46,7 @@ class ResearchProposalService:
         self._runs = run_service or ResearchRunService(session)
         self._dispatches = ResearchRunDispatchRepository(session)
         self._memory = memory_service
+        self._conversations = ResearchConversationService(session)
 
     async def propose(
         self,
@@ -86,6 +89,7 @@ class ResearchProposalService:
             session_id=conversation_id or proposal.id,
             query=query,
         )
+        transcript = await self._load_transcript(conversation_id=conversation_id, owner_id=owner_id)
         plan = await self._planner.plan(
             query=query,
             owner_id=owner_id,
@@ -93,6 +97,7 @@ class ResearchProposalService:
             provider=provider,
             routing_strategy=routing_strategy,
             memory_context=memory_context,
+            transcript=transcript,
         )
         proposal.plan = plan.model_dump(mode="json")
         proposal.status = ResearchProposalStatus.AWAITING_APPROVAL.value
@@ -104,6 +109,7 @@ class ResearchProposalService:
             complexity=plan.complexity.value,
             task_count=len(plan.tasks),
             memory_context_used=bool(memory_context),
+            transcript_used=bool(transcript),
         )
         return proposal
 
@@ -135,6 +141,7 @@ class ResearchProposalService:
             session_id=session_id,
             query=query,
         )
+        transcript = await self._load_transcript(conversation_id=conversation_id, owner_id=owner_id)
         plan = await self._planner.plan(
             query=query,
             owner_id=owner_id,
@@ -142,6 +149,7 @@ class ResearchProposalService:
             provider=provider,
             routing_strategy=routing_strategy,
             memory_context=memory_context,
+            transcript=transcript,
         )
         if plan.complexity == ResearchComplexity.SIMPLE:
             logger.info(
@@ -175,8 +183,36 @@ class ResearchProposalService:
             complexity=plan.complexity.value,
             task_count=len(plan.tasks),
             memory_context_used=bool(memory_context),
+            transcript_used=bool(transcript),
         )
         return plan, proposal
+
+    async def _load_transcript(
+        self,
+        *,
+        conversation_id: UUID | None,
+        owner_id: UUID,
+    ) -> str | None:
+        """Prior Linear Research turns in this conversation, folded into the
+        planner's prompt the same way `ResearchService._format_transcript`
+        folds them for a Linear Research follow-up -- without this, a
+        Deep Research request made mid-conversation (e.g. "conduct a
+        literature review" right after asking about earthquakes) has no
+        way to resolve what the request is actually about, since Deep
+        Research planning never saw the earlier turns."""
+
+        if conversation_id is None:
+            return None
+        history = await self._conversations.load_history(
+            conversation_id=conversation_id,
+            owner_id=owner_id,
+        )
+        if not history:
+            return None
+        return "\n".join(
+            f"{'User' if isinstance(message, HumanMessage) else 'Assistant'}: {message.content}"
+            for message in history
+        )
 
     async def _retrieve_memory_context(
         self,

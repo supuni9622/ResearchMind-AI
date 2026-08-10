@@ -18,6 +18,7 @@ from app.ai.runtime.research.planner.models import (
 from app.ai.runtime.research.proposal_service import ResearchProposalService
 from app.ai.runtime.research.types import ResearchProposalStatus, ResearchRunStatus
 from app.models.research_run import ResearchRun
+from langchain_core.messages import AIMessage, HumanMessage
 
 
 @pytest.mark.asyncio
@@ -165,6 +166,53 @@ async def test_proposal_folds_retrieved_memory_context_into_the_plan_request() -
     memory.get_context.assert_awaited_once()
     request = runtime.execute.await_args.args[0]
     assert "Prior research covered LoRA fine-tuning trade-offs." in request.user_prompt
+
+
+@pytest.mark.asyncio
+async def test_proposal_folds_prior_conversation_turns_into_the_plan_request() -> None:
+    """Regression (2026-08-10): switching from Linear Research to Deep
+    Research mid-conversation and asking a context-dependent follow-up
+    (e.g. "conduct a literature review" right after asking about
+    earthquakes) previously produced a plan with no idea what the request
+    was about, since `propose()` never looked at prior turns -- only
+    `MemoryService`'s separate long-term memory tier, which isn't
+    populated synchronously from the turn that just happened."""
+
+    from app.services.research_conversation import ResearchConversationService
+
+    session = AsyncMock()
+    session.add = MagicMock()
+    runtime = AsyncMock()
+    runtime.execute.return_value = SimpleNamespace(
+        parsed_output=ResearchPlan(
+            goal="conduct a literature review",
+            rewritten_goal="Conduct a literature review on earthquakes",
+            complexity=ResearchComplexity.MODERATE,
+            execution_strategy=ResearchExecutionStrategy.DECOMPOSED,
+            tasks=[ResearchPlanTask(task_id="review", question="Literature review on earthquakes")],
+        )
+    )
+    conversation_id = uuid4()
+    service = ResearchProposalService(session=session, generation_runtime=runtime)
+    service._conversations = AsyncMock(spec=ResearchConversationService)
+    service._conversations.load_history.return_value = [
+        HumanMessage(content="what causes earthquakes?"),
+        AIMessage(content="Tectonic plate movement along fault lines."),
+    ]
+
+    await service.propose(
+        query="conduct a literature review",
+        top_k=5,
+        filters={},
+        owner_id=uuid4(),
+        provider=None,
+        routing_strategy=None,
+        conversation_id=conversation_id,
+    )
+
+    service._conversations.load_history.assert_awaited_once()
+    request = runtime.execute.await_args.args[0]
+    assert "what causes earthquakes?" in request.user_prompt
 
 
 @pytest.mark.asyncio

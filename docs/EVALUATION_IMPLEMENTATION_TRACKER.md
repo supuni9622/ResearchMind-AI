@@ -189,7 +189,7 @@ E21 too, on top of its declared E6 dependency.
 | [E16](#e16-llm-as-judge-metric) | LLM-as-judge metric | Not started | Med | Med | E1 |
 | [E17](#e17-latency-slo-alerts--eval_scores-grafana-panel) | Latency-SLO alerts + `eval_scores` Grafana panel | Not started | Med | High | E6 (for the panel half) |
 | [E18](#e18-cost-forecast) | Cost forecast (rolling-average) | Not started | Low-Med | High | — |
-| [E19](#e19-register-golden-dataset-in-langsmith) | Register golden dataset in LangSmith | Not started | Med | High | E1 |
+| [E19](#e19-register-golden-dataset-in-langsmith) | Register golden dataset in LangSmith | **Built, live push pending** (Experiment-logging subtask not started) | Med | High | E1 |
 | [E20](#e20-ci-live-service-benchmark-triggers--citation-metric-wiring) | CI live-service benchmark triggers + citation-metric wiring | Not started | High | Low-Med | E1, E2, E4 |
 | [E21](#e21-frontend-thumbs-updown-affordance) | Frontend thumbs up/down affordance | Not started | High | Med-High | E3 |
 
@@ -1196,7 +1196,7 @@ month cost" from existing ledger data, no new data collection.
 
 ---
 
-### E19. Register golden dataset in LangSmith
+### E19. Register golden dataset in LangSmith — **Built, live push not yet run** (2026-08-11)
 
 **Roadmap:** Wave 1, follow-up to row 1. **Eval Plan:** §1 ("LangSmith as
 the primary registry"), §3, §16 phase 1. Surfaced as a dangling subtask
@@ -1204,34 +1204,47 @@ inside [E1](#e1-golden-dataset--ragas-scoring-function) during the
 2026-08-11 cross-check pass — see [§0](#0-corrections-found-during-this-pass).
 
 **Current state:** `datasets/golden/rag_answer_gold.json` (**115
-examples** as of 2026-08-11, grown from 24 the same day E19 was written —
-see [E1](#e1-golden-dataset--ragas-scoring-function)'s update note) is
-the only copy — version-controlled, not registered anywhere in LangSmith.
-`score_generation()` runs (E1) aren't logged as comparable LangSmith
-Experiments.
+examples** as of 2026-08-11, grown the same day — see
+[E1](#e1-golden-dataset--ragas-scoring-function)'s update note) is the
+only copy — version-controlled, not yet registered in LangSmith.
+`benchmarks/generation/langsmith_sync.py` now exists to do this, built
+and unit-tested (9 tests, `get_langsmith_client` mocked per this
+project's no-live-external-calls-in-tests convention — same pattern as
+`tests/unit/ai/observability/providers/langsmith/test_client.py`) but
+**not yet run against a real LangSmith account** — pushing a new dataset
+into a live, team-visible third-party service is a real external
+side-effect (unlike everything else in this pass, which stayed local),
+flagged for explicit go-ahead before executing rather than run
+unilaterally.
 
 **Subtasks:**
-- [ ] Register the 115 examples as a LangSmith Dataset via the LangSmith
-      SDK (`Client.create_dataset` / `create_examples`), mapping
-      `GoldenExample`'s fields to LangSmith's example schema
-      (input/output/metadata)
-- [ ] Decide and document the source-of-truth direction: the JSON file
-      stays canonical and a script pushes it to LangSmith on change
-      (recommended — keeps the file reviewable in PRs, matches this
-      repo's existing convention of JSON datasets under version control),
-      vs. LangSmith becomes canonical and the JSON is a generated export.
-      This is a real decision, not just code — don't silently default one
-      way
+- [x] Register the 115 examples as a LangSmith Dataset via the LangSmith
+      SDK (`Client.create_dataset` / `create_examples`) — mechanism built
+      (`sync_golden_dataset()`), mapping `GoldenExample`'s fields to
+      LangSmith's `inputs`/`outputs`/`metadata` shape (question/contexts
+      as inputs; reference_answer/expected_behavior/citations as outputs;
+      query_type/difficulty/workflow/rubric/etc. as metadata, for
+      LangSmith-UI-side filtering). **Not yet executed live.**
+- [x] Decide and document the source-of-truth direction: the JSON file
+      stays canonical, `langsmith_sync.py` only ever pushes to LangSmith,
+      never reads back — matches this repo's existing convention of JSON
+      datasets under version control (module docstring states this
+      explicitly, not left implicit)
 - [ ] Wire `score_generation()` (E1) to log runs as LangSmith Experiments
       against the registered dataset, so successive runs are comparable
       in the LangSmith UI over time (per-metric trend, not just a
-      point-in-time pass/fail)
-- [ ] Keep the push script idempotent — re-running it after adding new
-      examples (via E10's promotion loop) shouldn't create duplicate
-      LangSmith examples
+      point-in-time pass/fail) — **not started**, genuinely separate
+      engineering from dataset registration itself
+- [x] Keep the push script idempotent — `example_id` maps to a
+      deterministic `uuid5`-derived LangSmith example `id`, so
+      `create_examples()` upserts in place on re-run rather than
+      duplicating; verified by a dedicated test
+      (`test_sync_is_idempotent_across_repeated_runs`) asserting two
+      consecutive syncs produce identical IDs
 
 **Acceptance criteria:** the dataset is visible and browsable in the
-LangSmith UI with all 115 examples; a `score_generation()` run produces a
+LangSmith UI with all 115 examples — **not yet met, pending the live
+run**; a `score_generation()` run produces a
 LangSmith Experiment entry comparable against a prior run.
 
 ---

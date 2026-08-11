@@ -27,22 +27,34 @@ Covers `app/ai/knowledge/context/citations/validity.py`:
 
 from __future__ import annotations
 
+from pathlib import Path
 from uuid import uuid4
 
+from app.ai.knowledge.context.citations.service import CitationService
 from app.ai.knowledge.context.citations.validity import (
     CitationCheckName,
     check_citation_validity,
     check_prompt_context_citation_validity,
     extract_citation_markers,
 )
+from app.ai.knowledge.context.models import ContextChunk, PromptContext
 from app.ai.runtime.research.evidence import ResearchEvidenceBundle
 from app.ai.runtime.research.review import ReviewDecision, review_draft
 from app.ai.runtime.research.synthesis.models import ResearchDraft, ResearchDraftSection
 
+from benchmarks.generation.golden_dataset import (
+    ExpectedBehavior,
+    GoldenExample,
+    load_golden_dataset,
+)
 from tests.unit.ai.runtime.generation.validation.factories import (
     make_chunk,
     make_citation,
     make_prompt_context,
+)
+
+GOLDEN_DATASET_PATH = (
+    Path(__file__).resolve().parents[2] / "datasets" / "golden" / "rag_answer_gold.json"
 )
 
 
@@ -260,3 +272,102 @@ def test_review_draft_still_passes_on_fully_supported_citations_after_refactor()
 
     assert review.decision is ReviewDecision.PASS
     assert review.citation_integrity_score == 1
+
+
+# -- Zero false positives against the golden set (E4's acceptance --------
+# -- criterion, deferred until the golden set existed, per --------------
+# -- EVALUATION_IMPLEMENTATION_TRACKER.md E4) -----------------------------
+
+
+def _golden_examples() -> list[GoldenExample]:
+    dataset = load_golden_dataset(GOLDEN_DATASET_PATH)
+    return [
+        example
+        for example in dataset.examples
+        if example.expected_behavior == ExpectedBehavior.ANSWER
+    ]
+
+
+def _filenames_for_contexts(example: GoldenExample) -> list[str]:
+    """
+    One filename per `example.contexts` entry. Most examples have a
+    single `reference_context_ids` entry covering several context
+    passages from that one document (every passage gets that filename);
+    a handful (`s7`/`s8`) genuinely cite multiple documents, and for
+    those `contexts` and `reference_context_ids` are the same length, so
+    a direct 1:1 zip is correct.
+    """
+
+    if len(example.reference_context_ids) <= 1:
+        filename = example.reference_context_ids[0] if example.reference_context_ids else "unknown"
+        return [filename] * len(example.contexts)
+
+    assert len(example.reference_context_ids) == len(example.contexts), (
+        f"{example.example_id}: multi-document example needs contexts and "
+        "reference_context_ids to be the same length to pair them up"
+    )
+    return list(example.reference_context_ids)
+
+
+async def test_no_false_positives_against_golden_set_correctly_cited_examples() -> None:
+    """
+    Every one of the golden set's 101 answerable examples is, by
+    construction, correctly cited: `expected_citation_ids` is always a
+    subset of `reference_context_ids` (verified separately, see the
+    dataset itself). Running the *real* citation-validity code path
+    (`CitationService.build()` + `check_prompt_context_citation_validity()`,
+    not a hand-rolled substitute) against a correctly-cited answer for
+    every example must never flag a fabrication -- a false positive here
+    would mean the validator blocks a real, well-supported answer in
+    production.
+    """
+
+    citation_service = CitationService()
+    false_positives: list[str] = []
+
+    for example in _golden_examples():
+        filenames = _filenames_for_contexts(example)
+
+        chunks = [
+            ContextChunk(
+                chunk_id=uuid4(),
+                document_id=uuid4(),
+                filename=filename,
+                owner_id="golden-set-verification",
+                chunk_index=index,
+                content=content,
+                score=1.0,
+            )
+            for index, (content, filename) in enumerate(
+                zip(example.contexts, filenames, strict=True)
+            )
+        ]
+
+        citation_result = await citation_service.build(chunks)
+
+        cited_markers = [
+            citation.citation_id
+            for citation in citation_result.citations
+            if citation.filename in example.expected_citation_ids
+        ]
+
+        content = f"{example.reference_answer} " + "".join(f"[{m}]" for m in cited_markers)
+
+        prompt_context = PromptContext(
+            context="\n\n".join(example.contexts),
+            chunks=chunks,
+            citations=citation_result.citations,
+        )
+
+        report = check_prompt_context_citation_validity(
+            content=content,
+            prompt_context=prompt_context,
+        )
+
+        if not report.valid:
+            false_positives.append(f"{example.example_id}: {report.model_dump()}")
+
+    assert not false_positives, (
+        f"{len(false_positives)} golden-set example(s) produced a false-positive "
+        f"fabrication flag:\n" + "\n".join(false_positives)
+    )

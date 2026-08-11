@@ -578,13 +578,17 @@ now delegate to.
       unmodified)
 - [x] Per-check pass/fail + written reason, per §18's judge-output-format
       rule — `CitationCheckResult.reason` on every check
+- [x] Feed into [E5](#e5-online-risk-weighted-scoring-job)'s 100%-sampled
+      free-signal category — **done**, `_score_one()` calls
+      `check_prompt_context_citation_validity()` unconditionally on every
+      scored generation (E5 shipped after this item; see E5's own "not
+      done" list for the cross-reference)
 - [ ] Feed into [E2](#e2-wire-benchmarksregression-into-ci)'s absolute
-      gates and [E5](#e5-online-risk-weighted-scoring-job)'s 100%-sampled
-      free-signal category — not done yet, tracked under
+      regression gates — still open, tracked under
       [E20](#e20-ci-live-service-benchmark-triggers--citation-metric-wiring)
-      (CI half) and E5 (online-job half) specifically (the checker exists
-      and is ready to be called from both; the wiring itself is those
-      items' scope)
+      (needs the generation benchmark to call the checker per example and
+      emit `fabricated_citation_rate` into the `BenchmarkReport`; the
+      checker itself is ready, this is CI/benchmark wiring only)
 - [x] New home: `tests/evaluation/test_citation_validity.py` (none of the
       six originally-named stub files was actually citation-specific —
       documented as a correction in the test file's own docstring and
@@ -597,10 +601,16 @@ now delegate to.
 known-fabricated citation returns a failing result with a specific reason
 — **Met**, `test_wrapper_flags_a_citation_marker_not_in_the_prompt_context`.
 Zero false positives against the golden set's correctly-cited examples —
-**not yet independently verified**, since the golden set (E1) doesn't
-exist yet; re-check once E1 ships. 14 new tests + 15 pre-existing tests
-(citation_validator + review + reviewer contract) all pass; clean
-`mypy`/`ruff`.
+**Met (2026-08-11, verified after this gap was surfaced)**. New
+`test_no_false_positives_against_golden_set_correctly_cited_examples` in
+`tests/evaluation/test_citation_validity.py` runs the *real* code path
+(`CitationService.build()` + `check_prompt_context_citation_validity()`,
+not a hand-rolled substitute) against all 101 answerable golden
+examples, citing each one correctly per its own `expected_citation_ids`:
+zero fabrication flags. `test_citation_validity.py` now has 15 tests
+total (the original 14 from this item's build, plus this one) + 15
+pre-existing tests elsewhere (citation_validator + review + reviewer
+contract) all pass; clean `mypy`/`ruff`.
 
 ---
 

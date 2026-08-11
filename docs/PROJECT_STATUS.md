@@ -570,7 +570,7 @@ Validated
 - `tests/unit/ai/knowledge/reranking/test_registry.py`
 - `RerankingBenchmark` (`benchmarks/reranking/benchmark.py`) — compares `hybrid_only` vs. `hybrid_cross_encoder` vs. `hybrid_voyage` on the *same* hybrid candidate pool per query, reporting Recall@5, MRR, NDCG@5, latency, and a qualitative cost model
 
-**Finding:** exactly the pattern reranking is supposed to produce — Recall@5 was already 1.0 for `hybrid_only` and didn't move for either reranker, while MRR and NDCG@5 both improved (MRR: 0.925 → 1.0 with CrossEncoder, → 0.95 with Voyage; NDCG@5: 0.9446 → 1.0 with CrossEncoder, → 0.9631 with Voyage). On this small benchmark corpus, the free local CrossEncoder outperformed the paid Voyage reranker on both quality and latency, though this shouldn't be over-generalized from 5 documents / 20 queries.
+**Finding (updated on the 50-document, 160-query corpus):** reranking now has real room to move — `hybrid_only`'s Recall@5 dropped off its old 1.0 ceiling to 0.9583, and both rerankers lift it back up (CrossEncoder 0.9703, Voyage 0.9688) plus improve MRR (0.9552 → 0.9719 CrossEncoder, → 0.976 Voyage) and NDCG@5 (0.943 → 0.9582, tied). Unlike the earlier 5-document finding, **Voyage now edges out the free local CrossEncoder on MRR** (0.976 vs. 0.9719) at the cost of being slower (860ms vs. 603ms avg latency) — the "free CrossEncoder wins outright" conclusion from the small-corpus run doesn't hold up on real data; it's now a genuine quality-vs-latency tradeoff, not a free win.
 
 Documentation
 
@@ -598,10 +598,10 @@ Implemented
 
 - `RetrievalBenchmark` — evaluates dense, sparse, and hybrid against a dedicated, reproducible Qdrant collection (`benchmark_retrieval`, dropped/recreated every run, never touches production data)
 - Metrics: Recall@5/10/20, Precision@5/10, MRR, avg/P95/P99 latency, qualitative cost model — matches the ADR-020 required metric set
-- 20-query hand-curated ground-truth dataset (`benchmarks/datasets/research-papers/retrieval_queries.json`), document-level relevance, 4 query categories (semantic, acronym, exact-keyword, code-entity)
+- 160-query hand-curated ground-truth dataset (`benchmarks/datasets/research-papers/retrieval_queries.json`), document-level relevance, 4 query categories (semantic, acronym, exact-keyword, code-entity)
 - ✅ NDCG — `ndcg_at_k` implemented in `benchmarks/retrieval/metrics.py` (binary relevance, standard DCG/IDCG), used by the Reranking Benchmark below
 
-**Finding:** on the current 5-document benchmark corpus, dense, sparse, and hybrid are statistically indistinguishable — Recall@5/10/20 = 1.0 for all three, and hybrid's MRR (0.925) was actually slightly *lower* than dense (0.95) or sparse (0.975) alone. The corpus is too small (5 documents, 20 queries, document-level relevance) to meaningfully stress any retriever or give RRF real ranking disagreement to resolve. This does not mean Hybrid Retrieval is ineffective — it means the benchmark can't yet answer that question. See the dataset-scaling and chunk-level-relevance TODO in `README.md`.
+**Finding (updated on the 50-document corpus, up from 5):** dense, sparse, and hybrid now genuinely separate instead of tying at a Recall@5/10/20 = 1.0 ceiling. Recall@5: dense 0.9667, sparse 0.9906, hybrid **0.9953** (best). Per-category Recall@10 shows dense is specifically weak on `acronym` queries (0.9615 vs. 1.0 for sparse/hybrid) — the exact failure mode ADR-020 predicted for dense embeddings. Hybrid is now tied-best or outright best in every query category, real evidence RRF fusion is adding value rather than just latency. Sparse alone is worth noting too: ~30x lower latency than dense/hybrid (12ms vs. ~360-420ms avg) for nearly the same recall. Document-level relevance (not chunk-level) is still the main remaining gap — see the chunk-level-relevance TODO in `README.md`.
 
 Documentation
 

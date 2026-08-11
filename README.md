@@ -483,7 +483,7 @@ Builds a dedicated `benchmark_retrieval` Qdrant collection from the
 benchmark corpus (dropped and recreated on every run, so it never
 touches production data), then evaluates dense (Voyage AI), sparse
 (SPLADE), and hybrid (Reciprocal Rank Fusion of dense + sparse)
-retrieval against the 20-query ground truth set in
+retrieval against the 160-query ground truth set in
 `benchmarks/datasets/research-papers/retrieval_queries.json`, reporting
 Recall@5/10/20, Precision@5/10, MRR, and avg/P95/P99 latency per ADR-020.
 Requires a reachable Qdrant instance and a configured Voyage AI API key,
@@ -491,46 +491,54 @@ and makes real embedding API calls — unlike the chunking benchmark, it
 is not a purely offline/local run. Report written to
 `benchmarks/reports/retrieval/`.
 
-**Current results (5 documents, 20 queries) are not conclusive, and RRF
-did not improve anything on this dataset.** Dense, sparse, and hybrid
-all hit Recall@5/10/20 = 1.0 and Precision@5/10 = 0.2/0.1 identically.
-Hybrid's MRR (0.925) was actually slightly *lower* than both dense
-(0.95) and sparse (0.975) alone, and its latency (~324ms avg) is
-dominated by the dense leg since hybrid still pays the Voyage API call
-plus local sparse inference plus fusion overhead. This is exactly the
-outcome ADR-020's Decision Gate warns about: with only 5 topically
-distinct documents, every query has one obviously-correct answer, so
-there's no ranking ambiguity for RRF to actually resolve — fusing two
-retrievers that already agree can only add latency, not lift. See the
-TODO below; this does **not** mean Hybrid is a dead end, it means this
-dataset can't yet tell us whether it is.
+**Current results (50 documents, 160 queries) show real differentiation,
+and RRF now earns its latency cost.** With the corpus grown from 5 to 50
+topically-overlapping papers and the query set from 20 to 160 (across
+`semantic`/`exact_keyword`/`acronym`/`code_entity` categories, see
+`retrieval_queries.json`), the flat Recall@5/10/20 = 1.0 ceiling from the
+old 5-document run is gone — dense, sparse, and hybrid now actually
+separate:
+
+| Candidate | Recall@5 | Hit Rate@5 | MRR | Avg Latency |
+|---|---|---|---|---|
+| Dense (Voyage AI) | 0.9667 | 0.975 | 0.942 | 359ms |
+| Sparse (SPLADE) | 0.9906 | 0.9938 | 0.9677 | 12ms |
+| Hybrid (RRF) | **0.9953** | **1.0** | 0.9615 | 423ms |
+
+Per-category Recall@10 (`notes.recall_at_10_by_category` in the report)
+shows *why*: dense is the weak link specifically on `acronym` queries
+(0.9615, vs. 1.0 for both sparse and hybrid) — exactly the failure mode
+ADR-020 predicted dense embeddings would have. Hybrid is tied-best or
+outright best in every category (semantic 0.9888, the other three all
+1.0), which is the first real evidence on this dataset that RRF fusion
+is pulling its weight rather than just adding latency on top of two
+retrievers that already agree. Sparse alone is worth noting too — it's
+essentially as accurate as hybrid at ~30x lower latency (12ms vs 423ms),
+worth a real tradeoff discussion before defaulting to hybrid everywhere.
 
 ### TODO: Improve the retrieval benchmark dataset
 
-- **Increase documents:** 5 → 20-50. A 5-document corpus makes it
-  trivial to find the right document regardless of retrieval strategy.
-- **Increase queries:** 20 → 100.
-- **Add harder query categories** — the current set is too easy:
-  - *Semantic, no lexical overlap* — e.g. "How can retrieval systems
-    improve factual grounding?" where the source document never uses
-    the phrase "factual grounding." Dense should win.
-  - *Exact/rare acronym* — e.g. "BM42." Sparse should win.
-  - *Multi-hop* — e.g. "Compare sparse and dense retrieval tradeoffs."
-    Both retrievers may struggle; useful for spotting real weaknesses.
-  - *Broad/architectural* — e.g. "Explain modern RAG architectures."
-    Dense should dominate.
-- **Most important improvement: move to chunk-level relevance**
-  (`relevant_chunk_ids` instead of `relevant_documents`, per
+- [x] ~~Increase documents: 5 → 20-50~~ — done, 50 papers.
+- [x] ~~Increase queries: 20 → 100~~ — done, 160 (exceeds target).
+- [x] ~~Add harder query categories~~ — done: `semantic` (67),
+      `exact_keyword` (44), `acronym` (26), `code_entity` (23). No
+      explicit `multi-hop` category yet (queries needing evidence
+      combined across documents) — the categories above are all
+      single-document-answerable.
+- **Still open — move to chunk-level relevance** (`relevant_chunk_ids`
+  instead of `relevant_documents`, per
   `docs/architecture/retrieval-benchmarking-strategy.md`'s Dataset
-  Format v2). Document-level relevance inflates scores whenever a query
-  has only a handful of candidate documents to choose from, exactly
-  what's happening now.
+  Format v2). Queries still resolve to whole documents, not the specific
+  chunk that answers them, so Precision@5/10 (still ~0.2/0.1 — a lot of
+  "correct" hits per query are same-document coincidence, not genuine
+  precision) remains a weaker signal than Recall/NDCG/MRR above.
 
 **Hybrid Retrieval (RRF fusion) is now implemented** (`/api/v1/retrieve/hybrid`,
-`RetrievalService.search_hybrid`), so this is no longer a build decision —
-it's a tuning question. The dataset improvements above are what's needed
-to find out whether RRF actually helps in this system, and if so, under
-which query categories.
+`RetrievalService.search_hybrid`) and — per the table above — is now the
+best or tied-best performer in every query category on a dataset that
+can actually distinguish the three strategies. The remaining open item
+is chunk-level relevance, which would make Precision@5/10 a meaningful
+metric instead of a document-collision artifact.
 
 3. Golden-set generation (real Ragas judge, release-candidate tier)
 ```

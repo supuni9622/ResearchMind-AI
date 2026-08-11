@@ -1500,6 +1500,31 @@ extended to the new 45 — that still needs hand-verified expected
 heading/table counts per paper, unlike retrieval/generation queries which
 can be checked against source text automatically.
 
+**Follow-up same day: the reports themselves were still stale.** The
+corpus/query-set growth above didn't automatically refresh
+`benchmarks/reports/*/report.json` — those still reflected the old
+5-document/20-query run until the user asked for them to be re-run.
+Re-ran `Chunking`, `Embeddings`, `Retrieval`, `Reranking`, and
+`MetadataFiltering` (all via `python -m benchmarks.runner <name>
+--dataset benchmarks/datasets/research-papers`) against the full
+50-document/160-query corpus — all clean, no errors. This is what
+actually surfaces the "materially harder test" claim above as real
+numbers instead of a prediction: Retrieval and Reranking went from a
+flat Recall@5/10/20 = 1.0 ceiling (every strategy statistically
+indistinguishable) to genuine separation — hybrid is now tied-best or
+best in every query category, dense is measurably weaker specifically on
+`acronym` queries (exactly ADR-020's predicted failure mode), and Voyage
+reranking now edges out the free CrossEncoder on MRR where it previously
+lost outright. Full before/after numbers in `docs/PROJECT_STATUS.md`
+(Retrieval Evaluation + Reranking sections) and `README.md`'s Retrieval
+benchmark section; `docs/evaluation/EVALUATION_GAP_ANALYSIS.md`'s
+Retrieval/Reranking rows updated to drop the now-inaccurate "saturated"
+characterization. `GoldenSetGeneration` was deliberately **not**
+re-run as part of this pass — the user's own scoping call, since
+generation/golden-set quality is already covered separately and this
+round was specifically about the retrieval-family benchmarks
+(chunking/embeddings/retrieval/reranking/metadata-filtering).
+
 ---
 
 ### E15. Adversarial dataset — **Done** (2026-08-11)

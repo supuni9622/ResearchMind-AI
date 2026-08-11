@@ -501,7 +501,7 @@ A reasonable capacity-planning placeholder is **an additional 20%–100% of curr
 | Claim | Can it be made now? | Reason |
 |---|---|---|
 | GraphRAG will improve all ResearchMind queries | **No** | It targets relational and global retrieval failure modes, not every query. |
-| GraphRAG will improve the current 20-query benchmark | **Unknown** | The benchmark is saturated and has no graph-path labels. |
+| GraphRAG will improve the current retrieval benchmark | **Unknown** | The benchmark grew from 20 to 160 queries / 5 to 50 documents (2026-08-11) and is no longer saturated (dense/sparse/hybrid now separate, see `docs/PROJECT_STATUS.md`'s Retrieval Evaluation finding) — but it still has no graph-path labels, so it can't test GraphRAG's actual claim (relational/multi-hop retrieval), only single-document lookup. |
 | GraphRAG can improve relationship and global-sensemaking answers | **Supported directionally** | Graph traversal and community summaries address information not well represented by independent top-K similarity. |
 | Exact ResearchMind accuracy/completeness gain | **No, not before implementation and A/B evaluation** | It depends on corpus, extraction quality, query mix, routing precision, and graph freshness. |
 | Disabled-path latency can remain unchanged | **Yes, architecturally** | The proposed switch calls the existing flow directly when off. |

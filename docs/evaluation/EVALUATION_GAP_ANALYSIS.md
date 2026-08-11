@@ -33,9 +33,9 @@
 |---|---|---|---|
 | Chunking | Partial | Counts and average/minimum/maximum chunk sizes, words, and token estimates. | No coherence, boundary quality, semantic preservation, or downstream retrieval impact. |
 | Embeddings | Partial | Latency, throughput, dimensions, and output counts. | No similarity quality or downstream retrieval comparison by embedding model. |
-| Retrieval | Implemented | Recall@5/10/20, Precision@5/10, MRR, NDCG@5/10, latency, and category slices. | Only 20 queries over five documents; binary document-level relevance and saturated scores. |
+| Retrieval | Implemented | Recall@5/10/20, Precision@5/10, MRR, NDCG@5/10, latency, and category slices. | 160 queries over 50 documents (up from 20/5, 2026-08-11) — no longer saturated, but still binary document-level relevance, not chunk-level. |
 | Metadata filtering | Implemented | Retrieval metrics and leakage rate for filtered and unfiltered candidates. | No adversarial or multi-tenant stress dataset. |
-| Reranking | Implemented | Recall@5, MRR, NDCG@5, and latency across baseline, CrossEncoder, and Voyage. | Uses the same small, saturated dataset and has no graded relevance. |
+| Reranking | Implemented | Recall@5, MRR, NDCG@5, and latency across baseline, CrossEncoder, and Voyage. | Uses the same 50-document/160-query corpus as Retrieval above (no longer saturated) but still has no graded relevance. |
 | Generation | Partial | Lexical faithfulness, groundedness, relevance, completeness, citation accuracy, hallucination proxy, latency, and cost. | Word overlap can mis-score paraphrases, contradictions, and unsupported claims. |
 | Ingestion pipeline | Partial | Stage latency, throughput, memory, artifact size, vector counts, and success rate. | Excludes upload/PDF parsing and does not measure answer quality. |
 | End-to-end RAG/research | Missing | None. | No query → retrieval → synthesis → citation-correctness golden evaluation. |

@@ -716,13 +716,9 @@ ResearchMind-AI/
 │   ├── datasets/
 │   │   ├── README.md                        # Dataset philosophy — deterministic, version-controlled, immutable
 │   │   └── research-papers/
-│   │       ├── paper-001/processed_document.json
-│   │       ├── paper-002/processed_document.json
-│   │       ├── paper-003/processed_document.json
-│   │       ├── paper-004/processed_document.json
-│   │       ├── paper-005/processed_document.json
-│   │       ├── retrieval_queries.json       # 20-query hand-curated ground truth (document-level relevance, 4 categories) for the Retrieval Benchmark
-│   │       └── generation_queries.json      # 13-query query/context/expected_answer/citations dataset for the Generation Benchmark; context is a verbatim excerpt so scoring doesn't depend on live retrieval
+│   │       ├── paper-001/processed_document.json ... paper-050/processed_document.json  # 50 papers total (grew from 5, see docs/EVALUATION_IMPLEMENTATION_TRACKER.md)
+│   │       ├── retrieval_queries.json       # 160-query hand-curated ground truth (document-level relevance, 4 categories) for the Retrieval Benchmark
+│   │       └── generation_queries.json      # 92-query query/context/expected_answer/citations dataset for the Generation Benchmark; context is a verbatim excerpt so scoring doesn't depend on live retrieval
 │   ├── embeddings/
 │   │   ├── benchmark.py                     # EmbeddingBenchmark — chunks each document once (fixed RECURSIVE strategy), then runs every registered embedding provider against identical chunks, timing latency/throughput/dimensions; isolates per-provider failures so one candidate erroring doesn't abort the report
 │   │   ├── report_generator.py              # EmbeddingBenchmarkReportGenerator (subclass; embedding-specific viz placeholder)

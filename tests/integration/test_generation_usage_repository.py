@@ -1,7 +1,9 @@
 import uuid
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 
 import pytest
+from app.ai.guardrails.enums import GuardrailAction, GuardrailStage
+from app.ai.guardrails.models import GuardrailReport, GuardrailResult
 from app.ai.knowledge.context.models import PromptContext
 from app.ai.runtime.generation.enums import GenerationProvider
 from app.ai.runtime.generation.models import (
@@ -11,6 +13,8 @@ from app.ai.runtime.generation.models import (
     GenerationStatistics,
 )
 from app.ai.runtime.generation.routing.enums import RoutingStrategy
+from app.models.enums import EvalScoreSource
+from app.models.eval_score import EvalScore
 from app.models.generation_usage import GenerationUsage
 from app.models.research import ResearchConversation
 from app.models.research_run import ResearchRun
@@ -404,3 +408,167 @@ async def test_get_langsmith_run_id_returns_none_for_unknown_generation(db_sessi
     result = await repository.get_langsmith_run_id(uuid.uuid4())
 
     assert result is None
+
+
+@pytest.mark.asyncio
+async def test_record_persists_guardrail_final_action(db_session) -> None:
+    """E5: `GenerationResult.guardrails.final_action` must survive
+    `record()` -- it's the free "guardrail-flagged" signal
+    `OnlineScoringJob`'s sampling decision reads directly off the
+    persisted row, per EVALUATION_PLAN.md §14."""
+
+    owner_id = await _make_owner(db_session)
+
+    stage_result = GuardrailResult(
+        stage=GuardrailStage.GENERATION, passed=True, blocked=False, action=GuardrailAction.WARN
+    )
+    request = GenerationRequest(
+        prompt_context=PromptContext(context="", chunks=[]),
+        user_prompt="What is RAG?",
+        owner_id=owner_id,
+        surface="chat",
+    )
+    result = GenerationResult(
+        request=request,
+        execution=GenerationExecution(),
+        statistics=GenerationStatistics(provider=GenerationProvider.GROQ, model="test-model"),
+        provider=GenerationProvider.GROQ,
+        model="test-model",
+        content="RAG is retrieval-augmented generation.",
+        guardrails=GuardrailReport(
+            input_result=stage_result,
+            retrieval_result=stage_result,
+            generation_result=stage_result,
+            final_action=GuardrailAction.WARN,
+            blocked=False,
+        ),
+    )
+
+    repository = GenerationUsageRepository(db_session)
+    await repository.record(result)
+    await db_session.flush()
+
+    row = (
+        await db_session.execute(
+            select(GenerationUsage).where(GenerationUsage.request_id == request.request_id)
+        )
+    ).scalar_one()
+
+    assert row.guardrail_final_action == "warn"
+
+
+@pytest.mark.asyncio
+async def test_record_leaves_guardrail_final_action_null_when_guardrails_did_not_run(
+    db_session,
+) -> None:
+    owner_id = await _make_owner(db_session)
+
+    request = GenerationRequest(
+        prompt_context=PromptContext(context="", chunks=[]),
+        user_prompt="What is RAG?",
+        owner_id=owner_id,
+    )
+    result = GenerationResult(
+        request=request,
+        execution=GenerationExecution(),
+        statistics=GenerationStatistics(provider=GenerationProvider.GROQ, model="test-model"),
+        provider=GenerationProvider.GROQ,
+        model="test-model",
+        content="RAG is retrieval-augmented generation.",
+    )
+
+    repository = GenerationUsageRepository(db_session)
+    await repository.record(result)
+    await db_session.flush()
+
+    row = (
+        await db_session.execute(
+            select(GenerationUsage).where(GenerationUsage.request_id == request.request_id)
+        )
+    ).scalar_one()
+
+    assert row.guardrail_final_action is None
+
+
+@pytest.mark.asyncio
+async def test_list_unscored_since_returns_answer_producing_rows_without_a_score(
+    db_session,
+) -> None:
+    owner_id = await _make_owner(db_session)
+    now = datetime.now(UTC)
+
+    scored = _make_usage(owner_id=owner_id, cost=1.0, tokens=10, completed_at=now)
+    scored.surface = "chat"
+    unscored = _make_usage(owner_id=owner_id, cost=1.0, tokens=10, completed_at=now)
+    unscored.surface = "chat"
+    internal = _make_usage(owner_id=owner_id, cost=1.0, tokens=10, completed_at=now)
+    internal.surface = None
+    db_session.add_all([scored, unscored, internal])
+    await db_session.flush()
+
+    db_session.add(
+        EvalScore(
+            owner_id=owner_id,
+            generation_id=scored.generation_id,
+            metric_name="citation_validity",
+            score=1.0,
+            passed=True,
+            reason="ok",
+            source=EvalScoreSource.ONLINE_SAMPLED.value,
+            sample_category="not_sampled",
+        )
+    )
+    await db_session.flush()
+
+    repository = GenerationUsageRepository(db_session)
+    candidates = await repository.list_unscored_since(
+        since=now - timedelta(hours=1),
+        limit=10,
+    )
+
+    candidate_ids = {row.generation_id for row in candidates}
+    assert unscored.generation_id in candidate_ids
+    assert scored.generation_id not in candidate_ids
+    assert internal.generation_id not in candidate_ids
+
+
+@pytest.mark.asyncio
+async def test_list_unscored_since_excludes_rows_before_the_window(db_session) -> None:
+    owner_id = await _make_owner(db_session)
+
+    old_row = _make_usage(
+        owner_id=owner_id,
+        cost=1.0,
+        tokens=10,
+        completed_at=datetime(2025, 1, 1, tzinfo=UTC),
+    )
+    old_row.surface = "chat"
+    db_session.add(old_row)
+    await db_session.flush()
+
+    repository = GenerationUsageRepository(db_session)
+    candidates = await repository.list_unscored_since(
+        since=datetime(2026, 1, 1, tzinfo=UTC),
+        limit=10,
+    )
+
+    assert old_row.generation_id not in {row.generation_id for row in candidates}
+
+
+@pytest.mark.asyncio
+async def test_list_unscored_since_respects_the_limit(db_session) -> None:
+    owner_id = await _make_owner(db_session)
+    now = datetime.now(UTC)
+
+    rows = []
+    for _ in range(3):
+        row = _make_usage(owner_id=owner_id, cost=1.0, tokens=10, completed_at=now)
+        row.surface = "chat"
+        rows.append(row)
+    db_session.add_all(rows)
+    await db_session.flush()
+
+    repository = GenerationUsageRepository(db_session)
+    candidates = await repository.list_unscored_since(since=now - timedelta(hours=1), limit=2)
+
+    assert len(candidates) == 2

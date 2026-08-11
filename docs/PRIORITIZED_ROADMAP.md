@@ -51,8 +51,8 @@ instruction, not derived:
 | 1 | ✅ Wire `benchmarks/regression/` into CI — Done, smoke tier (live-service benchmark triggers still open) | Very High | Med | Tooling already built, just needs a workflow job |
 | 1 | ✅ Real `POST /feedback` + thumbs up/down — Done, backend only | Very High | Med | Closes readiness item 7, feeds the self-learning loop |
 | 1 | ✅ **Citation validator, cross-surface, release-blocking** — Done (checker built; CI/online-job wiring pending, see E2/E5) | Very High | High | Generalizes an already-proven check (`citation_integrity_score`) — best value-per-effort in the whole roadmap |
-| 1 | Online risk-weighted scoring job | High | Med | Reuses free signals (guardrail flags, review decision) |
-| 1 | Feedback → trace attachment + `eval_scores` table | High | Med | Closes the loop between 1c and 1b |
+| 1 | ✅ Online risk-weighted scoring job — Done | High | Med | Reuses free signals (guardrail flags, review decision) |
+| 1 | Feedback → trace attachment (`eval_scores` table itself already built by the scoring job above) | High | Med | Closes the loop between 1c and 1b |
 | 1 | Internal dashboard + owner-scoped drill-down | High | Med | Read-only view over data Wave 1 already produces |
 | 1 | ✅ Config fingerprint through `GenerationRequest`→`GenerationUsage` — Done | High | Med | Unlocks "what to improve" identification |
 | 1 | Segment-analysis job | High | Med | Depends on the fingerprint above |

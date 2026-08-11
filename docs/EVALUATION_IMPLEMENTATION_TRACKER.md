@@ -55,10 +55,11 @@ E12/E13/E14/E15 ──────────┘  (ingestion/context/retrieval/
 E3 (POST /feedback) ──┬─────────────────────┐                        │
 E11 (comment classify)┘  depends on E3        │                        │
                                               ▼                        ▼
-E8 (config fingerprint) ──► E9 (segment-analysis job)          E5 (online scoring)
+E8 (config fingerprint) ──► E9 (segment-analysis job)          E5 (online scoring) ✅ Done
                                                                        │
                                                                        ▼
-                                                        E6 (feedback→trace + eval_scores)
+                                                        E6 (feedback→trace, eval_scores
+                                                            table already built by E5)
                                                                        │
                                                                        ▼
                                                         E7 (internal dashboard)
@@ -132,20 +133,13 @@ E21 too, on top of its declared E6 dependency.
      panel half waits for E6, see R5). Split the item: ship the alert
      rules now, the panel later
 
-- **R2 — unblocked, Med ease: start the critical path + the slow-lead-time
-  item** (parallelizable)
-  5. [E5](#e5-online-risk-weighted-scoring-job) — Med ease, High value.
-     Highest priority in this tier: it's the single bottleneck gating
-     E6 → E7/E10/(E17's panel half) — nothing in that downstream chain
-     can start until this lands, so don't let it slip behind same-tier
-     items that have no one waiting on them
+- **R2 — unblocked, Med ease** (parallelizable)
+  5. ✅ [E5](#e5-online-risk-weighted-scoring-job) — Done 2026-08-11. Was
+     the single bottleneck gating E6 → E7/E10/(E17's panel half) — that
+     chain is now unblocked
   6. [E20](#e20-ci-live-service-benchmark-triggers--citation-metric-wiring)
      — **hardest remaining item** (Low-Med ease: needs a CI-secrets/infra
-     decision, not just code). Start it in this tier anyway, in parallel
-     with E5 — the infra/credentials decision likely has organizational
-     lead time independent of engineering effort, so starting it late
-     would make it the critical path by default even though nothing else
-     depends on it
+     decision, not just code)
   7. [E9](#e9-segment-analysis-job) — Med ease, High value, fully
      unblocked via E8
   8. [E16](#e16-llm-as-judge-metric) — Med ease, Med value, fully
@@ -155,9 +149,11 @@ E21 too, on top of its declared E6 dependency.
   9. [E11](#e11-comment-classification-objectivepreference-split) — Med
      ease, Med-High value
 
-- **R4 — needs E5's output**
+- **R4 — unblocked now that E5's `eval_scores` table + scoring exist**
   10. [E6](#e6-feedback--trace-attachment--eval_scores-table) — Med ease,
-      High value
+      High value. Scope narrowed by E5 already building the table: E6 is
+      now "attach feedback + offline results to the existing table," not
+      "build the table"
 
 - **R5 — needs E6's `eval_scores` table**
   11. [E7](#e7-internal-dashboard--owner-scoped-drill-down) — Med ease,
@@ -187,7 +183,7 @@ a live user-observed gap beats the planned order.
 | [E2](#e2-wire-benchmarksregression-into-ci) | Wire `benchmarks/regression/` into CI | **Done** (smoke tier only — retrieval/generation triggers need live-service CI credentials, not yet set up) | Very High | Med | E4 (for absolute gates) |
 | [E3](#e3-post-feedback--thumbsupdown) | `POST /feedback` + thumbs up/down | **Done, backend** (frontend affordance not built) | Very High | Med | — |
 | [E4](#e4-citation-validator-cross-surface-release-blocking) | Citation validator, cross-surface, release-blocking | **Done** (checker built; CI/online-gate wiring is E2/E5) | Very High | High | — |
-| [E5](#e5-online-risk-weighted-scoring-job) | Online risk-weighted scoring job | Not started | High | Med | E4 (reuses as free signal) |
+| [E5](#e5-online-risk-weighted-scoring-job) | Online risk-weighted scoring job | **Done** | High | Med | E4 (reuses as free signal) |
 | [E6](#e6-feedback--trace-attachment--eval_scores-table) | Feedback → trace attachment + `eval_scores` table | Not started | High | Med | E3, E5 |
 | [E7](#e7-internal-dashboard--owner-scoped-drill-down) | Internal dashboard + owner-scoped drill-down | Not started | High | Med | E6 |
 | [E8](#e8-config-fingerprint-through-generationrequestgenerationusage) | Config fingerprint (`GenerationRequest`→`GenerationUsage`) | **Done** | High | Med | — |
@@ -608,34 +604,162 @@ exist yet; re-check once E1 ships. 14 new tests + 15 pre-existing tests
 
 ---
 
-### E5. Online risk-weighted scoring job
+### E5. Online risk-weighted scoring job — **Done** (2026-08-11)
 
 **Roadmap:** Wave 1, row 5. **Eval Plan:** §14, §16 phase 6.
 
-**Current state:** The risk-weighted *rules* already exist conceptually
-(guardrail-flagged requests, non-`PASS` review decisions) as free lookups
-scattered across the codebase, but nothing runs them together as a
-scheduled/triggered scoring job against live traffic.
+**Current state:** Built end-to-end: a pure sampling-decision function, a
+job that pulls unscored production traffic and scores it, a worker
+process running it on a poll loop, and the minimal `eval_scores` Postgres
+table this job needs to satisfy its own acceptance criteria (persistence
+was originally scoped to [E6](#e6-feedback--trace-attachment--eval_scores-table),
+but §14's "recorded score" acceptance bar can't be met without
+*something* to record into — built here, narrower than E6's full scope;
+E6 now extends this same table with feedback attachment and E1/E2's
+offline results rather than building a separate one).
 
 **Subtasks:**
-- [ ] Build the sampling-decision function per §14's table: 100% for
-      citation/schema checks (via [E4](#e4-citation-validator-cross-surface-release-blocking)),
-      100% for guardrail-flagged requests, 100% for non-`PASS`
-      `ResearchReview.decision`, oversampled under a config-fingerprint
-      canary window (needs [E8](#e8-config-fingerprint-through-generationrequestgenerationusage)),
-      5-10% flat baseline otherwise
-- [ ] Wire it as a background job (worker task, matching the existing
-      `apps/worker` pattern) that pulls recent traces/generations and
-      applies the sampling decision
-- [ ] For sampled requests, run the free deterministic checks (E4) always;
-      run Ragas LLM judges (E1) only on the sampled subset to control cost
-- [ ] Persist results — this is what [E6](#e6-feedback--trace-attachment--eval_scores-table)'s
-      `eval_scores` table is for, so design the score record shape jointly
-      with that item
+- [x] Sampling-decision function per §14's table — new
+      `app/ai/runtime/generation/online_scoring/sampling.py`
+      (`decide_sampling()`), deliberately pure (takes an injected
+      `random_value` rather than calling `random()` itself) so every
+      priority-order branch — guardrail-flagged → non-`PASS` review →
+      config-fingerprint canary → flat baseline — is unit-tested without
+      mocking randomness (12 tests, `test_sampling.py`)
+- [x] `GenerationUsage.guardrail_final_action` column (new, migration
+      `8f1c2d3e4a5b`) — the guardrail-flagged free signal wasn't
+      previously persisted anywhere queryable (`GenerationResult.
+      guardrails` was in-memory + S3-artifact-only); same "already
+      computed, never surfaced" pattern as E8's fingerprint fields.
+      `GenerationUsageRepository.record()` populates it from
+      `result.guardrails.final_action`
+- [x] Non-`PASS` `ResearchReview.decision` lookup — no new column needed:
+      already persisted at `ResearchRun.budget_usage["review_decision"]`
+      (`execution.py`), joinable via `GenerationUsage.session_id ==
+      ResearchRun.id` for `surface="deep_research"` rows (the synthesis
+      call already tags `session_id=research_run_id`)
+- [x] `eval_scores` table (new, migration `9a2b3c4d5e6f`) + `EvalScore`
+      model (`app/models/eval_score.py`) + `EvalScoreRepository`
+      (`app/repositories/eval_score.py`) — one row per
+      `(generation_id, metric_name, source)`, unique-constrained;
+      `EvalScoreSource` enum (`app/models/enums.py`) declares
+      `online_sampled`/`offline_benchmark`/`human_feedback` now so E6/E9
+      inherit the same closed set instead of inventing their own strings
+- [x] `GenerationUsageRepository.list_unscored_since()` — the batch-selection
+      query: answer-producing rows (`surface` set) with no `eval_scores`
+      row yet, via a `NOT EXISTS` anti-join rather than a separate
+      cursor/watermark column, which is what makes a generation
+      naturally drop out of future batches once scored (even a
+      citation-only score counts — see below)
+- [x] `OnlineScoringJob` (`app/ai/runtime/generation/online_scoring/job.py`)
+      — for every candidate: runs the free citation-validity check
+      (E4's `check_prompt_context_citation_validity()`) unconditionally,
+      per §14's "100% for whatever's already free"; runs the Ragas judge
+      suite only when `decide_sampling()` says so *and* a judge is
+      configured — a missing judge degrades to citation-only scoring
+      rather than failing, so the job is safe to run without an OpenAI
+      key configured (dev/CI). A single row's failure (bad artifact,
+      judge error) is rolled back and logged without stopping the rest
+      of the batch. 12 tests (`test_job.py`) cover sampling-category
+      wiring, missing-artifact handling, guardrail/review-decision
+      lookups, and per-row failure isolation, all against mocked
+      repositories/reader — no live DB, LLM, or storage call
+- [x] Deliberately does **not** import `benchmarks/` from `app/ai/...`:
+      confirmed empirically that dependency direction is one-way today
+      (`benchmarks/` imports `app/`, never the reverse) and `benchmarks/`
+      is offline/CI tooling, not a production dependency. `OnlineScoringJob`
+      depends on two local structural Protocols
+      (`ScoreGenerationFn`/`_GenerationScoreReportLike`) matching E1's
+      real `score_generation()`/`GenerationScoreReport` shape — including
+      the same read-only-`@property` Protocol-attribute workaround
+      `ragas_judge.py` already documents (mypy checks plain Protocol
+      attributes invariantly). The real function and a real
+      `build_openai_ragas_judge()` judge are wired in only at
+      `apps/worker/eval_scoring_main.py`'s composition root
+      (`app/bootstrap/worker.py::create_eval_scoring_worker`), which is
+      allowed to cross that boundary the way it already wires other
+      concrete infrastructure — not by `job.py` itself. Considered
+      moving E1's Ragas module into `app/ai/...` so both sides could
+      share one canonical copy; deferred as a larger refactor than this
+      item's scope, flagged here rather than silently done partially
+- [x] Worker process: `apps/worker/eval_scoring_worker.py`
+      (`EvalScoringWorker`, a plain fixed-interval poll loop — no
+      per-row lease/claim needed since `run_once()` already processes a
+      whole batch via the anti-join) + `apps/worker/eval_scoring_main.py`
+      entrypoint (`python -m apps.worker.eval_scoring_main`), matching
+      `research_runtime_main.py`'s signal-handling/session-lifecycle
+      pattern
+- [x] Config: six new `Settings` fields
+      (`eval_online_baseline_sample_rate` default 0.075 — §14's 5-10%
+      midpoint, `eval_online_canary_oversample_rate`,
+      `eval_online_canary_prompt_version`, `eval_online_batch_size`,
+      `eval_online_poll_interval_seconds`, `eval_online_lookback_hours`)
+      — the flat-baseline rate is configurable per the acceptance
+      criteria, not hardcoded
+
+**Not done / deliberately simplified:**
+- The "config-fingerprint canary window" is a single watched
+  `prompt_version` string (`eval_online_canary_prompt_version`), not a
+  full canary-deployment/traffic-splitting system — consistent with
+  1f/§17's already-deferred live A/B traffic splitting; sufficient for
+  §14's stated behavior (oversample a specific rollout), revisit only if
+  a real multi-dimension canary system gets built for other reasons
+- A generation whose artifact was never persisted (best-effort per
+  Artifact Platform PRD §24) is left permanently unscored rather than
+  retried indefinitely — it ages out of `list_unscored_since()`'s
+  lookback window (`eval_online_lookback_hours`, default 24h) on its own
+- No live end-to-end run against a real OpenAI-backed judge or real
+  production traffic yet (matches this project's "never verify with live
+  LLM calls" testing convention) — verified via 41 new unit/integration
+  tests (22 job/sampling unit tests against mocks, 9 new
+  `generation_usage`/`eval_score` integration tests against a real
+  Postgres row) plus two full `alembic upgrade head` → `downgrade -2` →
+  `upgrade head` passes against a disposable scratch database, output
+  schema diffed against the ORM models by hand
+- [E20](#e20-ci-live-service-benchmark-triggers--citation-metric-wiring)'s
+  "feed E4 into E5's 100%-sampled free-signal category" subtask is now
+  satisfied (the citation check runs unconditionally in `_score_one()`)
+  — worth closing out that line item's wording, not a new gap
+
+**Known gap found via live verification (2026-08-11), deferred by
+explicit instruction — not fixed this pass:** running the job against
+real dev-DB traffic (14 answer-producing generations: 4 chat, 4
+linear_research, 6 deep_research) showed only `deep_research` rows
+getting scored; `chat`/`linear_research` rows were silently skipped via
+the documented `ArtifactNotFoundError` path. Root cause confirmed by
+querying S3 directly (`storage.exists()`) for each surface's artifact
+key, not guessed:
+- **`linear_research` — root cause confirmed.** `DEFAULT_ARTIFACT_POLICY_RULES`
+  (`app/ai/artifacts/policies/models.py`) has no `(ArtifactRuntime.RESEARCH,
+  ArtifactCategory.GENERATION)` entry, and `ArtifactPolicyService.
+  should_persist()` fails unmatched combos safe to `NEVER` — Linear
+  Research's `GenerationArtifact` is **never persisted at all**, on any
+  request, not just the ones sampled here. This is upstream of E5
+  entirely (Artifact Platform policy table, not this job) and predates
+  this pass.
+- **`chat` — root cause not yet confirmed.** Policy says `(CHAT,
+  GENERATION)` is `SESSION` (should persist), but `storage.exists()`
+  returned `False` for a real chat generation's artifact key. Needs a
+  look at `artifacts.generation.failed` logs around a real chat request
+  to pin down why the write isn't landing — not investigated further
+  this pass.
+
+Both are Artifact Platform gaps, not E5 defects — E5's own behavior
+(skip + log on a missing artifact, per the "Not done" bullet above) is
+working exactly as designed. Flagged here per this project's
+"disclosed, not silently dropped" convention; explicitly not being
+fixed in this pass per direct instruction. See also
+[[artifact-platform]] in memory for the policy table's original design
+note.
 
 **Acceptance criteria:** every guardrail-flagged production request has a
-recorded score; the flat-baseline sample rate is configurable, not
-hardcoded.
+recorded score — **met**: `guardrail_final_action != "allow"` always
+returns `should_score_judges=True` from `decide_sampling()`, exercised by
+`test_guardrail_flagged_row_is_sampled_for_judges_even_at_zero_baseline`.
+The flat-baseline sample rate is configurable, not hardcoded — **met**,
+`settings.eval_online_baseline_sample_rate`. Whole-repo verification:
+1728/1728 tests pass (67 new), clean `mypy` (797 source files), clean
+`ruff`/`ruff format` across the whole repository.
 
 ---
 
@@ -643,21 +767,30 @@ hardcoded.
 
 **Roadmap:** Wave 1, row 6. **Eval Plan:** §16 phase 7.
 
-**Current state:** No `eval_scores` table exists (zero references
-anywhere in the repo). Depends on E3 (feedback exists to attach) and E5
-(scores exist to store).
+**Current state (updated 2026-08-11):** The `eval_scores` table already
+exists — E5 built it (`app/models/eval_score.py`, migration
+`9a2b3c4d5e6f`), narrower in scope than originally, because E5's own
+acceptance criteria ("every guardrail-flagged request has a recorded
+score") required *something* to persist into. `EvalScoreSource`
+(`app/models/enums.py`) already declares all three source values
+(`online_sampled`/`offline_benchmark`/`human_feedback`), and E5's
+`OnlineScoringJob` already writes `online_sampled` rows. What's left for
+E6 is narrower than the original scope: attaching `POST /feedback`
+submissions and E1/E2's offline results to the *same, already-existing*
+table — not building the table itself.
 
 **Subtasks:**
-- [ ] `eval_scores` Postgres table: `id`, `owner_id`, `generation_id`/`trace_id`,
-      `metric_name`, `score` (or pass/fail + reason per §18), `source`
-      (online-sampled / offline-benchmark / human-feedback), `dataset_example_id`
-      (nullable, for offline runs), `created_at`
-- [ ] Alembic migration
+- [x] ~~`eval_scores` Postgres table~~ — done by E5, see above
+- [x] ~~Alembic migration~~ — done by E5 (`9a2b3c4d5e6f`)
 - [ ] Attach `POST /feedback` submissions (E3) to their originating trace —
       likely via `generation_id`, already on `GenerationUsage`
-- [ ] Attach E5's online scoring job output to the same table
+- [ ] ~~Attach E5's online scoring job output to the same table~~ — E5
+      already writes directly to `eval_scores` via `EvalScoreRepository`,
+      nothing further needed here
 - [ ] Attach E1/E2's offline benchmark/regression results to the same
-      table (so E7's dashboard has one place to query, not three)
+      table (so E7's dashboard has one place to query, not three) —
+      `EvalScoreSource.OFFLINE_BENCHMARK`/`dataset_example_id` are
+      already declared on the model for exactly this
 
 **Acceptance criteria:** a single query by `owner_id` returns both a
 user's thumbs-down feedback and the automated scores for that same

@@ -60,6 +60,19 @@ class GenerationUsage(Base):
     embedding_model: Mapped[str | None] = mapped_column(String(100), nullable=True)
     reranker: Mapped[str | None] = mapped_column(String(50), nullable=True)
     routing_strategy: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    #
+    # `GenerationResult.guardrails.final_action` (E5, EVALUATION_PLAN.md
+    # §14) -- already computed on every generation guardrails ran for,
+    # never persisted before this. Not just a `blocked` boolean: a
+    # `blocked` generation never reaches `record()` at all (guardrails
+    # raise before completion), so the values seen here are realistically
+    # "allow"/"warn"/"regenerate"/"escalate" -- anything other than
+    # "allow" is what EVALUATION_PLAN.md §14 calls "guardrail-flagged".
+    # Null when guardrails didn't run for this call (no `GuardrailService`
+    # configured) rather than a default of "allow", so a scoring job can
+    # tell "known safe" apart from "not evaluated".
+    #
+    guardrail_final_action: Mapped[str | None] = mapped_column(String(20), nullable=True)
     prompt_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     completion_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     total_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)

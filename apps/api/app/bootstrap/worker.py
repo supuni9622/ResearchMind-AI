@@ -7,6 +7,7 @@ multiple application entry points (API, workers, CLI, etc.).
 
 from __future__ import annotations
 
+from app.ai.artifacts.generation.readers import GenerationArtifactReader
 from app.ai.knowledge.chunking.artifacts.builder import ChunkArtifactBuilder
 from app.ai.knowledge.chunking.artifacts.writer import ChunkArtifactWriter
 from app.ai.knowledge.chunking.factory import create_chunking_service
@@ -64,6 +65,8 @@ from app.ai.observability.create import get_observability_service
 from app.ai.observability.prometheus.create import get_metrics_recorder
 from app.ai.research.service import ResearchService
 from app.ai.runtime.chat.paper_query import create_paper_query_extraction_service
+from app.ai.runtime.generation.online_scoring.job import OnlineScoringJob, ScoreGenerationFn
+from app.ai.runtime.generation.online_scoring.sampling import OnlineScoringConfig
 from app.ai.runtime.research.execution import ResearchRuntimeExecutionService
 from app.ai.runtime.research.run_service import ResearchRunService
 from app.ai.runtime.research.web_search.create import create_web_search_necessity_service
@@ -81,6 +84,9 @@ from app.dependencies.retrieval import get_retrieval_service
 from app.infrastructure.queue.factory import create_processing_queue
 from app.infrastructure.storage import create_storage
 from app.repositories.document import DocumentRepository
+from app.repositories.eval_score import EvalScoreRepository
+from app.repositories.generation_usage import GenerationUsageRepository
+from app.repositories.research_run import ResearchRunRepository
 from app.repositories.research_run_dispatch import ResearchRunDispatchRepository
 from app.services.document_processing_service import (
     DocumentProcessingService,
@@ -90,6 +96,7 @@ from app.services.queued_document_processing_service import (
 )
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.worker.eval_scoring_worker import EvalScoringWorker
 from apps.worker.processing_worker import ProcessingWorker
 from apps.worker.research_runtime_worker import ResearchRuntimeWorker
 
@@ -201,4 +208,53 @@ def create_research_runtime_worker(*, session: AsyncSession) -> ResearchRuntimeW
         commit=session.commit,
         rollback=session.rollback,
         expire_stale_awaiting_approval=runs.expire_stale_awaiting_approval,
+    )
+
+
+def create_eval_scoring_worker(*, session: AsyncSession) -> EvalScoringWorker:
+    """
+    Compose the online scoring worker (E5, EVALUATION_PLAN.md §14).
+
+    The Ragas judge (`benchmarks.generation.ragas_judge.
+    build_openai_ragas_judge`) and its scoring function
+    (`benchmarks.generation.ragas_scoring.score_generation`) are imported
+    here, not by `OnlineScoringJob` itself -- this composition root is
+    allowed to cross the app/`benchmarks` boundary the way it already
+    wires other concrete infrastructure; `OnlineScoringJob` stays
+    decoupled from repo-root tooling (see `online_scoring/job.py`'s
+    module docstring). No key configured -> `judge=None`, and the job
+    degrades gracefully to citation-only scoring rather than failing to
+    start.
+    """
+
+    storage = create_storage(settings)
+    judge: object | None = None
+    score_generation_fn: ScoreGenerationFn | None = None
+    if settings.openai_api_key:
+        from benchmarks.generation.ragas_judge import build_openai_ragas_judge
+        from benchmarks.generation.ragas_scoring import score_generation
+
+        judge = build_openai_ragas_judge()
+        score_generation_fn = score_generation
+
+    job = OnlineScoringJob(
+        generation_usage_repository=GenerationUsageRepository(session),
+        eval_score_repository=EvalScoreRepository(session),
+        research_run_repository=ResearchRunRepository(session),
+        artifact_reader=GenerationArtifactReader(storage),
+        config=OnlineScoringConfig(
+            baseline_sample_rate=settings.eval_online_baseline_sample_rate,
+            canary_oversample_rate=settings.eval_online_canary_oversample_rate,
+            canary_prompt_version=settings.eval_online_canary_prompt_version,
+        ),
+        commit=session.commit,
+        rollback=session.rollback,
+        score_generation_fn=score_generation_fn,
+        judge=judge,
+        batch_size=settings.eval_online_batch_size,
+        lookback_hours=settings.eval_online_lookback_hours,
+    )
+    return EvalScoringWorker(
+        job=job,
+        poll_interval_seconds=settings.eval_online_poll_interval_seconds,
     )

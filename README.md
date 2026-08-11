@@ -285,6 +285,14 @@ python -m apps.worker.research_runtime_main
 
 This process runs `RESEARCH_RUNTIME_WORKER_CONCURRENCY` (default `1`) concurrent claim lanes, each with its own DB session. The Postgres outbox (`SELECT ... FOR UPDATE SKIP LOCKED`) also makes it safe to run multiple copies of this same process/container for true horizontal scaling — both knobs compose.
 
+Online evaluation scoring worker (EVALUATION_PLAN.md §14):
+
+```bash
+python -m apps.worker.eval_scoring_main
+```
+
+Polls for recently-completed Chat/Linear Research/Deep Research generations, runs the free citation-validity check on all of them, and runs the Ragas LLM-judge suite on a risk-weighted sample (guardrail-flagged and non-`PASS`-reviewed requests always, a configurable flat baseline otherwise — see the `eval_online_*` settings). Requires `OPENAI_API_KEY` to score judge metrics; without it, the worker still runs and scores citation validity only.
+
 **From now on: whenever you change a model, run `uv run alembic revision --autogenerate -m "..."`, read the generated file, then `./scripts/dev.sh` as usual.**
 
 ---

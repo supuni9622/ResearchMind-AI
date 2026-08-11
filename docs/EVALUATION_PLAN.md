@@ -471,8 +471,8 @@ near-term build; **Mature** phases are explicitly deferred, not dropped.
 | 3 | ✅ `POST /feedback` + thumbs up/down (backend + frontend, all 3 surfaces) — Done 2026-08-11 — ✅ mirrored into LangSmith's own `create_feedback()` — Done 2026-08-11 — ⬜ objective/preference classification (1c/1g) not started | MVP | = original steps 3, 10. Detail: `EVALUATION_IMPLEMENTATION_TRACKER.md` E3, follow-ups E21/E22 |
 | 4 | ✅ Citation validator (§8) — generalize `citation_integrity_score` cross-surface, release-blocking — Done 2026-08-11 | MVP | **New, highest value-per-effort item in this plan.** Checker built (`app/ai/knowledge/context/citations/validity.py`); CI/online-gate wiring is phases 2/6. Detail: `EVALUATION_IMPLEMENTATION_TRACKER.md` E4, follow-up E20 |
 | 5 | ✅ Config fingerprint threaded through `GenerationRequest`→`GenerationUsage` (1f) — Done 2026-08-11 | MVP | = original step 8. `app/ai/runtime/generation/config_fingerprint.py`; populated at the 3 answer-producing call sites (Chat, Linear Research, Deep Research synthesis). Verified against a real Postgres row + real migration upgrade/downgrade. Detail: `EVALUATION_IMPLEMENTATION_TRACKER.md` E8 |
-| 6 | Online risk-weighted scoring job, merged sampling table (§14) | MVP | = original steps 4, 9 |
-| 7 | Feedback → trace attachment, `eval_scores` table | MVP | = original step 5 |
+| 6 | ✅ Online risk-weighted scoring job, merged sampling table (§14) — Done 2026-08-11 | MVP | = original steps 4, 9. `app/ai/runtime/generation/online_scoring/`, `eval_scores` table (built here, ahead of phase 7). Detail: `EVALUATION_IMPLEMENTATION_TRACKER.md` E5 |
+| 7 | Feedback → trace attachment (`eval_scores` table itself already built by phase 6 above) | MVP | = original step 5 |
 | 8 | Internal dashboard, owner-scoped drill-down (1g), roll in `ResearchReview.decision` as workflow signal (§10) | MVP | = original step 6 |
 | 9 | Golden-set promotion review, both directions (1c) | MVP | = original step 7 |
 | 10 | Segment-analysis job (1f) | MVP | = original step 9 |

@@ -12,6 +12,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.types import Date
 
 from app.ai.runtime.generation.models import GenerationResult
+from app.models.enums import EvalScoreSource
+from app.models.eval_score import EvalScore
 from app.models.generation_usage import GenerationUsage
 from app.models.research_run import ResearchRun
 
@@ -64,6 +66,9 @@ class GenerationUsageRepository:
                 routing_strategy=(
                     statistics.routing_strategy.value if statistics.routing_strategy else None
                 ),
+                guardrail_final_action=(
+                    result.guardrails.final_action.value if result.guardrails is not None else None
+                ),
             )
             .on_conflict_do_nothing(index_elements=[GenerationUsage.request_id])
         )
@@ -82,6 +87,47 @@ class GenerationUsageRepository:
             GenerationUsage.generation_id == generation_id
         )
         return (await self._session.execute(statement)).scalars().first()
+
+    async def list_unscored_since(
+        self,
+        *,
+        since: datetime,
+        limit: int,
+    ) -> list[GenerationUsage]:
+        """
+        Candidate rows for the online scoring job (E5, EVALUATION_PLAN.md
+        §14): answer-producing generations (`surface` is set -- internal
+        helper calls like planning/review/memory extraction have no
+        `surface` and are never scored) completed since `since` with no
+        `eval_scores` row yet from the online job. The `NOT EXISTS`
+        anti-join, rather than a separate cursor/watermark column, is
+        what makes this naturally exactly-once: a row that already has an
+        `ONLINE_SAMPLED` score (even a "not sampled, skip judges" one --
+        the job always writes at least the free citation-validity score)
+        stops being a candidate on the next poll without any extra
+        bookkeeping.
+        """
+
+        already_scored = (
+            select(EvalScore.generation_id)
+            .where(
+                EvalScore.generation_id == GenerationUsage.generation_id,
+                EvalScore.source == EvalScoreSource.ONLINE_SAMPLED.value,
+            )
+            .exists()
+        )
+        statement = (
+            select(GenerationUsage)
+            .where(
+                GenerationUsage.surface.is_not(None),
+                GenerationUsage.completed_at >= since,
+                ~already_scored,
+            )
+            .order_by(GenerationUsage.completed_at.asc())
+            .limit(limit)
+        )
+        result = await self._session.execute(statement)
+        return list(result.scalars().all())
 
     async def daily_cost_totals(self, *, since: datetime) -> list[tuple[date, float]]:
         """System-wide (not owner-scoped) cost per calendar day since `since`.

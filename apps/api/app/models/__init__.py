@@ -7,6 +7,7 @@ is populated for Alembic autogeneration.
 
 from app.models.conversation import Conversation, Message
 from app.models.document import Document
+from app.models.eval_score import EvalScore
 from app.models.feedback import Feedback
 from app.models.generation_usage import GenerationUsage
 from app.models.memory import Memory
@@ -30,4 +31,5 @@ __all__ = [
     "Memory",
     "GenerationUsage",
     "Feedback",
+    "EvalScore",
 ]

@@ -381,5 +381,42 @@ class Settings(BaseSettings):
             raise ValueError("prometheus_retention_time must not be empty.")
         return value
 
+    # ==========================================================================
+    # Online Evaluation Scoring (EVALUATION_PLAN.md §14, E5)
+    # ==========================================================================
+
+    eval_online_baseline_sample_rate: float = 0.075
+    """Flat baseline sample rate for LLM-judge scoring on requests that
+    aren't guardrail-flagged, non-PASS-reviewed, or in a canary window --
+    EVALUATION_PLAN.md §14's 5-10% baseline, defaulting to the midpoint."""
+
+    eval_online_canary_oversample_rate: float = 0.5
+    eval_online_canary_prompt_version: str | None = None
+    """When set, generations tagged with this `prompt_version` are
+    oversampled at `eval_online_canary_oversample_rate` instead of the
+    flat baseline -- EVALUATION_PLAN.md §14's "config-fingerprint canary
+    window" row. Deliberately simple for this MVP pass: a single
+    prompt_version string to watch, not a full canary-deployment/traffic-
+    splitting system (out of scope, see PRIORITIZED_ROADMAP.md's 1f note
+    on deferred live A/B traffic splitting)."""
+
+    eval_online_batch_size: int = 25
+    eval_online_poll_interval_seconds: float = 30.0
+    eval_online_lookback_hours: float = 24.0
+    """How far back `list_unscored_since()` looks on each tick -- bounds
+    the anti-join scan; a generation older than this that somehow never
+    got scored stays unscored rather than being picked up on every poll
+    forever."""
+
+    @field_validator(
+        "eval_online_baseline_sample_rate",
+        "eval_online_canary_oversample_rate",
+    )
+    @classmethod
+    def _validate_sample_rate(cls, value: float) -> float:
+        if not (0.0 <= value <= 1.0):
+            raise ValueError("Sample rates must be between 0.0 and 1.0.")
+        return value
+
 
 settings = Settings()  # pyright: ignore[reportCallIssue]

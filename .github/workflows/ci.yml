@@ -11,10 +11,61 @@ on:
       - main
       - develop
 
+  # Manual-only for now (direct instruction, 2026-08-12): the live-service
+  # regression suite below makes real Voyage AI + OpenAI calls, which
+  # cost real money -- not run automatically (no path-triggering, no
+  # schedule) until that's wanted. `retrieval-regression`/
+  # `generation-regression` below only ever run from this dispatch, and
+  # only when this box is explicitly checked (defaults to false, so
+  # clicking "Run workflow" without changing anything does nothing extra
+  # beyond the normal `quality` job). To bring back automatic
+  # push/PR/nightly triggering later, see
+  # EVALUATION_IMPLEMENTATION_TRACKER.md's E20 entry for the
+  # `dorny/paths-filter@v3` patterns already worked out.
+  workflow_dispatch:
+    inputs:
+      full_regression_suite:
+        description: "Run retrieval + reranking + metadata-filtering + golden-set-generation regression checks (real Voyage AI + OpenAI calls)"
+        type: boolean
+        default: false
+
 jobs:
   quality:
 
     runs-on: ubuntu-latest
+
+    # E20: `pytest`/`Coverage` below exercise real integration tests
+    # against Postgres/Valkey (`tests/conftest.py`'s `db_session`
+    # fixture, `ENVIRONMENT=test` -> `.env.test` -> `localhost`) -- this
+    # job had no services provisioning them before, so the full suite
+    # could not actually pass here. Fixed alongside E20's live-service
+    # benchmark wiring since it's the same underlying gap (CI jobs
+    # assuming services that were never declared), not a new,
+    # independent concern.
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: researchmind
+          POSTGRES_PASSWORD: researchmind
+          POSTGRES_DB: researchmind_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U researchmind"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+      valkey:
+        image: valkey/valkey:8-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "valkey-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
 
     steps:
       - name: Checkout repository
@@ -41,14 +92,134 @@ jobs:
         run: uv run mypy .
 
       - name: Pytest
+        env:
+          ENVIRONMENT: test
         run: uv run pytest
 
       - name: Coverage
+        env:
+          ENVIRONMENT: test
         run: uv run pytest --cov=apps
 
       - name: Ingestion fidelity regression check
+        env:
+          ENVIRONMENT: test
         run: >
           uv run python -m benchmarks.runner IngestionFidelity
           --dataset benchmarks/datasets/research-papers
           --output benchmarks/reports
           --check-regression
+
+  retrieval-regression:
+    # E20: retrieval-config-change trigger, currently manual-dispatch-only
+    # (see the `workflow_dispatch` comment above). Needs a live Qdrant
+    # (ephemeral service container below, no auth needed for self-hosted
+    # Qdrant -- per direct instruction, this is the "no credentials for
+    # Qdrant" case) and a real Voyage AI key (`secrets.VOYAGE_API_KEY`,
+    # must be added under repo Settings -> Secrets and variables ->
+    # Actions; this workflow only references it, it cannot provision it).
+    if: github.event_name == 'workflow_dispatch' && inputs.full_regression_suite
+
+    runs-on: ubuntu-latest
+
+    services:
+      qdrant:
+        image: qdrant/qdrant:v1.12.4
+        ports:
+          - 6333:6333
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: astral-sh/setup-uv@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - run: uv sync --all-groups
+
+      - name: Retrieval regression check
+        env:
+          ENVIRONMENT: test
+          QDRANT_URL: http://localhost:6333
+          VOYAGE_API_KEY: ${{ secrets.VOYAGE_API_KEY }}
+        run: >
+          uv run python -m benchmarks.runner Retrieval
+          --dataset benchmarks/datasets/research-papers
+          --output benchmarks/reports
+          --check-regression
+
+      - name: Reranking regression check
+        env:
+          ENVIRONMENT: test
+          QDRANT_URL: http://localhost:6333
+          VOYAGE_API_KEY: ${{ secrets.VOYAGE_API_KEY }}
+        run: >
+          uv run python -m benchmarks.runner Reranking
+          --dataset benchmarks/datasets/research-papers
+          --output benchmarks/reports
+          --check-regression
+
+      - name: Metadata filtering regression check
+        env:
+          ENVIRONMENT: test
+          QDRANT_URL: http://localhost:6333
+          VOYAGE_API_KEY: ${{ secrets.VOYAGE_API_KEY }}
+        run: >
+          uv run python -m benchmarks.runner MetadataFiltering
+          --dataset benchmarks/datasets/research-papers
+          --output benchmarks/reports
+          --check-regression
+
+      - name: Upload regression reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: retrieval-family-regression-reports
+          path: |
+            benchmarks/reports/retrieval/regression*
+            benchmarks/reports/reranking/regression*
+            benchmarks/reports/metadatafiltering/regression*
+          if-no-files-found: ignore
+
+  generation-regression:
+    # E20: prompt/LLM-change trigger, currently manual-dispatch-only (see
+    # the `workflow_dispatch` comment above). GoldenSetBenchmark supplies
+    # its own contexts (no retrieval call), so this needs only a real
+    # OpenAI key (`secrets.OPENAI_API_KEY`, must be added the same way as
+    # VOYAGE_API_KEY above) -- both for the generation call itself and
+    # for the real Ragas judge, which requires OpenAI specifically
+    # (`ragas_judge.build_openai_ragas_judge()`).
+    if: github.event_name == 'workflow_dispatch' && inputs.full_regression_suite
+
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: astral-sh/setup-uv@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - run: uv sync --all-groups
+
+      - name: Golden-set generation regression check
+        env:
+          ENVIRONMENT: test
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: >
+          uv run python -m benchmarks.runner GoldenSetGeneration
+          --dataset datasets/golden
+          --output benchmarks/reports
+          --check-regression
+
+      - name: Upload regression report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: generation-regression-report
+          path: benchmarks/reports/goldensetgeneration/regression*
+          if-no-files-found: ignore

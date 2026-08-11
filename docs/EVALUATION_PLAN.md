@@ -381,16 +381,18 @@ now both visible together inside LangSmith, not just in our own DB.
 
 ## 13. Offline evaluation system
 
-**Status: smoke-tier CI wiring done (2026-08-11), full trigger matrix
-still open.** Reuses `benchmarks/regression/` (already built, per 1a) —
-CI wiring done for the fully-offline Ingestion Fidelity benchmark only;
-retrieval-config-change and prompt/LLM-change triggers for the
-live-service-dependent benchmarks need CI credentials not yet configured.
-The absolute gates declared for citation/schema/abstention checks
-(below) also have no benchmark run populating them yet — declared in
-`thresholds.py` but structurally unreachable until a benchmark actually
-emits those metric names. Detail: `EVALUATION_IMPLEMENTATION_TRACKER.md`
-E2, follow-up E20. Gate-severity
+**Status: full trigger matrix done (2026-08-12).** Reuses
+`benchmarks/regression/` (already built, per 1a) — CI now wired for all
+of Ingestion Fidelity (smoke tier, 2026-08-11), retrieval-config-change
+(Retrieval/Reranking/MetadataFiltering) and prompt/LLM-change
+(GoldenSetGeneration) triggers, plus a nightly/manual-dispatch full
+regression sweep. Of the three absolute gates declared below,
+`fabricated_citation_rate` is now genuinely populated and verified live
+against real OpenAI calls; `schema_validity_rate`/`abstention_pass_rate`
+remain deliberately unpopulated — both need their own separate design
+decisions (neither fits as a simple extension of the existing golden-set
+benchmark), not just more CI wiring. Detail:
+`EVALUATION_IMPLEMENTATION_TRACKER.md` E2, follow-up E20. Gate-severity
 distinction below — now implemented via `ThresholdDirection.ABSOLUTE_MIN`/
 `ABSOLUTE_MAX`, worth adopting precisely:
 
@@ -472,9 +474,9 @@ near-term build; **Mature** phases are explicitly deferred, not dropped.
 | # | Phase | Tier | Note |
 |---|---|---|---|
 | 1 | ✅ Golden dataset (`rag_answer_gold`, schema from §3) — Done, 115 examples (grown from 24) 2026-08-11 | MVP | = original 1a step 1. Grounded in real, verified content throughout — started at 24 to avoid padding with unverified facts, grown to 115 the same day once the underlying corpus expanded from 5 to 50 papers (§4/§5's update). See `EVALUATION_IMPLEMENTATION_TRACKER.md` E1 for the full growth breakdown. LangSmith registration done same day (tracker E19) — all 115 examples live and browsable in LangSmith's UI; only Experiment-logging (successive `score_generation()` runs comparable over time in-UI) remains open |
-| 2 | ✅ Wire `benchmarks/regression/` into CI, gate types per §13 — Done (smoke tier) 2026-08-11 | MVP | = original 1a step 2. Absolute + relative gates both implemented; one CI job wired for the fully-offline Ingestion Fidelity benchmark. Retrieval/generation benchmark CI triggers still need live-service credentials — not yet configured, and the absolute gates this phase declared have no benchmark run populating them yet. Detail: `EVALUATION_IMPLEMENTATION_TRACKER.md` E2, follow-up E20 |
+| 2 | ✅ Wire `benchmarks/regression/` into CI, gate types per §13 — Done 2026-08-11, full trigger matrix done 2026-08-12 | MVP | = original 1a step 2. Absolute + relative gates both implemented; CI now covers Ingestion Fidelity, retrieval-family, and generation-family benchmarks with real live-service credentials (Qdrant self-hosted, Voyage AI, OpenAI). `fabricated_citation_rate` genuinely populated; `schema_validity_rate`/`abstention_pass_rate` still open, need separate design decisions. Detail: `EVALUATION_IMPLEMENTATION_TRACKER.md` E2, follow-up E20 |
 | 3 | ✅ `POST /feedback` + thumbs up/down (backend + frontend, all 3 surfaces) — Done 2026-08-11 — ✅ mirrored into LangSmith's own `create_feedback()` — Done 2026-08-11 — ✅ objective/preference classification (1c/1g) — Done 2026-08-12 | MVP | = original steps 3, 10. Detail: `EVALUATION_IMPLEMENTATION_TRACKER.md` E3, follow-ups E11/E21/E22 |
-| 4 | ✅ Citation validator (§8) — generalize `citation_integrity_score` cross-surface, release-blocking — Done 2026-08-11 | MVP | **New, highest value-per-effort item in this plan.** Checker built (`app/ai/knowledge/context/citations/validity.py`); CI/online-gate wiring is phases 2/6. Detail: `EVALUATION_IMPLEMENTATION_TRACKER.md` E4, follow-up E20 |
+| 4 | ✅ Citation validator (§8) — generalize `citation_integrity_score` cross-surface, release-blocking — Done 2026-08-11 | MVP | **New, highest value-per-effort item in this plan.** Checker built (`app/ai/knowledge/context/citations/validity.py`); online-gate wiring done via E5, CI/regression-gate wiring done via E20 (`GoldenSetBenchmark` now builds real citations and emits `fabricated_citation_rate` per example, verified live). Detail: `EVALUATION_IMPLEMENTATION_TRACKER.md` E4, follow-up E20 |
 | 5 | ✅ Config fingerprint threaded through `GenerationRequest`→`GenerationUsage` (1f) — Done 2026-08-11 | MVP | = original step 8. `app/ai/runtime/generation/config_fingerprint.py`; populated at the 3 answer-producing call sites (Chat, Linear Research, Deep Research synthesis). Verified against a real Postgres row + real migration upgrade/downgrade. Detail: `EVALUATION_IMPLEMENTATION_TRACKER.md` E8 |
 | 6 | ✅ Online risk-weighted scoring job, merged sampling table (§14) — Done 2026-08-11 | MVP | = original steps 4, 9. `app/ai/runtime/generation/online_scoring/`, `eval_scores` table (built here, ahead of phase 7). Detail: `EVALUATION_IMPLEMENTATION_TRACKER.md` E5 |
 | 7 | ✅ Feedback → trace attachment — Done 2026-08-11 (`eval_scores` table itself already built by phase 6 above) | MVP | = original step 5. Also closed a gap this phase surfaced: E1's golden-set Ragas scoring had no runnable driver until now — `benchmarks/generation/golden_set_benchmark.py`. Detail: `EVALUATION_IMPLEMENTATION_TRACKER.md` E6 |

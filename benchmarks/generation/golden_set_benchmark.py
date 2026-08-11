@@ -40,6 +40,10 @@ import asyncio
 from pathlib import Path
 from uuid import uuid4
 
+from app.ai.knowledge.context.citations.service import CitationService
+from app.ai.knowledge.context.citations.validity import (
+    check_prompt_context_citation_validity,
+)
 from app.ai.knowledge.context.models import ContextChunk, PromptContext
 from app.ai.runtime.generation.enums import GenerationProvider
 from app.ai.runtime.generation.models import GenerationRequest
@@ -49,6 +53,7 @@ from benchmarks.common.metrics import average
 from benchmarks.generation.golden_dataset import (
     ExpectedBehavior,
     GoldenExample,
+    Workflow,
     load_golden_dataset,
 )
 from benchmarks.generation.ragas_scoring import GenerationJudge, score_generation
@@ -65,6 +70,32 @@ GOLDEN_DATASET_FILENAME = "rag_answer_gold.json"
 BENCHMARK_OWNER_ID = "benchmark"
 
 DEFAULT_PROVIDER_FALLBACK_CHAIN = [GenerationProvider.OPENAI, GenerationProvider.CLAUDE]
+
+CITATION_SYSTEM_PROMPT = (
+    "Answer the user's question using only the supplied evidence. Reference "
+    "supporting evidence using its citation ID in brackets, e.g. [S1]. Do "
+    "not invent citation IDs."
+)
+"""
+E20's citation-metric wiring (EVALUATION_IMPLEMENTATION_TRACKER.md): reuses
+the citation-integrity clause of `ResearchSynthesisService`'s real
+production instruction (`research/synthesis/service.py`) verbatim --
+"do not invent citation IDs" -- rather than inventing new wording.
+
+Applied to `linear_research`/`deep_research`-workflow examples only, per
+`_evaluate_one_example`'s `expects_citations` check -- **not** `chat`,
+which is intentionally citation-free in production (direct instruction,
+2026-08-12), so instructing it here would test a scenario that can never
+occur in real Chat traffic. Neither Chat's nor Linear Research's real
+call sites (`api/v1/chat.py`, `ai/research/service.py`) set this
+instruction today -- only Deep Research's synthesis step does -- so
+Linear Research examples still don't mirror production *exactly*, but
+unlike Chat, Linear Research citations are a real, intended product
+behavior (it already builds real `Citation` objects and labels sources),
+just not yet backed by an explicit model instruction -- a separate,
+already-flagged product gap, not something this benchmark should also
+leave untested.
+"""
 
 DEFAULT_MAX_CONCURRENCY = 5
 """
@@ -113,6 +144,7 @@ class GoldenSetBenchmark(Benchmark):
         judge: GenerationJudge,
         providers: list[GenerationProvider] | None = None,
         max_concurrency: int = DEFAULT_MAX_CONCURRENCY,
+        citation_service: CitationService | None = None,
     ) -> None:
         self._generation_service = generation_service
         self._judge = judge
@@ -120,6 +152,9 @@ class GoldenSetBenchmark(Benchmark):
             providers if providers is not None else list(DEFAULT_PROVIDER_FALLBACK_CHAIN)
         )
         self._max_concurrency = max_concurrency
+        self._citation_service = (
+            citation_service if citation_service is not None else CitationService()
+        )
 
     @property
     def name(self) -> str:
@@ -258,22 +293,40 @@ class GoldenSetBenchmark(Benchmark):
         )
         tagged_context = "\n\n".join(example.contexts)
 
+        chunks = [
+            ContextChunk(
+                chunk_id=uuid4(),
+                document_id=uuid4(),
+                filename=source_filename,
+                owner_id=BENCHMARK_OWNER_ID,
+                chunk_index=0,
+                content=chunk_content,
+                score=1.0,
+            )
+            for chunk_content in example.contexts
+        ]
+        # E20's citation-metric wiring: real Citation objects (S1, S2, ...),
+        # same CitationService production uses, so the citation-validity
+        # check below has real known_citation_ids to work against -- not
+        # just the chunks themselves.
+        citation_result = await self._citation_service.build(chunks)
+        prompt_context = PromptContext(
+            context=tagged_context,
+            chunks=chunks,
+            citations=citation_result.citations,
+        )
+
+        # Chat is intentionally citation-free in production (direct
+        # instruction, 2026-08-12) -- Linear Research/Deep Research both
+        # cite. Instructing chat-workflow examples to cite here would test
+        # a scenario that cannot occur in real Chat traffic, the same
+        # "measures something that can't happen" problem the rest of this
+        # gate exists to avoid.
+        expects_citations = example.workflow != Workflow.CHAT
+
         request = GenerationRequest(
-            prompt_context=PromptContext(
-                context=tagged_context,
-                chunks=[
-                    ContextChunk(
-                        chunk_id=uuid4(),
-                        document_id=uuid4(),
-                        filename=source_filename,
-                        owner_id=BENCHMARK_OWNER_ID,
-                        chunk_index=0,
-                        content=chunk_content,
-                        score=1.0,
-                    )
-                    for chunk_content in example.contexts
-                ],
-            ),
+            prompt_context=prompt_context,
+            system_prompt=CITATION_SYSTEM_PROMPT if expects_citations else None,
             user_prompt=example.question,
         )
 
@@ -330,4 +383,31 @@ class GoldenSetBenchmark(Benchmark):
             }
             for check in report.checks
         ]
+
+        # E20's citation-metric wiring (EVALUATION_IMPLEMENTATION_TRACKER.md):
+        # this is what actually populates thresholds.py's
+        # `fabricated_citation_rate` absolute gate, previously declared but
+        # never emitted by any benchmark run. Deterministic, no LLM call --
+        # unlike `score_generation` above, not wrapped in its own
+        # try/except: a failure here is a real bug (malformed citations
+        # payload), not an external-service error worth degrading past.
+        # Skipped for chat-workflow examples (see `expects_citations`
+        # above) -- nothing instructed the model to cite, so checking
+        # would only ever trivially pass, not measure anything real.
+        if expects_citations:
+            citation_report = check_prompt_context_citation_validity(
+                content=content,
+                prompt_context=prompt_context,
+            )
+            entries.append(
+                {
+                    "example_id": example.example_id,
+                    "metric": "fabricated_citation_rate",
+                    "score": citation_report.fabricated_citation_rate,
+                    "passed": citation_report.valid,
+                    "reason": "; ".join(check.reason for check in citation_report.checks),
+                    "provider": used_provider.value,
+                }
+            )
+
         return entries, used_provider, model

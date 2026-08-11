@@ -101,14 +101,22 @@ class _FakeJudge:
         self.context_recall = _FakeContextRecall(score)
 
 
-def _answerable_example(example_id: str) -> GoldenExample:
+def _answerable_example(
+    example_id: str, *, workflow: Workflow = Workflow.LINEAR_RESEARCH
+) -> GoldenExample:
+    # Defaults to linear_research, not chat: citations are expected
+    # (checked) for linear_research/deep_research examples, not for
+    # chat (see `expects_citations` in golden_set_benchmark.py) -- most
+    # tests in this file want the citation entry present, so that's the
+    # more useful default; tests specifically about chat's exclusion
+    # pass `workflow=Workflow.CHAT` explicitly.
     return GoldenExample(
         example_id=example_id,
         question=f"What is {example_id}?",
         reference_answer=f"{example_id} is a thing.",
         query_type=QueryType.FACTUAL,
         difficulty=Difficulty.EASY,
-        workflow=Workflow.CHAT,
+        workflow=workflow,
         expected_behavior=ExpectedBehavior.ANSWER,
         contexts=[f"{example_id} context passage."],
     )
@@ -183,11 +191,109 @@ async def test_per_example_scores_are_recorded_in_notes(tmp_path: Path) -> None:
         "answer_relevancy",
         "context_precision",
         "context_recall",
+        "fabricated_citation_rate",
     }
     for entry in per_example:
         assert entry["example_id"] == "a1"
-        assert entry["score"] == pytest.approx(0.75)
         assert entry["provider"] == "openai"
+
+    ragas_entries = [
+        entry for entry in per_example if entry["metric"] != "fabricated_citation_rate"
+    ]
+    for entry in ragas_entries:
+        assert entry["score"] == pytest.approx(0.75)
+
+    # The fake generation content has no `[S1]`-style citation markers, so
+    # E20's citation check correctly reports zero fabrication (nothing was
+    # cited at all, not "something was cited and it was wrong").
+    citation_entry = next(
+        entry for entry in per_example if entry["metric"] == "fabricated_citation_rate"
+    )
+    assert citation_entry["score"] == pytest.approx(0.0)
+    assert citation_entry["passed"] is True
+
+
+@pytest.mark.asyncio
+async def test_correctly_cited_content_reports_zero_fabrication(tmp_path: Path) -> None:
+    """`_answerable_example` has exactly one context passage, so
+    `CitationService.build()` assigns it citation id "S1" -- citing it
+    correctly must not be flagged."""
+
+    dataset_dir = _write_dataset(tmp_path, [_answerable_example("a1")])
+    generation_service = MagicMock()
+    generation_service.generate = AsyncMock(
+        return_value=_fake_result(content="a1 is a thing [S1].")
+    )
+
+    benchmark = GoldenSetBenchmark(
+        generation_service=generation_service,
+        judge=_FakeJudge(),
+        providers=[GenerationProvider.OPENAI],
+    )
+    result = await benchmark.run(dataset_dir)
+
+    per_example = result.candidates[0].notes[PER_EXAMPLE_SCORES_NOTE_KEY]
+    citation_entry = next(
+        entry for entry in per_example if entry["metric"] == "fabricated_citation_rate"
+    )
+    assert citation_entry["score"] == pytest.approx(0.0)
+    assert citation_entry["passed"] is True
+
+
+@pytest.mark.asyncio
+async def test_fabricated_citation_is_flagged(tmp_path: Path) -> None:
+    """Citing "S99", which was never assigned to any chunk, must be
+    caught -- this is the case `thresholds.py`'s
+    `fabricated_citation_rate` absolute gate exists to fail a build on."""
+
+    dataset_dir = _write_dataset(tmp_path, [_answerable_example("a1")])
+    generation_service = MagicMock()
+    generation_service.generate = AsyncMock(
+        return_value=_fake_result(content="a1 is a thing [S99].")
+    )
+
+    benchmark = GoldenSetBenchmark(
+        generation_service=generation_service,
+        judge=_FakeJudge(),
+        providers=[GenerationProvider.OPENAI],
+    )
+    result = await benchmark.run(dataset_dir)
+
+    per_example = result.candidates[0].notes[PER_EXAMPLE_SCORES_NOTE_KEY]
+    citation_entry = next(
+        entry for entry in per_example if entry["metric"] == "fabricated_citation_rate"
+    )
+    assert citation_entry["score"] == pytest.approx(1.0)
+    assert citation_entry["passed"] is False
+    assert "S99" in citation_entry["reason"]
+
+
+@pytest.mark.asyncio
+async def test_chat_workflow_examples_are_not_instructed_to_cite_or_checked(
+    tmp_path: Path,
+) -> None:
+    """Chat is intentionally citation-free in production (direct
+    instruction, 2026-08-12) -- instructing chat-workflow golden examples
+    to cite would test a scenario that can never occur in real Chat
+    traffic. No `fabricated_citation_rate` entry, and no citation
+    instruction sent to the model at all."""
+
+    dataset_dir = _write_dataset(tmp_path, [_answerable_example("a1", workflow=Workflow.CHAT)])
+    generation_service = MagicMock()
+    generation_service.generate = AsyncMock(return_value=_fake_result())
+
+    benchmark = GoldenSetBenchmark(
+        generation_service=generation_service,
+        judge=_FakeJudge(),
+        providers=[GenerationProvider.OPENAI],
+    )
+    result = await benchmark.run(dataset_dir)
+
+    per_example = result.candidates[0].notes[PER_EXAMPLE_SCORES_NOTE_KEY]
+    assert "fabricated_citation_rate" not in {entry["metric"] for entry in per_example}
+
+    sent_request = generation_service.generate.await_args.kwargs["request"]
+    assert sent_request.system_prompt is None
 
 
 @pytest.mark.asyncio
@@ -301,7 +407,7 @@ async def test_one_examples_generation_failure_does_not_abort_the_run(tmp_path: 
     assert "claude: claude down" in error_entries[0]["reason"]
 
     success_entries = [entry for entry in per_example if entry["example_id"] == "a2"]
-    assert len(success_entries) == 4
+    assert len(success_entries) == 5  # 4 Ragas metrics + E20's fabricated_citation_rate
     assert all(entry["provider"] == "openai" for entry in success_entries)
 
 

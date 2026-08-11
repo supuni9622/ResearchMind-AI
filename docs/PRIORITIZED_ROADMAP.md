@@ -67,7 +67,8 @@ instruction, not derived:
 | 1 | ✅ Cost forecast (rolling-average projection) — Done, CLI report | Low-Med | High | Derived entirely from the existing `GenerationUsage` ledger, no new data collection |
 | 1 | ✅ Register golden dataset in LangSmith — Done | Med | High | Gap-closure follow-up to E1, surfaced by the 2026-08-11 cross-check — "Done" only covered the local dataset + scoring function |
 | 1 | CI live-service benchmark triggers + citation-metric wiring | High | Med | Gap-closure follow-up to E2/E4 — the absolute regression gates E2 declared are still never populated by any benchmark run |
-| 1 | ✅ Frontend thumbs up/down affordance — Done, all 3 surfaces (browser click-test still needed) | High | Med-High | Gap-closure follow-up to E3 — backend is live but nothing in the product calls it yet |
+| 1 | ✅ Frontend thumbs up/down affordance — Done, all 3 surfaces (real browser click confirmed 2026-08-11) | High | Med-High | Gap-closure follow-up to E3 — backend is live but nothing in the product calls it yet |
+| 1 | ✅ Mirror `POST /feedback` into LangSmith's own `create_feedback()` — Done | Med-High | Med | Gap-closure follow-up to E21, requested directly after the user noticed LangSmith's Feedback column stayed empty on a real click — correlates user feedback to its trace inside LangSmith's own UI |
 | 2 | User-profile memory read-side wiring | High | Med | Turns "captured but inert" into real personalization |
 | 2 | **Socratic Challenger node (pulled forward — see note below)** | High | High | Reuses `interrupt()`, proven 3x already — too cheap to defer |
 | 2 | Preference feedback → `USER` memory write path | Med | Med | Depends on the read-side fix above |
@@ -141,6 +142,15 @@ and **frontend thumbs up/down affordance** (the endpoint is live, nothing
 in the product calls it). None of this changes the four parent items'
 Done status — it means Done was correctly scoped narrower than "nothing
 left in this area." Detail: `EVALUATION_IMPLEMENTATION_TRACKER.md` E19-E21.
+
+**2026-08-11 same-day follow-up:** once the frontend affordance (E21)
+went live and the user tried it for real, they noticed LangSmith's own
+Feedback column stayed empty — our `feedback` table had the row, but
+nothing told LangSmith about it, so a trace and the feedback on it
+weren't visible together in LangSmith's UI. Wired `POST /feedback` to
+also call LangSmith's `create_feedback()`, correlated to the trace via a
+new `GenerationUsage.langsmith_run_id` column. Detail:
+`EVALUATION_IMPLEMENTATION_TRACKER.md` E22.
 
 ## Wave 2 — Personalization, agency, and one pulled-forward North Star piece
 

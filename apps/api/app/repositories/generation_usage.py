@@ -40,6 +40,7 @@ class GenerationUsageRepository:
             .values(
                 request_id=result.request.request_id,
                 generation_id=result.generation_id,
+                langsmith_run_id=result.langsmith_run_id,
                 owner_id=owner_id,
                 conversation_id=result.request.conversation_id,
                 session_id=result.request.session_id,
@@ -66,6 +67,21 @@ class GenerationUsageRepository:
             )
             .on_conflict_do_nothing(index_elements=[GenerationUsage.request_id])
         )
+
+    async def get_langsmith_run_id(self, generation_id: UUID) -> UUID | None:
+        """
+        For `FeedbackService`'s LangSmith-feedback follow-up (E21): looks
+        up the run a user's feedback should attach to in LangSmith's own
+        UI. Returns `None` for a `generation_id` this table has no row
+        for, or whose row predates this column / has no configured trace
+        -- callers must treat that as "skip the LangSmith call," not an
+        error.
+        """
+
+        statement = select(GenerationUsage.langsmith_run_id).where(
+            GenerationUsage.generation_id == generation_id
+        )
+        return (await self._session.execute(statement)).scalars().first()
 
     async def daily_cost_totals(self, *, since: datetime) -> list[tuple[date, float]]:
         """System-wide (not owner-scoped) cost per calendar day since `since`.

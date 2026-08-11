@@ -24,6 +24,17 @@ class GenerationUsage(Base):
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     request_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, unique=True)
     generation_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)
+    #
+    # This generation's LangSmith trace run id (E21's LangSmith-feedback
+    # follow-up) -- null whenever tracing wasn't configured, or for
+    # internal-helper generations that predate this column. Looked up by
+    # `generation_id` when a user submits feedback well after the trace
+    # itself has closed, so FeedbackService can call LangSmith's own
+    # create_feedback() against the right run.
+    #
+    langsmith_run_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), nullable=True, index=True
+    )
     owner_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
     )

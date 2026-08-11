@@ -45,10 +45,13 @@ def _make_usage(
     conversation_id: uuid.UUID | None = None,
     session_id: uuid.UUID | None = None,
     completed_at: datetime | None = None,
+    generation_id: uuid.UUID | None = None,
+    langsmith_run_id: uuid.UUID | None = None,
 ) -> GenerationUsage:
     return GenerationUsage(
         request_id=uuid.uuid4(),
-        generation_id=uuid.uuid4(),
+        generation_id=generation_id or uuid.uuid4(),
+        langsmith_run_id=langsmith_run_id,
         owner_id=owner_id,
         conversation_id=conversation_id,
         session_id=session_id,
@@ -300,3 +303,104 @@ async def test_daily_cost_totals_excludes_rows_before_since(db_session) -> None:
     totals = await repository.daily_cost_totals(since=datetime(2026, 1, 1, tzinfo=UTC))
 
     assert [day for day, _ in totals] == [date(2026, 1, 2)]
+
+
+@pytest.mark.asyncio
+async def test_record_persists_langsmith_run_id(db_session) -> None:
+    """E21's LangSmith-feedback follow-up: `GenerationResult.langsmith_run_id`
+    (set post-hoc from `TraceHandle.run_id` once a trace has actually run,
+    same pattern as `statistics.routing_strategy`) must survive `record()`
+    so `FeedbackService` can look it up later by `generation_id`."""
+
+    owner_id = await _make_owner(db_session)
+    run_id = uuid.uuid4()
+
+    request = GenerationRequest(
+        prompt_context=PromptContext(context="", chunks=[]),
+        user_prompt="What is RAG?",
+        owner_id=owner_id,
+    )
+    result = GenerationResult(
+        request=request,
+        execution=GenerationExecution(),
+        statistics=GenerationStatistics(provider=GenerationProvider.GROQ, model="test-model"),
+        provider=GenerationProvider.GROQ,
+        model="test-model",
+        content="RAG is retrieval-augmented generation.",
+        langsmith_run_id=run_id,
+    )
+
+    repository = GenerationUsageRepository(db_session)
+    await repository.record(result)
+    await db_session.flush()
+
+    row = (
+        await db_session.execute(
+            select(GenerationUsage).where(GenerationUsage.request_id == request.request_id)
+        )
+    ).scalar_one()
+
+    assert row.langsmith_run_id == run_id
+
+
+@pytest.mark.asyncio
+async def test_record_leaves_langsmith_run_id_null_when_tracing_not_configured(db_session) -> None:
+    owner_id = await _make_owner(db_session)
+
+    request = GenerationRequest(
+        prompt_context=PromptContext(context="", chunks=[]),
+        user_prompt="What is RAG?",
+        owner_id=owner_id,
+    )
+    result = GenerationResult(
+        request=request,
+        execution=GenerationExecution(),
+        statistics=GenerationStatistics(provider=GenerationProvider.GROQ, model="test-model"),
+        provider=GenerationProvider.GROQ,
+        model="test-model",
+        content="RAG is retrieval-augmented generation.",
+    )
+
+    repository = GenerationUsageRepository(db_session)
+    await repository.record(result)
+    await db_session.flush()
+
+    row = (
+        await db_session.execute(
+            select(GenerationUsage).where(GenerationUsage.request_id == request.request_id)
+        )
+    ).scalar_one()
+
+    assert row.langsmith_run_id is None
+
+
+@pytest.mark.asyncio
+async def test_get_langsmith_run_id_returns_the_stored_run_id(db_session) -> None:
+    owner_id = await _make_owner(db_session)
+    generation_id = uuid.uuid4()
+    run_id = uuid.uuid4()
+
+    db_session.add(
+        _make_usage(
+            owner_id=owner_id,
+            cost=1.0,
+            tokens=10,
+            generation_id=generation_id,
+            langsmith_run_id=run_id,
+        )
+    )
+    await db_session.flush()
+
+    repository = GenerationUsageRepository(db_session)
+    result = await repository.get_langsmith_run_id(generation_id)
+
+    assert result == run_id
+
+
+@pytest.mark.asyncio
+async def test_get_langsmith_run_id_returns_none_for_unknown_generation(db_session) -> None:
+    repository = GenerationUsageRepository(db_session)
+
+    result = await repository.get_langsmith_run_id(uuid.uuid4())
+
+    assert result is None

@@ -392,6 +392,20 @@ class GenerationResult(
         default_factory=uuid4,
     )
 
+    langsmith_run_id: UUID | None = Field(
+        default=None,
+        description=(
+            "This generation's LangSmith trace run id, if tracing is configured "
+            "(RuntimeTracer.trace()'s TraceHandle.run_id) -- set post-hoc by "
+            "GenerationService/StreamingService once the trace has actually run, "
+            "same pattern as statistics.routing_strategy. Lets FeedbackService "
+            "call LangSmith's own create_feedback() against the right run when "
+            "a user submits feedback well after the trace itself has closed "
+            "(EVALUATION_IMPLEMENTATION_TRACKER.md E21's LangSmith-feedback "
+            "follow-up)."
+        ),
+    )
+
     request: GenerationRequest
 
     execution: GenerationExecution

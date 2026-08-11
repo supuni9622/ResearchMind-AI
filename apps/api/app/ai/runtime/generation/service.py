@@ -982,6 +982,7 @@ class GenerationService:
                     completion_tokens=result.statistics.completion_tokens,
                     total_tokens=result.statistics.total_tokens,
                 )
+                result.langsmith_run_id = trace_handle.run_id
         except GenerationError:
             raise
         except Exception as exc:

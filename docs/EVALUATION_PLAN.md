@@ -356,11 +356,21 @@ change, already ahead of the reviewed framework**, which has no equivalent
 mechanism for keeping one user's stylistic preference out of the shared
 regression gate. Restated here only to complete the layer table in §2.
 **Status:** 1c's collection mechanism (`POST /feedback`) is live as of
-2026-08-11 (backend only, see §16 phase 3) — the objective/preference
-classification split (1g) itself is not yet implemented. Note that
-"backend only" is a real gap, not a formality: with no frontend
-affordance, zero real feedback can flow in yet regardless of how complete
-the backend is. Tracked as `EVALUATION_IMPLEMENTATION_TRACKER.md` E21.
+2026-08-11, including the frontend affordance across all three surfaces
+(Chat, Linear Research, Deep Research) — a real browser click was
+confirmed the same day. The objective/preference classification split
+(1g) itself is not yet implemented. Tracked as
+`EVALUATION_IMPLEMENTATION_TRACKER.md` E21.
+
+Same day, once real feedback was flowing, a related gap surfaced: user
+feedback landed in our own `feedback` table but was invisible inside
+LangSmith's own UI, since nothing correlated it back to the trace it was
+left on. Fixed by wiring `POST /feedback` to also call LangSmith's
+`create_feedback()` API against the originating run — see
+`EVALUATION_IMPLEMENTATION_TRACKER.md` E22. This directly serves this
+section's own "LangSmith as the control plane" framing (§11's trace-tag
+point above): a user's thumbs up/down and the trace it was left on are
+now both visible together inside LangSmith, not just in our own DB.
 
 ---
 
@@ -458,7 +468,7 @@ near-term build; **Mature** phases are explicitly deferred, not dropped.
 |---|---|---|---|
 | 1 | ✅ Golden dataset (`rag_answer_gold`, schema from §3) — Done, 115 examples (grown from 24) 2026-08-11 | MVP | = original 1a step 1. Grounded in real, verified content throughout — started at 24 to avoid padding with unverified facts, grown to 115 the same day once the underlying corpus expanded from 5 to 50 papers (§4/§5's update). See `EVALUATION_IMPLEMENTATION_TRACKER.md` E1 for the full growth breakdown. LangSmith registration still open — tracker E19 |
 | 2 | ✅ Wire `benchmarks/regression/` into CI, gate types per §13 — Done (smoke tier) 2026-08-11 | MVP | = original 1a step 2. Absolute + relative gates both implemented; one CI job wired for the fully-offline Ingestion Fidelity benchmark. Retrieval/generation benchmark CI triggers still need live-service credentials — not yet configured, and the absolute gates this phase declared have no benchmark run populating them yet. Detail: `EVALUATION_IMPLEMENTATION_TRACKER.md` E2, follow-up E20 |
-| 3 | ✅ `POST /feedback` + thumbs up/down (backend) — Done 2026-08-11 — ⬜ objective/preference classification (1c/1g) not started | MVP | = original steps 3, 10. Frontend affordance not built. Detail: `EVALUATION_IMPLEMENTATION_TRACKER.md` E3, follow-up E21 |
+| 3 | ✅ `POST /feedback` + thumbs up/down (backend + frontend, all 3 surfaces) — Done 2026-08-11 — ✅ mirrored into LangSmith's own `create_feedback()` — Done 2026-08-11 — ⬜ objective/preference classification (1c/1g) not started | MVP | = original steps 3, 10. Detail: `EVALUATION_IMPLEMENTATION_TRACKER.md` E3, follow-ups E21/E22 |
 | 4 | ✅ Citation validator (§8) — generalize `citation_integrity_score` cross-surface, release-blocking — Done 2026-08-11 | MVP | **New, highest value-per-effort item in this plan.** Checker built (`app/ai/knowledge/context/citations/validity.py`); CI/online-gate wiring is phases 2/6. Detail: `EVALUATION_IMPLEMENTATION_TRACKER.md` E4, follow-up E20 |
 | 5 | ✅ Config fingerprint threaded through `GenerationRequest`→`GenerationUsage` (1f) — Done 2026-08-11 | MVP | = original step 8. `app/ai/runtime/generation/config_fingerprint.py`; populated at the 3 answer-producing call sites (Chat, Linear Research, Deep Research synthesis). Verified against a real Postgres row + real migration upgrade/downgrade. Detail: `EVALUATION_IMPLEMENTATION_TRACKER.md` E8 |
 | 6 | Online risk-weighted scoring job, merged sampling table (§14) | MVP | = original steps 4, 9 |

@@ -73,13 +73,18 @@ E18 (cost forecast)       — independent, infra already real
 E1 ──► E19 (LangSmith registration)
 E2, E4, E1 ──► E20 (CI live-service triggers + citation-metric wiring)
 E3 ──► E21 (frontend feedback affordance)
+E21 ──► E22 (mirror feedback into LangSmith's create_feedback())
 ```
 
 E19/E20/E21 are gap-closure items surfaced by the 2026-08-11 cross-check
 pass ([§0](#0-corrections-found-during-this-pass)) — each one is a
 follow-up that was already an unchecked subtask inside E1/E2/E3
 respectively, now promoted to its own row so it can't be missed once its
-parent item shows as "Done."
+parent item shows as "Done." E22 is a different kind of gap-closure: not
+a dangling subtask found during the cross-check, but a live-verification
+finding — the user submitted real feedback in Chat and noticed LangSmith's
+own Feedback column stayed empty, then asked directly for it to be wired
+up (2026-08-11, same day as E21).
 
 **Recommended build order — historical** (the order actually followed
 through E1-E4, E8, E12-E15; kept for the record):
@@ -165,6 +170,13 @@ E21 too, on top of its declared E6 dependency.
       dependency) — same "sequence last regardless of build order"
       instruction as the historical order above, now doubly gated
 
+[E22](#e22-langsmith-create_feedback-wiring) shipped out of this R1-R5
+sequence entirely, same day as E21 — not because it jumped the queue on
+merit, but because the user hit the gap live (submitted real Chat
+feedback, then checked LangSmith and found the Feedback column empty)
+and asked for it directly. Worth noting for future prioritization calls:
+a live user-observed gap beats the planned order.
+
 ---
 
 ## 2. Status summary
@@ -191,9 +203,10 @@ E21 too, on top of its declared E6 dependency.
 | [E18](#e18-cost-forecast) | Cost forecast (rolling-average) | **Done** (CLI report; dashboard-panel half deferred to E7, no admin auth exists yet) | Low-Med | High | — |
 | [E19](#e19-register-golden-dataset-in-langsmith) | Register golden dataset in LangSmith | **Done** (dataset live in LangSmith, confirmed; Experiment-logging subtask not started) | Med | High | E1 |
 | [E20](#e20-ci-live-service-benchmark-triggers--citation-metric-wiring) | CI live-service benchmark triggers + citation-metric wiring | Not started | High | Low-Med | E1, E2, E4 |
-| [E21](#e21-frontend-thumbs-updown-affordance) | Frontend thumbs up/down affordance | **Built, all 3 surfaces** (backend `generation_id` exposure + frontend UI; browser click-test not run by me, no browser tool available) | High | Med-High | E3 |
+| [E21](#e21-frontend-thumbs-updown-affordance) | Frontend thumbs up/down affordance | **Done** (backend `generation_id` exposure + frontend UI; real browser click confirmed by user 2026-08-11, produced a correctly-linked `feedback` row) | High | Med-High | E3 |
+| [E22](#e22-langsmith-create_feedback-wiring) | Mirror `POST /feedback` into LangSmith's own `create_feedback()` | **Done** (2026-08-11) | Med-High | Med | E21 |
 
-E19-E21 are gap-closure follow-ups to already-"Done" items, surfaced by
+E19-E22 are gap-closure follow-ups to already-"Done" items, surfaced by
 the 2026-08-11 cross-check pass — see [§0](#0-corrections-found-during-this-pass).
 
 Update the **Status** column as work lands: `Not started` → `In progress`
@@ -1387,7 +1400,7 @@ exist in `thresholds.py`.
 
 ---
 
-### E21. Frontend thumbs up/down affordance — **Built, browser click-test not run by me** (2026-08-11)
+### E21. Frontend thumbs up/down affordance — **Done** (2026-08-11)
 
 **Roadmap:** Wave 1, follow-up to row 3. **Eval Plan:** §12 (1c). Surfaced
 as a dangling subtask inside
@@ -1459,25 +1472,109 @@ backend changes across all three surfaces before any button could work:
       server) confirmed to include the new `generation_id` field on
       `ResearchReportDownloadResponse` — the running server actually
       picked up the change, not just a static code read.
-- [ ] **Not verified: an actual browser click.** No browser-automation
+- [x] **Actual browser click, confirmed 2026-08-11.** No browser-automation
       tool (Playwright/Puppeteer/screenshot) is available in this
-      environment — flagged explicitly rather than claiming UI
-      verification that didn't happen. Everything up to "a real click
-      would work" is verified; the click itself needs a human (or a
-      future session with browser tooling) to actually perform.
+      environment, so this needed a human — the user clicked thumbs-up on
+      a real Chat response; queried the `feedback` table directly and
+      confirmed a real row (`rating=up`, `surface=chat`) whose
+      `generation_id` matched a real `generation_usage` row.
 
 **Acceptance criteria:** a real thumbs-down click in the browser produces
-a row queryable by `owner_id`/`generation_id` — **not independently
-confirmed**, pending the manual click-test above. Everything the click
-would exercise (schema, wiring, persistence, upsert idempotency) is
-covered by the passing test suite and confirmed live-server schema check.
+a row queryable by `owner_id`/`generation_id` — **confirmed** (thumbs-up
+tested; thumbs-down exercises the identical code path and is covered by
+the test suite).
+
+---
+
+### E22. LangSmith `create_feedback()` wiring — **Done** (2026-08-11)
+
+**Roadmap:** not a roadmap row of its own — a gap-closure follow-up to E21,
+requested directly by the user after they submitted real feedback in Chat
+and noticed LangSmith's own Feedback column stayed empty ("that's good we
+have our own feedback system, but i think we need to wire it into
+langsmith as well, so we can have better traceability and connectivity").
+Distinct from [E6](#e6-feedback--trace-attachment--eval_scores-table),
+which is our own internal `eval_scores` table — this item mirrors
+`POST /feedback` submissions into LangSmith's own UI so a trace and the
+feedback on it are visible together without leaving LangSmith.
+
+**Current state:** `POST /feedback` (E3/E21) only wrote to our own
+`feedback` table — `GenerationResult` never carried a LangSmith run id
+past the moment its trace closed, so there was no way to call LangSmith's
+`create_feedback(run_id=...)` from a later, out-of-band feedback
+submission.
+
+**What shipped:**
+- `TraceHandle.run_id: UUID | None` (`observability/providers/langsmith/tracing.py`)
+  — the `LangSmithTracer.trace()`-generated run id, now exposed on the
+  handle instead of only living in the `current_run_id` `ContextVar`
+  (which is only valid synchronously during the trace itself and can't
+  serve a later async lookup).
+- `GenerationResult.langsmith_run_id`, set post-hoc in
+  `GenerationService`/`StreamingService` right after `trace_handle.set_output(...)`
+  — same pattern as `GenerationStatistics.routing_strategy` (E8's
+  resolved-fact-not-the-ask fix).
+- `GenerationUsage.langsmith_run_id` column (migration `37d9f41035ed`,
+  verified via scratch-DB upgrade → downgrade → re-upgrade cycle before
+  applying to the real dev DB) + `GenerationUsageRepository.get_langsmith_run_id(generation_id)`.
+- `observability/providers/langsmith/user_feedback.py::sync_user_feedback()`
+  — best-effort (never raises, matches `LangSmithMetricsRecorder`'s
+  established swallow-and-log pattern), calls
+  `client.create_feedback(run_id=..., key="user_rating", score=1.0/0.0,
+  comment=..., feedback_id=<our own Feedback.id>)`.
+- `FeedbackService.submit()` now looks up the run id and calls
+  `sync_user_feedback()` after the primary DB write/commit succeeds — a
+  LangSmith failure never blocks the feedback a user actually submitted.
+
+**Real bug avoided, not just assumed away:** before writing
+`sync_user_feedback`, empirically tested (not assumed, per the E19
+lesson) whether `create_feedback()`'s `feedback_id` param actually
+upserts — created feedback against a real run with a fixed
+`feedback_id`, called it again with a different score/comment, then
+`read_feedback()`'d it back: same id, latest values, no duplicate. This
+is why `feedback_id` can safely be our own `Feedback.id` — a user
+changing their vote updates the same LangSmith record instead of
+accumulating duplicates.
+
+**Subtasks:**
+- [x] `TraceHandle.run_id` + `_LangSmithTraceHandle` construction fix
+- [x] `GenerationResult.langsmith_run_id` field
+- [x] Set it post-hoc in both `GenerationService` and `StreamingService`
+- [x] `generation_usage.langsmith_run_id` column + migration, verified
+      via scratch-DB upgrade/downgrade/re-upgrade before applying to dev
+- [x] `GenerationUsageRepository.get_langsmith_run_id()`
+- [x] `sync_user_feedback()` bridge module
+- [x] Wire into `FeedbackService.submit()`, DI updated
+      (`dependencies/feedback.py`)
+- [x] Unit tests: `test_user_feedback.py` (4 tests),
+      `test_feedback_service.py` (2 tests, LangSmith-call wiring)
+- [x] Integration tests: 4 new tests in
+      `test_generation_usage_repository.py` (record persists/omits
+      `langsmith_run_id`; `get_langsmith_run_id` found/not-found)
+- [x] Fixed one pre-existing test
+      (`test_live_stream_is_traced_and_metrics_recorded_on_success`) whose
+      `MagicMock` tracer needed an explicit `run_id` now that
+      `GenerationResult` validates it as `UUID | None`
+
+**Verification:** `mypy .` clean (1245 files), `ruff check`/`format`
+clean, full suite 1697/1697 passing. Live-verified end to end against the
+real dev Postgres DB and the real LangSmith account (not mocks): inserted
+a throwaway `generation_usage` row carrying a real LangSmith run id,
+submitted feedback through the real `FeedbackService`, then confirmed via
+`client.read_feedback()` that LangSmith actually shows the mirrored
+record — matching `run_id`, `key="user_rating"`, `score`, and `comment`.
+Throwaway DB row and LangSmith feedback record both cleaned up after.
+
+**Acceptance criteria:** a user's thumbs up/down appears in LangSmith's
+own Feedback column, correlated to the trace it was left on — confirmed
+live.
 
 ---
 
 ## 4. Definition of done for Wave 1
 
 Per `EVALUATION_PLAN.md` §16, Wave 1 (its MVP phases 1-14, plus the three
-roadmap-only additions E16-E18, plus the E19-E21 gap-closure items found
+roadmap-only additions E16-E18, plus the E19-E22 gap-closure items found
 during the 2026-08-11 cross-check) is done when:
 
 - [ ] `rag_answer_gold` exists with ≥50 examples, full schema, and is
@@ -1486,7 +1583,9 @@ during the 2026-08-11 cross-check) is done when:
       absolute, across retrieval/generation/ingestion benchmarks — not
       just the one offline benchmark wired in today (E2, E4, E20)
 - [ ] Real user feedback flows in through an actual UI, not only via
-      direct API call, and is classified (E3, E11, E21)
+      direct API call, and is classified (E3, E11, E21; E22 additionally
+      mirrors it into LangSmith's own UI, not required for this box but
+      done anyway per direct user request)
 - [ ] Every response on every surface gets a citation-validity check,
       100% sampled (E4, E5)
 - [ ] `eval_scores` is the single source of truth queried by the
@@ -1500,13 +1599,13 @@ during the 2026-08-11 cross-check) is done when:
 - [ ] All six 0-byte files under `tests/evaluation/`/`tests/security/` are
       populated and passing
 
-**Status as of 2026-08-11: 0 of 10 checked.** 9 of the (now) 21 tracked
-items are done (E1-E4, E8, E12-E15), but every box above needs at least
-one not-yet-started item (E5-E7, E9-E11, E16-E21) to close — including
-three of the boxes above that now explicitly need E19-E21 on top of their
-already-done parent items, since "the checker/dataset/endpoint exists"
-turned out not to mean "the box is checkable" for any of the first three
-rows.
+**Status as of 2026-08-11: 0 of 10 checked.** 11 of the (now) 22 tracked
+items are fully done (E1-E4, E8, E12-E15, E21, E22), but every box above
+needs at least one not-yet-started item (E5-E7, E9-E11, E16-E20) to close
+— including three of the boxes above that now explicitly need E19-E21 on
+top of their already-done parent items, since "the checker/dataset/
+endpoint exists" turned out not to mean "the box is checkable" for any of
+the first three rows.
 
 ## 5. Explicitly out of scope for this tracker
 
@@ -1546,12 +1645,14 @@ adversarial dataset is a direct input to Wave 7 when it starts.
 | Register golden dataset in LangSmith | *(gap-closure, see E19)* | E19 |
 | CI live-service benchmark triggers + citation-metric wiring | *(gap-closure, see E20)* | E20 |
 | Frontend thumbs up/down affordance | *(gap-closure, see E21)* | E21 |
+| Mirror `POST /feedback` into LangSmith's `create_feedback()` | *(gap-closure, see E22)* | E22 |
 
-E19-E21 have no corresponding row in `EVALUATION_PLAN.md` §16's phase
+E19-E22 have no corresponding row in `EVALUATION_PLAN.md` §16's phase
 table by design — they aren't new phases, they're follow-up work inside
 phases 1/2/3/4 that those phases' own status annotations already flag as
-open (see §16 rows 1-4). Cross-referenced from there, not duplicated as
-new phases.
+open (see §16 rows 1-4), or (E22) a live-verification finding surfaced
+after phase 3 shipped. Cross-referenced from there, not duplicated as new
+phases.
 
 If `EVALUATION_PLAN.md` or `PRIORITIZED_ROADMAP.md` change scope on any
 Wave 1 item, update this table and the corresponding item section in the

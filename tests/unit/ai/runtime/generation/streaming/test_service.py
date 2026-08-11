@@ -468,6 +468,8 @@ async def test_live_stream_is_traced_and_metrics_recorded_on_success() -> None:
     generation_service.stream_generate = MagicMock(return_value=_fake_stream(chunks))
 
     tracer = MagicMock()
+    trace_run_id = uuid4()
+    tracer.trace.return_value.__enter__.return_value.run_id = trace_run_id
     metrics_service = MagicMock()
     observability_service = AsyncMock()
 
@@ -497,6 +499,7 @@ async def test_live_stream_is_traced_and_metrics_recorded_on_success() -> None:
     metrics_service.record.assert_called_once()
     recorded_result = metrics_service.record.call_args.args[0]
     assert recorded_result.content == "hi"
+    assert recorded_result.langsmith_run_id == trace_run_id
     assert recorded_result.statistics.streamed is True
 
     observability_service.record_generation.assert_awaited_once()

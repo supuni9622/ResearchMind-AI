@@ -377,6 +377,7 @@ class StreamingService:
             latency_ms=(perf_counter() - started) * 1000,
             routing_strategy=routing_strategy,
             generation_id=generation_id,
+            langsmith_run_id=trace_handle.run_id,
         )
 
         result = await self._generation_service.score_completed_stream(
@@ -482,6 +483,7 @@ class StreamingService:
         latency_ms: float,
         routing_strategy: RoutingStrategy | None,
         generation_id: UUID,
+        langsmith_run_id: UUID | None,
     ) -> GenerationResult:
         """
         Best-effort statistics: today's provider `stream()` implementations
@@ -509,6 +511,7 @@ class StreamingService:
 
         return GenerationResult(
             generation_id=generation_id,
+            langsmith_run_id=langsmith_run_id,
             request=request,
             execution=GenerationExecution(
                 completed_at=datetime.now(UTC),

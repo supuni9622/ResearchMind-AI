@@ -62,7 +62,16 @@ class ResearchReportDownloadService:
             if not await self._storage.exists(key=key):
                 return None
             raw = await self._storage.download(key=key)
-            artifact = ResearchFinalReportArtifact.model_validate(json.loads(raw))
+            # `ResearchFinalReportArtifactWriter` writes this via
+            # `write_json_artifact`, which wraps the payload in
+            # `JsonDictFile(data=...)` -- the file on disk is
+            # `{"data": {...actual artifact fields...}}`, not the artifact
+            # fields at the top level. Real bug found live (2026-08-11): a
+            # completed Deep Research run's feedback control never
+            # rendered because this always threw (caught below, logged,
+            # silently returned None) on the un-unwrapped payload.
+            payload = json.loads(raw)
+            artifact = ResearchFinalReportArtifact.model_validate(payload["data"])
             return artifact.draft.generation_id
         except Exception:
             logger.warning(

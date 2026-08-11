@@ -18,7 +18,7 @@ from contextlib import AbstractContextManager, contextmanager
 from contextvars import ContextVar
 from datetime import UTC, datetime
 from typing import Any
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import structlog
 
@@ -46,6 +46,19 @@ class TraceHandle(ABC):
     outputs") and has the token counts LangSmith needs to compute cost.
     Calling this is optional; a trace with no `set_output()` call just
     has no output recorded, same as before this existed.
+    """
+
+    run_id: UUID | None = None
+    """
+    This trace's LangSmith run id, if tracing is actually configured --
+    `None` under `NoOpTracer`. Lets a caller persist it (e.g. onto
+    `GenerationResult`/`GenerationUsage`) so a much-later, out-of-band
+    action -- a user's thumbs up/down, submitted well after the trace
+    itself has closed -- can still call `client.create_feedback(run_id=...)`
+    against the right run (`FeedbackService`, EVALUATION_IMPLEMENTATION_
+    TRACKER.md E21's LangSmith-feedback follow-up). `current_run_id`
+    (below) can't serve this: it's a `ContextVar` valid only while this
+    trace's own `with` block is still open.
     """
 
     @abstractmethod
@@ -105,7 +118,8 @@ class NoOpTracer(RuntimeTracer):
 
 
 class _LangSmithTraceHandle(TraceHandle):
-    def __init__(self) -> None:
+    def __init__(self, *, run_id: UUID) -> None:
+        self.run_id = run_id
         self.outputs: dict[str, Any] = {}
 
     def set_output(
@@ -192,7 +206,7 @@ class LangSmithTracer(RuntimeTracer):
         token = current_run_id.set(str(run_id))
 
         error: str | None = None
-        handle = _LangSmithTraceHandle()
+        handle = _LangSmithTraceHandle(run_id=run_id)
 
         try:
             yield handle

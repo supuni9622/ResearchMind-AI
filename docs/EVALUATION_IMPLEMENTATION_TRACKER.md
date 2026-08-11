@@ -327,6 +327,19 @@ all 24. Both target test files are non-empty and pass — **met**, 29 new
 tests (15 + 14), all passing. Whole-repo verification: 1632/1632 tests
 pass, clean `mypy`/`ruff`/`ruff format` across 1235 source files.
 
+**Update (2026-08-11): the "not enough real content to grow past 24
+without fabricating" blocker is gone.** The underlying corpus grew from
+5 to 50 papers (see [E14](#e14-retrieval-metric-completeness)'s update
+note) — `rag_answer_gold.json` itself wasn't regenerated in this pass,
+but `generation_queries.json` (one of this dataset's real-content
+sources, per `g1-g13`'s promotion pattern) now has 79 more hand-verified
+entries (`g14-g92`) to promote from, on top of the 45 new papers
+themselves. Growing toward 50-150 is now a matter of curation time, not
+a lack of real, verifiable material — worth revisiting before starting
+[E19](#e19-register-golden-dataset-in-langsmith) or
+[E16](#e16-llm-as-judge-metric), which are more valuable against a larger
+golden set.
+
 ---
 
 ### E2. Wire `benchmarks/regression/` into CI — **Done, smoke tier** (2026-08-11)
@@ -987,6 +1000,26 @@ missing.
 threshold; this is genuinely a small item, don't over-scope it. — **Met.**
 30/30 tests pass across both files (`pytest tests/unit/benchmarks/retrieval/test_metrics.py
 tests/evaluation/test_retrieval_precision.py`).
+
+**Update (2026-08-11): underlying corpus grew from 5 to 50 papers.**
+The user added 45 more real research-paper PDFs to
+`benchmarks/datasets/research-papers/`; all were batch-ingested through
+the real `DoclingParser` (paper-006..050, 45/45 succeeded, verified via
+`DatasetLoader` schema validation and full-suite test run — no changes
+needed to `hit_rate_at_k`/`benchmark.py` itself, since `DatasetLoader`
+already iterates every `paper-NNN` directory). `retrieval_queries.json`
+grew from 20 to 160 queries (q21-q160 new) and `generation_queries.json`
+from 13 to 92 (g14-g92 new), covering all 45 new papers across 11 topic
+clusters with cross-document queries where genuinely supportable —
+drafted by parallel research agents grounded in each paper's real text,
+then programmatically verified against the source `processed_document.json`
+(no entry accepted without passing). This means retrieval precision is
+now measured against a corpus with real topical overlap/distractors
+instead of 5 near-unrelated documents — a materially harder and more
+realistic test than before. Ingestion-fidelity fixtures (E12) were **not**
+extended to the new 45 — that still needs hand-verified expected
+heading/table counts per paper, unlike retrieval/generation queries which
+can be checked against source text automatically.
 
 ---
 

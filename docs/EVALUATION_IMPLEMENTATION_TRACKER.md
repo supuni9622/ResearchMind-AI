@@ -187,7 +187,7 @@ E21 too, on top of its declared E6 dependency.
 | [E14](#e14-retrieval-metric-completeness) | Retrieval metric completeness | **Done** | Med | High | — |
 | [E15](#e15-adversarial-dataset) | Adversarial dataset (10-20 cases) | **Done** | Med | Med | — |
 | [E16](#e16-llm-as-judge-metric) | LLM-as-judge metric | Not started | Med | Med | E1 |
-| [E17](#e17-latency-slo-alerts--eval_scores-grafana-panel) | Latency-SLO alerts + `eval_scores` Grafana panel | Not started | Med | High | E6 (for the panel half) |
+| [E17](#e17-latency-slo-alerts--eval_scores-grafana-panel) | Latency-SLO alerts + `eval_scores` Grafana panel | **Alert-rules half done** (Chat + Linear Research; Deep Research has no duration metric yet; panel half blocked on E6) | Med | High | E6 (for the panel half) |
 | [E18](#e18-cost-forecast) | Cost forecast (rolling-average) | **Done** (CLI report; dashboard-panel half deferred to E7, no admin auth exists yet) | Low-Med | High | — |
 | [E19](#e19-register-golden-dataset-in-langsmith) | Register golden dataset in LangSmith | **Done** (dataset live in LangSmith, confirmed; Experiment-logging subtask not started) | Med | High | E1 |
 | [E20](#e20-ci-live-service-benchmark-triggers--citation-metric-wiring) | CI live-service benchmark triggers + citation-metric wiring | Not started | High | Low-Med | E1, E2, E4 |
@@ -1148,30 +1148,69 @@ act on, not just a number.
 
 ---
 
-### E17. Latency-SLO alerts + `eval_scores` Grafana panel
+### E17. Latency-SLO alerts + `eval_scores` Grafana panel — **Alert-rules half done** (2026-08-11)
 
 **Roadmap:** Wave 1, row 17 (roadmap-only addition, closes
 `PRODUCTION_READINESS_EVALUATION.md` item 2 and `PHASE_2_3_ROADMAP.md`
 Part 3 item 5). **Eval Plan:** §11 (operational, "already sufficient").
 
 **Current state:** Prometheus/Grafana measurement infrastructure is real
-and live (Phase 9). No SLO threshold definitions or alert rules exist yet
-for latency specifically; no Grafana panel for `eval_scores` (since that
-table doesn't exist until E6).
+and live (Phase 9). Two P95 latency-SLO alert rules now added to
+`infra/observability/prometheus/alerts.yml` and confirmed loaded into a
+real running Prometheus instance (not just YAML syntax review) — the
+panel half is still blocked on E6 (`eval_scores` doesn't exist yet).
+
+**Real scoping finding, not silently defaulted:** the tracker's own
+framing ("per surface — Chat/Linear/Deep Research") turned out to only be
+achievable for **two** of the three surfaces against *existing* metrics.
+`researchmind_generation_duration_seconds{runtime="chat"}` (Chat) and
+`researchmind_research_duration_seconds{source_mode="linear"}` (Linear
+Research) are real, dedicated histograms. **Deep Research has no
+end-to-end duration histogram at all** — it runs in
+`apps/worker/research_runtime_worker.py`, which emits no
+`DURATION_METRICS` entry today (confirmed via `grep`, not assumed).
+Adding a Deep Research latency alert needs new instrumentation first,
+which is out of scope for "add alert rules against the *existing*
+histograms" — flagged explicitly as a known gap (in this tracker and in
+`docs/runbooks/prometheus-grafana-observability.md`) rather than silently
+skipped or faked with a proxy metric that doesn't actually measure
+Deep Research latency.
+
+**Threshold provenance:** no real traffic data existed to calibrate
+against when these were written — in-process Prometheus counters reset
+on every local `uvicorn --reload`, so nothing had accumulated (confirmed
+via a live Prometheus query returning zero samples, not assumed). Set
+15s (Chat) / 45s (Linear Research) as documented starting defaults based
+on the existing `RUNTIME_BUCKETS` histogram's own bucket range (up to
+120s) and typical interactive-LLM-latency expectations — explicitly
+flagged as needing recalibration once real production volume exists,
+same caveat this project already applies to every regression threshold
+in `benchmarks/regression/thresholds.py`.
 
 **Subtasks:**
-- [ ] Define P95 latency SLO thresholds per surface (Chat/Linear/Deep
-      Research likely need different bars given their different shapes)
-- [ ] Add Prometheus alert rules against the existing latency histograms
-- [ ] Add a Grafana panel visualizing `eval_scores` (E6) trends — this
-      half is blocked on E6 existing; the alert-rule half is not
-- [ ] Cross-reference `docs/monitoring/grafana.md` and
-      `docs/runbooks/prometheus-grafana-observability.md`, which already
-      document the existing dashboard set — extend, don't duplicate
+- [x] Define P95 latency SLO thresholds per surface — Chat (15s) and
+      Linear Research (45s) defined; Deep Research not possible against
+      existing metrics (see above)
+- [x] Add Prometheus alert rules against the existing latency histograms
+      (`ResearchMindChatLatencyHigh`, `ResearchMindLinearResearchLatencyHigh`)
+      — verified via a real Prometheus container restart + `/api/v1/rules`:
+      both rules parse (`health: ok`, no `lastError`) and correctly report
+      `state: inactive` against real (empty) data, not a syntax-only check
+- [ ] Add a Grafana panel visualizing `eval_scores` (E6) trends — still
+      blocked on E6, as originally scoped
+- [x] Cross-reference `docs/monitoring/grafana.md` and
+      `docs/runbooks/prometheus-grafana-observability.md` — the latter's
+      existing alert table extended with both new rules plus the Deep
+      Research gap note, not duplicated
 
-**Acceptance criteria:** a deliberate latency regression fires an alert;
-the panel exists even if E6 hasn't shipped (can stub with a "no data
-yet" state, shouldn't block the alert-rule half).
+**Acceptance criteria:** a deliberate latency regression fires an alert —
+**not independently verified against a real breach** (no live traffic
+existed to force one; verified instead that the rules load correctly
+against real metric/label names and report the correct baseline
+`inactive` state — the honest level of verification available given no
+production volume yet). The panel exists even if E6 hasn't shipped —
+**not met**, deferred with E6 as originally scoped, doesn't block the
+alert-rule half.
 
 ---
 

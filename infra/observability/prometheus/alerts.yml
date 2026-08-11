@@ -63,3 +63,45 @@ groups:
           severity: warning
         annotations:
           summary: Memory extraction runs for more than 70% of evaluated turns
+
+      # Latency-SLO alerts (EVALUATION_IMPLEMENTATION_TRACKER.md E17,
+      # PRODUCTION_READINESS_EVALUATION.md item 2). Thresholds are
+      # documented starting points, not calibrated against real production
+      # traffic yet -- no live percentile data existed to calibrate
+      # against when these were written (in-process Prometheus counters
+      # reset on every API restart in local dev, so there was nothing
+      # accumulated to check against). Revisit once real volume exists,
+      # same "not yet calibrated" caveat this project already applies to
+      # every other regression threshold in benchmarks/regression/thresholds.py.
+      #
+      # Per-surface, not per-pipeline-stage (retrieval/rerank have no
+      # dedicated latency histogram to alert on yet) -- and Deep Research
+      # specifically has no end-to-end duration histogram at all (it runs
+      # in apps/worker/research_runtime_worker.py, which emits no
+      # DURATION_METRICS entry today); only Chat and Linear Research have
+      # a real histogram to alert against. Deep Research latency alerting
+      # needs new instrumentation first, tracked as a known gap, not
+      # silently skipped.
+      - alert: ResearchMindChatLatencyHigh
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum(rate(researchmind_generation_duration_seconds_bucket{runtime="chat"}[10m])) by (le)
+          ) > 15
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: Chat P95 generation latency is above 15s
+
+      - alert: ResearchMindLinearResearchLatencyHigh
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum(rate(researchmind_research_duration_seconds_bucket{source_mode="linear"}[10m])) by (le)
+          ) > 45
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: Linear Research P95 turn latency is above 45s

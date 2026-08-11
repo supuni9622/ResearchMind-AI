@@ -63,7 +63,7 @@ instruction, not derived:
 | 1 | ✅ Retrieval metric completeness (Recall@K, Hit Rate@K) — Done | Med | High | Small extension of an already-real benchmark suite |
 | 1 | ✅ Adversarial dataset (10-20 cases) — Done (18 cases) | Med | Med | Tests our own guardrails — feeds Wave 7 directly |
 | 1 | LLM-as-judge metric (tone, completeness against a rubric) | Med | Med | Bolt-on to Ragas once the golden set exists — not a redesign |
-| 1 | Latency-SLO alert rules + `eval_scores` Grafana panel | Med | High | Measurement infra already real; this is threshold definition + one alert rule + one panel |
+| 1 | ✅ Latency-SLO alert rules — Done (Chat + Linear Research); ⬜ `eval_scores` Grafana panel — blocked on E6 | Med | High | Measurement infra already real; this is threshold definition + one alert rule + one panel |
 | 1 | ✅ Cost forecast (rolling-average projection) — Done, CLI report | Low-Med | High | Derived entirely from the existing `GenerationUsage` ledger, no new data collection |
 | 1 | ✅ Register golden dataset in LangSmith — Done | Med | High | Gap-closure follow-up to E1, surfaced by the 2026-08-11 cross-check — "Done" only covered the local dataset + scoring function |
 | 1 | CI live-service benchmark triggers + citation-metric wiring | High | Med | Gap-closure follow-up to E2/E4 — the absolute regression gates E2 declared are still never populated by any benchmark run |

@@ -131,12 +131,21 @@ Prometheus → Alerts:
 | `ResearchMindHighWebSearchFailureRate` | Web-search failure rate > 20% for 15m | Tavily outage/rate-limit, or an expired/invalid API key |
 | `ResearchMindHighMcpFailureRate` | MCP tool failure rate > 15% for 15m | The Research Intelligence MCP server is down or unreachable |
 | `ResearchMindUnexpectedMemoryExtractionRate` | Extraction requested/evaluated ratio > 70% for 30m | The extraction policy/threshold changed (intentionally or not) and is now firing on most turns |
+| `ResearchMindChatLatencyHigh` | Chat P95 generation latency > 15s for 10m | A provider is degraded/slow, or a routing change picked a slower model |
+| `ResearchMindLinearResearchLatencyHigh` | Linear Research P95 turn latency > 45s for 10m | Retrieval/reranking or the generation provider is degraded |
 
 These thresholds are **local-development defaults**, not tuned production
 SLOs (PRD §32) — expect to revisit them once there's real traffic to
 calibrate against. Alerts have no notification channel wired up yet
 (no PagerDuty/Opsgenie/Slack) — this milestone stops at "visible in the
 Prometheus UI," per the PRD's explicit non-goals.
+
+**Known gap:** Deep Research has no dedicated end-to-end duration
+histogram yet (it runs in `apps/worker/research_runtime_worker.py`,
+which currently emits no `DURATION_METRICS` entry), so there is no
+latency-SLO alert for it — adding one needs new instrumentation first,
+not just a new alert rule. Tracked in
+`EVALUATION_IMPLEMENTATION_TRACKER.md` E17.
 
 ### Useful ad-hoc queries
 

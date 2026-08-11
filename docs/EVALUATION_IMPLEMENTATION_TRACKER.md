@@ -1406,27 +1406,79 @@ cycle, and gets exercised by the next CI regression run.
 
 ---
 
-### E11. Comment classification (objective/preference split)
+### E11. Comment classification (objective/preference split) — **Done** (2026-08-12)
 
 **Roadmap:** Wave 1, row 11. **Eval Plan:** §16 phase 3 (second half), §12
 (1g).
 
-**Current state:** Not started, depends on E3's feedback comment field
-existing.
+**Current state:** Built exactly as scoped, no gaps found. New
+`app/ai/runtime/generation/comment_classification/` subpackage
+(`models.py`: `CommentClassificationDecision`; `service.py`:
+`CommentClassificationService`; `create.py`: composition root) --
+structurally a near-exact mirror of `WebSearchNecessityService`/
+`web_search/create.py`: dedicated cheap OpenAI (`gpt-5-mini`) / Claude
+(`claude-haiku-4-5`) provider registry, isolated from the app's main
+generation config, `RoutingStrategy.CLASSIFICATION` fallback when neither
+is configured, fail-closed on any exception. New dedicated settings
+(`comment_classification_openai_model`/`_claude_model`, mirroring
+`web_search_decision_*`'s isolation rationale exactly, per this
+codebase's now-3x-repeated convention of never sharing a cheap-call
+model setting across unrelated bounded calls).
+
+**One real design decision, not silently defaulted:** what should the
+classifier fail closed *to*? `WebSearchNecessityService` fails closed to
+"no search" (the cheap, safe default for that domain). Here, "objective"
+and "preference" aren't a binary safe/unsafe pair -- picked **preference**
+as the fail-closed default specifically because an *objective*
+misclassification can contaminate the shared golden set (via E10's
+future promotion loop), while a *preference* misclassification only ever
+stays owner-scoped. Documented in both the enum's own docstring
+(`CommentClassification.PREFERENCE`) and the service's exception handler,
+not just in this tracker entry.
+
+**Storage:** new nullable `comment_classification` column on both
+`Feedback` and `EvalScore` (migration `c2d3e4f5a6b7`, verified via
+upgrade→downgrade→upgrade against a disposable scratch database per this
+project's standard migration-verification convention, then applied to
+the real dev DB) -- `FeedbackService.submit()` classifies the comment
+(only when one exists at all; a bare thumbs up/down has nothing to
+classify) *before* either write, so both rows land with the same value
+in the same transaction. Surfaced in `EvalScoreResponse`/`ScoreTable.tsx`
+(a small badge next to the metric name on `human_feedback` rows) -- no
+new dashboard filter control built, since the tracker's own subtask only
+asked for E7/E10 to be *able* to filter by it, not for a filter UI now;
+building that is E10's job when the promotion-review queue itself gets
+built.
 
 **Subtasks:**
-- [ ] Small bounded LLM call classifying a feedback comment as
-      objective (factual quality issue — feeds shared regression gates) vs.
-      preference (stylistic — stays owner-scoped, per 1g, never contaminates
-      the shared golden set)
-- [ ] Reuse the existing cheap-bounded-LLM-call pattern already used by
-      `WebSearchNecessityService` (per `PRIORITIZED_ROADMAP.md` Wave 7's
-      own reference to this pattern) rather than inventing a new call shape
-- [ ] Store the classification on the `Feedback`/`eval_scores` record so
-      E7's dashboard and E10's promotion review can filter by it
+- [x] Small bounded LLM call classifying a feedback comment as
+      objective vs. preference
+- [x] Reuse the existing cheap-bounded-LLM-call pattern already used by
+      `WebSearchNecessityService`
+- [x] Store the classification on the `Feedback`/`eval_scores` record --
+      both, not just one, so E9/E10 can query either without a join
 
 **Acceptance criteria:** "this answer was too formal" classifies as
-preference; "this cited the wrong paper" classifies as objective.
+preference; "this cited the wrong paper" classifies as objective —
+**Met, verified live against the real OpenAI-backed classifier, not just
+mocks**: 6/6 real calls correct, including both exact acceptance-criterion
+phrases plus 4 harder paraphrases ("the tone felt robotic and cold" →
+preference, "the citation points to a paper that does not exist" →
+objective, "I wish it was shorter" → preference, "it hallucinated a
+statistic that is not in the source" → objective), each with a
+human-readable reason.
+
+**Verification:** 15 new tests (6 unit tests for
+`CommentClassificationService` mirroring `test_necessity.py`'s coverage
+shape -- cheap-provider path, fallback path, model failure, schema-invalid
+response, dict-coercion, long-comment bounding; 2 new
+`FeedbackService.submit()` unit tests for the classify-only-when-commented
+wiring; 3 new `FeedbackRepository` integration tests; 1 new
+`EvalScoreRepository` integration test; plus the pre-existing feedback
+test suites updated for the new constructor/repository parameters, all
+still passing). Clean `mypy`/`ruff` on every touched file (800 backend
+source files); `tsc --noEmit`/`eslint` clean on the frontend badge.
+1824/1824 tests pass repo-wide.
 
 ---
 
@@ -1713,7 +1765,7 @@ act on, not just a number.
 
 ---
 
-### E17. Latency-SLO alerts + `eval_scores` Grafana panel — **Alert-rules half done** (2026-08-11)
+### E17. Latency-SLO alerts + `eval_scores` Grafana panel — **Done** (2026-08-12)
 
 **Roadmap:** Wave 1, row 17 (roadmap-only addition, closes
 `PRODUCTION_READINESS_EVALUATION.md` item 2 and `PHASE_2_3_ROADMAP.md`
@@ -1762,21 +1814,46 @@ in `benchmarks/regression/thresholds.py`.
       — verified via a real Prometheus container restart + `/api/v1/rules`:
       both rules parse (`health: ok`, no `lastError`) and correctly report
       `state: inactive` against real (empty) data, not a syntax-only check
-- [ ] Add a Grafana panel visualizing `eval_scores` (E6) trends — E6
-      shipped 2026-08-11, so this is now unblocked; not yet built
+- [x] Add a Grafana panel visualizing `eval_scores` (E6) trends — **Done
+      2026-08-12.** `eval_scores` lives in Postgres, not Prometheus, so
+      this needed a new datasource, not just a new panel: added a native
+      Grafana Postgres datasource
+      (`infra/observability/grafana/provisioning/datasources/postgres.yml`,
+      `uid: researchmind-postgres`, querying the dev DB directly — reuses
+      `postgres`'s already-hardcoded dev credentials from
+      `docker-compose.yml`, a dedicated read-only reporting user is real
+      future hardening before any production deployment, not built here)
+      and a new 5-panel dashboard
+      (`infra/observability/grafana/dashboards/eval-scores.json`, `uid:
+      researchmind-eval-scores`): online avg score by metric, online pass
+      rate by metric, offline (golden-set) avg score by metric, and score
+      volume by source, all via raw SQL (`$__timeFilter`/
+      `$__timeGroupAlias` macros) since the golden-set/fingerprint split
+      that made E9 two views applies here too — no single query covers
+      both online and offline in one series meaningfully. `grafana`'s
+      `depends_on` in `docker-compose.yml` gained `postgres` alongside
+      the existing `prometheus`.
 - [x] Cross-reference `docs/monitoring/grafana.md` and
       `docs/runbooks/prometheus-grafana-observability.md` — the latter's
       existing alert table extended with both new rules plus the Deep
-      Research gap note, not duplicated
+      Research gap note, not duplicated; both docs' dashboard-count/
+      datasource references updated for the new 5th dashboard (2026-08-12)
 
 **Acceptance criteria:** a deliberate latency regression fires an alert —
 **not independently verified against a real breach** (no live traffic
 existed to force one; verified instead that the rules load correctly
 against real metric/label names and report the correct baseline
 `inactive` state — the honest level of verification available given no
-production volume yet). The panel exists — **not met**, E6 (its
-dependency) is now done but the panel itself hasn't been built yet;
-doesn't block the alert-rule half.
+production volume yet). The panel exists — **Met (2026-08-12)**, and
+verified live, not just via JSON review: restarted the real `grafana`
+container, confirmed via its own HTTP API that the datasource loaded
+(`provisioning.datasources: inserting datasource ... uid=researchmind-postgres`
+in its logs), that `POST /api/datasources/uid/researchmind-postgres/health`
+returns `"Database Connection OK"`, and that all 4 panel queries executed
+against real `eval_scores` rows via `POST /api/ds/query` returned `status:
+200` with real data — e.g. the online-avg-score panel returned genuine
+`answer_relevancy`/`citation_validity` series from the live scoring
+worker's actual output, not a fixture.
 
 ---
 

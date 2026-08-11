@@ -199,6 +199,26 @@ async def test_upsert_inserts_a_new_score_row(db_session) -> None:
 
 
 @pytest.mark.asyncio
+async def test_upsert_persists_comment_classification(db_session) -> None:
+    owner_id = await _make_owner(db_session)
+    generation_id = uuid.uuid4()
+
+    repository = EvalScoreRepository(db_session)
+    score = await repository.upsert(
+        owner_id=owner_id,
+        generation_id=generation_id,
+        metric_name="user_rating",
+        score=0.0,
+        passed=False,
+        reason="wrong citation",
+        source=EvalScoreSource.HUMAN_FEEDBACK.value,
+        comment_classification="objective",
+    )
+
+    assert score.comment_classification == "objective"
+
+
+@pytest.mark.asyncio
 async def test_upsert_updates_the_existing_row_on_conflict(db_session) -> None:
     """E6: a user changing their vote (thumbs down -> thumbs up) must
     update the same mirrored row, not accumulate a second one -- matches

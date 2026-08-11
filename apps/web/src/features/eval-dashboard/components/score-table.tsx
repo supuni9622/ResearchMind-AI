@@ -49,7 +49,14 @@ export function ScoreTable({ scores }: { scores: EvalScore[] }) {
           title={score.reason ?? undefined}
         >
           <div className="flex-1 min-w-0">
-            <p className="text-stone-200 text-[13px] truncate">{score.metric_name}</p>
+            <div className="flex items-center gap-1.5">
+              <p className="text-stone-200 text-[13px] truncate">{score.metric_name}</p>
+              {score.comment_classification && (
+                <Badge tone={score.comment_classification === 'objective' ? 'red' : 'neutral'}>
+                  {score.comment_classification}
+                </Badge>
+              )}
+            </div>
             {score.reason && (
               <p className="text-stone-600 text-[11px] truncate">{score.reason}</p>
             )}

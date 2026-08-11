@@ -64,10 +64,14 @@ per-request questions by design.
    - Prometheus — <http://localhost:9090>
    - Raw API exposition — <http://localhost:8000/metrics>
 
-That's it — dashboards, the datasource, and alert rules are all
+That's it — dashboards, both datasources (Prometheus + Postgres, the
+latter for the Eval Scores dashboard below), and alert rules are all
 provisioned from files under `infra/observability/`, not clicked together
 by hand. If Grafana's `ResearchMind` folder is empty, something is wrong
 with the volume mounts, not with "someone forgot to import a dashboard."
+The Postgres datasource needs the `postgres` service running too (`docker
+compose up -d postgres prometheus grafana` if you haven't already started
+it as part of the normal dev stack).
 
 ### Why `host.docker.internal`
 
@@ -85,7 +89,7 @@ service, switch that target to `api:8000` and add a
 
 ### Dashboards
 
-All four live under the **ResearchMind** folder in Grafana.
+All five live under the **ResearchMind** folder in Grafana.
 
 **1. ResearchMind Overview** — start here. Request rate, HTTP error
 rate, P50/P95/P99 latency, in-flight requests, generation volume,
@@ -115,9 +119,25 @@ counts. Useful for "is memory extraction running too often" or "why is
 memory context empty for this user type" questions (in aggregate — not
 per-user, see below).
 
-Every panel is backed by a PromQL query you can copy into Prometheus's
-own "Graph" tab (<http://localhost:9090/graph>) to inspect raw series or
-tweak the query ad hoc — the dashboards don't hide anything.
+**5. Eval Scores** (E17, EVALUATION_IMPLEMENTATION_TRACKER.md) — the one
+dashboard that isn't Prometheus-backed: `eval_scores` (E5/E6/E9) lives in
+Postgres, so this queries the dev database directly through a native
+Grafana Postgres datasource (`researchmind-postgres`, provisioned
+alongside the Prometheus one) rather than PromQL. Online avg
+score/pass-rate by metric, offline (golden-set) avg score by metric per
+run, and score-row volume by source (`online_sampled`/
+`offline_benchmark`/`human_feedback`) — the quality-trend picture
+Grafana's other four dashboards (all operational: latency/cost/error
+rate) don't cover. Uses the same hardcoded dev credentials already
+checked into `docker-compose.yml`'s `postgres` service — a dedicated
+read-only reporting user is real future hardening before any production
+deployment, not built here.
+
+Every panel on dashboards 1-4 is backed by a PromQL query you can copy
+into Prometheus's own "Graph" tab (<http://localhost:9090/graph>) to
+inspect raw series or tweak ad hoc; dashboard 5's panels are raw SQL
+against `eval_scores`, editable the same way directly in Grafana's panel
+editor — neither hides anything.
 
 ### Alerts
 

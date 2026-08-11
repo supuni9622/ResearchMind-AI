@@ -22,6 +22,7 @@ class EvalScoreResponse(BaseModel):
     source: str
     sample_category: str | None
     dataset_example_id: str | None
+    comment_classification: str | None
     created_at: datetime
 
 

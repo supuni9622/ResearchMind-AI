@@ -93,6 +93,7 @@ class EvalScoreRepository:
         reason: str | None,
         source: str,
         sample_category: str | None = None,
+        comment_classification: str | None = None,
     ) -> EvalScore:
         """
         Insert or update the score for this `(generation_id, metric_name,
@@ -118,6 +119,7 @@ class EvalScoreRepository:
                 reason=reason,
                 source=source,
                 sample_category=sample_category,
+                comment_classification=comment_classification,
             )
             .on_conflict_do_update(
                 constraint="uq_eval_scores_generation_metric_source",
@@ -126,6 +128,7 @@ class EvalScoreRepository:
                     "passed": passed,
                     "reason": reason,
                     "sample_category": sample_category,
+                    "comment_classification": comment_classification,
                 },
             )
             .returning(EvalScore)

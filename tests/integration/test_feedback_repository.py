@@ -129,3 +129,47 @@ async def test_get_for_generation_returns_the_upserted_row(db_session) -> None:
     assert feedback is not None
     assert feedback.surface == "deep_research"
     assert feedback.comment == "great report"
+
+
+@pytest.mark.asyncio
+async def test_upsert_persists_comment_classification(db_session) -> None:
+    owner_id = await _make_owner(db_session)
+    generation_id = uuid.uuid4()
+
+    repository = FeedbackRepository(db_session)
+    feedback = await repository.upsert(
+        owner_id=owner_id,
+        generation_id=generation_id,
+        surface=FeedbackSurface.CHAT,
+        rating=FeedbackRating.DOWN,
+        comment="this cited the wrong paper",
+        comment_classification="objective",
+    )
+
+    assert feedback.comment_classification == "objective"
+
+
+@pytest.mark.asyncio
+async def test_upsert_updates_comment_classification_on_a_resubmission(db_session) -> None:
+    owner_id = await _make_owner(db_session)
+    generation_id = uuid.uuid4()
+
+    repository = FeedbackRepository(db_session)
+    await repository.upsert(
+        owner_id=owner_id,
+        generation_id=generation_id,
+        surface=FeedbackSurface.CHAT,
+        rating=FeedbackRating.DOWN,
+        comment="too formal",
+        comment_classification="preference",
+    )
+    updated = await repository.upsert(
+        owner_id=owner_id,
+        generation_id=generation_id,
+        surface=FeedbackSurface.CHAT,
+        rating=FeedbackRating.DOWN,
+        comment="also cites the wrong paper",
+        comment_classification="objective",
+    )
+
+    assert updated.comment_classification == "objective"

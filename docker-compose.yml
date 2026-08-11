@@ -114,6 +114,7 @@ services:
 
     depends_on:
       - prometheus
+      - postgres
 
 volumes:
 

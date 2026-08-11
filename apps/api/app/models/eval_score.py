@@ -82,6 +82,16 @@ class EvalScore(Base):
     """
     dataset_example_id: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
     """Set only for `source=offline_benchmark` rows, per EVALUATION_PLAN.md §16 phase 6."""
+    comment_classification: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    """
+    Mirrors `Feedback.comment_classification` (E11) onto the
+    `user_rating` row `FeedbackService.submit()` writes here, one of
+    `CommentClassification` -- lets E9/E10 filter/aggregate on it
+    without joining back to `feedback`, same "one place to query"
+    rationale as this table's own docstring. Null for every other
+    metric/source, and for `user_rating` rows with no comment to
+    classify.
+    """
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

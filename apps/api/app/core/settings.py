@@ -308,6 +308,17 @@ class Settings(BaseSettings):
     web_search_decision_openai_model: str = "gpt-5-mini"
     web_search_decision_claude_model: str = "claude-haiku-4-5"
 
+    # Dedicated cheap-tier models for the feedback-comment objective/
+    # preference classification call only (E11, EVALUATION_PLAN.md §12/
+    # 1g) -- same isolation rationale as `web_search_decision_*` above,
+    # and the same `gpt-5-mini` choice over `gpt-5-nano` for the same
+    # structured-output-reliability reason, not yet independently
+    # reconfirmed for this specific call but treated as the safer default
+    # given the identical schema shape. See
+    # `app.ai.runtime.generation.comment_classification.create`.
+    comment_classification_openai_model: str = "gpt-5-mini"
+    comment_classification_claude_model: str = "claude-haiku-4-5"
+
     # Research Intelligence MCP Platform (paper search over MCP streamable-http,
     # prds/3. mcp_server_setup.md). `mcp_papers_server_url` absent degrades
     # `PaperSearchService.available` to `False` rather than raising -- mirrors

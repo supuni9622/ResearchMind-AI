@@ -24,12 +24,19 @@ class FeedbackRepository:
         surface: FeedbackSurface,
         rating: FeedbackRating,
         comment: str | None,
+        comment_classification: str | None = None,
     ) -> Feedback:
         """
         Insert new feedback, or update the existing record for this
         (owner, generation) pair if the user already rated this
         generation once -- resubmitting changes a vote rather than
         accumulating a history nothing downstream needs yet.
+
+        `comment_classification` (E11) is caller-supplied, not computed
+        here -- `FeedbackService.submit()` classifies the comment (or
+        skips it entirely when there's no comment) before calling this,
+        same separation of concerns as `record()`/`upsert()` on
+        `EvalScoreRepository` never computing a score themselves.
         """
 
         statement = (
@@ -40,6 +47,7 @@ class FeedbackRepository:
                 surface=surface.value,
                 rating=rating.value,
                 comment=comment,
+                comment_classification=comment_classification,
             )
             .on_conflict_do_update(
                 constraint="uq_feedback_owner_generation",
@@ -47,6 +55,7 @@ class FeedbackRepository:
                     "surface": surface.value,
                     "rating": rating.value,
                     "comment": comment,
+                    "comment_classification": comment_classification,
                 },
             )
             .returning(Feedback)

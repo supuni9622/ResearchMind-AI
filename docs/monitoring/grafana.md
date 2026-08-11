@@ -11,10 +11,10 @@
 |---|---|
 | URL | http://localhost:3001 |
 | Credentials (local) | `admin` / `admin` (`GRAFANA_ADMIN_USER`/`GRAFANA_ADMIN_PASSWORD`) |
-| Datasource | Prometheus, auto-provisioned (`infra/observability/grafana/provisioning/datasources/prometheus.yml`) |
-| Start | `docker compose up -d prometheus grafana` |
+| Datasources | Prometheus (`.../datasources/prometheus.yml`) + Postgres (`.../datasources/postgres.yml`, for the Eval Scores dashboard below), both auto-provisioned |
+| Start | `docker compose up -d postgres prometheus grafana` |
 
-Dashboards, datasource, and alert rules are all provisioned from files under `infra/observability/` — not clicked together by hand.
+Dashboards, datasources, and alert rules are all provisioned from files under `infra/observability/` — not clicked together by hand.
 
 ## Dashboards (`infra/observability/grafana/dashboards/*.json`)
 
@@ -45,6 +45,15 @@ Dashboards, datasource, and alert rules are all provisioned from files under `in
 - Semantic/research search rate / context & durable-search P95 latency
 - Extraction evaluated vs. skipped / request ratio / success-failure rate / empty extraction rate
 - Memories created vs. updated / duplicate-memory rate / extraction P95 latency
+
+### Eval Scores (E17)
+
+The one dashboard querying Postgres directly instead of PromQL — `eval_scores` (E5/E6/E9) has no Prometheus representation.
+
+- Online avg score by metric, 1h buckets (`source = online_sampled`)
+- Online pass rate by metric, 1h buckets
+- Offline (golden-set) avg score by metric — one point per roughly-one-benchmark-run, not continuous traffic
+- Score-row volume by source (`online_sampled`/`offline_benchmark`/`human_feedback`), 1d buckets — a coverage check, not a quality metric
 
 ## What Grafana is not for
 

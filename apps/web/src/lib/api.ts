@@ -432,6 +432,7 @@ export interface EvalScore {
   source: string;
   sample_category: string | null;
   dataset_example_id: string | null;
+  comment_classification: string | null;
   created_at: string;
 }
 

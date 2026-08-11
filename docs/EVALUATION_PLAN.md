@@ -359,8 +359,13 @@ regression gate. Restated here only to complete the layer table in §2.
 2026-08-11, including the frontend affordance across all three surfaces
 (Chat, Linear Research, Deep Research) — a real browser click was
 confirmed the same day. The objective/preference classification split
-(1g) itself is not yet implemented. Tracked as
-`EVALUATION_IMPLEMENTATION_TRACKER.md` E21.
+(1g) itself is done as of 2026-08-12 — a cheap bounded LLM call
+(mirroring `WebSearchNecessityService`'s pattern), fails closed to
+"preference" (never contaminates the shared golden set on an
+ambiguous/failed call), verified live against 6 real cases including
+both of this doc's own acceptance-criterion phrases. Tracked as
+`EVALUATION_IMPLEMENTATION_TRACKER.md` E11 (previously mislabeled E21
+here — E21 is the frontend thumbs-up/down affordance, a different item).
 
 Same day, once real feedback was flowing, a related gap surfaced: user
 feedback landed in our own `feedback` table but was invisible inside
@@ -468,12 +473,12 @@ near-term build; **Mature** phases are explicitly deferred, not dropped.
 |---|---|---|---|
 | 1 | ✅ Golden dataset (`rag_answer_gold`, schema from §3) — Done, 115 examples (grown from 24) 2026-08-11 | MVP | = original 1a step 1. Grounded in real, verified content throughout — started at 24 to avoid padding with unverified facts, grown to 115 the same day once the underlying corpus expanded from 5 to 50 papers (§4/§5's update). See `EVALUATION_IMPLEMENTATION_TRACKER.md` E1 for the full growth breakdown. LangSmith registration done same day (tracker E19) — all 115 examples live and browsable in LangSmith's UI; only Experiment-logging (successive `score_generation()` runs comparable over time in-UI) remains open |
 | 2 | ✅ Wire `benchmarks/regression/` into CI, gate types per §13 — Done (smoke tier) 2026-08-11 | MVP | = original 1a step 2. Absolute + relative gates both implemented; one CI job wired for the fully-offline Ingestion Fidelity benchmark. Retrieval/generation benchmark CI triggers still need live-service credentials — not yet configured, and the absolute gates this phase declared have no benchmark run populating them yet. Detail: `EVALUATION_IMPLEMENTATION_TRACKER.md` E2, follow-up E20 |
-| 3 | ✅ `POST /feedback` + thumbs up/down (backend + frontend, all 3 surfaces) — Done 2026-08-11 — ✅ mirrored into LangSmith's own `create_feedback()` — Done 2026-08-11 — ⬜ objective/preference classification (1c/1g) not started | MVP | = original steps 3, 10. Detail: `EVALUATION_IMPLEMENTATION_TRACKER.md` E3, follow-ups E21/E22 |
+| 3 | ✅ `POST /feedback` + thumbs up/down (backend + frontend, all 3 surfaces) — Done 2026-08-11 — ✅ mirrored into LangSmith's own `create_feedback()` — Done 2026-08-11 — ✅ objective/preference classification (1c/1g) — Done 2026-08-12 | MVP | = original steps 3, 10. Detail: `EVALUATION_IMPLEMENTATION_TRACKER.md` E3, follow-ups E11/E21/E22 |
 | 4 | ✅ Citation validator (§8) — generalize `citation_integrity_score` cross-surface, release-blocking — Done 2026-08-11 | MVP | **New, highest value-per-effort item in this plan.** Checker built (`app/ai/knowledge/context/citations/validity.py`); CI/online-gate wiring is phases 2/6. Detail: `EVALUATION_IMPLEMENTATION_TRACKER.md` E4, follow-up E20 |
 | 5 | ✅ Config fingerprint threaded through `GenerationRequest`→`GenerationUsage` (1f) — Done 2026-08-11 | MVP | = original step 8. `app/ai/runtime/generation/config_fingerprint.py`; populated at the 3 answer-producing call sites (Chat, Linear Research, Deep Research synthesis). Verified against a real Postgres row + real migration upgrade/downgrade. Detail: `EVALUATION_IMPLEMENTATION_TRACKER.md` E8 |
 | 6 | ✅ Online risk-weighted scoring job, merged sampling table (§14) — Done 2026-08-11 | MVP | = original steps 4, 9. `app/ai/runtime/generation/online_scoring/`, `eval_scores` table (built here, ahead of phase 7). Detail: `EVALUATION_IMPLEMENTATION_TRACKER.md` E5 |
 | 7 | ✅ Feedback → trace attachment — Done 2026-08-11 (`eval_scores` table itself already built by phase 6 above) | MVP | = original step 5. Also closed a gap this phase surfaced: E1's golden-set Ragas scoring had no runnable driver until now — `benchmarks/generation/golden_set_benchmark.py`. Detail: `EVALUATION_IMPLEMENTATION_TRACKER.md` E6 |
-| 8 | ✅ Internal dashboard, owner-scoped drill-down, roll in `ResearchReview.decision` as workflow signal (§10) — Done 2026-08-11 | MVP | = original step 6. 1g's objective/preference split not applied yet — needs E11. Detail: `EVALUATION_IMPLEMENTATION_TRACKER.md` E7 |
+| 8 | ✅ Internal dashboard, owner-scoped drill-down, roll in `ResearchReview.decision` as workflow signal (§10) — Done 2026-08-11 | MVP | = original step 6. 1g's objective/preference split (E11) is now surfaced in the dashboard's score table. Detail: `EVALUATION_IMPLEMENTATION_TRACKER.md` E7 |
 | 9 | Golden-set promotion review, both directions (1c) | MVP | = original step 7 |
 | 10 | ✅ Segment-analysis job (1f) — Done, two views 2026-08-12 | MVP | = original step 9. Split into online-by-fingerprint and offline-by-content-segment views rather than one combined slice — the two dimensions live in structurally disjoint rows (fingerprint fields only exist for online-sampled traffic, content-segment fields only resolve for offline-benchmark rows). Detail: `EVALUATION_IMPLEMENTATION_TRACKER.md` E9 |
 | 11 | ✅ Ingestion fidelity checks (§4) — parse success rate + fixture comparison — Done 2026-08-11 | MVP | New, small. `benchmarks/ingestion/`, reuses the 5 existing cached research-paper fixtures. Detail: `EVALUATION_IMPLEMENTATION_TRACKER.md` E12 |

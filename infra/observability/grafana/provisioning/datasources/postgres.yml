@@ -1,0 +1,27 @@
+apiVersion: 1
+
+# E17's Grafana-panel half (EVALUATION_IMPLEMENTATION_TRACKER.md) --
+# `eval_scores` (E5/E6/E9) lives in Postgres, not Prometheus, so the
+# existing Prometheus-only datasource can't visualize it. Grafana's
+# native Postgres datasource queries the same dev database the API
+# itself uses -- credentials match `postgres`'s hardcoded dev defaults
+# in docker-compose.yml (already checked into that file, not a new
+# secret). A dedicated read-only reporting user is real future
+# hardening, particularly before any production deployment (this repo
+# has no separate reporting-user infra anywhere yet) -- not done here,
+# flagged rather than silently assumed.
+datasources:
+  - name: Postgres
+    uid: researchmind-postgres
+    type: postgres
+    access: proxy
+    url: postgres:5432
+    database: researchmind
+    user: researchmind
+    jsonData:
+      sslmode: disable
+      postgresVersion: 1700
+      timescaledb: false
+    secureJsonData:
+      password: researchmind
+    editable: false

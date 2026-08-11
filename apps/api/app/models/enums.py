@@ -51,6 +51,30 @@ class FeedbackSurface(StrEnum):
     DEEP_RESEARCH = "deep_research"
 
 
+class CommentClassification(StrEnum):
+    """
+    Objective/preference split for a feedback comment (E11,
+    EVALUATION_PLAN.md §12/1g). Null on `Feedback`/`EvalScore` whenever
+    there's no comment to classify at all (rating-only feedback) -- this
+    enum only covers the two possible outcomes of an actual
+    classification, not "not classified."
+    """
+
+    OBJECTIVE = "objective"
+    """Factual quality issue -- "this cited the wrong paper." Feeds the
+    shared regression gates (E10's promotion loop can promote it into
+    `production_failures`)."""
+
+    PREFERENCE = "preference"
+    """Stylistic -- "this answer was too formal." Stays owner-scoped,
+    per 1g, never contaminates the shared golden set. Also the fail-safe
+    default when classification itself fails (see
+    `CommentClassificationService`) -- the conservative direction to
+    fail toward, since silently contaminating the shared golden set with
+    a misclassified stylistic complaint is worse than under-promoting a
+    genuine objective one."""
+
+
 class EvalScoreSource(StrEnum):
     """
     Where an `eval_scores` row came from (EVALUATION_PLAN.md §14/§16 phase

@@ -36,6 +36,15 @@ class Feedback(Base):
     surface: Mapped[str] = mapped_column(String(30), nullable=False)
     rating: Mapped[str] = mapped_column(String(10), nullable=False)
     comment: Mapped[str | None] = mapped_column(Text, nullable=True)
+    #
+    # Objective/preference split (E11, EVALUATION_PLAN.md §12/1g) --
+    # one of `CommentClassification`, null whenever there's no comment
+    # to classify (rating-only feedback) or classification hasn't run
+    # yet. Set once, alongside the comment itself, by
+    # `CommentClassificationService` -- never re-classified on a later
+    # rating change to the same row.
+    #
+    comment_classification: Mapped[str | None] = mapped_column(String(20), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

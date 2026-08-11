@@ -57,13 +57,13 @@ instruction, not derived:
 | 1 | ✅ Config fingerprint through `GenerationRequest`→`GenerationUsage` — Done | High | Med | Unlocks "what to improve" identification |
 | 1 | ✅ Segment-analysis job — Done, two views (online-by-fingerprint, offline-by-content-segment) | High | Med | Depends on the fingerprint above |
 | 1 | Golden-set promotion review (both directions) | High | Med | Needs feedback volume first — sequenced late within this wave |
-| 1 | Comment classification (objective/preference split) | Med-High | Med | Small bounded LLM call, reuses an existing codebase pattern |
+| 1 | ✅ Comment classification (objective/preference split) — Done, 6/6 real classifications correct | Med-High | Med | Small bounded LLM call, reuses an existing codebase pattern |
 | 1 | ✅ Ingestion fidelity checks (parse success + fixtures) — Done | Med | Med | New coverage, cheap, deterministic |
 | 1 | ✅ Context-construction checks (provenance, token efficiency) — Done | Med | Med | New layer, deterministic |
 | 1 | ✅ Retrieval metric completeness (Recall@K, Hit Rate@K) — Done | Med | High | Small extension of an already-real benchmark suite |
 | 1 | ✅ Adversarial dataset (10-20 cases) — Done (18 cases) | Med | Med | Tests our own guardrails — feeds Wave 7 directly |
 | 1 | LLM-as-judge metric (tone, completeness against a rubric) | Med | Med | Bolt-on to Ragas once the golden set exists — not a redesign |
-| 1 | ✅ Latency-SLO alert rules — Done (Chat + Linear Research); ⬜ `eval_scores` Grafana panel — unblocked now that E6 is done, not yet built | Med | High | Measurement infra already real; this is threshold definition + one alert rule + one panel |
+| 1 | ✅ Latency-SLO alert rules (Chat + Linear Research) + `eval_scores` Grafana panel — both Done | Med | High | Measurement infra already real; this is threshold definition + one alert rule + one panel |
 | 1 | ✅ Cost forecast (rolling-average projection) — Done, CLI report | Low-Med | High | Derived entirely from the existing `GenerationUsage` ledger, no new data collection |
 | 1 | ✅ Register golden dataset in LangSmith — Done | Med | High | Gap-closure follow-up to E1, surfaced by the 2026-08-11 cross-check — "Done" only covered the local dataset + scoring function |
 | 1 | CI live-service benchmark triggers + citation-metric wiring | High | Med | Gap-closure follow-up to E2/E4 — the absolute regression gates E2 declared are still never populated by any benchmark run |

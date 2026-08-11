@@ -47,7 +47,7 @@ instruction, not derived:
 | 0 | ✅ Add `owner_id` as LangSmith trace tag — Done | Med | Very High | One tag, closes readiness item 8 |
 | 0 | ✅ OCR: `do_ocr=True` in Docling config — Done | Med | Very High | Literally a config flip |
 | 0 | ✅ Roll `ResearchReview.decision` into the eval dashboard — Done | Med | Very High | Already computed every run, zero new logic |
-| 1 | ✅ Golden QA set + Ragas scoring function — Done, Phase 1 (24 examples) | Very High | Med | Foundation for everything eval-related |
+| 1 | ✅ Golden QA set + Ragas scoring function — Done, 115 examples (grown from 24) | Very High | Med | Foundation for everything eval-related |
 | 1 | ✅ Wire `benchmarks/regression/` into CI — Done, smoke tier (live-service benchmark triggers still open) | Very High | Med | Tooling already built, just needs a workflow job |
 | 1 | ✅ Real `POST /feedback` + thumbs up/down — Done, backend only | Very High | Med | Closes readiness item 7, feeds the self-learning loop |
 | 1 | ✅ **Citation validator, cross-surface, release-blocking** — Done (checker built; CI/online-job wiring pending, see E2/E5) | Very High | High | Generalizes an already-proven check (`citation_integrity_score`) — best value-per-effort in the whole roadmap |

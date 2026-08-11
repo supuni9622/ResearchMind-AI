@@ -171,7 +171,7 @@ E21 too, on top of its declared E6 dependency.
 
 | ID | Item | Status | Value | Ease | Depends on |
 |---|---|---|---|---|---|
-| [E1](#e1-golden-dataset--ragas-scoring-function) | Golden dataset + Ragas scoring function | **Done, Phase 1** (24/50-150 examples; LangSmith registration not done) | Very High | Med | — |
+| [E1](#e1-golden-dataset--ragas-scoring-function) | Golden dataset + Ragas scoring function | **Done** (115/50-150 examples, grown 2026-08-11; LangSmith registration not done) | Very High | Med | — |
 | [E2](#e2-wire-benchmarksregression-into-ci) | Wire `benchmarks/regression/` into CI | **Done** (smoke tier only — retrieval/generation triggers need live-service CI credentials, not yet set up) | Very High | Med | E4 (for absolute gates) |
 | [E3](#e3-post-feedback--thumbsupdown) | `POST /feedback` + thumbs up/down | **Done, backend** (frontend affordance not built) | Very High | Med | — |
 | [E4](#e4-citation-validator-cross-surface-release-blocking) | Citation validator, cross-surface, release-blocking | **Done** (checker built; CI/online-gate wiring is E2/E5) | Very High | High | — |
@@ -205,7 +205,7 @@ function pending").
 
 ## 3. Item detail
 
-### E1. Golden dataset + Ragas scoring function — **Done, Phase 1** (2026-08-11)
+### E1. Golden dataset + Ragas scoring function — **Done** (2026-08-11, dataset grown same day)
 
 **Roadmap:** Wave 1, row 1. **Eval Plan:** §3 (dataset schema), §16 phase 1.
 
@@ -321,24 +321,53 @@ inside a benchmark run) — **met**, `score_generation()` is a plain async
 function, and `build_openai_ragas_judge()` was verified to construct a
 real judge against the real `ragas` API (object construction only, no
 network call — consistent with this project's no-live-LLM-calls-in-tests
-convention). Dataset has ≥50 examples — **not met**, 24/50-150, see above
-for the reasoning; every schema field is populated where applicable for
-all 24. Both target test files are non-empty and pass — **met**, 29 new
-tests (15 + 14), all passing. Whole-repo verification: 1632/1632 tests
-pass, clean `mypy`/`ruff`/`ruff format` across 1235 source files.
+convention). Dataset has ≥50 examples — **met as of 2026-08-11** (below);
+every schema field is populated where applicable. Both target test files
+are non-empty and pass — **met**, 29 new tests (15 + 14), all passing.
+Whole-repo verification (2026-08-11 pass): 1632/1632 tests pass, clean
+`mypy`/`ruff`/`ruff format` across 1235 source files.
 
-**Update (2026-08-11): the "not enough real content to grow past 24
-without fabricating" blocker is gone.** The underlying corpus grew from
-5 to 50 papers (see [E14](#e14-retrieval-metric-completeness)'s update
-note) — `rag_answer_gold.json` itself wasn't regenerated in this pass,
-but `generation_queries.json` (one of this dataset's real-content
-sources, per `g1-g13`'s promotion pattern) now has 79 more hand-verified
-entries (`g14-g92`) to promote from, on top of the 45 new papers
-themselves. Growing toward 50-150 is now a matter of curation time, not
-a lack of real, verifiable material — worth revisiting before starting
-[E19](#e19-register-golden-dataset-in-langsmith) or
-[E16](#e16-llm-as-judge-metric), which are more valuable against a larger
-golden set.
+**Update (2026-08-11): dataset grown from 24 to 115 examples, closing the
+≥50 acceptance criterion.** The underlying corpus grew from 5 to 50
+papers first (see [E14](#e14-retrieval-metric-completeness)'s update
+note), removing the "not enough real content without fabricating"
+blocker that originally capped this at 24. Growth breakdown:
+- **g14-g92 (79 new)** — every new `generation_queries.json` entry
+  promoted as-is (question/context/expected_answer/citations unchanged
+  and already programmatically verified against source text when they
+  were added to `generation_queries.json`); only `query_type`/
+  `difficulty`/`workflow` classification metadata was added, via a
+  content-shape heuristic script, not manual judgment per example at
+  this volume.
+- **s4-s9 (6 new synthesis)** — s4/s5/s6/s9 combine multiple real facts
+  from one paper (matching s1-s3's original pattern); **s7 and s8 are
+  genuine cross-document synthesis** (e.g. s7 combines a GTZAN-dataset-
+  dominance fact from one music-genre-classification paper with a
+  best-model fact from a different one) — only possible now that the
+  corpus has real multi-paper topic clusters, which the original 5-paper
+  corpus didn't.
+- **u9-u14 (6 new unanswerable)** — each individually verified absent
+  from all 50 papers' actual text (grep + read-in-context, not assumed)
+  before being added, following the same discipline that caught the next
+  bullet.
+- **u5 corrected, not just left alone** — auditing the original u1-u8
+  against the *new* 50-paper corpus found real drift: u5's original
+  question ("How does quantum computing threaten current cryptographic
+  standards?") had silently become answerable, since 4 real Quantum
+  Computing papers were added that directly cover this (Grover's
+  algorithm vs. AES, QKD). Replaced with a freshly-verified-absent
+  question in the same slot — a concrete example of why a corpus/dataset
+  expansion needs to re-check existing "unanswerable" examples, not just
+  add new content around them.
+- Full repo verification after this growth: 1661/1661 tests pass, clean
+  `mypy`/`ruff`. New final distribution: `query_type` factual=72/
+  synthesis=16/comparison=8/unanswerable=14/exploratory=5; `workflow`
+  linear_research=79/chat=19/deep_research=17.
+
+Still open: **registering the grown dataset in LangSmith** — tracked as
+[E19](#e19-register-golden-dataset-in-langsmith), sequenced now precisely
+so it registers 115 examples once, not 24 then 115 again. E16 (LLM-as-
+judge) also benefits from the larger, more diverse set.
 
 ---
 
@@ -1174,13 +1203,15 @@ the primary registry"), §3, §16 phase 1. Surfaced as a dangling subtask
 inside [E1](#e1-golden-dataset--ragas-scoring-function) during the
 2026-08-11 cross-check pass — see [§0](#0-corrections-found-during-this-pass).
 
-**Current state:** `datasets/golden/rag_answer_gold.json` (24 examples) is
+**Current state:** `datasets/golden/rag_answer_gold.json` (**115
+examples** as of 2026-08-11, grown from 24 the same day E19 was written —
+see [E1](#e1-golden-dataset--ragas-scoring-function)'s update note) is
 the only copy — version-controlled, not registered anywhere in LangSmith.
 `score_generation()` runs (E1) aren't logged as comparable LangSmith
 Experiments.
 
 **Subtasks:**
-- [ ] Register the 24 examples as a LangSmith Dataset via the LangSmith
+- [ ] Register the 115 examples as a LangSmith Dataset via the LangSmith
       SDK (`Client.create_dataset` / `create_examples`), mapping
       `GoldenExample`'s fields to LangSmith's example schema
       (input/output/metadata)
@@ -1200,7 +1231,7 @@ Experiments.
       LangSmith examples
 
 **Acceptance criteria:** the dataset is visible and browsable in the
-LangSmith UI with all 24 examples; a `score_generation()` run produces a
+LangSmith UI with all 115 examples; a `score_generation()` run produces a
 LangSmith Experiment entry comparable against a prior run.
 
 ---

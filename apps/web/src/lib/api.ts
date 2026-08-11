@@ -36,6 +36,10 @@ export interface UserProfile {
   avatar_url: string | null;
   provider: string;
   verified: boolean;
+  // Presentation only -- drives whether the sidebar shows the internal
+  // eval dashboard link. The real access gate is server-side, checked
+  // fresh on every /api/v1/eval-dashboard/* request (E7).
+  eval_dashboard_access: boolean;
 }
 
 export type DocumentUploadStatus = 'pending' | 'uploading' | 'completed' | 'failed';
@@ -414,6 +418,91 @@ export interface FeedbackResponse {
   updated_at: string;
 }
 
+// Internal eval dashboard (E7, EVALUATION_PLAN.md §16 phase 8). Every
+// route behind this is gated server-side by an email allowlist
+// (`settings.eval_dashboard_admin_emails`) -- a non-allowlisted caller
+// gets a 403 `ApiError`, handled by the page itself, not hidden here.
+export interface EvalScore {
+  id: string;
+  generation_id: string | null;
+  metric_name: string;
+  score: number | null;
+  passed: boolean | null;
+  reason: string | null;
+  source: string;
+  sample_category: string | null;
+  dataset_example_id: string | null;
+  created_at: string;
+}
+
+export interface EvalScoreListResponse {
+  items: EvalScore[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+export interface OwnerSummary {
+  owner_id: string;
+  email: string;
+  username: string | null;
+  score_count: number;
+}
+
+export interface OwnerListResponse {
+  items: OwnerSummary[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+export interface ReviewDecisionDistribution {
+  owner_id: string;
+  counts: Record<string, number>;
+}
+
+export interface OfflineExampleSummary {
+  dataset_example_id: string;
+  score_count: number;
+  latest_run_at: string;
+}
+
+export interface OfflineExampleListResponse {
+  items: OfflineExampleSummary[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+// Engineering benchmarks (chunking/embeddings/retrieval/reranking/
+// generation-provider-comparison) -- read-only, straight off
+// `benchmarks/reports/*/report.json`. No history/trends: just whatever
+// each benchmark's last local run produced. GoldenSetGeneration is
+// deliberately excluded here (see OfflineExampleSummary above) since it
+// already has its own DB-backed, historical view.
+export interface BenchmarkCandidateResult {
+  name: string;
+  version: string | null;
+  metrics: Record<string, number | string | boolean>;
+  notes: Record<string, unknown>;
+}
+
+export interface BenchmarkReportResult {
+  benchmark_name: string;
+  generated_at: string;
+  dataset: { name: string; document_count: number };
+  metadata: {
+    git_commit: string | null;
+    branch: string | null;
+    dataset_version: string;
+    model_versions: Record<string, string>;
+    benchmark_version: string;
+    timestamp: string;
+  };
+  candidates: BenchmarkCandidateResult[];
+  summary: Record<string, unknown>;
+}
+
 export const PROVIDER_OPTIONS: { value: GenerationProvider | 'auto'; label: string }[] = [
   { value: 'auto', label: 'Auto' },
   { value: 'claude', label: 'Claude' },
@@ -775,5 +864,63 @@ export const api = {
           comment: comment ?? null,
         }),
       }),
+  },
+
+  evalDashboard: {
+    listOwners: (params?: { search?: string; limit?: number; offset?: number }) => {
+      const query = new URLSearchParams();
+      if (params?.search) query.set('search', params.search);
+      if (params?.limit !== undefined) query.set('limit', String(params.limit));
+      if (params?.offset !== undefined) query.set('offset', String(params.offset));
+      const qs = query.toString();
+      return request<OwnerListResponse>(`/api/v1/eval-dashboard/owners${qs ? `?${qs}` : ''}`);
+    },
+    listScores: (
+      ownerId: string,
+      params?: { metricName?: string; source?: string; limit?: number; offset?: number }
+    ) => {
+      const query = new URLSearchParams({ owner_id: ownerId });
+      if (params?.metricName) query.set('metric_name', params.metricName);
+      if (params?.source) query.set('source', params.source);
+      if (params?.limit !== undefined) query.set('limit', String(params.limit));
+      if (params?.offset !== undefined) query.set('offset', String(params.offset));
+      return request<EvalScoreListResponse>(`/api/v1/eval-dashboard/scores?${query.toString()}`);
+    },
+    reviewDecisions: (ownerId: string) =>
+      request<ReviewDecisionDistribution>(
+        `/api/v1/eval-dashboard/review-decisions?owner_id=${ownerId}`
+      ),
+    // Offline (golden-set benchmark) results -- deliberately separate
+    // from listOwners/listScores above: offline rows have no owner_id
+    // (they score a fixed dataset example, not a live generation), so
+    // they can never appear in the owner-scoped endpoints.
+    listOfflineExamples: (params?: { search?: string; limit?: number; offset?: number }) => {
+      const query = new URLSearchParams();
+      if (params?.search) query.set('search', params.search);
+      if (params?.limit !== undefined) query.set('limit', String(params.limit));
+      if (params?.offset !== undefined) query.set('offset', String(params.offset));
+      const qs = query.toString();
+      return request<OfflineExampleListResponse>(
+        `/api/v1/eval-dashboard/offline-examples${qs ? `?${qs}` : ''}`
+      );
+    },
+    listOfflineScores: (params?: {
+      datasetExampleId?: string;
+      metricName?: string;
+      limit?: number;
+      offset?: number;
+    }) => {
+      const query = new URLSearchParams();
+      if (params?.datasetExampleId) query.set('dataset_example_id', params.datasetExampleId);
+      if (params?.metricName) query.set('metric_name', params.metricName);
+      if (params?.limit !== undefined) query.set('limit', String(params.limit));
+      if (params?.offset !== undefined) query.set('offset', String(params.offset));
+      const qs = query.toString();
+      return request<EvalScoreListResponse>(
+        `/api/v1/eval-dashboard/offline-scores${qs ? `?${qs}` : ''}`
+      );
+    },
+    listBenchmarkReports: () =>
+      request<BenchmarkReportResult[]>('/api/v1/eval-dashboard/benchmark-reports'),
   },
 };

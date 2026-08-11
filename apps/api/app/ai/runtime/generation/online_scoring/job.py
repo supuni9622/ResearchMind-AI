@@ -27,16 +27,19 @@ import random
 from collections.abc import Awaitable, Callable, Sequence
 from datetime import UTC, datetime, timedelta
 from typing import Protocol
+from uuid import UUID
 
 import structlog
 from app.ai.artifacts.exceptions import ArtifactNotFoundError
 from app.ai.artifacts.generation.readers import GenerationArtifactReader
 from app.ai.knowledge.context.citations.validity import check_prompt_context_citation_validity
+from app.ai.observability.providers.langsmith.eval_score_sync import sync_eval_score
 from app.ai.runtime.generation.online_scoring.sampling import (
     OnlineScoringConfig,
     decide_sampling,
 )
 from app.models.enums import EvalScoreSource
+from app.models.eval_score import EvalScore
 from app.models.generation_usage import GenerationUsage
 from app.repositories.eval_score import EvalScoreRepository
 from app.repositories.generation_usage import GenerationUsageRepository
@@ -158,12 +161,18 @@ class OnlineScoringJob:
             log.warning("online_scoring_job.artifact_missing")
             return
 
+        # Looked up once per generation, not once per metric -- reused
+        # below for every sync_eval_score() call this row produces.
+        langsmith_run_id = await self._generation_usage_repository.get_langsmith_run_id(
+            row.generation_id
+        )
+
         citation_report = check_prompt_context_citation_validity(
             content=artifact.response.content,
             prompt_context=artifact.request.prompt_context,
         )
         failed_reasons = [check.reason for check in citation_report.checks if not check.passed]
-        await self._eval_score_repository.record(
+        citation_score = await self._eval_score_repository.record(
             owner_id=row.owner_id,
             generation_id=row.generation_id,
             metric_name="citation_validity",
@@ -173,6 +182,7 @@ class OnlineScoringJob:
             source=EvalScoreSource.ONLINE_SAMPLED.value,
             sample_category=sampling_decision.category.value,
         )
+        self._sync_to_langsmith(langsmith_run_id, citation_score)
 
         if not sampling_decision.should_score_judges:
             log.debug("online_scoring_job.judges_skipped", reason=sampling_decision.reason)
@@ -191,7 +201,7 @@ class OnlineScoringJob:
             judge=self._judge,
         )
         for check in report.checks:
-            await self._eval_score_repository.record(
+            judge_score = await self._eval_score_repository.record(
                 owner_id=row.owner_id,
                 generation_id=row.generation_id,
                 metric_name=check.metric,
@@ -201,6 +211,28 @@ class OnlineScoringJob:
                 source=EvalScoreSource.ONLINE_SAMPLED.value,
                 sample_category=sampling_decision.category.value,
             )
+            self._sync_to_langsmith(langsmith_run_id, judge_score)
+
+    def _sync_to_langsmith(self, run_id: UUID | None, eval_score: EvalScore | None) -> None:
+        """
+        No-op when tracing wasn't configured for this generation
+        (`run_id is None` -- matches `FeedbackService`'s same check
+        before calling `sync_user_feedback`) or when `record()` no-op'd
+        on a conflict (`eval_score is None` -- nothing new to mirror).
+        `sync_eval_score()` itself is already best-effort/never-raises,
+        this just supplies the two required, possibly-missing inputs.
+        """
+
+        if run_id is None or eval_score is None:
+            return
+
+        sync_eval_score(
+            run_id=run_id,
+            eval_score_id=eval_score.id,
+            metric_name=eval_score.metric_name,
+            score=eval_score.score,
+            reason=eval_score.reason,
+        )
 
     async def _review_decision_for(self, row: GenerationUsage) -> str | None:
         """Deep Research's `ResearchReview.decision` lives in `ResearchRun.

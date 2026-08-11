@@ -63,6 +63,21 @@ const NAV_ITEMS = [
   },
 ] as const;
 
+// Not part of NAV_ITEMS: only shown when the authenticated user's email
+// is on settings.eval_dashboard_admin_emails (server-decided, via
+// user.eval_dashboard_access on GET /auth/me) -- see Sidebar below.
+const EVAL_DASHBOARD_NAV_ITEM = {
+  href: '/eval-dashboard',
+  label: 'Eval Dashboard',
+  title: 'Internal — owner-scoped eval_scores drill-down',
+  icon: (
+    <svg width="15" height="15" viewBox="0 0 15 15" fill="none" aria-hidden="true">
+      <path d="M2 12.5V7M7.5 12.5V2M13 12.5V9" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+      <path d="M1.5 12.5h12" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+    </svg>
+  ),
+} as const;
+
 function LogoMark() {
   return (
     <div className="w-6 h-6 rounded bg-sage-600 flex items-center justify-center flex-shrink-0">
@@ -77,6 +92,10 @@ export function Sidebar() {
   const pathname = usePathname();
   const { user, logout } = useAuth();
 
+  const navItems = user?.eval_dashboard_access
+    ? [...NAV_ITEMS, EVAL_DASHBOARD_NAV_ITEM]
+    : NAV_ITEMS;
+
   return (
     <aside className="w-52 flex-shrink-0 border-r border-ink-600 bg-ink-900 flex flex-col min-h-screen">
       <div className="px-4 py-4 border-b border-ink-600">
@@ -90,7 +109,7 @@ export function Sidebar() {
 
       <nav className="flex-1 px-2 py-3">
         <ul className="space-y-0.5" role="list">
-          {NAV_ITEMS.map(({ href, label, title, icon }) => {
+          {navItems.map(({ href, label, title, icon }) => {
             const active =
               pathname === href || pathname.startsWith(`${href}/`);
             return (

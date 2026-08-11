@@ -1,43 +1,45 @@
 {
   "benchmark_name": "Retrieval",
-  "generated_at": "2026-07-18T12:13:25.722478Z",
+  "generated_at": "2026-08-11T18:59:16.154337Z",
   "dataset": {
     "name": "research-papers",
-    "document_count": 5
+    "document_count": 50
   },
   "metadata": {
-    "git_commit": "9965bd7485da7f5be2aa9e75eb8ef9076448513f",
-    "branch": "main",
+    "git_commit": "aa6d110fee2fb8324fd2ec807586e6e4c7189a38",
+    "branch": "researchmind-v2",
     "dataset_version": "1.0",
     "model_versions": {},
     "benchmark_version": "1.0.0",
-    "timestamp": "2026-07-18T12:13:25.722441Z"
+    "timestamp": "2026-08-11T18:59:16.154295Z"
   },
   "candidates": [
     {
       "name": "dense",
       "version": null,
       "metrics": {
-        "queries_evaluated": 20,
-        "recall_at_5": 1.0,
-        "recall_at_10": 1.0,
-        "recall_at_20": 1.0,
-        "precision_at_5": 0.2,
-        "precision_at_10": 0.1,
-        "ndcg_at_5": 0.9631,
-        "ndcg_at_10": 0.9631,
-        "mrr": 0.95,
-        "avg_latency_ms": 322.82,
-        "p95_latency_ms": 424.35,
-        "p99_latency_ms": 424.35
+        "queries_evaluated": 160,
+        "recall_at_5": 0.9667,
+        "recall_at_10": 0.9792,
+        "recall_at_20": 0.9792,
+        "precision_at_5": 0.2325,
+        "precision_at_10": 0.1175,
+        "ndcg_at_5": 0.9425,
+        "ndcg_at_10": 0.9462,
+        "hit_rate_at_5": 0.975,
+        "hit_rate_at_10": 0.9875,
+        "mrr": 0.942,
+        "avg_latency_ms": 359.18,
+        "p95_latency_ms": 520.77,
+        "p99_latency_ms": 992.53
       },
       "notes": {
         "top_k_evaluated": 20,
         "cost_model": "Voyage AI query embedding: paid, per-token API call.",
         "recall_at_10_by_category": {
-          "semantic": 1.0,
-          "acronym": 1.0,
-          "exact_keyword": 1.0,
+          "semantic": 0.9801,
+          "acronym": 0.9615,
+          "exact_keyword": 0.9773,
           "code_entity": 1.0
         }
       }
@@ -46,24 +48,26 @@
       "name": "sparse",
       "version": null,
       "metrics": {
-        "queries_evaluated": 20,
-        "recall_at_5": 1.0,
-        "recall_at_10": 1.0,
-        "recall_at_20": 1.0,
-        "precision_at_5": 0.2,
-        "precision_at_10": 0.1,
-        "ndcg_at_5": 0.9815,
-        "ndcg_at_10": 0.9815,
-        "mrr": 0.975,
-        "avg_latency_ms": 12.07,
-        "p95_latency_ms": 22.74,
-        "p99_latency_ms": 22.74
+        "queries_evaluated": 160,
+        "recall_at_5": 0.9906,
+        "recall_at_10": 0.9906,
+        "recall_at_20": 0.9906,
+        "precision_at_5": 0.24,
+        "precision_at_10": 0.12,
+        "ndcg_at_5": 0.9712,
+        "ndcg_at_10": 0.9712,
+        "hit_rate_at_5": 0.9938,
+        "hit_rate_at_10": 0.9938,
+        "mrr": 0.9677,
+        "avg_latency_ms": 12.21,
+        "p95_latency_ms": 14.22,
+        "p99_latency_ms": 17.87
       },
       "notes": {
         "top_k_evaluated": 20,
         "cost_model": "FastEmbed SPLADE: local CPU inference, no marginal cost.",
         "recall_at_10_by_category": {
-          "semantic": 1.0,
+          "semantic": 0.9776,
           "acronym": 1.0,
           "exact_keyword": 1.0,
           "code_entity": 1.0
@@ -74,24 +78,26 @@
       "name": "hybrid",
       "version": null,
       "metrics": {
-        "queries_evaluated": 20,
-        "recall_at_5": 1.0,
-        "recall_at_10": 1.0,
-        "recall_at_20": 1.0,
-        "precision_at_5": 0.2,
-        "precision_at_10": 0.1,
-        "ndcg_at_5": 0.9446,
-        "ndcg_at_10": 0.9446,
-        "mrr": 0.925,
-        "avg_latency_ms": 322.54,
-        "p95_latency_ms": 421.58,
-        "p99_latency_ms": 421.58
+        "queries_evaluated": 160,
+        "recall_at_5": 0.9953,
+        "recall_at_10": 0.9953,
+        "recall_at_20": 0.9953,
+        "precision_at_5": 0.24,
+        "precision_at_10": 0.12,
+        "ndcg_at_5": 0.9683,
+        "ndcg_at_10": 0.9683,
+        "hit_rate_at_5": 1.0,
+        "hit_rate_at_10": 1.0,
+        "mrr": 0.9615,
+        "avg_latency_ms": 422.91,
+        "p95_latency_ms": 745.23,
+        "p99_latency_ms": 933.07
       },
       "notes": {
         "top_k_evaluated": 20,
         "cost_model": "Voyage AI + FastEmbed SPLADE (dense API cost plus local sparse inference), fused in-process via RRF.",
         "recall_at_10_by_category": {
-          "semantic": 1.0,
+          "semantic": 0.9888,
           "acronym": 1.0,
           "exact_keyword": 1.0,
           "code_entity": 1.0

@@ -1,22 +1,30 @@
 {
   "benchmark_name": "Reranking",
-  "generated_at": "2026-07-14T09:47:56.583746Z",
+  "generated_at": "2026-08-11T18:29:57.347929Z",
   "dataset": {
     "name": "research-papers",
-    "document_count": 5
+    "document_count": 50
+  },
+  "metadata": {
+    "git_commit": "aa6d110fee2fb8324fd2ec807586e6e4c7189a38",
+    "branch": "researchmind-v2",
+    "dataset_version": "unknown",
+    "model_versions": {},
+    "benchmark_version": "1.0.0",
+    "timestamp": "2026-08-11T18:29:57.425803Z"
   },
   "candidates": [
     {
       "name": "hybrid_only",
       "version": null,
       "metrics": {
-        "queries_evaluated": 20,
-        "recall_at_5": 1.0,
-        "mrr": 0.925,
-        "ndcg_at_5": 0.9446,
-        "avg_latency_ms": 381.36,
-        "p95_latency_ms": 547.83,
-        "p99_latency_ms": 547.83
+        "queries_evaluated": 160,
+        "recall_at_5": 0.9583,
+        "mrr": 0.9552,
+        "ndcg_at_5": 0.943,
+        "avg_latency_ms": 451.48,
+        "p95_latency_ms": 624.12,
+        "p99_latency_ms": 962.54
       },
       "notes": {
         "final_k": 5,
@@ -28,13 +36,13 @@
       "name": "hybrid_cross_encoder",
       "version": null,
       "metrics": {
-        "queries_evaluated": 20,
-        "recall_at_5": 1.0,
-        "mrr": 1.0,
-        "ndcg_at_5": 1.0,
-        "avg_latency_ms": 625.37,
-        "p95_latency_ms": 1100.08,
-        "p99_latency_ms": 1100.08
+        "queries_evaluated": 160,
+        "recall_at_5": 0.9703,
+        "mrr": 0.9719,
+        "ndcg_at_5": 0.9582,
+        "avg_latency_ms": 603.52,
+        "p95_latency_ms": 815.42,
+        "p99_latency_ms": 1275.35
       },
       "notes": {
         "final_k": 5,
@@ -46,13 +54,13 @@
       "name": "hybrid_voyage",
       "version": null,
       "metrics": {
-        "queries_evaluated": 20,
-        "recall_at_5": 1.0,
-        "mrr": 0.95,
-        "ndcg_at_5": 0.9631,
-        "avg_latency_ms": 753.86,
-        "p95_latency_ms": 922.9,
-        "p99_latency_ms": 922.9
+        "queries_evaluated": 160,
+        "recall_at_5": 0.9688,
+        "mrr": 0.976,
+        "ndcg_at_5": 0.9582,
+        "avg_latency_ms": 860.02,
+        "p95_latency_ms": 1205.59,
+        "p99_latency_ms": 1470.53
       },
       "notes": {
         "final_k": 5,
@@ -62,13 +70,13 @@
     }
   ],
   "summary": {
-    "hybrid_cross_encoder_recall_at_5_delta": 0.0,
-    "hybrid_cross_encoder_mrr_delta": 0.075,
-    "hybrid_cross_encoder_ndcg_at_5_delta": 0.0554,
-    "hybrid_cross_encoder_latency_overhead_ms": 244.01,
-    "hybrid_voyage_recall_at_5_delta": 0.0,
-    "hybrid_voyage_mrr_delta": 0.025,
-    "hybrid_voyage_ndcg_at_5_delta": 0.0185,
-    "hybrid_voyage_latency_overhead_ms": 372.5
+    "hybrid_cross_encoder_recall_at_5_delta": 0.012,
+    "hybrid_cross_encoder_mrr_delta": 0.0167,
+    "hybrid_cross_encoder_ndcg_at_5_delta": 0.0152,
+    "hybrid_cross_encoder_latency_overhead_ms": 152.04,
+    "hybrid_voyage_recall_at_5_delta": 0.0105,
+    "hybrid_voyage_mrr_delta": 0.0208,
+    "hybrid_voyage_ndcg_at_5_delta": 0.0152,
+    "hybrid_voyage_latency_overhead_ms": 408.54
   }
 }

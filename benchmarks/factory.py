@@ -51,6 +51,7 @@ from app.ai.knowledge.vectorstores.create import (
 from app.ai.runtime.generation.create import (
     create_generation_registry,
 )
+from app.ai.runtime.generation.enums import GenerationProvider
 from app.ai.runtime.generation.service import (
     GenerationService,
 )
@@ -233,11 +234,16 @@ def create_benchmark_registry() -> BenchmarkRegistry:
 
         registry.register(
             GoldenSetBenchmark(
-                registry=generation_registry,
                 generation_service=GenerationService(
                     registry=generation_registry,
                 ),
                 judge=build_openai_ragas_judge(),
+                # OpenAI first, falling back to Claude per-example on
+                # failure -- not the full registry (which includes Groq,
+                # whose free-tier daily token limit a real 115-example
+                # run has already hit mid-pass; see golden_set_benchmark
+                # .py's own module docstring).
+                providers=[GenerationProvider.OPENAI, GenerationProvider.CLAUDE],
             )
         )
 

@@ -63,6 +63,8 @@ TEMP_DIRECTORY = PROJECT_ROOT / "tmp"
 
 API_APP_DIRECTORY = PROJECT_ROOT / "apps" / "api" / "app"
 
+BENCHMARK_REPORTS_DIRECTORY = PROJECT_ROOT / "benchmarks" / "reports"
+
 PROMPTS_TEMPLATES_DIRECTORY = (
     API_APP_DIRECTORY / "ai" / "runtime" / "generation" / "prompts" / "templates"
 )

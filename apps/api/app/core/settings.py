@@ -418,5 +418,38 @@ class Settings(BaseSettings):
             raise ValueError("Sample rates must be between 0.0 and 1.0.")
         return value
 
+    # ==========================================================================
+    # Internal Eval Dashboard (EVALUATION_PLAN.md §16 phase 8, E7)
+    # ==========================================================================
+
+    eval_dashboard_admin_emails: str = ""
+    """
+    Comma-separated allowlist of user emails permitted to view the
+    internal eval dashboard (`GET /api/v1/eval-dashboard/*`). Plain
+    `str`, not `list[str]`: pydantic-settings would otherwise require
+    JSON-array syntax (`["a@b.com"]`) in `.env`, which is less ergonomic
+    than a comma-separated value for an operator to set. Empty by
+    default -- no one has access until this is explicitly configured.
+    Deliberately a settings-based allowlist, not a `User.is_admin`
+    column: this is internal engineering tooling, not a customer-facing
+    feature, and a real RBAC column with no admin-management UI to set
+    it would be more schema/scope than the need justifies today.
+    """
+
+    def eval_dashboard_admin_email_set(self) -> set[str]:
+        return {
+            email.strip().lower()
+            for email in self.eval_dashboard_admin_emails.split(",")
+            if email.strip()
+        }
+
+    def is_eval_dashboard_admin(self, email: str) -> bool:
+        """Single source of truth for the allowlist check -- shared by
+        `require_eval_dashboard_access` (the real gate, every
+        `/eval-dashboard/*` request) and `GET /auth/me` (presentation
+        only, drives whether the frontend shows the nav link)."""
+
+        return email.strip().lower() in self.eval_dashboard_admin_email_set()
+
 
 settings = Settings()  # pyright: ignore[reportCallIssue]

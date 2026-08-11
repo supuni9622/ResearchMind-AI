@@ -62,7 +62,7 @@ E8 (config fingerprint) ──► E9 (segment-analysis job)          E5 (online 
                                                             table already built by E5) ✅ Done
                                                                        │
                                                                        ▼
-                                                        E7 (internal dashboard)
+                                                        E7 (internal dashboard) ✅ Done
                                                                        │
                                                                        ▼
                                                         E10 (golden-set promotion — needs real feedback volume)
@@ -130,8 +130,8 @@ E21 too, on top of its declared E6 dependency.
      the soft-unlock for R3
   4. [E17](#e17-latency-slo-alerts--eval_scores-grafana-panel)'s
      **alert-rule half only** — High ease, no dependency (the Grafana
-     panel half waits for E6, see R5). Split the item: ship the alert
-     rules now, the panel later
+     panel half is now unblocked too, since E6 shipped — see R5). Split
+     the item: ship the alert rules now, the panel separately
 
 - **R2 — unblocked, Med ease** (parallelizable)
   5. ✅ [E5](#e5-online-risk-weighted-scoring-job) — Done 2026-08-11. Was
@@ -156,8 +156,9 @@ E21 too, on top of its declared E6 dependency.
       building it themselves
 
 - **R5 — needs E6's `eval_scores` table (now unblocked)**
-  11. [E7](#e7-internal-dashboard--owner-scoped-drill-down) — Med ease,
-      High value
+  11. ✅ [E7](#e7-internal-dashboard--owner-scoped-drill-down) — Done.
+      Owner search/drill-down + review-decision distribution now live
+      over the same table E5/E6 write to
   12. [E17](#e17-latency-slo-alerts--eval_scores-grafana-panel)'s
       **Grafana panel half** — the alert-rule half already shipped in R1
   13. [E10](#e10-golden-set-promotion-review-both-directions) — Med ease,
@@ -184,7 +185,7 @@ a live user-observed gap beats the planned order.
 | [E4](#e4-citation-validator-cross-surface-release-blocking) | Citation validator, cross-surface, release-blocking | **Done** (checker built; CI/online-gate wiring is E2/E5) | Very High | High | — |
 | [E5](#e5-online-risk-weighted-scoring-job) | Online risk-weighted scoring job | **Done** | High | Med | E4 (reuses as free signal) |
 | [E6](#e6-feedback--trace-attachment--eval_scores-table) | Feedback → trace attachment + `eval_scores` table | **Done** | High | Med | E3, E5 |
-| [E7](#e7-internal-dashboard--owner-scoped-drill-down) | Internal dashboard + owner-scoped drill-down | Not started | High | Med | E6 |
+| [E7](#e7-internal-dashboard--owner-scoped-drill-down) | Internal dashboard + owner-scoped drill-down | **Done** | High | Med | E6 |
 | [E8](#e8-config-fingerprint-through-generationrequestgenerationusage) | Config fingerprint (`GenerationRequest`→`GenerationUsage`) | **Done** | High | Med | — |
 | [E9](#e9-segment-analysis-job) | Segment-analysis job | Not started | High | Med | E8 |
 | [E10](#e10-golden-set-promotion-review-both-directions) | Golden-set promotion review (both directions) | Not started | High | Med | E3, E6 |
@@ -194,7 +195,7 @@ a live user-observed gap beats the planned order.
 | [E14](#e14-retrieval-metric-completeness) | Retrieval metric completeness | **Done** | Med | High | — |
 | [E15](#e15-adversarial-dataset) | Adversarial dataset (10-20 cases) | **Done** | Med | Med | — |
 | [E16](#e16-llm-as-judge-metric) | LLM-as-judge metric | Not started | Med | Med | E1 |
-| [E17](#e17-latency-slo-alerts--eval_scores-grafana-panel) | Latency-SLO alerts + `eval_scores` Grafana panel | **Alert-rules half done** (Chat + Linear Research; Deep Research has no duration metric yet; panel half blocked on E6) | Med | High | E6 (for the panel half) |
+| [E17](#e17-latency-slo-alerts--eval_scores-grafana-panel) | Latency-SLO alerts + `eval_scores` Grafana panel | **Alert-rules half done** (Chat + Linear Research; Deep Research has no duration metric yet; panel half now unblocked by E6, not yet built) | Med | High | ~~E6~~ done (for the panel half) |
 | [E18](#e18-cost-forecast) | Cost forecast (rolling-average) | **Done** (CLI report; dashboard-panel half deferred to E7, no admin auth exists yet) | Low-Med | High | — |
 | [E19](#e19-register-golden-dataset-in-langsmith) | Register golden dataset in LangSmith | **Done** (dataset live in LangSmith, confirmed; Experiment-logging subtask not started) | Med | High | E1 |
 | [E20](#e20-ci-live-service-benchmark-triggers--citation-metric-wiring) | CI live-service benchmark triggers + citation-metric wiring | Not started | High | Low-Med | E1, E2, E4 |
@@ -751,14 +752,42 @@ fixed in this pass per direct instruction. See also
 [[artifact-platform]] in memory for the policy table's original design
 note.
 
+**Follow-up, user-requested (2026-08-11): automated scores now sync to
+LangSmith too.** Previously only human feedback reached LangSmith (E22);
+E5's online-sampled Ragas/citation scores landed in `eval_scores` but
+never appeared on the trace itself in LangSmith's own UI — a user
+looking at a run there would see the human thumbs-up/down but not the
+automated faithfulness/citation-validity signal sitting right next to it
+in our own DB. New `app/ai/observability/providers/langsmith/
+eval_score_sync.py::sync_eval_score()`, extending E22's `sync_user_feedback`
+pattern: one `create_feedback()` call per metric, keyed by `metric_name`
+(not a shared `"user_rating"` key) so each automated signal shows as its
+own feedback entry rather than colliding. `EvalScoreRepository.record()`
+now returns the inserted `EvalScore` (or `None` on an `on_conflict_do_nothing`
+no-op) instead of `None` always, so `OnlineScoringJob._score_one()` has
+the row id to sync; the run's `langsmith_run_id` is looked up once per
+generation (`GenerationUsageRepository.get_langsmith_run_id()`, already
+existed from E21/E22) and reused across every metric that generation
+produces, not re-queried per metric. Same best-effort contract as
+`sync_user_feedback`: a LangSmith hiccup is logged and swallowed, never
+raised, never blocks the job. 13 new tests (4 for `sync_eval_score()`
+matching `test_user_feedback.py`'s established pattern, 4 new
+`OnlineScoringJob` tests — syncs when a run id is known, skips when it
+isn't, skips when `record()` no-op'd, syncs each judge metric
+separately — plus 2 integration tests confirming `record()`'s new
+return value against a real Postgres `RETURNING`, and existing job tests'
+mock harness updated for the new `get_langsmith_run_id` dependency).
+
 **Acceptance criteria:** every guardrail-flagged production request has a
 recorded score — **met**: `guardrail_final_action != "allow"` always
 returns `should_score_judges=True` from `decide_sampling()`, exercised by
 `test_guardrail_flagged_row_is_sampled_for_judges_even_at_zero_baseline`.
 The flat-baseline sample rate is configurable, not hardcoded — **met**,
-`settings.eval_online_baseline_sample_rate`. Whole-repo verification:
-1728/1728 tests pass (67 new), clean `mypy` (797 source files), clean
-`ruff`/`ruff format` across the whole repository.
+`settings.eval_online_baseline_sample_rate`. Whole-repo verification as
+of the LangSmith-sync follow-up specifically: 1788/1788 tests pass,
+clean `mypy` (850 source files), clean `ruff`/`ruff format` — see E6's
+own closing verification note for the final whole-repo count including
+its own later same-day follow-ups (fallback chain, concurrency).
 
 ---
 
@@ -858,6 +887,51 @@ paths: `POST /feedback` and E1/E2's offline benchmark results.
       against a real Postgres row for the schema change + new repository
       method (nullable columns persist correctly, append-only semantics
       hold across two "runs").
+- [x] **Follow-up, user-requested (2026-08-11): provider fallback chain.**
+      A real `GoldenSetGeneration` run hit a Groq daily-token-limit 429
+      (`tokens per day (TPD): Limit 100000, Used 97080`) partway through
+      a 115-example pass, exhausting `GenerationService`'s own retries.
+      Under the original one-candidate-per-registered-provider design
+      that would have poisoned Groq's entire candidate. Redesigned:
+      `GoldenSetBenchmark` now takes an ordered `providers` fallback
+      chain (default OpenAI → Claude, set in `factory.py`, not every
+      registered provider) and produces exactly **one** candidate
+      (named e.g. `"openai+claude"`), trying each provider in order
+      *per example* on failure — `GenerationService.generate()`'s own
+      retry logic is untouched and still runs first; the benchmark-level
+      fallback only kicks in once that's exhausted. Per-example notes
+      now record which provider actually served that example; aggregate
+      metrics gained `examples_via_{provider}` counts. Cross-provider
+      comparison remains `GenerationBenchmark`'s job, deliberately not
+      duplicated here. 2 new tests (falls back to the next provider,
+      every provider in the chain failing is recorded with both
+      providers' error messages, not a generic "gave up" string) plus 5
+      existing tests updated for the interface change (`registry` param
+      removed, `providers` param added, one candidate asserted instead
+      of one per provider).
+- [x] **Follow-up, user-requested same day: bounded concurrency.** Asked
+      explicitly as a "good practice" improvement, not a fix for the
+      Groq incident above (concurrency doesn't change total token
+      consumption, so it wouldn't by itself have prevented a daily-limit
+      429 — stated explicitly rather than implied). `_evaluate()` split
+      into a per-example `_evaluate_one_example()`, gathered via
+      `asyncio.gather()` bounded by an `asyncio.Semaphore`
+      (`max_concurrency`, default 5, `DEFAULT_MAX_CONCURRENCY`). Only
+      *examples* run concurrently — the fallback attempts *within* one
+      example stay a strict sequential loop, since trying Claude before
+      OpenAI's result is known would defeat the point of a fallback. A
+      real test-suite gotcha caught and fixed along the way: one
+      existing test asserted on `generate()`'s positional
+      `side_effect=[...]` call order, which was only ever an artifact of
+      sequential execution — under real concurrency, which example's
+      call reaches the mock first isn't guaranteed, so that test was
+      rewritten to a content-based `side_effect` (inspects `request.
+      user_prompt` for which example it's scoring) instead of relying on
+      call position. 2 new tests, including one that actually proves
+      concurrency happens and stays bounded (an instrumented mock
+      side_effect with a real `asyncio.sleep`, asserting
+      `1 < max_in_flight <= max_concurrency` — not just that the code
+      runs without error).
 
 **Not done / deliberately out of scope:** no CI job runs
 `GoldenSetGeneration` automatically (expensive by design — one real
@@ -871,43 +945,188 @@ that's E9's segment-analysis territory, not E6's.
 **Acceptance criteria:** a single query by `owner_id` returns both a
 user's thumbs-down feedback and the automated scores for that same
 generation — **met**, exercised end-to-end via the feedback-mirror
-tests. Whole-repo verification (final, both halves): 1746/1746 tests
-pass (85 new across E5+E6), clean `mypy` (845 source files), clean
-`ruff`/`ruff format` across the whole repository; migration chain
-(`9a2b3c4d5e6f` → `b1c2d3e4f5a6`) verified via a fresh scratch-DB
-`upgrade head` → `downgrade -1` → `upgrade head` pass with the resulting
-schema hand-diffed against the ORM models, then applied to the real dev
-DB.
+tests. Migration chain (`9a2b3c4d5e6f` → `b1c2d3e4f5a6`) verified via a
+fresh scratch-DB `upgrade head` → `downgrade -1` → `upgrade head` pass
+with the resulting schema hand-diffed against the ORM models, then
+applied to the real dev DB. Whole-repo verification, **final** (both
+original halves plus both same-day follow-ups above — fallback chain,
+concurrency): 1790/1790 tests pass, clean `mypy` (850 source files),
+clean `ruff`/`ruff format` across the whole repository.
 
 ---
 
-### E7. Internal dashboard + owner-scoped drill-down
+### E7. Internal dashboard + owner-scoped drill-down — **Done** (2026-08-11)
 
 **Roadmap:** Wave 1, row 7. **Eval Plan:** §16 phase 8 (dashboard half;
 `ResearchReview.decision` half already shipped in Wave 0 — see
 [§0](#0-corrections-found-during-this-pass), don't re-do).
 
-**Current state:** Not started. The Wave-0 Grafana panel
-(`researchmind_research_review_decisions_total`) is operational
-monitoring, not this — this item is a read-only internal view over
-`eval_scores` (E6), scoped by owner, per 1g's objective/preference split.
+**Current state:** Built end-to-end: three read-only API endpoints, an
+access-control dependency, and a frontend page. The Wave-0 Grafana panel
+(`researchmind_research_review_decisions_total`) remains aggregate-only
+operational monitoring, untouched — this item is the owner-scoped view
+Prometheus labels can't cleanly support at that cardinality.
+
+**Real scoping decision, surfaced before building, not picked silently:**
+no admin/role concept existed anywhere in this codebase (`User` has no
+`is_admin`, no RBAC). Asked the user directly rather than guessing;
+decided on a **settings-based email allowlist**
+(`settings.eval_dashboard_admin_emails`, comma-separated, empty by
+default so no one has access until explicitly configured), not a
+`User.is_admin` schema column — this is internal engineering tooling
+with no admin-management UI to set a column with, not a customer-facing
+feature needing real RBAC.
 
 **Subtasks:**
-- [ ] Read-only API endpoint(s) querying `eval_scores` by `owner_id`,
-      `metric_name`, `date_range`, `source`
-- [ ] Frontend page (internal-only, not customer-facing) — score trends,
-      recent feedback, drill-down from an aggregate metric to individual
-      flagged generations
-- [ ] Roll `ResearchReview.decision` distribution into this view too
-      (the Prometheus counter from Wave 0 is fine for Grafana ops
-      monitoring, but this dashboard should show it per-owner, which
-      Prometheus labels don't cleanly support at this cardinality —
-      query `eval_scores`/a dedicated table instead)
-- [ ] Respect 1g's objective/preference split so one user's stylistic
-      preference feedback doesn't get blended into shared quality metrics
+- [x] Read-only API endpoints (`app/api/v1/eval_dashboard.py`, prefix
+      `/eval-dashboard`), all behind `require_eval_dashboard_access`
+      (`app/dependencies/eval_dashboard.py`) on top of normal
+      authentication:
+    - `GET /owners?search=` — `EvalScoreRepository.
+      search_owners_with_scores()`: owners with ≥1 `eval_scores` row,
+      matched by email/username substring, ordered by row count. The
+      "pick a user" step before drill-down — `eval_scores.owner_id` is
+      nullable since E6 (offline rows have none), so this join
+      implicitly excludes those, which is correct here.
+    - `GET /scores?owner_id=&metric_name=&source=&since=` —
+      `EvalScoreRepository.list_for_owner_page()`, paginated, newest
+      first. This is the endpoint E7's own acceptance criterion targets.
+    - `GET /review-decisions?owner_id=` — new
+      `ResearchRunRepository.review_decision_counts_for_owner()`,
+      grouping `ResearchRun.budget_usage->>'review_decision'` via
+      SQLAlchemy's JSONB `.op("->>")` text-extraction operator (a new
+      idiom for this codebase — `execution.py` previously only ever read
+      that field in Python after fetching a single row, never
+      aggregated it in SQL across many rows).
+    - New `ForbiddenException` (403) — `AppException` had no 403 variant
+      before this; every other exception in the hierarchy was 400/401/
+      404/409/429/503.
+- [x] Frontend page (`apps/web/src/app/(app)/eval-dashboard/page.tsx`,
+      internal-only; server-side access control is the real gate, the
+      frontend just renders a clear "you don't have access" state on a
+      403 rather than hiding the route) — owner search/pick, paginated
+      score table with a source filter (online/feedback/offline),
+      review-decision badges. Three new components under
+      `src/features/eval-dashboard/components/`
+      (`owner-picker`/`score-table`/`review-decision-summary`), matching
+      the `documents` feature's established split/pagination pattern
+      ([[frontend-list-pagination-pattern]]).
+- [x] **Follow-up same day, user-requested:** sidebar nav link, shown
+      only to allowlisted users. Originally shipped reachable only by
+      direct URL; the user asked for real navigation gated the same way.
+      `GET /auth/me` now returns `eval_dashboard_access: bool`
+      (`settings.is_eval_dashboard_admin()` — extracted as a shared
+      helper so the real gate, `require_eval_dashboard_access`, and this
+      presentation-only flag can't drift apart), and `Sidebar`
+      (`components/layout/sidebar.tsx`) conditionally appends the nav
+      item when `user?.eval_dashboard_access` is true. Explicitly
+      presentation-only, stated in both the endpoint's and the type's
+      own comments — the real check still runs server-side on every
+      `/eval-dashboard/*` request regardless of what the nav shows. 3 new
+      API tests (`test_auth_me.py`) plus a settings-helper unit test.
+- [x] `ResearchReview.decision` distribution rolled in, per-owner, via
+      the new `/review-decisions` endpoint above — exactly the gap
+      Prometheus's aggregate-only labels couldn't close.
+- [ ] **1g's objective/preference split — not built**, correctly left
+      open: that classification is E11 (comment classification), not yet
+      implemented. Noted as a known gap in the page's own review-decision
+      framing rather than faked; nothing here currently distinguishes a
+      stylistic complaint from an objective quality issue.
+- [x] **Follow-up same day, user-requested: offline-benchmark results
+      view.** A user question ("where do we see the offline
+      evaluations?") surfaced a real bug in the shipped page: `/scores`
+      requires `owner_id`, but offline rows have `owner_id = NULL` (E6),
+      so the "Offline" source-filter pill always returned zero rows —
+      dead UI, not caught before ship. Fixed by adding the missing read
+      path rather than papering over the symptom: two new endpoints,
+      `GET /offline-examples` (search golden-set examples with ≥1
+      offline score, "pick an example" step) and `GET /offline-scores`
+      (that example's `GoldenSetGeneration` run history — append-only,
+      so multiple rows per example over time, newest first), neither
+      owner-scoped. New `EvalScoreRepository.search_offline_examples()`/
+      `list_offline_page()`. Frontend split into two tabs
+      (`OwnerDrilldownView`/`OfflineDrilldownView`, both under
+      `src/features/eval-dashboard/components/`, `page.tsx` now a thin
+      switcher) — the dead "Offline" pill removed from the owner view's
+      `SOURCE_FILTERS` rather than left in place pointing at a route
+      that could never populate it. 10 new tests (5 integration against
+      real Postgres — including one confirming append-only ordering
+      across simulated "runs" — 5 API-level auth tests matching the
+      established pattern).
+- [x] **Follow-up same day, user-requested: engineering-benchmark
+      reports missing entirely from the dashboard.** User noticed the
+      "Offline" tab only shows `GoldenSetGeneration` and pointed out the
+      other 6 engineering benchmarks (embeddings, retrieval,
+      metadatafiltering, reranking, ingestionfidelity,
+      generation-provider-comparison) already run and produce
+      `benchmarks/reports/<name>/report.json` but were never visible
+      anywhere but the filesystem. Asked the user to choose between a
+      read-only file view and a new DB-backed history table — **chose
+      the read-only file view** (no schema/write-path changes, ships
+      same day; the tradeoff, stated up front, is no trend-over-time,
+      just the latest local run). New `app/services/benchmark_reports.py`
+      (`load_reports_from()` pure directory scan, skips malformed
+      `report.json` files and anything carrying
+      `PER_EXAMPLE_SCORES_NOTE_KEY` since `GoldenSetGeneration` already
+      has its own dedicated view) + `GET /eval-dashboard/benchmark-reports`
+      (`response_model=list[BenchmarkReport]`, reusing
+      `benchmarks.models.report.BenchmarkReport` directly rather than a
+      duplicate schema). New `BENCHMARK_REPORTS_DIRECTORY` constant.
+      Deliberate `app`/`benchmarks` boundary crossing, same kind
+      `bootstrap/worker.py` already makes for the Ragas judge. Frontend:
+      third `Pill` tab ("Engineering Benchmarks") +
+      `BenchmarkReportsView`, rendering one generic comparison table per
+      report (columns = union of each report's candidate metric keys)
+      since `BenchmarkCandidate.metrics` differs per benchmark type — one
+      component covers all 6 without per-benchmark branching. Adjacent
+      fix in the same pass: `benchmarks/runner.py` now prints a reminder
+      to run `persist_golden_set_scores.py` after any `GoldenSetGeneration`
+      run, since a user had already hit exactly that gap (real run, valid
+      `report.json`, nothing in the Offline tab because the separate
+      persist step was never run) — root-caused live via direct DB query
+      (0 rows) and report inspection, fixed by running the persist script
+      by hand (368 rows: 92 examples × 4 metrics). 7 new tests (5 unit
+      against `load_reports_from` covering missing directory, malformed
+      JSON, and the per-example-detail filter; 2 new API auth tests
+      matching the established pattern).
+
+**Verification:** 18 new tests (2 settings-helper unit tests, 8
+integration tests for the three new repository methods against real
+Postgres rows — including one confirming the JSONB `->>` grouping
+actually works, not just compiles — and 8 API-level auth tests using the
+established fake-repository/`dependency_overrides` pattern: 401
+unauthenticated, 403 non-allowlisted, 200 allowlisted, case-insensitive
+email match). Frontend: `tsc --noEmit` and `next lint` both clean; the
+live dev API server (already running, `--reload`) picked up the new
+routes automatically, confirmed via `curl` (401 unauthenticated) and the
+OpenAPI schema listing all three paths; the frontend route serves 200.
+**Not independently verified:** a fully authenticated visual walkthrough
+of the real page in a browser — this environment has no way to obtain a
+real Cognito session (no auth bypass exists, by design), so the
+allowlist/rendering logic is verified through the automated test suite
+and a pre-auth page-load check, not a logged-in screenshot. Flagged
+explicitly per this project's "say so, don't claim success" convention
+for UI work that couldn't be visually confirmed — the user did confirm
+the page live shortly after, via direct URL, before asking for the nav
+follow-up above. Whole-repo verification (all passes, including the
+offline-view, GoldenSetBenchmark-fallback, and engineering-benchmarks-tab
+follow-ups above): 1797/1797 tests pass (40 new total across E7's four
+passes), clean `mypy` on every backend file touched, clean `ruff` across
+the whole repository, `tsc --noEmit` and `eslint` both clean on the new
+frontend files. The engineering-benchmarks tab was verified the same way
+as E7's original build: `curl` confirms the route is live and correctly
+401s unauthenticated; the allowlisted-user path is covered by the
+automated test suite (fake `list_benchmark_reports` dependency override),
+not an independently-verified logged-in screenshot — same known gap as
+above, for the same reason (no real Cognito session obtainable in this
+environment).
 
 **Acceptance criteria:** can answer "what's this specific user's recent
-Deep Research quality trend" without a raw SQL query.
+Deep Research quality trend" without a raw SQL query — **met** by the
+`/scores` + `/review-decisions` endpoints and the page built on top of
+them, modulo the not-independently-verified visual walkthrough above.
+Offline-benchmark trend data is now answerable the same way, via
+`/offline-examples` + `/offline-scores`.
 
 ---
 
@@ -1074,8 +1293,10 @@ regress faithfulness for `comparison`-type queries specifically."
 build order, needs real feedback volume. **Eval Plan:** §3
 (`production_failures` dataset), §15 (feedback loop), §16 phase 9.
 
-**Current state:** Not started, depends on E3 (feedback source) and E6
-(scored/flagged generations to review).
+**Current state:** Not started. Depends on E3 (feedback source) and E6
+(scored/flagged generations to review) — both now done, so this item is
+unblocked; still gated by the soft "real feedback volume" dependency per
+the roadmap note above.
 
 **Subtasks:**
 - [ ] Review queue UI/flow for confirming genuine production failures
@@ -1387,7 +1608,8 @@ Part 3 item 5). **Eval Plan:** §11 (operational, "already sufficient").
 and live (Phase 9). Two P95 latency-SLO alert rules now added to
 `infra/observability/prometheus/alerts.yml` and confirmed loaded into a
 real running Prometheus instance (not just YAML syntax review) — the
-panel half is still blocked on E6 (`eval_scores` doesn't exist yet).
+panel half's blocker (E6, `eval_scores` not existing yet) is now cleared
+(E6 done 2026-08-11), but the panel itself still isn't built.
 
 **Real scoping finding, not silently defaulted:** the tracker's own
 framing ("per surface — Chat/Linear/Deep Research") turned out to only be
@@ -1425,8 +1647,8 @@ in `benchmarks/regression/thresholds.py`.
       — verified via a real Prometheus container restart + `/api/v1/rules`:
       both rules parse (`health: ok`, no `lastError`) and correctly report
       `state: inactive` against real (empty) data, not a syntax-only check
-- [ ] Add a Grafana panel visualizing `eval_scores` (E6) trends — still
-      blocked on E6, as originally scoped
+- [ ] Add a Grafana panel visualizing `eval_scores` (E6) trends — E6
+      shipped 2026-08-11, so this is now unblocked; not yet built
 - [x] Cross-reference `docs/monitoring/grafana.md` and
       `docs/runbooks/prometheus-grafana-observability.md` — the latter's
       existing alert table extended with both new rules plus the Deep
@@ -1437,9 +1659,9 @@ in `benchmarks/regression/thresholds.py`.
 existed to force one; verified instead that the rules load correctly
 against real metric/label names and report the correct baseline
 `inactive` state — the honest level of verification available given no
-production volume yet). The panel exists even if E6 hasn't shipped —
-**not met**, deferred with E6 as originally scoped, doesn't block the
-alert-rule half.
+production volume yet). The panel exists — **not met**, E6 (its
+dependency) is now done but the panel itself hasn't been built yet;
+doesn't block the alert-rule half.
 
 ---
 

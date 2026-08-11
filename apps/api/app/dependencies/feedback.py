@@ -4,6 +4,7 @@ from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db
+from app.dependencies.eval_score import get_eval_score_repository
 from app.dependencies.generation_usage import get_generation_usage_repository
 from app.repositories.eval_score import EvalScoreRepository
 from app.repositories.feedback import FeedbackRepository
@@ -15,12 +16,6 @@ def get_feedback_repository(
     session: AsyncSession = Depends(get_db),
 ) -> FeedbackRepository:
     return FeedbackRepository(session)
-
-
-def get_eval_score_repository(
-    session: AsyncSession = Depends(get_db),
-) -> EvalScoreRepository:
-    return EvalScoreRepository(session)
 
 
 def get_feedback_service(

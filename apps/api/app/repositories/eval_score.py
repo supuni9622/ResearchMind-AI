@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from uuid import UUID
 
+from sqlalchemy import ColumnElement, and_, func, or_, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.enums import EvalScoreSource
 from app.models.eval_score import EvalScore
+from app.models.user import User
 
 
 class EvalScoreRepository:
@@ -27,7 +30,7 @@ class EvalScoreRepository:
         source: str,
         sample_category: str | None,
         dataset_example_id: str | None = None,
-    ) -> None:
+    ) -> EvalScore | None:
         """
         Insert one score row. `on_conflict_do_nothing` on
         `(generation_id, metric_name, source)`: this is a defensive
@@ -35,9 +38,15 @@ class EvalScoreRepository:
         primary exactly-once mechanism -- `GenerationUsageRepository.
         list_unscored_since()`'s anti-join is what normally prevents a
         generation from being picked up twice.
+
+        Returns the inserted row, or `None` when the insert conflicted
+        (`RETURNING` produces nothing for a no-op'd insert) -- callers
+        that need the new row's id (e.g. `OnlineScoringJob`'s LangSmith
+        sync, keyed on `EvalScore.id`) treat `None` as "nothing new to
+        sync," not an error.
         """
 
-        await self._session.execute(
+        result = await self._session.execute(
             insert(EvalScore)
             .values(
                 owner_id=owner_id,
@@ -51,7 +60,9 @@ class EvalScoreRepository:
                 dataset_example_id=dataset_example_id,
             )
             .on_conflict_do_nothing(constraint="uq_eval_scores_generation_metric_source")
+            .returning(EvalScore)
         )
+        return result.scalar_one_or_none()
 
     async def upsert(
         self,
@@ -144,3 +155,186 @@ class EvalScoreRepository:
                 sample_category=None,
             )
         )
+
+    async def list_for_owner_page(
+        self,
+        owner_id: UUID,
+        *,
+        metric_name: str | None = None,
+        source: str | None = None,
+        since: datetime | None = None,
+        limit: int,
+        offset: int,
+    ) -> tuple[list[EvalScore], int]:
+        """
+        One page of an owner's `eval_scores` rows, newest first (E7's
+        drill-down view). `metric_name`/`source`/`since` are optional
+        narrowing filters -- e.g. `source="human_feedback"` alone to see
+        just that user's thumbs up/down history.
+        """
+
+        conditions: list[ColumnElement[bool]] = [EvalScore.owner_id == owner_id]
+
+        if metric_name:
+            conditions.append(EvalScore.metric_name == metric_name)
+
+        if source:
+            conditions.append(EvalScore.source == source)
+
+        if since is not None:
+            conditions.append(EvalScore.created_at >= since)
+
+        filters = and_(*conditions)
+
+        count_statement = select(func.count()).select_from(EvalScore).where(filters)
+        total = await self._session.scalar(count_statement) or 0
+
+        statement = (
+            select(EvalScore)
+            .where(filters)
+            .order_by(EvalScore.created_at.desc())
+            .limit(limit)
+            .offset(offset)
+        )
+        rows = (await self._session.execute(statement)).scalars().all()
+
+        return list(rows), total
+
+    async def search_owners_with_scores(
+        self,
+        *,
+        search: str | None = None,
+        limit: int,
+        offset: int,
+    ) -> tuple[list[tuple[User, int]], int]:
+        """
+        Owners who have at least one `eval_scores` row, with their row
+        count, ordered by most rows first -- the "pick a user" step
+        before E7's drill-down view. `search` matches email/username
+        (case-insensitive substring). Excludes offline-benchmark rows'
+        `NULL` owner_id implicitly (the join only matches real users).
+        """
+
+        conditions: list[ColumnElement[bool]] = []
+        if search:
+            pattern = f"%{search.lower()}%"
+            conditions.append(
+                or_(
+                    func.lower(User.email).like(pattern),
+                    func.lower(func.coalesce(User.username, "")).like(pattern),
+                )
+            )
+        filters = and_(*conditions) if conditions else None
+
+        base = select(User.id).join(EvalScore, EvalScore.owner_id == User.id)
+        if filters is not None:
+            base = base.where(filters)
+        base = base.group_by(User.id)
+
+        count_statement = select(func.count()).select_from(base.subquery())
+        total = await self._session.scalar(count_statement) or 0
+
+        score_count = func.count(EvalScore.id).label("score_count")
+        statement = (
+            select(User, score_count)
+            .join(EvalScore, EvalScore.owner_id == User.id)
+            .group_by(User.id)
+            .order_by(score_count.desc())
+            .limit(limit)
+            .offset(offset)
+        )
+        if filters is not None:
+            statement = statement.where(filters)
+
+        rows = (await self._session.execute(statement)).all()
+
+        return [(row[0], row[1]) for row in rows], total
+
+    async def list_offline_page(
+        self,
+        *,
+        dataset_example_id: str | None = None,
+        metric_name: str | None = None,
+        limit: int,
+        offset: int,
+    ) -> tuple[list[EvalScore], int]:
+        """
+        One page of `source=offline_benchmark` rows, newest first --
+        deliberately **not** owner-scoped, unlike `list_for_owner_page()`:
+        offline rows have no `owner_id` (they score a fixed golden-set
+        example, not a live production generation), so an owner-scoped
+        endpoint can never surface them. This is the read path the E7
+        dashboard's "Offline" filter needs but didn't have -- filtering
+        `list_for_owner_page()` by `source="offline_benchmark"` always
+        returns zero rows regardless of which owner is selected.
+        """
+
+        conditions: list[ColumnElement[bool]] = [
+            EvalScore.source == EvalScoreSource.OFFLINE_BENCHMARK.value
+        ]
+
+        if dataset_example_id:
+            conditions.append(EvalScore.dataset_example_id == dataset_example_id)
+
+        if metric_name:
+            conditions.append(EvalScore.metric_name == metric_name)
+
+        filters = and_(*conditions)
+
+        count_statement = select(func.count()).select_from(EvalScore).where(filters)
+        total = await self._session.scalar(count_statement) or 0
+
+        statement = (
+            select(EvalScore)
+            .where(filters)
+            .order_by(EvalScore.created_at.desc())
+            .limit(limit)
+            .offset(offset)
+        )
+        rows = (await self._session.execute(statement)).scalars().all()
+
+        return list(rows), total
+
+    async def search_offline_examples(
+        self,
+        *,
+        search: str | None = None,
+        limit: int,
+        offset: int,
+    ) -> tuple[list[tuple[str, int, datetime]], int]:
+        """
+        Distinct `dataset_example_id`s with at least one offline-benchmark
+        score, each with its row count and most recent run timestamp,
+        ordered by most-recently-run first -- the "pick an example" step
+        before drilling into its `list_offline_page()` history. `search`
+        matches `dataset_example_id` (case-insensitive substring).
+        """
+
+        conditions: list[ColumnElement[bool]] = [
+            EvalScore.source == EvalScoreSource.OFFLINE_BENCHMARK.value
+        ]
+        if search:
+            conditions.append(func.lower(EvalScore.dataset_example_id).like(f"%{search.lower()}%"))
+        filters = and_(*conditions)
+
+        base = (
+            select(EvalScore.dataset_example_id)
+            .where(filters)
+            .group_by(EvalScore.dataset_example_id)
+        )
+        count_statement = select(func.count()).select_from(base.subquery())
+        total = await self._session.scalar(count_statement) or 0
+
+        score_count = func.count(EvalScore.id).label("score_count")
+        latest_run_at = func.max(EvalScore.created_at).label("latest_run_at")
+        statement = (
+            select(EvalScore.dataset_example_id, score_count, latest_run_at)
+            .where(filters)
+            .group_by(EvalScore.dataset_example_id)
+            .order_by(latest_run_at.desc())
+            .limit(limit)
+            .offset(offset)
+        )
+        rows = (await self._session.execute(statement)).all()
+
+        return [(row[0], row[1], row[2]) for row in rows], total

@@ -537,7 +537,17 @@ which query categories.
 uv run python -m benchmarks.runner GoldenSetGeneration --dataset datasets/golden
 ```
 
-Runs `rag_answer_gold`'s 115 answerable examples through a live generation call per configured provider, then scores each with the real Ragas judge suite (faithfulness/answer_relevancy/context_precision/context_recall). Requires `OPENAI_API_KEY` — the benchmark isn't even registered without one (see `benchmarks/factory.py`), since a missing key would otherwise break every other benchmark's registry construction. Expensive by design (a real generation call plus up to 4 real Ragas judge calls per example per provider) — meant for the release-candidate tier (EVALUATION_PLAN.md §13), not every-PR CI. Report written to `benchmarks/reports/goldensetgeneration/`.
+Runs `rag_answer_gold`'s 115 answerable examples through a live generation call, then scores each with the real Ragas judge suite (faithfulness/answer_relevancy/context_precision/context_recall). Requires `OPENAI_API_KEY` — the benchmark isn't even registered without one (see `benchmarks/factory.py`), since a missing key would otherwise break every other benchmark's registry construction. Expensive by design (a real generation call plus up to 4 real Ragas judge calls per example) — meant for the release-candidate tier (EVALUATION_PLAN.md §13), not every-PR CI. Report written to `benchmarks/reports/goldensetgeneration/`.
+
+Evaluates against an ordered provider **fallback chain** (default: OpenAI, falling back to Claude per example on failure), not every registered provider — a real Groq run hit a daily-token-limit 429 partway through a 115-example pass, which would have poisoned the whole run under the old one-candidate-per-provider design. Produces exactly one candidate (named `openai+claude`) reflecting whichever provider actually answered each example, not one candidate per provider — cross-provider comparison is `GenerationBenchmark`'s job, not this one's.
+
+Examples run **concurrently**, bounded by `max_concurrency` (default 5) — standard practice for bulk I/O-bound LLM evaluation, independent of the fallback-chain fix above (concurrency doesn't change total token consumption, so it wouldn't by itself have prevented that daily-limit 429; it's purely a throughput improvement on top of it).
+
+Catch a regression against the last committed report:
+```
+uv run python -m benchmarks.runner GoldenSetGeneration --dataset datasets/golden --check-regression
+```
+Compares this run against the previously stored `benchmarks/reports/goldensetgeneration/report.json` and exits non-zero if faithfulness/answer_relevancy/etc. dropped beyond the threshold in `benchmarks/regression/thresholds.py`. Not currently wired into CI (E20, still open) — run it manually before a release that touches prompts, retrieval, or the model catalog.
 
 To persist this run's per-example scores into the `eval_scores` table (EVALUATION_PLAN.md §14/§16 phase 6/7, so a specific golden-set example's score trend is queryable alongside online/human-feedback signals), run as an explicit second step:
 ```

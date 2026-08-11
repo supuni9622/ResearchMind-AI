@@ -1,0 +1,75 @@
+{
+  "benchmark_name": "Chunking",
+  "generated_at": "2026-08-11T18:06:54.716278Z",
+  "dataset": {
+    "name": "research-papers",
+    "document_count": 50
+  },
+  "metadata": {
+    "git_commit": "aa6d110fee2fb8324fd2ec807586e6e4c7189a38",
+    "branch": "researchmind-v2",
+    "dataset_version": "unknown",
+    "model_versions": {},
+    "benchmark_version": "1.0.0",
+    "timestamp": "2026-08-11T18:06:54.765201Z"
+  },
+  "candidates": [
+    {
+      "name": "fixed",
+      "version": "1.0",
+      "metrics": {
+        "documents": 50,
+        "total_chunks": 11123,
+        "average_chunk_size": 499.13,
+        "average_word_count": 73.13,
+        "average_token_count": 124.78,
+        "min_chunk_size": 494,
+        "max_chunk_size": 499
+      },
+      "notes": {}
+    },
+    {
+      "name": "recursive",
+      "version": "1.0",
+      "metrics": {
+        "documents": 50,
+        "total_chunks": 13236,
+        "average_chunk_size": 341.36,
+        "average_word_count": 50.37,
+        "average_token_count": 84.96,
+        "min_chunk_size": 273,
+        "max_chunk_size": 369
+      },
+      "notes": {}
+    },
+    {
+      "name": "markdown",
+      "version": "1.0",
+      "metrics": {
+        "documents": 50,
+        "total_chunks": 13615,
+        "average_chunk_size": 354.62,
+        "average_word_count": 52.24,
+        "average_token_count": 88.27,
+        "min_chunk_size": 229,
+        "max_chunk_size": 410
+      },
+      "notes": {}
+    },
+    {
+      "name": "hierarchical",
+      "version": "1.0",
+      "metrics": {
+        "documents": 50,
+        "total_chunks": 19706,
+        "average_chunk_size": 471.96,
+        "average_word_count": 69.13,
+        "average_token_count": 117.61,
+        "min_chunk_size": 411,
+        "max_chunk_size": 511
+      },
+      "notes": {}
+    }
+  ],
+  "summary": {}
+}

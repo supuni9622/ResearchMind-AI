@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends
 
 from app.auth.dependencies import get_current_user
+from app.core.settings import settings
 from app.models.user import User
 from app.schemas.auth import CallbackRequest, TokenResponse
 from app.services.auth import AuthService
@@ -52,4 +53,11 @@ async def me(
         "avatar_url": current_user.avatar_url,
         "provider": current_user.auth_provider,
         "verified": current_user.is_verified,
+        # Lets the frontend show/hide the internal eval dashboard nav
+        # link without duplicating the allowlist client-side (E7,
+        # EVALUATION_IMPLEMENTATION_TRACKER.md) -- the real access
+        # check still happens server-side on every
+        # /api/v1/eval-dashboard/* request via
+        # require_eval_dashboard_access; this is presentation only.
+        "eval_dashboard_access": settings.is_eval_dashboard_admin(current_user.email),
     }

@@ -15,19 +15,34 @@ together outside a single pytest test using a fake judge. This is that
 missing runner.
 
 Expensive by design, not meant for every-PR CI: one real generation call
-plus up to 4 real Ragas judge calls per example per provider. Intended
-for the release-candidate tier only.
+plus up to 4 real Ragas judge calls per example. Intended for the
+release-candidate tier only.
+
+Runs against an ordered provider fallback chain, not every registered
+provider -- a real Groq run hit a daily-token-limit 429
+(`tokens per day (TPD): Limit 100000`) partway through a 115-example
+pass, which would have poisoned that whole candidate. One release-
+candidate score from a resilient chain (default: OpenAI, falling back to
+Claude per-example on failure) is what this benchmark actually needs;
+cross-provider comparison is `GenerationBenchmark`'s job, not this one's.
+
+Examples run concurrently, bounded by `max_concurrency` (default 5, see
+`DEFAULT_MAX_CONCURRENCY`) -- standard practice for bulk I/O-bound LLM
+evaluation, and independent of the fallback-chain fix above (concurrency
+doesn't change total token consumption, so it wouldn't have prevented
+that specific daily-limit 429 on its own; it's purely a throughput
+improvement on top of it).
 """
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 from uuid import uuid4
 
 from app.ai.knowledge.context.models import ContextChunk, PromptContext
 from app.ai.runtime.generation.enums import GenerationProvider
 from app.ai.runtime.generation.models import GenerationRequest
-from app.ai.runtime.generation.registry import GenerationRegistry
 from app.ai.runtime.generation.service import GenerationService
 
 from benchmarks.common.metrics import average
@@ -49,36 +64,62 @@ GOLDEN_DATASET_FILENAME = "rag_answer_gold.json"
 
 BENCHMARK_OWNER_ID = "benchmark"
 
+DEFAULT_PROVIDER_FALLBACK_CHAIN = [GenerationProvider.OPENAI, GenerationProvider.CLAUDE]
+
+DEFAULT_MAX_CONCURRENCY = 5
+"""
+Examples evaluated concurrently, bounded by an `asyncio.Semaphore` --
+115 examples fully sequential (the original design) meant ~10-15s per
+example (one generation call plus up to 4 real Ragas judge calls) times
+115, tens of minutes for one run. Bounded concurrency is standard
+practice for this kind of I/O-bound bulk LLM evaluation and doesn't
+change *total* token consumption (so it wouldn't have prevented the
+Groq daily-token-limit 429 the fallback chain above exists for -- that's
+a total-usage limit, not a pacing one) -- this is purely a throughput
+improvement, independent of that fix. Conservative default: high enough
+to matter, low enough not to trip a provider's requests-per-minute
+limit the way an unbounded `asyncio.gather` over all 115 at once could.
+"""
+
 PER_EXAMPLE_SCORES_NOTE_KEY = "per_example_scores"
 """
 `BenchmarkCandidate.notes[...]` key holding this run's per-example detail
--- a list of `{"example_id", "metric", "score", "passed", "reason"}`
-dicts. `BenchmarkReport`/`BenchmarkCandidate` are shared across every
-benchmark and deliberately stay aggregate-only (see their own module
-docstring); `notes: dict[str, Any]` is the existing, already-generic
-escape hatch other benchmarks use for extra per-run detail (e.g.
-`GenerationBenchmark`'s `error` note), not a new mechanism invented here.
-`persist_golden_set_scores.py` is the only reader of this key.
+-- a list of `{"example_id", "metric", "score", "passed", "reason"[,
+"provider"]}` dicts (`provider` records which link in the fallback chain
+actually served that example, present only on real metric checks, not
+`"error"` placeholders). `BenchmarkReport`/`BenchmarkCandidate` are
+shared across every benchmark and deliberately stay aggregate-only (see
+their own module docstring); `notes: dict[str, Any]` is the existing,
+already-generic escape hatch other benchmarks use for extra per-run
+detail (e.g. `GenerationBenchmark`'s `error` note), not a new mechanism
+invented here. `persist_golden_set_scores.py` is the only reader of this
+key.
 """
 
 
 class GoldenSetBenchmark(Benchmark):
     """
     Runs `rag_answer_gold`'s answerable examples through a live
-    generation call per configured provider, then scores each with the
-    real Ragas judge suite.
+    generation call -- retried down an ordered provider fallback chain
+    per example on failure -- then scores each with the real Ragas judge
+    suite. Produces exactly one `BenchmarkCandidate` representing that
+    chain, not one per provider.
     """
 
     def __init__(
         self,
         *,
-        registry: GenerationRegistry,
         generation_service: GenerationService,
         judge: GenerationJudge,
+        providers: list[GenerationProvider] | None = None,
+        max_concurrency: int = DEFAULT_MAX_CONCURRENCY,
     ) -> None:
-        self._registry = registry
         self._generation_service = generation_service
         self._judge = judge
+        self._providers = (
+            providers if providers is not None else list(DEFAULT_PROVIDER_FALLBACK_CHAIN)
+        )
+        self._max_concurrency = max_concurrency
 
     @property
     def name(self) -> str:
@@ -93,13 +134,9 @@ class GoldenSetBenchmark(Benchmark):
             if example.expected_behavior == ExpectedBehavior.ANSWER
         ]
 
-        candidates = [
-            await self._evaluate(provider, answerable) for provider in self._registry.providers
-        ]
+        candidate = await self._evaluate(answerable)
 
-        model_versions = {
-            candidate.name: candidate.version for candidate in candidates if candidate.version
-        }
+        model_versions = {candidate.name: candidate.version} if candidate.version else {}
 
         return BenchmarkReport(
             benchmark_name=self.name,
@@ -111,115 +148,186 @@ class GoldenSetBenchmark(Benchmark):
                 dataset_version=dataset.version,
                 model_versions=model_versions,
             ),
-            candidates=candidates,
+            candidates=[candidate],
         )
+
+    async def _generate_with_fallback(
+        self,
+        request: GenerationRequest,
+    ) -> tuple[GenerationProvider, str, str] | list[str]:
+        """
+        Try each provider in `self._providers` in order; returns
+        `(provider, model, content)` for the first one that succeeds, or
+        the list of `"{provider}: {error}"` strings (one per provider
+        tried) if every provider in the chain failed for this example --
+        kept, not discarded, so the resulting per-example `reason` says
+        *why* each link failed rather than just that the chain gave up.
+        A provider failing here (rate limit, outage, ...) does not retry
+        that same provider -- `GenerationService.generate()` already
+        retries transient errors internally; this only moves on to the
+        *next* provider once that's exhausted.
+        """
+
+        errors: list[str] = []
+        for provider in self._providers:
+            try:
+                result = await self._generation_service.generate(
+                    request=request,
+                    provider=provider,
+                )
+                return provider, result.model, result.content
+            except Exception as exc:  # noqa: BLE001
+                errors.append(f"{provider.value}: {exc}")
+
+        return errors
 
     async def _evaluate(
         self,
-        provider: GenerationProvider,
         examples: list[GoldenExample],
     ) -> BenchmarkCandidate:
         """
-        Run every answerable golden example through one candidate
-        provider, score each with the real Ragas judge, and aggregate.
+        Run every answerable golden example through the provider
+        fallback chain, score each with the real Ragas judge, and
+        aggregate into one candidate.
 
-        A single example's failure (provider error, judge error) is
-        recorded in that example's own per-example entry rather than
-        aborting the whole candidate -- mirrors `GenerationBenchmark`'s
-        "one candidate failing shouldn't sink the whole report" instinct,
-        applied at example granularity instead of candidate granularity
-        since a golden-set run has ~100x more individual calls that can
-        fail transiently.
+        Examples run concurrently, bounded by `self._max_concurrency`
+        (`asyncio.Semaphore`) -- safe to parallelize across *examples*
+        because each is fully independent (its own request, own
+        fallback attempt, own judge call); only the fallback attempts
+        *within* one example stay a strict sequential loop
+        (`_generate_with_fallback`), since trying Claude before OpenAI's
+        result is known would defeat the point of a fallback. A single
+        example's failure (every provider in the chain failed, or judge
+        error) is recorded in that example's own per-example entry
+        rather than aborting the run -- a golden-set pass has ~100x more
+        individual calls than a candidate-level try/except would
+        tolerate losing the whole run to.
         """
+
+        semaphore = asyncio.Semaphore(self._max_concurrency)
+
+        async def _bounded(
+            example: GoldenExample,
+        ) -> tuple[list[dict[str, object]], GenerationProvider | None, str | None]:
+            async with semaphore:
+                return await self._evaluate_one_example(example)
+
+        results = await asyncio.gather(*(_bounded(example) for example in examples))
 
         per_example: list[dict[str, object]] = []
         metric_scores: dict[str, list[float]] = {}
+        provider_usage: dict[str, int] = {}
         model: str | None = None
-        candidate_error: str | None = None
 
-        try:
-            for example in examples:
-                source_filename = (
-                    example.reference_context_ids[0]
-                    if example.reference_context_ids
-                    else "benchmark"
-                )
-                tagged_context = "\n\n".join(example.contexts)
-
-                request = GenerationRequest(
-                    prompt_context=PromptContext(
-                        context=tagged_context,
-                        chunks=[
-                            ContextChunk(
-                                chunk_id=uuid4(),
-                                document_id=uuid4(),
-                                filename=source_filename,
-                                owner_id=BENCHMARK_OWNER_ID,
-                                chunk_index=0,
-                                content=chunk_content,
-                                score=1.0,
-                            )
-                            for chunk_content in example.contexts
-                        ],
-                    ),
-                    user_prompt=example.question,
-                )
-
-                try:
-                    result = await self._generation_service.generate(
-                        request=request,
-                        provider=provider,
-                    )
-                    model = result.model
-
-                    report = await score_generation(
-                        question=example.question,
-                        answer=result.content,
-                        contexts=example.contexts,
-                        reference=example.reference_answer,
-                        judge=self._judge,
-                    )
-
-                    for check in report.checks:
-                        metric_scores.setdefault(check.metric, []).append(check.score)
-                        per_example.append(
-                            {
-                                "example_id": example.example_id,
-                                "metric": check.metric,
-                                "score": check.score,
-                                "passed": check.passed,
-                                "reason": check.reason,
-                            }
-                        )
-                except Exception as exc:  # noqa: BLE001
-                    # This example's own failure (provider error, judge
-                    # error) -- recorded per-example, doesn't abort the run.
-                    per_example.append(
-                        {
-                            "example_id": example.example_id,
-                            "metric": "error",
-                            "score": None,
-                            "passed": False,
-                            "reason": str(exc),
-                        }
-                    )
-        except Exception as exc:  # noqa: BLE001
-            # Something broke outside the per-example loop itself (e.g.
-            # provider registry lookup) -- the whole candidate failed.
-            candidate_error = str(exc)
+        for entries, used_provider, result_model in results:
+            per_example.extend(entries)
+            if result_model is not None:
+                model = result_model
+            if used_provider is not None:
+                provider_usage[used_provider.value] = provider_usage.get(used_provider.value, 0) + 1
+            for entry in entries:
+                score = entry["score"]
+                if entry["metric"] != "error" and isinstance(score, int | float):
+                    metric_scores.setdefault(str(entry["metric"]), []).append(float(score))
 
         metrics: dict[str, float | int | str | bool] = {
             "examples_evaluated": len(examples),
             **{metric_name: average(scores) for metric_name, scores in metric_scores.items()},
         }
-
-        notes: dict[str, object] = {PER_EXAMPLE_SCORES_NOTE_KEY: per_example}
-        if candidate_error is not None:
-            notes["error"] = candidate_error
+        for provider_name, count in provider_usage.items():
+            metrics[f"examples_via_{provider_name}"] = count
 
         return BenchmarkCandidate(
-            name=provider.value,
+            name="+".join(provider.value for provider in self._providers),
             version=model,
             metrics=metrics,
-            notes=notes,
+            notes={PER_EXAMPLE_SCORES_NOTE_KEY: per_example},
         )
+
+    async def _evaluate_one_example(
+        self,
+        example: GoldenExample,
+    ) -> tuple[list[dict[str, object]], GenerationProvider | None, str | None]:
+        """Returns `(per-example notes entries, provider used, model used)`
+        -- `provider`/`model` are `None` when every provider in the
+        fallback chain failed for this example (nothing was generated to
+        attribute either to)."""
+
+        source_filename = (
+            example.reference_context_ids[0] if example.reference_context_ids else "benchmark"
+        )
+        tagged_context = "\n\n".join(example.contexts)
+
+        request = GenerationRequest(
+            prompt_context=PromptContext(
+                context=tagged_context,
+                chunks=[
+                    ContextChunk(
+                        chunk_id=uuid4(),
+                        document_id=uuid4(),
+                        filename=source_filename,
+                        owner_id=BENCHMARK_OWNER_ID,
+                        chunk_index=0,
+                        content=chunk_content,
+                        score=1.0,
+                    )
+                    for chunk_content in example.contexts
+                ],
+            ),
+            user_prompt=example.question,
+        )
+
+        outcome = await self._generate_with_fallback(request)
+        if isinstance(outcome, list):
+            return (
+                [
+                    {
+                        "example_id": example.example_id,
+                        "metric": "error",
+                        "score": None,
+                        "passed": False,
+                        "reason": "every provider in the fallback chain failed: "
+                        + "; ".join(outcome),
+                    }
+                ],
+                None,
+                None,
+            )
+
+        used_provider, model, content = outcome
+
+        try:
+            report = await score_generation(
+                question=example.question,
+                answer=content,
+                contexts=example.contexts,
+                reference=example.reference_answer,
+                judge=self._judge,
+            )
+        except Exception as exc:  # noqa: BLE001
+            return (
+                [
+                    {
+                        "example_id": example.example_id,
+                        "metric": "error",
+                        "score": None,
+                        "passed": False,
+                        "reason": f"scoring failed: {exc}",
+                    }
+                ],
+                used_provider,
+                model,
+            )
+
+        entries: list[dict[str, object]] = [
+            {
+                "example_id": example.example_id,
+                "metric": check.metric,
+                "score": check.score,
+                "passed": check.passed,
+                "reason": check.reason,
+                "provider": used_provider.value,
+            }
+            for check in report.checks
+        ]
+        return entries, used_provider, model

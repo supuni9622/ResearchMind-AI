@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import UTC, datetime
 
 import pytest
 from app.models.enums import EvalScoreSource
@@ -12,11 +13,14 @@ from app.repositories.eval_score import EvalScoreRepository
 from sqlalchemy import select
 
 
-async def _make_owner(session) -> uuid.UUID:
+async def _make_owner(
+    session, *, email: str | None = None, username: str | None = None
+) -> uuid.UUID:
     user = User(
         auth_provider="cognito",
         provider_user_id=str(uuid.uuid4()),
-        email=f"{uuid.uuid4()}@example.com",
+        email=email or f"{uuid.uuid4()}@example.com",
+        username=username,
     )
     session.add(user)
     await session.flush()
@@ -29,7 +33,7 @@ async def test_record_inserts_a_score_row(db_session) -> None:
     generation_id = uuid.uuid4()
 
     repository = EvalScoreRepository(db_session)
-    await repository.record(
+    inserted = await repository.record(
         owner_id=owner_id,
         generation_id=generation_id,
         metric_name="citation_validity",
@@ -51,6 +55,44 @@ async def test_record_inserts_a_score_row(db_session) -> None:
     assert row.passed is True
     assert row.source == "online_sampled"
     assert row.sample_category == "baseline_sampled"
+
+    # The LangSmith sync follow-up (E5) needs record()'s return value to
+    # look up the inserted row's id -- confirmed here against a real
+    # Postgres RETURNING, not just the mocked unit tests.
+    assert inserted is not None
+    assert inserted.id == row.id
+
+
+@pytest.mark.asyncio
+async def test_record_returns_none_when_the_insert_conflicts(db_session) -> None:
+    owner_id = await _make_owner(db_session)
+    generation_id = uuid.uuid4()
+
+    repository = EvalScoreRepository(db_session)
+    await repository.record(
+        owner_id=owner_id,
+        generation_id=generation_id,
+        metric_name="citation_validity",
+        score=1.0,
+        passed=True,
+        reason="first",
+        source=EvalScoreSource.ONLINE_SAMPLED.value,
+        sample_category="baseline_sampled",
+    )
+    await db_session.flush()
+
+    second = await repository.record(
+        owner_id=owner_id,
+        generation_id=generation_id,
+        metric_name="citation_validity",
+        score=0.0,
+        passed=False,
+        reason="second, should be ignored",
+        source=EvalScoreSource.ONLINE_SAMPLED.value,
+        sample_category="baseline_sampled",
+    )
+
+    assert second is None
 
 
 @pytest.mark.asyncio
@@ -302,3 +344,336 @@ async def test_record_offline_example_is_append_only_across_repeated_runs(db_ses
 
     assert len(rows) == 2
     assert {row.reason for row in rows} == {"run 1", "run 2 -- regressed slightly"}
+
+
+@pytest.mark.asyncio
+async def test_list_for_owner_page_returns_only_that_owners_rows_newest_first(
+    db_session,
+) -> None:
+    """Rows are built directly with explicit, distinct `created_at`
+    values rather than via `record()` -- Postgres's `now()` returns the
+    *transaction* start time, constant for every statement in the test
+    fixture's single wrapping transaction, so two `record()` calls in a
+    row would otherwise tie on `created_at` and make "newest first"
+    unverifiable."""
+
+    owner_id = await _make_owner(db_session)
+    other_owner_id = await _make_owner(db_session)
+
+    older = datetime(2026, 1, 1, tzinfo=UTC)
+    newer = datetime(2026, 1, 2, tzinfo=UTC)
+    db_session.add_all(
+        [
+            EvalScore(
+                owner_id=owner_id,
+                generation_id=uuid.uuid4(),
+                metric_name="citation_validity",
+                score=1.0,
+                passed=True,
+                reason="first",
+                source=EvalScoreSource.ONLINE_SAMPLED.value,
+                created_at=older,
+            ),
+            EvalScore(
+                owner_id=owner_id,
+                generation_id=uuid.uuid4(),
+                metric_name="answer_relevancy",
+                score=0.5,
+                passed=False,
+                reason="second",
+                source=EvalScoreSource.ONLINE_SAMPLED.value,
+                created_at=newer,
+            ),
+            EvalScore(
+                owner_id=other_owner_id,
+                generation_id=uuid.uuid4(),
+                metric_name="citation_validity",
+                score=1.0,
+                passed=True,
+                reason="other owner's row",
+                source=EvalScoreSource.ONLINE_SAMPLED.value,
+                created_at=newer,
+            ),
+        ]
+    )
+    await db_session.flush()
+
+    repository = EvalScoreRepository(db_session)
+    rows, total = await repository.list_for_owner_page(owner_id, limit=10, offset=0)
+
+    assert total == 2
+    assert [row.reason for row in rows] == ["second", "first"]
+
+
+@pytest.mark.asyncio
+async def test_list_for_owner_page_filters_by_metric_and_source(db_session) -> None:
+    owner_id = await _make_owner(db_session)
+
+    repository = EvalScoreRepository(db_session)
+    await repository.record(
+        owner_id=owner_id,
+        generation_id=uuid.uuid4(),
+        metric_name="citation_validity",
+        score=1.0,
+        passed=True,
+        reason="automated",
+        source=EvalScoreSource.ONLINE_SAMPLED.value,
+        sample_category="baseline_sampled",
+    )
+    await repository.upsert(
+        owner_id=owner_id,
+        generation_id=uuid.uuid4(),
+        metric_name="user_rating",
+        score=1.0,
+        passed=True,
+        reason="thumbs up",
+        source=EvalScoreSource.HUMAN_FEEDBACK.value,
+    )
+    await db_session.flush()
+
+    rows, total = await repository.list_for_owner_page(
+        owner_id,
+        source=EvalScoreSource.HUMAN_FEEDBACK.value,
+        limit=10,
+        offset=0,
+    )
+
+    assert total == 1
+    assert rows[0].reason == "thumbs up"
+
+
+@pytest.mark.asyncio
+async def test_search_owners_with_scores_matches_email_and_orders_by_row_count(
+    db_session,
+) -> None:
+    frequent_owner = await _make_owner(db_session, email="frequent@example.com")
+    rare_owner = await _make_owner(db_session, email="rare@example.com")
+    no_scores_owner = await _make_owner(db_session, email="unrelated@example.com")
+    assert no_scores_owner  # created only to prove it's excluded below
+
+    repository = EvalScoreRepository(db_session)
+    for i in range(2):
+        await repository.record(
+            owner_id=frequent_owner,
+            generation_id=uuid.uuid4(),
+            metric_name="citation_validity",
+            score=1.0,
+            passed=True,
+            reason=f"row {i}",
+            source=EvalScoreSource.ONLINE_SAMPLED.value,
+            sample_category="baseline_sampled",
+        )
+    await repository.record(
+        owner_id=rare_owner,
+        generation_id=uuid.uuid4(),
+        metric_name="citation_validity",
+        score=1.0,
+        passed=True,
+        reason="only row",
+        source=EvalScoreSource.ONLINE_SAMPLED.value,
+        sample_category="baseline_sampled",
+    )
+    await db_session.flush()
+
+    rows, total = await repository.search_owners_with_scores(limit=10, offset=0)
+
+    matched = {user.id: count for user, count in rows}
+    assert total == 2
+    assert matched[frequent_owner] == 2
+    assert matched[rare_owner] == 1
+    assert no_scores_owner not in matched
+    # Most rows first.
+    assert rows[0][0].id == frequent_owner
+
+
+@pytest.mark.asyncio
+async def test_search_owners_with_scores_filters_by_search_term(db_session) -> None:
+    matching_owner = await _make_owner(db_session, email="findme@example.com")
+    other_owner = await _make_owner(db_session, email="somebody-else@example.com")
+
+    repository = EvalScoreRepository(db_session)
+    for owner_id in (matching_owner, other_owner):
+        await repository.record(
+            owner_id=owner_id,
+            generation_id=uuid.uuid4(),
+            metric_name="citation_validity",
+            score=1.0,
+            passed=True,
+            reason="row",
+            source=EvalScoreSource.ONLINE_SAMPLED.value,
+            sample_category="baseline_sampled",
+        )
+    await db_session.flush()
+
+    rows, total = await repository.search_owners_with_scores(
+        search="findme",
+        limit=10,
+        offset=0,
+    )
+
+    assert total == 1
+    assert rows[0][0].id == matching_owner
+
+
+@pytest.mark.asyncio
+async def test_list_offline_page_excludes_online_and_human_feedback_rows(db_session) -> None:
+    """The gap that motivated this method: filtering `list_for_owner_page()`
+    by source=offline_benchmark can never work (offline rows have no
+    owner_id), so this is a separate, non-owner-scoped read path."""
+
+    owner_id = await _make_owner(db_session)
+    repository = EvalScoreRepository(db_session)
+    await repository.record(
+        owner_id=owner_id,
+        generation_id=uuid.uuid4(),
+        metric_name="citation_validity",
+        score=1.0,
+        passed=True,
+        reason="online row",
+        source=EvalScoreSource.ONLINE_SAMPLED.value,
+        sample_category="baseline_sampled",
+    )
+    await repository.record_offline_example(
+        dataset_example_id="g14",
+        metric_name="faithfulness",
+        score=0.9,
+        passed=True,
+        reason="offline row",
+    )
+    await db_session.flush()
+
+    rows, total = await repository.list_offline_page(limit=10, offset=0)
+
+    assert total == 1
+    assert rows[0].reason == "offline row"
+    assert rows[0].owner_id is None
+
+
+@pytest.mark.asyncio
+async def test_list_offline_page_filters_by_dataset_example_id_and_metric(db_session) -> None:
+    repository = EvalScoreRepository(db_session)
+    await repository.record_offline_example(
+        dataset_example_id="g14",
+        metric_name="faithfulness",
+        score=0.9,
+        passed=True,
+        reason="g14 faithfulness",
+    )
+    await repository.record_offline_example(
+        dataset_example_id="g14",
+        metric_name="answer_relevancy",
+        score=0.8,
+        passed=True,
+        reason="g14 relevancy",
+    )
+    await repository.record_offline_example(
+        dataset_example_id="g15",
+        metric_name="faithfulness",
+        score=0.7,
+        passed=True,
+        reason="g15 faithfulness",
+    )
+    await db_session.flush()
+
+    rows, total = await repository.list_offline_page(
+        dataset_example_id="g14",
+        metric_name="faithfulness",
+        limit=10,
+        offset=0,
+    )
+
+    assert total == 1
+    assert rows[0].reason == "g14 faithfulness"
+
+
+@pytest.mark.asyncio
+async def test_list_offline_page_is_append_only_across_runs_newest_first(db_session) -> None:
+    repository = EvalScoreRepository(db_session)
+    older = datetime(2026, 1, 1, tzinfo=UTC)
+    newer = datetime(2026, 1, 2, tzinfo=UTC)
+    db_session.add_all(
+        [
+            EvalScore(
+                dataset_example_id="g14",
+                metric_name="faithfulness",
+                score=0.7,
+                passed=True,
+                reason="run 1",
+                source=EvalScoreSource.OFFLINE_BENCHMARK.value,
+                created_at=older,
+            ),
+            EvalScore(
+                dataset_example_id="g14",
+                metric_name="faithfulness",
+                score=0.9,
+                passed=True,
+                reason="run 2",
+                source=EvalScoreSource.OFFLINE_BENCHMARK.value,
+                created_at=newer,
+            ),
+        ]
+    )
+    await db_session.flush()
+
+    rows, total = await repository.list_offline_page(dataset_example_id="g14", limit=10, offset=0)
+
+    assert total == 2
+    assert [row.reason for row in rows] == ["run 2", "run 1"]
+
+
+@pytest.mark.asyncio
+async def test_search_offline_examples_groups_by_example_with_counts(db_session) -> None:
+    repository = EvalScoreRepository(db_session)
+    await repository.record_offline_example(
+        dataset_example_id="g14",
+        metric_name="faithfulness",
+        score=0.9,
+        passed=True,
+        reason="a",
+    )
+    await repository.record_offline_example(
+        dataset_example_id="g14",
+        metric_name="answer_relevancy",
+        score=0.8,
+        passed=True,
+        reason="b",
+    )
+    await repository.record_offline_example(
+        dataset_example_id="g15",
+        metric_name="faithfulness",
+        score=0.7,
+        passed=True,
+        reason="c",
+    )
+    await db_session.flush()
+
+    rows, total = await repository.search_offline_examples(limit=10, offset=0)
+
+    counts = {example_id: count for example_id, count, _ in rows}
+    assert total == 2
+    assert counts == {"g14": 2, "g15": 1}
+
+
+@pytest.mark.asyncio
+async def test_search_offline_examples_filters_by_search_term(db_session) -> None:
+    repository = EvalScoreRepository(db_session)
+    await repository.record_offline_example(
+        dataset_example_id="findme-example",
+        metric_name="faithfulness",
+        score=0.9,
+        passed=True,
+        reason="a",
+    )
+    await repository.record_offline_example(
+        dataset_example_id="other-example",
+        metric_name="faithfulness",
+        score=0.9,
+        passed=True,
+        reason="b",
+    )
+    await db_session.flush()
+
+    rows, total = await repository.search_offline_examples(search="findme", limit=10, offset=0)
+
+    assert total == 1
+    assert rows[0][0] == "findme-example"

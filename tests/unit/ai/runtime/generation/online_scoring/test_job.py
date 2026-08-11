@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import random
 import uuid
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from app.ai.artifacts.exceptions import ArtifactNotFoundError
@@ -33,6 +33,7 @@ from app.ai.runtime.generation.online_scoring.job import OnlineScoringJob
 from app.ai.runtime.generation.online_scoring.sampling import OnlineScoringConfig
 from app.ai.runtime.research.review import ReviewDecision
 from app.models.enums import EvalScoreSource
+from app.models.eval_score import EvalScore
 from app.models.generation_usage import GenerationUsage
 from app.models.research_run import ResearchRun
 
@@ -135,8 +136,13 @@ class _JobHarness:
 
     def __init__(self, *, config: OnlineScoringConfig | None = None) -> None:
         self.generation_usage_repository = MagicMock()
+        # Default: no LangSmith run configured for this generation -- most
+        # tests here aren't about the LangSmith sync, so this keeps
+        # _sync_to_langsmith() a deterministic no-op unless a test opts in
+        # by overriding this return value.
+        self.generation_usage_repository.get_langsmith_run_id = AsyncMock(return_value=None)
         self.eval_score_repository = MagicMock()
-        self.eval_score_repository.record = AsyncMock()
+        self.eval_score_repository.record = AsyncMock(return_value=None)
         self.research_run_repository = MagicMock()
         self.research_run_repository.get_by_id_for_owner = AsyncMock(return_value=None)
         self.artifact_reader = MagicMock()
@@ -427,3 +433,141 @@ async def test_a_failing_row_is_rolled_back_and_does_not_stop_the_batch() -> Non
     harness.commit.assert_awaited_once()
     calls = harness.record_calls()
     assert len(calls) == 1
+
+
+def _fake_eval_score(*, metric_name: str, score: float, reason: str) -> EvalScore:
+    return EvalScore(
+        id=uuid.uuid4(),
+        metric_name=metric_name,
+        score=score,
+        reason=reason,
+        source=EvalScoreSource.ONLINE_SAMPLED.value,
+    )
+
+
+@pytest.mark.asyncio
+async def test_syncs_the_free_check_to_langsmith_when_a_run_id_is_known() -> None:
+    owner_id = uuid.uuid4()
+    generation_id = uuid.uuid4()
+    row = _make_usage_row(owner_id=owner_id, generation_id=generation_id)
+    artifact = GenerationArtifactBuilder().build(
+        result=_make_artifact_result(owner_id=owner_id, generation_id=generation_id)
+    )
+    run_id = uuid.uuid4()
+    stored_score = _fake_eval_score(
+        metric_name="citation_validity", score=1.0, reason="all citation checks passed"
+    )
+
+    harness = _JobHarness()
+    harness.generation_usage_repository.list_unscored_since = AsyncMock(return_value=[row])
+    harness.artifact_reader.read = AsyncMock(return_value=artifact)
+    harness.generation_usage_repository.get_langsmith_run_id = AsyncMock(return_value=run_id)
+    harness.eval_score_repository.record = AsyncMock(return_value=stored_score)
+
+    with patch("app.ai.runtime.generation.online_scoring.job.sync_eval_score") as sync_mock:
+        await harness.job.run_once()
+
+    sync_mock.assert_called_once_with(
+        run_id=run_id,
+        eval_score_id=stored_score.id,
+        metric_name="citation_validity",
+        score=1.0,
+        reason="all citation checks passed",
+    )
+
+
+@pytest.mark.asyncio
+async def test_does_not_sync_to_langsmith_when_no_run_id_is_known() -> None:
+    owner_id = uuid.uuid4()
+    generation_id = uuid.uuid4()
+    row = _make_usage_row(owner_id=owner_id, generation_id=generation_id)
+    artifact = GenerationArtifactBuilder().build(
+        result=_make_artifact_result(owner_id=owner_id, generation_id=generation_id)
+    )
+
+    harness = _JobHarness()
+    harness.generation_usage_repository.list_unscored_since = AsyncMock(return_value=[row])
+    harness.artifact_reader.read = AsyncMock(return_value=artifact)
+    # get_langsmith_run_id already defaults to None in _JobHarness.
+    harness.eval_score_repository.record = AsyncMock(
+        return_value=_fake_eval_score(metric_name="citation_validity", score=1.0, reason="ok")
+    )
+
+    with patch("app.ai.runtime.generation.online_scoring.job.sync_eval_score") as sync_mock:
+        await harness.job.run_once()
+
+    sync_mock.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_does_not_sync_to_langsmith_when_record_returns_none() -> None:
+    """`record()` returns `None` when `on_conflict_do_nothing` no-op'd --
+    nothing new was written, so nothing new should be synced either."""
+
+    owner_id = uuid.uuid4()
+    generation_id = uuid.uuid4()
+    row = _make_usage_row(owner_id=owner_id, generation_id=generation_id)
+    artifact = GenerationArtifactBuilder().build(
+        result=_make_artifact_result(owner_id=owner_id, generation_id=generation_id)
+    )
+
+    harness = _JobHarness()
+    harness.generation_usage_repository.list_unscored_since = AsyncMock(return_value=[row])
+    harness.artifact_reader.read = AsyncMock(return_value=artifact)
+    harness.generation_usage_repository.get_langsmith_run_id = AsyncMock(return_value=uuid.uuid4())
+    harness.eval_score_repository.record = AsyncMock(return_value=None)
+
+    with patch("app.ai.runtime.generation.online_scoring.job.sync_eval_score") as sync_mock:
+        await harness.job.run_once()
+
+    sync_mock.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_syncs_every_judge_metric_to_langsmith_separately() -> None:
+    owner_id = uuid.uuid4()
+    generation_id = uuid.uuid4()
+    row = _make_usage_row(
+        owner_id=owner_id,
+        generation_id=generation_id,
+        guardrail_final_action=GuardrailAction.WARN.value,
+    )
+    artifact = GenerationArtifactBuilder().build(
+        result=_make_artifact_result(owner_id=owner_id, generation_id=generation_id)
+    )
+    run_id = uuid.uuid4()
+
+    score_generation_fn = AsyncMock(
+        return_value=MagicMock(
+            checks=[MagicMock(metric="answer_relevancy", score=0.9, passed=True, reason="good")]
+        )
+    )
+    harness = _JobHarness(config=OnlineScoringConfig(baseline_sample_rate=0.0))
+    harness.generation_usage_repository.list_unscored_since = AsyncMock(return_value=[row])
+    harness.artifact_reader.read = AsyncMock(return_value=artifact)
+    harness.generation_usage_repository.get_langsmith_run_id = AsyncMock(return_value=run_id)
+    harness.eval_score_repository.record = AsyncMock(
+        side_effect=[
+            _fake_eval_score(metric_name="citation_validity", score=1.0, reason="ok"),
+            _fake_eval_score(metric_name="answer_relevancy", score=0.9, reason="good"),
+        ]
+    )
+    harness.job = OnlineScoringJob(
+        generation_usage_repository=harness.generation_usage_repository,
+        eval_score_repository=harness.eval_score_repository,
+        research_run_repository=harness.research_run_repository,
+        artifact_reader=harness.artifact_reader,
+        config=OnlineScoringConfig(baseline_sample_rate=0.0),
+        commit=harness.commit,
+        rollback=harness.rollback,
+        score_generation_fn=score_generation_fn,
+        judge=object(),
+        rng=random.Random(0),
+    )
+
+    with patch("app.ai.runtime.generation.online_scoring.job.sync_eval_score") as sync_mock:
+        await harness.job.run_once()
+
+    assert sync_mock.call_count == 2
+    synced_metrics = {call.kwargs["metric_name"] for call in sync_mock.call_args_list}
+    assert synced_metrics == {"citation_validity", "answer_relevancy"}

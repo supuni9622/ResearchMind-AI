@@ -139,6 +139,14 @@ class GenerationRequest(BaseModel):
     `provider`, this picks which routing strategy resolves the model —
     see `routing/`. Defaults to `RoutingStrategy.AUTO` if left unset.
     Ignored when `provider` is given explicitly.
+
+    This is the *ask*, not the *outcome* -- nearly always `None` in
+    practice (real callers rarely override it) and also feeds cache-key
+    derivation (`caching/models.py`), so it must never be mutated to
+    reflect what was actually resolved. For the resolved value -- `AUTO`
+    when routing ran with no override, `None` when `provider` bypassed
+    routing entirely -- read `GenerationResult.statistics.routing_strategy`
+    instead; that's what `GenerationUsageRepository.record()` persists.
     """
 
     required_capabilities: list[RequiredCapability] = Field(default_factory=list)
@@ -186,6 +194,43 @@ class GenerationRequest(BaseModel):
     back to `ArtifactRuntime.CHAT` (100% of live `generate()` traffic
     today).
     """
+
+    surface: str | None = None
+    """
+    Config fingerprint (EVALUATION_PLAN.md §5): which product surface
+    issued this request -- "chat" | "linear_research" | "deep_research".
+    Plain `str` rather than an enum -- no shared "surface" concept exists
+    elsewhere in the codebase to import (matches
+    `app.models.enums.FeedbackSurface`'s values without creating a
+    dependency from this module up to `app.models`). Purely for eval/
+    observability slicing; no runtime behavior depends on it. Populated
+    only at answer-producing generation call sites -- see
+    `config_fingerprint.py`. `routing_strategy` above already exists and
+    is part of this same fingerprint; it isn't duplicated here.
+    """
+
+    prompt_version: str | None = None
+    """
+    Config fingerprint: manually-bumped version tag for the prompt
+    template in use, so a regression can be traced to a specific prompt
+    change. Promotes the informal `metadata={"prompt_version": ...}`
+    convention already used at several internal call sites (planner,
+    reviewer, tool-necessity checks) into a first-class, typed field for
+    answer-producing generations specifically -- see
+    `config_fingerprint.py`.
+    """
+
+    chunking_strategy: str | None = None
+    """Config fingerprint: the chunking strategy in effect when this
+    request was served. See `config_fingerprint.py`."""
+
+    embedding_model: str | None = None
+    """Config fingerprint: the embedding model in effect when this
+    request was served. See `config_fingerprint.py`."""
+
+    reranker: str | None = None
+    """Config fingerprint: the reranker in effect when this request was
+    served. See `config_fingerprint.py`."""
 
     @model_validator(mode="after")
     def _derive_output_schema_from_model(self) -> GenerationRequest:
@@ -263,6 +308,25 @@ class GenerationStatistics(
     provider: GenerationProvider
 
     model: str
+
+    routing_strategy: RoutingStrategy | None = None
+    """
+    The routing strategy that actually resolved `provider`/`model` above --
+    `RoutingStrategy.AUTO` (the default) unless the caller overrode it via
+    `GenerationRequest.routing_strategy`, `None` when `provider` was given
+    explicitly and routing was bypassed entirely. Distinct from
+    `GenerationRequest.routing_strategy`, which is nullable and only ever
+    reflects an explicit caller override, not the effective strategy -- so
+    it's almost always `None` in practice (real callers rarely override
+    it). This field is the resolved, config-fingerprint-accurate value the
+    persistence layer should read, set post-hoc by
+    `GenerationService._generate_with_routing()`/
+    `StreamingService.stream_generate()` once routing has actually run
+    (never mutated onto the shared `GenerationRequest`, since that object's
+    `routing_strategy` also feeds cache-key derivation -- see
+    `caching/models.py`'s `CacheKeyComponents` -- and must stay exactly
+    what the caller asked for).
+    """
 
     latency_ms: float = 0
 

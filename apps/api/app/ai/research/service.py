@@ -44,6 +44,7 @@ from app.ai.runtime.events.enums import CoreEventType, EventCategory
 from app.ai.runtime.events.models import StreamEvent
 from app.ai.runtime.events.research.models import ResearchEventType
 from app.ai.runtime.generation.caching.enums import CacheRuntime
+from app.ai.runtime.generation.config_fingerprint import config_fingerprint_kwargs
 from app.ai.runtime.generation.enums import GenerationProvider
 from app.ai.runtime.generation.models import GenerationRequest, StreamEventType
 from app.ai.runtime.generation.orchestration.interfaces import GenerationRuntimeInterface
@@ -186,6 +187,9 @@ class ResearchService:
                 cache_runtime=CacheRuntime.RESEARCH,
                 runtime=RuntimeType.RESEARCH,
                 artifact_runtime=ArtifactRuntime.RESEARCH,
+                **config_fingerprint_kwargs(
+                    surface="linear_research", prompt_version="linear-research-v1"
+                ),
             )
 
             result = await self._generation_runtime.execute(request, provider=provider)
@@ -348,6 +352,9 @@ class ResearchService:
             cache_runtime=CacheRuntime.RESEARCH,
             runtime=RuntimeType.RESEARCH,
             artifact_runtime=ArtifactRuntime.RESEARCH,
+            **config_fingerprint_kwargs(
+                surface="linear_research", prompt_version="linear-research-v1"
+            ),
         )
 
         content_parts: list[str] = []

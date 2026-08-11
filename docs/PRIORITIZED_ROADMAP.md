@@ -9,7 +9,10 @@ direction and architecture-fit assessment), and
 remain the evidence and rationale layer — every claim here was established
 there; this document only orders and re-prioritizes, it doesn't re-derive.
 **Also folds in:** [`EVALUATION_PLAN.md`](EVALUATION_PLAN.md) and
-[`GUARDRAILS_EVALUATION.md`](GUARDRAILS_EVALUATION.md).
+[`GUARDRAILS_EVALUATION.md`](GUARDRAILS_EVALUATION.md). **Wave 1 execution
+tracking:** [`EVALUATION_IMPLEMENTATION_TRACKER.md`](EVALUATION_IMPLEMENTATION_TRACKER.md)
+breaks Wave 1 below into task/subtask detail with verified current code
+state — check it before starting any Wave 1 item.
 
 ## How this is ordered
 
@@ -44,24 +47,27 @@ instruction, not derived:
 | 0 | ✅ Add `owner_id` as LangSmith trace tag — Done | Med | Very High | One tag, closes readiness item 8 |
 | 0 | ✅ OCR: `do_ocr=True` in Docling config — Done | Med | Very High | Literally a config flip |
 | 0 | ✅ Roll `ResearchReview.decision` into the eval dashboard — Done | Med | Very High | Already computed every run, zero new logic |
-| 1 | Golden QA set + Ragas scoring function | Very High | Med | Foundation for everything eval-related |
-| 1 | Wire `benchmarks/regression/` into CI | Very High | Med | Tooling already built, just needs a workflow job |
-| 1 | Real `POST /feedback` + thumbs up/down | Very High | Med | Closes readiness item 7, feeds the self-learning loop |
-| 1 | **Citation validator, cross-surface, release-blocking** | Very High | High | Generalizes an already-proven check (`citation_integrity_score`) — best value-per-effort in the whole roadmap |
+| 1 | ✅ Golden QA set + Ragas scoring function — Done, Phase 1 (24 examples) | Very High | Med | Foundation for everything eval-related |
+| 1 | ✅ Wire `benchmarks/regression/` into CI — Done, smoke tier (live-service benchmark triggers still open) | Very High | Med | Tooling already built, just needs a workflow job |
+| 1 | ✅ Real `POST /feedback` + thumbs up/down — Done, backend only | Very High | Med | Closes readiness item 7, feeds the self-learning loop |
+| 1 | ✅ **Citation validator, cross-surface, release-blocking** — Done (checker built; CI/online-job wiring pending, see E2/E5) | Very High | High | Generalizes an already-proven check (`citation_integrity_score`) — best value-per-effort in the whole roadmap |
 | 1 | Online risk-weighted scoring job | High | Med | Reuses free signals (guardrail flags, review decision) |
 | 1 | Feedback → trace attachment + `eval_scores` table | High | Med | Closes the loop between 1c and 1b |
 | 1 | Internal dashboard + owner-scoped drill-down | High | Med | Read-only view over data Wave 1 already produces |
-| 1 | Config fingerprint through `GenerationRequest`→`GenerationUsage` | High | Med | Unlocks "what to improve" identification |
+| 1 | ✅ Config fingerprint through `GenerationRequest`→`GenerationUsage` — Done | High | Med | Unlocks "what to improve" identification |
 | 1 | Segment-analysis job | High | Med | Depends on the fingerprint above |
 | 1 | Golden-set promotion review (both directions) | High | Med | Needs feedback volume first — sequenced late within this wave |
 | 1 | Comment classification (objective/preference split) | Med-High | Med | Small bounded LLM call, reuses an existing codebase pattern |
-| 1 | Ingestion fidelity checks (parse success + fixtures) | Med | Med | New coverage, cheap, deterministic |
-| 1 | Context-construction checks (provenance, token efficiency) | Med | Med | New layer, deterministic |
-| 1 | Retrieval metric completeness (Recall@K, Hit Rate@K) | Med | High | Small extension of an already-real benchmark suite |
-| 1 | Adversarial dataset (10-20 cases) | Med | Med | Tests our own guardrails — feeds Wave 7 directly |
+| 1 | ✅ Ingestion fidelity checks (parse success + fixtures) — Done | Med | Med | New coverage, cheap, deterministic |
+| 1 | ✅ Context-construction checks (provenance, token efficiency) — Done | Med | Med | New layer, deterministic |
+| 1 | ✅ Retrieval metric completeness (Recall@K, Hit Rate@K) — Done | Med | High | Small extension of an already-real benchmark suite |
+| 1 | ✅ Adversarial dataset (10-20 cases) — Done (18 cases) | Med | Med | Tests our own guardrails — feeds Wave 7 directly |
 | 1 | LLM-as-judge metric (tone, completeness against a rubric) | Med | Med | Bolt-on to Ragas once the golden set exists — not a redesign |
 | 1 | Latency-SLO alert rules + `eval_scores` Grafana panel | Med | High | Measurement infra already real; this is threshold definition + one alert rule + one panel |
 | 1 | Cost forecast (rolling-average projection) | Low-Med | High | Derived entirely from the existing `GenerationUsage` ledger, no new data collection |
+| 1 | Register golden dataset in LangSmith | Med | Low | Gap-closure follow-up to E1, surfaced by the 2026-08-11 cross-check — "Done" only covered the local dataset + scoring function |
+| 1 | CI live-service benchmark triggers + citation-metric wiring | High | Med | Gap-closure follow-up to E2/E4 — the absolute regression gates E2 declared are still never populated by any benchmark run |
+| 1 | Frontend thumbs up/down affordance | High | Low-Med | Gap-closure follow-up to E3 — backend is live but nothing in the product calls it yet |
 | 2 | User-profile memory read-side wiring | High | Med | Turns "captured but inert" into real personalization |
 | 2 | **Socratic Challenger node (pulled forward — see note below)** | High | High | Reuses `interrupt()`, proven 3x already — too cheap to defer |
 | 2 | Preference feedback → `USER` memory write path | Med | Med | Depends on the read-side fix above |
@@ -120,7 +126,21 @@ definition and one panel, not new plumbing), and **cost forecasting**
 (readiness item 1, P2 — a rolling-average projection derived entirely from
 the existing `GenerationUsage` ledger). Full detail: `EVALUATION_PLAN.md`
 §§1–17, `PHASE_2_3_ROADMAP.md` Part 1 (1a–1g) and its sequencing table,
-`PRODUCTION_READINESS_EVALUATION.md` items 1 and 2.
+`PRODUCTION_READINESS_EVALUATION.md` items 1 and 2. **Task-level
+breakdown, code-verified current state, and sequencing for every item in
+this wave:** `EVALUATION_IMPLEMENTATION_TRACKER.md`.
+
+**2026-08-11 cross-check finding:** the four items marked ✅ Done above
+(golden set, CI wiring, feedback endpoint, citation validator) each had at
+least one follow-up subtask still open underneath the checkmark — real
+enough to warrant their own rows rather than staying buried in another
+item's fine print: **register golden dataset in LangSmith**, **CI
+live-service benchmark triggers + citation-metric wiring** (the absolute
+regression gates E2 declared have no benchmark run populating them yet),
+and **frontend thumbs up/down affordance** (the endpoint is live, nothing
+in the product calls it). None of this changes the four parent items'
+Done status — it means Done was correctly scoped narrower than "nothing
+left in this area." Detail: `EVALUATION_IMPLEMENTATION_TRACKER.md` E19-E21.
 
 ## Wave 2 — Personalization, agency, and one pulled-forward North Star piece
 

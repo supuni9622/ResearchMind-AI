@@ -605,6 +605,7 @@ class GenerationService:
                 decision=decision,
                 used_fallback=attempt > 0,
             )
+            result.statistics.routing_strategy = decision.strategy
 
             return result
 
@@ -948,6 +949,19 @@ class GenerationService:
                     "model": generation_provider.config.model_name,
                     "runtime": (request.runtime.value if request.runtime else None),
                     "owner_id": (str(request.owner_id) if request.owner_id else None),
+                    # Config fingerprint (EVALUATION_PLAN.md §5, §11) --
+                    # populated only for answer-producing generations, see
+                    # `config_fingerprint.py`. Keeps "LangSmith as the
+                    # control plane" able to slice traces by the config
+                    # that produced them without leaving its own UI.
+                    "surface": request.surface,
+                    "prompt_version": request.prompt_version,
+                    "chunking_strategy": request.chunking_strategy,
+                    "embedding_model": request.embedding_model,
+                    "reranker": request.reranker,
+                    "routing_strategy": (
+                        request.routing_strategy.value if request.routing_strategy else None
+                    ),
                 },
             ) as trace_handle:
                 result = (

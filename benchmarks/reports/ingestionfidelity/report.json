@@ -1,0 +1,68 @@
+{
+  "benchmark_name": "IngestionFidelity",
+  "generated_at": "2026-08-10T19:28:31.001144Z",
+  "dataset": {
+    "name": "research-papers/ingestion-fidelity",
+    "document_count": 5
+  },
+  "metadata": {
+    "git_commit": "cd9454d0ee26af0e72962343faace7b0fb45aceb",
+    "branch": "researchmind-v2",
+    "dataset_version": "unknown",
+    "model_versions": {},
+    "benchmark_version": "1.0.0",
+    "timestamp": "2026-08-10T19:28:31.037342Z"
+  },
+  "candidates": [
+    {
+      "name": "Docling",
+      "version": null,
+      "metrics": {
+        "parse_success_rate": 1.0,
+        "heading_preservation_score": 1.0,
+        "table_preservation_score": 1.0,
+        "fixtures_evaluated": 5
+      },
+      "notes": {
+        "per_fixture": {
+          "paper-001": {
+            "parsed": true,
+            "heading_count": 17,
+            "expected_min_headings": 17,
+            "table_count": 3,
+            "expected_min_tables": 3
+          },
+          "paper-002": {
+            "parsed": true,
+            "heading_count": 70,
+            "expected_min_headings": 70,
+            "table_count": 14,
+            "expected_min_tables": 14
+          },
+          "paper-003": {
+            "parsed": true,
+            "heading_count": 31,
+            "expected_min_headings": 31,
+            "table_count": 8,
+            "expected_min_tables": 8
+          },
+          "paper-004": {
+            "parsed": true,
+            "heading_count": 78,
+            "expected_min_headings": 78,
+            "table_count": 16,
+            "expected_min_tables": 16
+          },
+          "paper-005": {
+            "parsed": true,
+            "heading_count": 35,
+            "expected_min_headings": 35,
+            "table_count": 1,
+            "expected_min_tables": 1
+          }
+        }
+      }
+    }
+  ],
+  "summary": {}
+}

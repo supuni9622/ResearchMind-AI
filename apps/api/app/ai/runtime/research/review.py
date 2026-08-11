@@ -8,6 +8,7 @@ from uuid import UUID
 import structlog
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.ai.knowledge.context.citations.validity import check_citation_validity
 from app.ai.knowledge.context.models import PromptContext
 from app.ai.runtime.generation.caching.enums import CacheRuntime
 from app.ai.runtime.generation.enums import GenerationProvider, ResponseFormat
@@ -61,8 +62,11 @@ def review_draft(*, draft: ResearchDraft, evidence: ResearchEvidenceBundle) -> R
     used = set(draft.citation_ids)
     for finding in draft.findings:
         used.update(finding.citation_ids)
-    unsupported = used - set(evidence.citation_ids)
-    if unsupported:
+    citation_report = check_citation_validity(
+        used_citation_ids=used,
+        known_citation_ids=set(evidence.citation_ids),
+    )
+    if citation_report.unknown_citation_ids:
         return ResearchReview(
             decision=ReviewDecision.REVISE_SYNTHESIS,
             citation_integrity_score=0,

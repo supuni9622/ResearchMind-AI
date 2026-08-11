@@ -8,6 +8,7 @@ import structlog
 
 from app.ai.knowledge.context.models import PromptContext
 from app.ai.runtime.generation.caching.enums import CacheRuntime
+from app.ai.runtime.generation.config_fingerprint import config_fingerprint_kwargs
 from app.ai.runtime.generation.enums import GenerationProvider, ResponseFormat
 from app.ai.runtime.generation.models import GenerationRequest
 from app.ai.runtime.generation.orchestration.interfaces import GenerationRuntimeInterface
@@ -92,6 +93,9 @@ class ResearchSynthesisService:
                     "prompt_version": "research-synthesis-v1",
                     "revision_requested": bool(revision_instructions),
                 },
+                **config_fingerprint_kwargs(
+                    surface="deep_research", prompt_version="research-synthesis-v1"
+                ),
             ),
             provider=provider,
         )

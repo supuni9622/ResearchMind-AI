@@ -1,11 +1,21 @@
 import uuid
 
 import pytest
+from app.ai.knowledge.context.models import PromptContext
+from app.ai.runtime.generation.enums import GenerationProvider
+from app.ai.runtime.generation.models import (
+    GenerationExecution,
+    GenerationRequest,
+    GenerationResult,
+    GenerationStatistics,
+)
+from app.ai.runtime.generation.routing.enums import RoutingStrategy
 from app.models.generation_usage import GenerationUsage
 from app.models.research import ResearchConversation
 from app.models.research_run import ResearchRun
 from app.models.user import User
 from app.repositories.generation_usage import GenerationUsageRepository
+from sqlalchemy import select
 
 
 async def _make_owner(session) -> uuid.UUID:
@@ -56,6 +66,109 @@ def _make_run(*, owner_id: uuid.UUID, conversation_id: uuid.UUID) -> ResearchRun
         graph_thread_id=str(uuid.uuid4()),
         status="completed",
     )
+
+
+@pytest.mark.asyncio
+async def test_record_persists_the_config_fingerprint(db_session) -> None:
+    """
+    EVALUATION_IMPLEMENTATION_TRACKER.md E8: `GenerationRequest`'s
+    surface/prompt_version/chunking_strategy/embedding_model/reranker
+    fields, plus `GenerationResult.statistics.routing_strategy`, must
+    survive `record()` into `GenerationUsage` so a production answer can
+    be traced back to the config that produced it. Exercised against a
+    real Postgres row, not a mock.
+
+    `request.routing_strategy` is deliberately left `None` here (the
+    realistic case -- real callers essentially never override it) while
+    `statistics.routing_strategy` is `AUTO`, mirroring exactly what
+    `GenerationService._generate_with_routing()`/`StreamingService.
+    stream_generate()` set post-hoc once routing has actually resolved a
+    model. This is a real-bug regression test: `record()` used to read
+    `request.routing_strategy` directly, which persisted `NULL` for
+    every real production request since none of them set an explicit
+    override -- see `docs/EVALUATION_IMPLEMENTATION_TRACKER.md` E8's
+    "Update" note.
+    """
+
+    owner_id = await _make_owner(db_session)
+
+    request = GenerationRequest(
+        prompt_context=PromptContext(context="", chunks=[]),
+        user_prompt="What is RAG?",
+        owner_id=owner_id,
+        surface="chat",
+        prompt_version="chat-v1",
+        chunking_strategy="markdown",
+        embedding_model="voyage-3-lite",
+        reranker="voyage_ai",
+    )
+    result = GenerationResult(
+        request=request,
+        execution=GenerationExecution(),
+        statistics=GenerationStatistics(
+            provider=GenerationProvider.GROQ,
+            model="test-model",
+            routing_strategy=RoutingStrategy.AUTO,
+        ),
+        provider=GenerationProvider.GROQ,
+        model="test-model",
+        content="RAG is retrieval-augmented generation.",
+    )
+
+    repository = GenerationUsageRepository(db_session)
+    await repository.record(result)
+    await db_session.flush()
+
+    row = (
+        await db_session.execute(
+            select(GenerationUsage).where(GenerationUsage.request_id == request.request_id)
+        )
+    ).scalar_one()
+
+    assert row.surface == "chat"
+    assert row.prompt_version == "chat-v1"
+    assert row.chunking_strategy == "markdown"
+    assert row.embedding_model == "voyage-3-lite"
+    assert row.reranker == "voyage_ai"
+    assert row.routing_strategy == "auto"
+
+
+@pytest.mark.asyncio
+async def test_record_leaves_the_config_fingerprint_null_for_internal_calls(db_session) -> None:
+    """Internal helper generations (planning, review, memory extraction, ...)
+    never populate the fingerprint fields -- `record()` must not require
+    them, and they should persist as NULL rather than an empty string or
+    a crash."""
+
+    owner_id = await _make_owner(db_session)
+
+    request = GenerationRequest(
+        prompt_context=PromptContext(context="", chunks=[]),
+        user_prompt="Summarize this turn for memory extraction.",
+        owner_id=owner_id,
+    )
+    result = GenerationResult(
+        request=request,
+        execution=GenerationExecution(),
+        statistics=GenerationStatistics(provider=GenerationProvider.GROQ, model="test-model"),
+        provider=GenerationProvider.GROQ,
+        model="test-model",
+        content="...",
+    )
+
+    repository = GenerationUsageRepository(db_session)
+    await repository.record(result)
+    await db_session.flush()
+
+    row = (
+        await db_session.execute(
+            select(GenerationUsage).where(GenerationUsage.request_id == request.request_id)
+        )
+    ).scalar_one()
+
+    assert row.surface is None
+    assert row.prompt_version is None
+    assert row.routing_strategy is None
 
 
 @pytest.mark.asyncio

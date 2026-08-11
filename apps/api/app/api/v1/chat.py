@@ -48,6 +48,7 @@ from app.ai.runtime.chat.web_search import run_chat_web_search
 from app.ai.runtime.events.enums import CoreEventType
 from app.ai.runtime.events.models import StreamEvent
 from app.ai.runtime.generation.caching.enums import CachePolicy, CacheRuntime
+from app.ai.runtime.generation.config_fingerprint import config_fingerprint_kwargs
 from app.ai.runtime.generation.enums import GenerationProvider
 from app.ai.runtime.generation.models import GenerationRequest, StreamEventType
 from app.ai.runtime.generation.service import GenerationService
@@ -419,6 +420,7 @@ async def _build_request(
         cache_runtime=CacheRuntime.CHAT,
         runtime=RuntimeType.CHAT,
         artifact_runtime=ArtifactRuntime.CHAT,
+        **config_fingerprint_kwargs(surface="chat", prompt_version="chat-v1"),
     )
 
 

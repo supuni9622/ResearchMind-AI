@@ -60,6 +60,9 @@ from app.ai.runtime.generation.observability.service import (
 from app.ai.runtime.generation.registry import (
     GenerationRegistry,
 )
+from app.ai.runtime.generation.routing.enums import (
+    RoutingStrategy,
+)
 from app.ai.runtime.generation.service import (
     GenerationService,
 )
@@ -148,6 +151,16 @@ class StreamingService:
         provider: GenerationProvider | None = None,
     ) -> AsyncGenerator[StreamEvent, None]:
 
+        # `None` here (not `request.routing_strategy`) is the accurate
+        # config-fingerprint value when `provider` was given explicitly --
+        # routing was bypassed entirely, so no strategy actually resolved
+        # anything. Only set when routing genuinely ran, mirroring
+        # `GenerationService._generate_with_routing()`'s
+        # `result.statistics.routing_strategy = decision.strategy`.
+        routing_strategy_used: RoutingStrategy | None = None
+        if provider is None:
+            routing_strategy_used = request.routing_strategy or RoutingStrategy.AUTO
+
         resolved_provider = provider or self._generation_service.resolve_streaming_provider(
             request,
         )
@@ -199,6 +212,7 @@ class StreamingService:
             request=request,
             provider=resolved_provider,
             generation_provider_config_model=generation_provider.config.model_name,
+            routing_strategy=routing_strategy_used,
         ):
             yield event
 
@@ -253,6 +267,7 @@ class StreamingService:
         request: GenerationRequest,
         provider: GenerationProvider,
         generation_provider_config_model: str,
+        routing_strategy: RoutingStrategy | None,
     ) -> AsyncGenerator[StreamEvent, None]:
 
         content_parts: list[str] = []
@@ -335,6 +350,7 @@ class StreamingService:
             model=generation_provider_config_model,
             content="".join(content_parts),
             latency_ms=(perf_counter() - started) * 1000,
+            routing_strategy=routing_strategy,
         )
 
         result = await self._generation_service.score_completed_stream(
@@ -438,6 +454,7 @@ class StreamingService:
         model: str,
         content: str,
         latency_ms: float,
+        routing_strategy: RoutingStrategy | None,
     ) -> GenerationResult:
         """
         Best-effort statistics: today's provider `stream()` implementations
@@ -471,6 +488,7 @@ class StreamingService:
             statistics=GenerationStatistics(
                 provider=provider,
                 model=model,
+                routing_strategy=routing_strategy,
                 latency_ms=latency_ms,
                 prompt_tokens=prompt_tokens,
                 completion_tokens=completion_tokens,

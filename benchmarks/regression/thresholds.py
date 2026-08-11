@@ -18,6 +18,16 @@ class ThresholdDirection(StrEnum):
     """
     How a metric is allowed to move between runs before it counts as a
     regression.
+
+    The first three directions are *relative* -- they compare the
+    current run against the previous one, appropriate for fuzzy/
+    LLM-judged metrics where there's no calibrated sense yet of what a
+    good absolute score looks like (EVALUATION_PLAN.md §13). The last
+    two are *absolute* -- they compare the current run against a fixed
+    bound regardless of what the previous run scored, reserved for
+    metrics where §13 explicitly decided a hard line is safe: deterministic
+    checks with no LLM-judge noise to calibrate against (citation
+    validity, schema validity, abstention pass rate).
     """
 
     MIN_DROP = "min_drop"
@@ -33,6 +43,22 @@ class ThresholdDirection(StrEnum):
     """Lower is better, unbounded scale (e.g. latency_ms).
 
     Regressed if current > previous * (1 + threshold).
+    """
+
+    ABSOLUTE_MIN = "absolute_min"
+    """Fixed floor, independent of the previous run's value.
+
+    Regressed if current < threshold (`threshold` is the floor itself,
+    not a delta -- e.g. abstention_pass_rate's floor is 0.95, so
+    `MetricThreshold(ABSOLUTE_MIN, 0.95)`).
+    """
+
+    ABSOLUTE_MAX = "absolute_max"
+    """Fixed ceiling, independent of the previous run's value.
+
+    Regressed if current > threshold (`threshold` is the ceiling itself
+    -- e.g. fabricated_citation_rate's ceiling is 0.0, so
+    `MetricThreshold(ABSOLUTE_MAX, 0.0)`).
     """
 
 
@@ -57,6 +83,8 @@ DEFAULT_METRIC_THRESHOLDS: dict[str, MetricThreshold] = {
     "precision_at_10": _QUALITY_DROP,
     "ndcg_at_5": _QUALITY_DROP,
     "ndcg_at_10": _QUALITY_DROP,
+    "hit_rate_at_5": _QUALITY_DROP,
+    "hit_rate_at_10": _QUALITY_DROP,
     "mrr": _QUALITY_DROP,
     # Generation (PRD §15).
     "faithfulness": _GENERATION_QUALITY_DROP,
@@ -65,6 +93,10 @@ DEFAULT_METRIC_THRESHOLDS: dict[str, MetricThreshold] = {
     "completeness": _GENERATION_QUALITY_DROP,
     "citation_accuracy": _GENERATION_QUALITY_DROP,
     "hallucination_rate": MetricThreshold(ThresholdDirection.MAX_INCREASE, 0.03),
+    # Ingestion fidelity (EVALUATION_PLAN.md §4).
+    "parse_success_rate": _QUALITY_DROP,
+    "heading_preservation_score": _QUALITY_DROP,
+    "table_preservation_score": _QUALITY_DROP,
     # Latency, any benchmark.
     "avg_latency_ms": _UNBOUNDED_INCREASE,
     "p95_latency_ms": _UNBOUNDED_INCREASE,
@@ -73,4 +105,25 @@ DEFAULT_METRIC_THRESHOLDS: dict[str, MetricThreshold] = {
     "avg_cost_usd": _UNBOUNDED_INCREASE,
     "cost_per_query": _UNBOUNDED_INCREASE,
     "cost_per_1k_queries": _UNBOUNDED_INCREASE,
+    # Absolute gates (EVALUATION_PLAN.md §13) -- deterministic checks with
+    # no LLM-judge noise to calibrate against, so a hard line is safe
+    # rather than a relative "no worse than last run" comparison.
+    #
+    # `fabricated_citation_rate` is produced today by
+    # `check_citation_validity()`/`check_prompt_context_citation_validity()`
+    # (app/ai/knowledge/context/citations/validity.py, EVALUATION_IMPLEMENTATION_TRACKER.md
+    # E4) -- not yet emitted into a BenchmarkReport by any benchmark, since
+    # that requires the golden dataset (E1) to run it against. Declaring
+    # the gate now means E1/E5 only need to start emitting the metric
+    # name, not also design its threshold.
+    "fabricated_citation_rate": MetricThreshold(ThresholdDirection.ABSOLUTE_MAX, 0.0),
+    # `schema_validity_rate` -- fraction of responses passing
+    # SchemaValidator (generation/validation/output/schema_validator.py,
+    # already live and blocking at generation time) -- not yet aggregated
+    # into a rate anywhere; same "declare the gate, populate later" logic.
+    "schema_validity_rate": MetricThreshold(ThresholdDirection.ABSOLUTE_MIN, 1.0),
+    # `abstention_pass_rate` -- fraction of the golden set's unanswerable-
+    # query subset correctly abstaining rather than answering with
+    # unwarranted certainty. Needs E1's golden set to exist at all.
+    "abstention_pass_rate": MetricThreshold(ThresholdDirection.ABSOLUTE_MIN, 0.95),
 }

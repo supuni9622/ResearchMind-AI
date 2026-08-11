@@ -537,6 +537,7 @@ async def test_generate_without_provider_routes_to_the_selected_model() -> None:
     provider.generate.assert_awaited_once()
     assert returned.metadata["routing"]["selected_provider"] == "groq"
     assert returned.metadata["routing"]["used_fallback"] is False
+    assert returned.statistics.routing_strategy == RoutingStrategy.AUTO
 
 
 async def test_generate_without_provider_raises_when_no_routing_service_wired() -> None:

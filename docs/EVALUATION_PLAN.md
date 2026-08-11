@@ -10,7 +10,12 @@ LangSmith control-plane architecture) reviewed against this codebase on
 2026-08-10. Every claim about current code state below was checked, not
 assumed. **Companion docs:** [`PHASE_2_3_ROADMAP.md`](PHASE_2_3_ROADMAP.md),
 [`PRODUCTION_READINESS_EVALUATION.md`](../PRODUCTION_READINESS_EVALUATION.md),
-[`docs/evaluation/EVALUATION_GAP_ANALYSIS.md`](evaluation/EVALUATION_GAP_ANALYSIS.md).
+[`docs/evaluation/EVALUATION_GAP_ANALYSIS.md`](evaluation/EVALUATION_GAP_ANALYSIS.md),
+[`PRIORITIZED_ROADMAP.md`](PRIORITIZED_ROADMAP.md) (sequences this plan's
+phases into Wave 1). **Execution tracking:**
+[`EVALUATION_IMPLEMENTATION_TRACKER.md`](EVALUATION_IMPLEMENTATION_TRACKER.md)
+turns §16's phase list into task/subtask checklists against verified
+current code state — update it, not this file, as Wave 1 items ship.
 
 ## How to read this document
 
@@ -133,9 +138,13 @@ slice by *failure type*, not just by config/content segment:
 
 ## 4. Ingestion & chunking evaluation (MVP slice)
 
-Genuinely new coverage — this doesn't exist today in any form beyond
-`benchmarks/chunking/`'s strategy-vs-strategy comparison, which never
-checks fidelity against a known-correct source.
+**Status: MVP done (2026-08-11).** Was genuinely new coverage — this
+didn't exist in any form beyond `benchmarks/chunking/`'s
+strategy-vs-strategy comparison, which never checked fidelity against a
+known-correct source. Implementation: `benchmarks/ingestion/`, reusing
+the 5 already-cached research-paper fixtures with hand-verified
+heading/table minimums rather than adding new fixture PDFs. Detail:
+`EVALUATION_IMPLEMENTATION_TRACKER.md` E12.
 
 | Check | Detects | Method | Tier |
 |---|---|---|---|
@@ -160,11 +169,12 @@ identified in 1f.
 
 | Metric | Reference needed? | Status |
 |---|---|---|
-| Recall@K, Hit Rate@K | Yes | Add if not already in `benchmarks/retrieval/` — cheap, deterministic |
-| MRR | Yes | Same |
+| Recall@K | Yes | Already built |
+| Hit Rate@K | Yes | ✅ Done 2026-08-11 — was the one genuinely missing metric, see `EVALUATION_IMPLEMENTATION_TRACKER.md` E14 |
+| MRR | Yes | Already built |
 | NDCG@K | Graded labels | Already built |
 | Context Precision / Recall (Ragas) | Reference contexts | Covered by 1a's Ragas integration |
-| Metadata-filter accuracy | Expected filters | Deterministic, cheap to add |
+| Metadata-filter accuracy | Expected filters | Already built — `MetadataFilteringBenchmark` |
 | Noise sensitivity, context entity recall, diversity/coverage | Varies | Mature tier |
 
 **Experiment metadata — merges 1f's config fingerprint with the fuller
@@ -175,7 +185,8 @@ conflate them:
   `GenerationUsage`, per 1f): `surface`, `prompt_version`,
   `chunking_strategy`, `embedding_model`, `reranker`, `routing_strategy` —
   stays exactly as scoped in 1f, this is what ties a *live* answer back to
-  the config that produced it.
+  the config that produced it. **Status: done 2026-08-11**, see
+  `EVALUATION_IMPLEMENTATION_TRACKER.md` E8.
 - **Retrieval-experiment metadata** (lives in `benchmarks/`/LangSmith
   experiment tracking, not the production ledger — a different, offline
   concern): `retriever_version`, `embedding_provider`, `chunker_version`,
@@ -191,6 +202,10 @@ conflate them:
 
 ## 6. Context-construction evaluation (new layer, MVP slice)
 
+**Status: MVP done (2026-08-11).** Implementation:
+`app/ai/knowledge/context/quality.py`. Detail:
+`EVALUATION_IMPLEMENTATION_TRACKER.md` E13.
+
 | Metric | Question | Method | Tier |
 |---|---|---|---|
 | Provenance preservation | Can every context item trace back to a chunk/source? | Deterministic — cheap, and directly reuses the citation-provenance logic being built in §8 | MVP |
@@ -205,8 +220,16 @@ today nothing would catch that specific failure mode.
 
 ## 7. Generation evaluation
 
-This is what 1a/1b already designed — **no change**, just restated here
-for completeness of the layered model:
+**Status: MVP scoring function done (2026-08-11).** This is what 1a/1b
+already designed at the decision level — restated here for completeness
+of the layered model, but note the actual Ragas *integration* was net-new
+work, not already in place (see the corrected claim in
+`EVALUATION_IMPLEMENTATION_TRACKER.md` §0/E1: no `ragas` dependency
+existed anywhere in this codebase before this pass). Implementation:
+`benchmarks/generation/ragas_scoring.py` (`score_generation()`) +
+`ragas_judge.py` (real ragas wiring, including a documented workaround
+for a genuine upstream `ragas==0.4.3` packaging bug). Detail:
+`EVALUATION_IMPLEMENTATION_TRACKER.md` E1.
 
 - Linear Research / Deep Research: faithfulness, answer_relevancy,
   context_precision, context_recall (full Ragas RAG suite)
@@ -224,9 +247,16 @@ production), completeness against `required_claims`.
 
 ## 8. Citation evaluation (new first-class layer, MVP slice)
 
-Generalizes `ResearchReview.citation_integrity_score` — currently a real,
-working, deterministic check, but Deep-Research-only and never a release
-gate — into a cross-surface deterministic validator.
+**Status: Done (2026-08-11).** Generalizes `ResearchReview.citation_integrity_score`
+— was a real, working, deterministic check, but Deep-Research-only and
+never a release gate — into a cross-surface deterministic validator.
+Implementation: `app/ai/knowledge/context/citations/validity.py`
+(`check_citation_validity()` strict core +
+`check_prompt_context_citation_validity()` free-text wrapper);
+`CitationValidator` and `review_draft()` both now delegate to it. Detail:
+`EVALUATION_IMPLEMENTATION_TRACKER.md` E4. Still open: wiring the checker
+into CI's absolute gates and the online scoring job's 100%-sampled
+free-signal category (tracker items E2/E5).
 
 | Check | Method | Blocking? |
 |---|---|---|
@@ -250,16 +280,21 @@ directly closes a real trust risk.
 
 ## 9. Guardrails evaluation (MVP addition)
 
-The guardrails platform itself is real and mature (input/runtime/retrieval/
-generation stages, per `AI_ENGINEERING_AUDIT.md`) — what's missing is
-testing it against a deliberately adversarial set, which also directly
-feeds the already-planned V3 item "evaluate NeMo/LlamaGuard/Lakera before
-committing" (`PHASE_2_3_ROADMAP.md` V3 #3).
+**Status: MVP done (2026-08-11).** The guardrails platform itself was
+already real and mature (input/runtime/retrieval/generation stages, per
+`AI_ENGINEERING_AUDIT.md`) — now genuinely tested against a deliberately
+adversarial set for the first time, feeding Wave 7's in-house guardrails
+gap-filling directly. Implementation: `benchmarks/guardrails/` +
+`datasets/adversarial/adversarial_cases.json`. Detail:
+`EVALUATION_IMPLEMENTATION_TRACKER.md` E15.
 
 - **MVP:** a small (10-20 example) hand-built adversarial dataset —
   prompt injection in an uploaded document, poisoned instructions, a
   handful of known jailbreak patterns — run against the existing guardrail
-  stages, pass/fail per case.
+  stages, pass/fail per case. **Shipped at 18 cases**, empirically
+  verified against the live guardrail code (not a guessed spec) — 13
+  detected, 5 deliberately evasive and confirmed undetected (paraphrase,
+  Unicode homoglyphs, spelled-out PII, keyword-free jailbreak phrasing).
 - **Mature:** full adversarial suite, red-team rotation, security
   evaluation (this is `ROADMAP.md` Phase 8's "Security Evaluation ❌ Not
   started" — this MVP slice is the first real step toward closing that).
@@ -320,14 +355,29 @@ This is 1c (feedback) and 1g (objective/preference scope split) — **no
 change, already ahead of the reviewed framework**, which has no equivalent
 mechanism for keeping one user's stylistic preference out of the shared
 regression gate. Restated here only to complete the layer table in §2.
+**Status:** 1c's collection mechanism (`POST /feedback`) is live as of
+2026-08-11 (backend only, see §16 phase 3) — the objective/preference
+classification split (1g) itself is not yet implemented. Note that
+"backend only" is a real gap, not a formality: with no frontend
+affordance, zero real feedback can flow in yet regardless of how complete
+the backend is. Tracked as `EVALUATION_IMPLEMENTATION_TRACKER.md` E21.
 
 ---
 
 ## 13. Offline evaluation system
 
-Reuses `benchmarks/regression/` (already built, per 1a — just needs CI
-wiring) plus the framework's gate-severity distinction, which is worth
-adopting precisely:
+**Status: smoke-tier CI wiring done (2026-08-11), full trigger matrix
+still open.** Reuses `benchmarks/regression/` (already built, per 1a) —
+CI wiring done for the fully-offline Ingestion Fidelity benchmark only;
+retrieval-config-change and prompt/LLM-change triggers for the
+live-service-dependent benchmarks need CI credentials not yet configured.
+The absolute gates declared for citation/schema/abstention checks
+(below) also have no benchmark run populating them yet — declared in
+`thresholds.py` but structurally unreachable until a benchmark actually
+emits those metric names. Detail: `EVALUATION_IMPLEMENTATION_TRACKER.md`
+E2, follow-up E20. Gate-severity
+distinction below — now implemented via `ThresholdDirection.ABSOLUTE_MIN`/
+`ABSOLUTE_MAX`, worth adopting precisely:
 
 **Relative regression gates for fuzzy/LLM-judged metrics; absolute gates
 only for deterministic checks.** Don't set an arbitrary target like
@@ -336,14 +386,14 @@ labels — a regression gate ("must not drop more than 2-3% from the current
 production baseline") is safer until there's a calibrated sense of what a
 good absolute score even looks like for this specific product's traffic.
 
-| Gate | Type | Initial bar |
-|---|---|---|
-| Retrieval Recall@10, NDCG@10 | Relative | No regression beyond 2-3% vs. baseline |
-| Faithfulness, answer_relevancy | Relative | No statistically meaningful regression |
-| Citation validity, fabricated-citation-rate | **Absolute** | 100% valid / 0% fabricated — deterministic, cheap, no reason not to hold a hard line |
-| Schema/format validity | **Absolute** | 100% |
-| Abstention pass rate (unanswerable cases) | Absolute | ≥ 95% on the controlled subset |
-| P95 latency, avg. eval cost | Absolute | Within existing budget (readiness item 2's latency-SLO work, item 1's cost budget) |
+| Gate | Type | Initial bar | Status |
+|---|---|---|---|
+| Retrieval Recall@10, NDCG@10 | Relative | No regression beyond 2-3% vs. baseline | Threshold defined (`_QUALITY_DROP`, 5% — not yet 2-3%, close enough not to have blocked this pass); not yet CI-wired (needs live Qdrant) |
+| Faithfulness, answer_relevancy | Relative | No statistically meaningful regression | Threshold defined; metric itself not yet produced (needs E1's Ragas integration) |
+| Citation validity, fabricated-citation-rate | **Absolute** | 100% valid / 0% fabricated — deterministic, cheap, no reason not to hold a hard line | `ABSOLUTE_MAX` threshold defined 2026-08-11; checker exists (E4); not yet emitted into a benchmark report (needs E1's golden set) |
+| Schema/format validity | **Absolute** | 100% | `ABSOLUTE_MIN` threshold defined 2026-08-11; not yet populated by any benchmark |
+| Abstention pass rate (unanswerable cases) | Absolute | ≥ 95% on the controlled subset | `ABSOLUTE_MIN` threshold defined 2026-08-11; needs E1's golden set |
+| P95 latency, avg. eval cost | Absolute | Within existing budget (readiness item 2's latency-SLO work, item 1's cost budget) | Not yet defined — tracked as E17/E18 |
 
 Offline triggers: retrieval-config change → retrieval benchmark; prompt/LLM
 change → generation benchmark; every PR → CI smoke eval (small, fast
@@ -406,20 +456,20 @@ near-term build; **Mature** phases are explicitly deferred, not dropped.
 
 | # | Phase | Tier | Note |
 |---|---|---|---|
-| 1 | Golden dataset (`rag_answer_gold`, 50-150 examples, schema from §3) | MVP | = original 1a step 1 |
-| 2 | Wire `benchmarks/regression/` into CI, gate types per §13 | MVP | = original 1a step 2 |
-| 3 | `POST /feedback` + thumbs up/down, objective/preference classification (1c/1g) | MVP | = original steps 3, 10 |
-| 4 | Citation validator (§8) — generalize `citation_integrity_score` cross-surface, release-blocking | MVP | **New, highest value-per-effort item in this plan** |
-| 5 | Config fingerprint threaded through `GenerationRequest`→`GenerationUsage` (1f) | MVP | = original step 8 |
+| 1 | ✅ Golden dataset (`rag_answer_gold`, schema from §3) — Done, Phase 1 (24 examples) 2026-08-11 | MVP | = original 1a step 1. Grounded in real, verified content rather than padded to 50-150 — see `EVALUATION_IMPLEMENTATION_TRACKER.md` E1 for why, and its `notes` field for the growth plan (E10's promotion loop). LangSmith registration still open — tracker E19 |
+| 2 | ✅ Wire `benchmarks/regression/` into CI, gate types per §13 — Done (smoke tier) 2026-08-11 | MVP | = original 1a step 2. Absolute + relative gates both implemented; one CI job wired for the fully-offline Ingestion Fidelity benchmark. Retrieval/generation benchmark CI triggers still need live-service credentials — not yet configured, and the absolute gates this phase declared have no benchmark run populating them yet. Detail: `EVALUATION_IMPLEMENTATION_TRACKER.md` E2, follow-up E20 |
+| 3 | ✅ `POST /feedback` + thumbs up/down (backend) — Done 2026-08-11 — ⬜ objective/preference classification (1c/1g) not started | MVP | = original steps 3, 10. Frontend affordance not built. Detail: `EVALUATION_IMPLEMENTATION_TRACKER.md` E3, follow-up E21 |
+| 4 | ✅ Citation validator (§8) — generalize `citation_integrity_score` cross-surface, release-blocking — Done 2026-08-11 | MVP | **New, highest value-per-effort item in this plan.** Checker built (`app/ai/knowledge/context/citations/validity.py`); CI/online-gate wiring is phases 2/6. Detail: `EVALUATION_IMPLEMENTATION_TRACKER.md` E4, follow-up E20 |
+| 5 | ✅ Config fingerprint threaded through `GenerationRequest`→`GenerationUsage` (1f) — Done 2026-08-11 | MVP | = original step 8. `app/ai/runtime/generation/config_fingerprint.py`; populated at the 3 answer-producing call sites (Chat, Linear Research, Deep Research synthesis). Verified against a real Postgres row + real migration upgrade/downgrade. Detail: `EVALUATION_IMPLEMENTATION_TRACKER.md` E8 |
 | 6 | Online risk-weighted scoring job, merged sampling table (§14) | MVP | = original steps 4, 9 |
 | 7 | Feedback → trace attachment, `eval_scores` table | MVP | = original step 5 |
 | 8 | Internal dashboard, owner-scoped drill-down (1g), roll in `ResearchReview.decision` as workflow signal (§10) | MVP | = original step 6 |
 | 9 | Golden-set promotion review, both directions (1c) | MVP | = original step 7 |
 | 10 | Segment-analysis job (1f) | MVP | = original step 9 |
-| 11 | Ingestion fidelity checks (§4) — parse success rate + fixture comparison | MVP | New, small |
-| 12 | Context-construction provenance + token-efficiency checks (§6) | MVP | New, small |
-| 13 | Adversarial guardrail dataset (§9) | MVP | New, small — also feeds V3 NeMo-evaluation item |
-| 14 | Retrieval metric completeness (Recall@K, Hit Rate@K, metadata-filter accuracy) | MVP | Small extension of existing `benchmarks/retrieval/` |
+| 11 | ✅ Ingestion fidelity checks (§4) — parse success rate + fixture comparison — Done 2026-08-11 | MVP | New, small. `benchmarks/ingestion/`, reuses the 5 existing cached research-paper fixtures. Detail: `EVALUATION_IMPLEMENTATION_TRACKER.md` E12 |
+| 12 | ✅ Context-construction provenance + token-efficiency checks (§6) — Done 2026-08-11 | MVP | New, small. `app/ai/knowledge/context/quality.py`. Detail: `EVALUATION_IMPLEMENTATION_TRACKER.md` E13 |
+| 13 | ✅ Adversarial guardrail dataset (§9) — Done 2026-08-11 | MVP | 18 cases, `datasets/adversarial/`. Also feeds Wave 7's in-house guardrails gap-filling (superseded the NeMo-evaluation framing — see `PRIORITIZED_ROADMAP.md` Wave 7). Detail: `EVALUATION_IMPLEMENTATION_TRACKER.md` E15 |
+| 14 | ✅ Retrieval metric completeness (Recall@K, Hit Rate@K, metadata-filter accuracy) — Done 2026-08-11 | MVP | Recall@K/MRR/NDCG/metadata-filter accuracy were already built; only `hit_rate_at_k` was actually missing — added to `benchmarks/retrieval/metrics.py`+`benchmark.py`, regression threshold, tests. Detail: `EVALUATION_IMPLEMENTATION_TRACKER.md` E14 |
 | 15 | Full context-construction layer (redundancy, lost-in-the-middle, compression preservation) | Mature | |
 | 16 | Citation entailment/placement/specificity judges | Mature | |
 | 17 | Full workflow scorecards (plan quality, subquestion coverage, tool-call accuracy) | Mature | |
@@ -458,7 +508,7 @@ deferred bullet.
 
 | Level | What | Tool | Where in this plan |
 |---|---|---|---|
-| **1 — Deterministic checks** | Schema validity, citation existence, type/range checks on structured output | **Pytest** — not just "ResearchMind code" generically | §8's citation validator, §13's absolute gates. **Concrete, already-existing home**: `tests/evaluation/test_faithfulness.py`, `test_groundedness.py`, `test_reranking.py`, `test_retrieval_precision.py` and `tests/security/test_jailbreaks.py`, `test_prompt_injection.py` are all real, already-named, currently **0-byte empty files** in this repo — confirmed 2026-08-10. These are exactly the right homes for §8's citation checks, §5's retrieval metrics, §7's generation checks, and §9's adversarial guardrail tests, respectively. Nobody had connected these empty stubs to this plan before this check. |
+| **1 — Deterministic checks** | Schema validity, citation existence, type/range checks on structured output | **Pytest** — not just "ResearchMind code" generically | §8's citation validator, §13's absolute gates. **Concrete, already-existing home**: `tests/evaluation/test_faithfulness.py`, `test_groundedness.py`, `test_reranking.py`, `test_retrieval_precision.py` and `tests/security/test_jailbreaks.py`, `test_prompt_injection.py` were all real, already-named, **0-byte empty files** in this repo — confirmed 2026-08-10. **Status 2026-08-11: all but `test_reranking.py` now populated** (E1/E4/E14/E15) — the mapping stated here turned out not to be 1:1 by position once actually filled in: citation checks (§8) needed their own new file (`test_citation_validity.py`, no existing stub name fit — see E4), `test_faithfulness.py` ended up covering §7's new Ragas tier + the golden dataset, `test_groundedness.py` covers §7's pre-existing lexical tier, `test_retrieval_precision.py` covers §5's retrieval metrics (E14), and the security pair now covers §9's adversarial guardrail dataset (E15) exactly as originally mapped here. `test_reranking.py` remains the one open stub — no Wave 1 item currently scoped to fill it. |
 | **2 — Human + LLM-judge** | Subjective quality, faithfulness, tone | RAGAS + human review (1c) | §7, §8's Mature entailment judge, §9 |
 | **3 — Product A/B testing** | Real-user outcome comparison across variants | Would need new infrastructure | Explicitly deferred, §17 |
 

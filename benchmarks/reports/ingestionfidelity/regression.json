@@ -1,0 +1,10 @@
+{
+  "benchmark_name": "IngestionFidelity",
+  "checked_at": "2026-08-10T19:28:31.037962Z",
+  "previous_commit": "cd9454d0ee26af0e72962343faace7b0fb45aceb",
+  "current_commit": "cd9454d0ee26af0e72962343faace7b0fb45aceb",
+  "previous_dataset_version": "unknown",
+  "current_dataset_version": "unknown",
+  "passed": true,
+  "regressions": []
+}

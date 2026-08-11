@@ -36,6 +36,7 @@ from app.ai.runtime.generation.models import (
     StreamEventType,
 )
 from app.ai.runtime.generation.registry import GenerationRegistry
+from app.ai.runtime.generation.routing.enums import RoutingStrategy
 from app.ai.runtime.generation.streaming.service import StreamingService
 
 
@@ -247,6 +248,48 @@ async def test_completed_stream_records_owner_scoped_usage() -> None:
     recorded = usage_service.record.await_args.args[0]
     assert recorded.request is request
     assert recorded.statistics.streamed is True
+    assert recorded.statistics.routing_strategy is None
+
+
+async def test_stream_generate_with_no_provider_records_the_resolved_routing_strategy() -> None:
+    """
+    Regression test for a real bug (EVALUATION_IMPLEMENTATION_TRACKER.md
+    E8's "Update" note, 2026-08-11): when `stream_generate()` is called
+    with no explicit `provider` (the real production shape -- Chat/
+    Linear/Deep Research never pass one), routing resolves a provider via
+    `resolve_streaming_provider()`, but the *strategy* that resolved it
+    was previously dropped entirely -- `GenerationRequest.routing_strategy`
+    stays `None` (no caller sets an explicit override), and nothing ever
+    wrote the effective strategy anywhere else, so every real
+    `GenerationUsage` row persisted `routing_strategy=NULL` despite a
+    routing decision genuinely having been made every time. Fixed by
+    threading the resolved strategy through to
+    `GenerationResult.statistics.routing_strategy`, mirroring
+    `GenerationService._generate_with_routing()`'s non-streaming fix.
+    """
+
+    provider = _make_registered_provider()
+    generation_service = _make_generation_service()
+    generation_service.resolve_streaming_provider = MagicMock(return_value=GenerationProvider.GROQ)
+    generation_service.stream_generate = MagicMock(
+        return_value=_fake_stream([StreamChunk(event=StreamEventType.TOKEN, content="hello")])
+    )
+    usage_service = AsyncMock()
+    request = _make_request()
+    request.owner_id = uuid4()
+
+    service = _make_service(
+        generation_service=generation_service,
+        provider=provider,
+        caching_service=None,
+        usage_service=usage_service,
+    )
+
+    await _collect(service.stream_generate(request=request))
+
+    generation_service.resolve_streaming_provider.assert_called_once_with(request)
+    recorded = usage_service.record.await_args.args[0]
+    assert recorded.statistics.routing_strategy == RoutingStrategy.AUTO
 
 
 async def test_completed_stream_is_scored_via_the_generation_service() -> None:

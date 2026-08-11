@@ -54,6 +54,14 @@ class GenerationUsageRepository:
                 estimated_cost_usd=statistics.estimated_cost_usd,
                 cache_hit=statistics.cache_hit,
                 streamed=statistics.streamed,
+                surface=result.request.surface,
+                prompt_version=result.request.prompt_version,
+                chunking_strategy=result.request.chunking_strategy,
+                embedding_model=result.request.embedding_model,
+                reranker=result.request.reranker,
+                routing_strategy=(
+                    statistics.routing_strategy.value if statistics.routing_strategy else None
+                ),
             )
             .on_conflict_do_nothing(index_elements=[GenerationUsage.request_id])
         )

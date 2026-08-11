@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-import re
-
+from app.ai.knowledge.context.citations.validity import (
+    check_prompt_context_citation_validity,
+)
 from app.ai.runtime.generation.models import (
     GenerationResult,
 )
@@ -12,21 +13,6 @@ from app.ai.runtime.generation.validation.models import (
     ValidationIssue,
     ValidationSeverity,
     ValidatorOutcome,
-)
-
-#
-# Citation markers are bracketed identifiers, e.g. "[S1]" or "[S1, S2]" —
-# see CitationService.build() (citation_id = "S{n}") and
-# DefaultPromptFormatterProvider / AgentPromptFormatterProvider, which
-# render sources into the prompt as "[{citation_id}] {filename}".
-#
-
-_BRACKET_RE = re.compile(
-    r"\[([^\[\]]+)\]",
-)
-
-_IDENTIFIER_RE = re.compile(
-    r"^[A-Za-z][\w.-]*$",
 )
 
 
@@ -43,6 +29,16 @@ class CitationValidator(
     generations with nothing to cite are left alone (an arbitrary
     bracketed token, e.g. a JSON array literal, is not evidence of a
     fabricated citation on its own).
+
+    Delegates to `check_prompt_context_citation_validity`
+    (`knowledge/context/citations/validity.py`), the shared,
+    cross-surface citation-validity checker generalized from this
+    validator and `review_draft()`'s existence check (EVALUATION_PLAN.md
+    §8) — this validator surfaces only the existence result as a
+    blocking issue, matching its prior behavior exactly; the richer
+    syntax/fabrication-rate/provenance checks that function also computes
+    are for the non-blocking, post-hoc cross-surface report, not this
+    live validation gate.
     """
 
     @property
@@ -56,24 +52,12 @@ class CitationValidator(
         result: GenerationResult,
     ) -> ValidatorOutcome:
 
-        prompt_context = result.request.prompt_context
-
-        known_ids = {citation.citation_id for citation in prompt_context.citations}
-
-        known_ids |= {chunk.citation_id for chunk in prompt_context.chunks if chunk.citation_id}
-
-        if not known_ids:
-            return ValidatorOutcome()
-
-        referenced_ids = self._extract_citation_markers(
-            result.content,
+        report = check_prompt_context_citation_validity(
+            content=result.content,
+            prompt_context=result.request.prompt_context,
         )
 
-        unknown_ids = sorted(
-            referenced_ids - known_ids,
-        )
-
-        if not unknown_ids:
+        if not report.unknown_citation_ids:
             return ValidatorOutcome()
 
         return ValidatorOutcome(
@@ -83,36 +67,12 @@ class CitationValidator(
                     severity=ValidationSeverity.ERROR,
                     message=(
                         "Response cites source(s) not present in the retrieved "
-                        f"context: {', '.join(unknown_ids)}"
+                        f"context: {', '.join(report.unknown_citation_ids)}"
                     ),
                     details={
-                        "unknown_citations": unknown_ids,
-                        "known_citations": sorted(
-                            known_ids,
-                        ),
+                        "unknown_citations": report.unknown_citation_ids,
+                        "known_citations": report.known_citation_ids,
                     },
                 )
             ],
         )
-
-    @staticmethod
-    def _extract_citation_markers(
-        content: str,
-    ) -> set[str]:
-
-        referenced: set[str] = set()
-
-        for match in _BRACKET_RE.finditer(
-            content,
-        ):
-            for token in match.group(1).split(","):
-                token = token.strip()
-
-                if _IDENTIFIER_RE.match(
-                    token,
-                ):
-                    referenced.add(
-                        token,
-                    )
-
-        return referenced

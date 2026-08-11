@@ -59,6 +59,7 @@ from benchmarks.chunking.benchmark import ChunkingBenchmark
 from benchmarks.common.dataset_loader import DatasetLoader
 from benchmarks.embeddings.benchmark import EmbeddingBenchmark
 from benchmarks.generation.benchmark import GenerationBenchmark
+from benchmarks.ingestion.benchmark import IngestionFidelityBenchmark
 from benchmarks.registry import BenchmarkRegistry
 from benchmarks.reranking.benchmark import (
     BENCHMARK_COLLECTION_NAME as RERANKING_COLLECTION_NAME,
@@ -94,6 +95,10 @@ def create_benchmark_registry() -> BenchmarkRegistry:
             artifact_builder=ChunkArtifactBuilder(),
             dataset_loader=dataset_loader,
         )
+    )
+
+    registry.register(
+        IngestionFidelityBenchmark(),
     )
 
     registry.register(

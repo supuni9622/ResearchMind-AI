@@ -36,6 +36,19 @@ class GenerationUsage(Base):
     provider: Mapped[str] = mapped_column(String(50), nullable=False)
     model: Mapped[str] = mapped_column(String(100), nullable=False)
     runtime: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    #
+    # Config fingerprint (EVALUATION_PLAN.md §5) -- from
+    # GenerationRequest.surface/prompt_version/chunking_strategy/
+    # embedding_model/reranker/routing_strategy, populated only for
+    # answer-producing generations (see `config_fingerprint.py`); null
+    # for everything else (memory extraction, planning, review, ...).
+    #
+    surface: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    prompt_version: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    chunking_strategy: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    embedding_model: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    reranker: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    routing_strategy: Mapped[str | None] = mapped_column(String(30), nullable=True)
     prompt_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     completion_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     total_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)

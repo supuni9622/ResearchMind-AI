@@ -189,7 +189,7 @@ E21 too, on top of its declared E6 dependency.
 | [E16](#e16-llm-as-judge-metric) | LLM-as-judge metric | Not started | Med | Med | E1 |
 | [E17](#e17-latency-slo-alerts--eval_scores-grafana-panel) | Latency-SLO alerts + `eval_scores` Grafana panel | Not started | Med | High | E6 (for the panel half) |
 | [E18](#e18-cost-forecast) | Cost forecast (rolling-average) | Not started | Low-Med | High | — |
-| [E19](#e19-register-golden-dataset-in-langsmith) | Register golden dataset in LangSmith | **Built, live push pending** (Experiment-logging subtask not started) | Med | High | E1 |
+| [E19](#e19-register-golden-dataset-in-langsmith) | Register golden dataset in LangSmith | **Done** (dataset live in LangSmith, confirmed; Experiment-logging subtask not started) | Med | High | E1 |
 | [E20](#e20-ci-live-service-benchmark-triggers--citation-metric-wiring) | CI live-service benchmark triggers + citation-metric wiring | Not started | High | Low-Med | E1, E2, E4 |
 | [E21](#e21-frontend-thumbs-updown-affordance) | Frontend thumbs up/down affordance | Not started | High | Med-High | E3 |
 
@@ -1196,7 +1196,7 @@ month cost" from existing ledger data, no new data collection.
 
 ---
 
-### E19. Register golden dataset in LangSmith — **Built, live push not yet run** (2026-08-11)
+### E19. Register golden dataset in LangSmith — **Done except Experiment-logging** (2026-08-11)
 
 **Roadmap:** Wave 1, follow-up to row 1. **Eval Plan:** §1 ("LangSmith as
 the primary registry"), §3, §16 phase 1. Surfaced as a dangling subtask
@@ -1204,27 +1204,32 @@ inside [E1](#e1-golden-dataset--ragas-scoring-function) during the
 2026-08-11 cross-check pass — see [§0](#0-corrections-found-during-this-pass).
 
 **Current state:** `datasets/golden/rag_answer_gold.json` (**115
-examples** as of 2026-08-11, grown the same day — see
-[E1](#e1-golden-dataset--ragas-scoring-function)'s update note) is the
-only copy — version-controlled, not yet registered in LangSmith.
-`benchmarks/generation/langsmith_sync.py` now exists to do this, built
-and unit-tested (9 tests, `get_langsmith_client` mocked per this
-project's no-live-external-calls-in-tests convention — same pattern as
-`tests/unit/ai/observability/providers/langsmith/test_client.py`) but
-**not yet run against a real LangSmith account** — pushing a new dataset
-into a live, team-visible third-party service is a real external
-side-effect (unlike everything else in this pass, which stayed local),
-flagged for explicit go-ahead before executing rather than run
-unilaterally.
+examples**) is live in LangSmith as Dataset `rag_answer_gold`, pushed via
+`benchmarks/generation/langsmith_sync.py` — confirmed against the real
+account (not just construction-level), including catching and fixing a
+real bug (below).
+
+**A real bug was found by actually running this twice, not assumed away:**
+the first live run created the dataset and all 115 examples successfully.
+The *second* run — done specifically to verify the idempotency claim,
+following this project's "verify empirically" discipline — failed with a
+`409 Conflict`: `Client.create_examples()` on `langsmith==0.9.7` does
+**not** upsert on a repeated `id` despite its return type being named
+`UpsertExamplesResponse` (that shape is shared with a different,
+deprecated `upsert_examples_multipart` method — misleading name, not
+misleading behavior once actually read). Fixed by calling
+`client.list_examples()` first to find which `id`s already exist, then
+routing new ones through `create_examples()` and existing ones through
+`update_examples()` — confirmed against the real account: second run now
+reports `created=0, updated=115`, and a third run is stable at the same.
 
 **Subtasks:**
 - [x] Register the 115 examples as a LangSmith Dataset via the LangSmith
-      SDK (`Client.create_dataset` / `create_examples`) — mechanism built
-      (`sync_golden_dataset()`), mapping `GoldenExample`'s fields to
+      SDK — `sync_golden_dataset()`, mapping `GoldenExample`'s fields to
       LangSmith's `inputs`/`outputs`/`metadata` shape (question/contexts
       as inputs; reference_answer/expected_behavior/citations as outputs;
       query_type/difficulty/workflow/rubric/etc. as metadata, for
-      LangSmith-UI-side filtering). **Not yet executed live.**
+      LangSmith-UI-side filtering). **Executed live, confirmed.**
 - [x] Decide and document the source-of-truth direction: the JSON file
       stays canonical, `langsmith_sync.py` only ever pushes to LangSmith,
       never reads back — matches this repo's existing convention of JSON
@@ -1235,17 +1240,18 @@ unilaterally.
       in the LangSmith UI over time (per-metric trend, not just a
       point-in-time pass/fail) — **not started**, genuinely separate
       engineering from dataset registration itself
-- [x] Keep the push script idempotent — `example_id` maps to a
-      deterministic `uuid5`-derived LangSmith example `id`, so
-      `create_examples()` upserts in place on re-run rather than
-      duplicating; verified by a dedicated test
-      (`test_sync_is_idempotent_across_repeated_runs`) asserting two
-      consecutive syncs produce identical IDs
+- [x] Keep the push script idempotent — real create-vs-update split keyed
+      on a deterministic `uuid5`-derived LangSmith example `id` per
+      `example_id`, verified against the real account across 3
+      consecutive runs (create → update → update, no duplicates, no
+      errors), plus 5 unit tests covering the split logic and a named
+      regression test for the exact 409 bug found live
 
 **Acceptance criteria:** the dataset is visible and browsable in the
-LangSmith UI with all 115 examples — **not yet met, pending the live
-run**; a `score_generation()` run produces a
-LangSmith Experiment entry comparable against a prior run.
+LangSmith UI with all 115 examples — **met**, confirmed live. A
+`score_generation()` run produces a LangSmith Experiment entry comparable
+against a prior run — **not met**, Experiment-logging wiring not started
+(see open subtask above).
 
 ---
 

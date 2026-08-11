@@ -136,15 +136,31 @@ def sync_golden_dataset(
         )
         logger.info("langsmith_sync.dataset_created", dataset_name=dataset_name)
 
-    examples = [to_langsmith_example(example) for example in dataset.examples]
-    client.create_examples(dataset_name=dataset_name, examples=examples)
+    # `create_examples()` 409s on an `id` that already exists -- confirmed
+    # against a real LangSmith account, not assumed. It does not upsert
+    # despite the plausible-sounding `UpsertExamplesResponse` return type
+    # name (that response shape is shared with `upsert_examples_multipart`,
+    # a *different*, deprecated method). Real idempotent upsert on this
+    # SDK version requires splitting into create (new ids) + update
+    # (already-present ids) calls.
+    existing_ids = {existing.id for existing in client.list_examples(dataset_name=dataset_name)}
+
+    mapped = [to_langsmith_example(example) for example in dataset.examples]
+    to_create = [example for example in mapped if example["id"] not in existing_ids]
+    to_update = [example for example in mapped if example["id"] in existing_ids]
+
+    if to_create:
+        client.create_examples(dataset_name=dataset_name, examples=to_create)
+    if to_update:
+        client.update_examples(dataset_name=dataset_name, updates=to_update)
 
     logger.info(
         "langsmith_sync.completed",
         dataset_name=dataset_name,
-        example_count=len(examples),
+        created=len(to_create),
+        updated=len(to_update),
     )
-    return len(examples)
+    return len(mapped)
 
 
 if __name__ == "__main__":

@@ -114,6 +114,7 @@ export function useChat() {
       setMessages((prev) => [...prev, userMessage, assistantMessage]);
 
       let resolvedConversationId: string | null = conversationIdAtStart;
+      let resolvedGenerationId: string | null = null;
 
       try {
         for await (const { data: event } of api.chat.stream(query, {
@@ -125,6 +126,15 @@ export function useChat() {
           if (event.session_id && !resolvedConversationId) {
             resolvedConversationId = event.session_id;
             setActiveConversationId(resolvedConversationId);
+          }
+
+          // Stamped on every event by StreamingService (E21) -- captured
+          // once, from whichever event happens to arrive first with it.
+          if (!resolvedGenerationId && typeof event.metadata?.generation_id === 'string') {
+            resolvedGenerationId = event.metadata.generation_id;
+            setMessages((prev) =>
+              patchMessage(prev, assistantId, { generationId: resolvedGenerationId! })
+            );
           }
 
           if (event.type === 'chat_web_search_started') {

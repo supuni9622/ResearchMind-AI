@@ -112,6 +112,8 @@ class ResearchSynthesisService:
             )
             raise ResearchSynthesisError("Synthesis did not return a schema-valid draft.") from exc
 
+        draft = draft.model_copy(update={"generation_id": result.generation_id})
+
         allowed = set(evidence.citation_ids)
         used = set(draft.citation_ids)
         for section in draft.findings:

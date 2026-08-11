@@ -44,7 +44,10 @@ from app.ai.runtime.research.planner.models import (
     ResearchPlan,
     ResearchPlanTask,
 )
-from app.ai.runtime.research.report_download import ResearchReportDownloadService
+from app.ai.runtime.research.report_download import (
+    ResearchReportDownload,
+    ResearchReportDownloadService,
+)
 from app.ai.runtime.research.retrieval.models import ResearchEvidenceReference
 from app.ai.runtime.research.review import ResearchReview, ReviewDecision
 from app.ai.runtime.research.synthesis.models import ResearchDraft, ResearchDraftSection
@@ -466,7 +469,11 @@ def test_final_report_download_returns_owner_scoped_presigned_url(
 ) -> None:
     report_downloads = AsyncMock(spec=ResearchReportDownloadService)
     run_id = uuid.uuid4()
-    report_downloads.get_download_url.return_value = "https://storage.test/report.pdf"
+    generation_id = uuid.uuid4()
+    report_downloads.get_download_url.return_value = ResearchReportDownload(
+        download_url="https://storage.test/report.pdf",
+        generation_id=generation_id,
+    )
     app.dependency_overrides[get_current_user] = _fake_user
     app.dependency_overrides[get_research_report_download_service] = lambda: report_downloads
 
@@ -477,7 +484,9 @@ def test_final_report_download_returns_owner_scoped_presigned_url(
         del app.dependency_overrides[get_research_report_download_service]
 
     assert response.status_code == 200
-    assert response.json()["download_url"] == "https://storage.test/report.pdf"
+    body = response.json()
+    assert body["download_url"] == "https://storage.test/report.pdf"
+    assert body["generation_id"] == str(generation_id)
     report_downloads.get_download_url.assert_awaited_once_with(
         research_run_id=run_id,
         owner_id=_OWNER_ID,

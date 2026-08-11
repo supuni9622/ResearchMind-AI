@@ -124,7 +124,12 @@ export function useDeepResearch(onConversationLearned?: (conversationId: string)
   const fetchReportDownload = useCallback(async (localId: string, runId: string) => {
     try {
       const download = await api.research.getReportDownload(runId);
-      setTurns((prev) => patchTurn(prev, localId, { reportDownloadUrl: download.download_url }));
+      setTurns((prev) =>
+        patchTurn(prev, localId, {
+          reportDownloadUrl: download.download_url,
+          generationId: download.generation_id ?? undefined,
+        })
+      );
     } catch {
       // Best-effort: the completed-run card still renders correctly without
       // a download link -- the user can still see the report status.

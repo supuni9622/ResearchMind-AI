@@ -1,3 +1,4 @@
+import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 from uuid import uuid4
@@ -12,15 +13,19 @@ async def test_report_download_returns_short_lived_url_for_run_owner() -> None:
     runs = AsyncMock()
     runs.get_by_id_for_owner.return_value = SimpleNamespace(id=run_id)
     storage = AsyncMock()
-    storage.exists.return_value = True
+    # PDF exists (gates the download itself); JSON artifact doesn't --
+    # generation_id unavailable, but that must not block the PDF URL.
+    storage.exists.side_effect = lambda *, key: key.endswith(".pdf")
     storage.generate_presigned_url.return_value = "https://storage.test/final-report.pdf"
 
-    url = await ResearchReportDownloadService(runs=runs, storage=storage).get_download_url(
+    download = await ResearchReportDownloadService(runs=runs, storage=storage).get_download_url(
         research_run_id=run_id,
         owner_id=owner_id,
     )
 
-    assert url == "https://storage.test/final-report.pdf"
+    assert download is not None
+    assert download.download_url == "https://storage.test/final-report.pdf"
+    assert download.generation_id is None
     runs.get_by_id_for_owner.assert_awaited_once_with(run_id=run_id, owner_id=owner_id)
     storage.generate_presigned_url.assert_awaited_once_with(
         key=f"artifacts/research-runs/{run_id}/final-report.pdf",
@@ -34,10 +39,83 @@ async def test_report_download_hides_non_owned_or_missing_reports() -> None:
     runs.get_by_id_for_owner.return_value = None
     storage = AsyncMock()
 
-    url = await ResearchReportDownloadService(runs=runs, storage=storage).get_download_url(
+    download = await ResearchReportDownloadService(runs=runs, storage=storage).get_download_url(
         research_run_id=uuid4(),
         owner_id=uuid4(),
     )
 
-    assert url is None
+    assert download is None
     storage.exists.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_report_download_surfaces_generation_id_from_the_json_artifact() -> None:
+    """
+    E21: the JSON artifact alongside the PDF carries the synthesis call's
+    generation_id (persisted via ResearchDraft.generation_id) -- read it
+    back so the frontend can submit POST /feedback against it.
+    """
+
+    run_id, owner_id = uuid4(), uuid4()
+    generation_id = uuid4()
+    runs = AsyncMock()
+    runs.get_by_id_for_owner.return_value = SimpleNamespace(id=run_id)
+
+    storage = AsyncMock()
+    storage.exists.return_value = True
+    storage.generate_presigned_url.return_value = "https://storage.test/final-report.pdf"
+    storage.download.return_value = json.dumps(
+        {
+            "schema_version": 1,
+            "research_run_id": str(run_id),
+            "draft": {
+                "schema_version": 1,
+                "title": "t",
+                "abstract": "a",
+                "methodology": "m",
+                "findings": [{"heading": "h", "content": "c", "citation_ids": []}],
+                "discussion": "d",
+                "conclusion": "c",
+                "citation_ids": [],
+                "limitations": [],
+                "generation_id": str(generation_id),
+            },
+            "review": {
+                "decision": "pass",
+                "citation_integrity_score": 1.0,
+                "completeness_score": 1.0,
+                "model_quality_score": 1.0,
+                "limitations": [],
+                "gap_questions": [],
+            },
+        }
+    ).encode("utf-8")
+
+    download = await ResearchReportDownloadService(runs=runs, storage=storage).get_download_url(
+        research_run_id=run_id,
+        owner_id=owner_id,
+    )
+
+    assert download is not None
+    assert download.generation_id == generation_id
+
+
+@pytest.mark.asyncio
+async def test_report_download_swallows_a_corrupt_json_artifact_without_failing() -> None:
+    run_id, owner_id = uuid4(), uuid4()
+    runs = AsyncMock()
+    runs.get_by_id_for_owner.return_value = SimpleNamespace(id=run_id)
+
+    storage = AsyncMock()
+    storage.exists.return_value = True
+    storage.generate_presigned_url.return_value = "https://storage.test/final-report.pdf"
+    storage.download.return_value = b"not valid json"
+
+    download = await ResearchReportDownloadService(runs=runs, storage=storage).get_download_url(
+        research_run_id=run_id,
+        owner_id=owner_id,
+    )
+
+    assert download is not None
+    assert download.download_url == "https://storage.test/final-report.pdf"
+    assert download.generation_id is None

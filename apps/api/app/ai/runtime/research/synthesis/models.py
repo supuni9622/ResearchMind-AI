@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from uuid import UUID
+
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -25,3 +27,14 @@ class ResearchDraft(BaseModel):
     conclusion: str = Field(min_length=1, max_length=2_000)
     citation_ids: list[str] = Field(default_factory=list, max_length=40)
     limitations: list[str] = Field(default_factory=list, max_length=12)
+
+    generation_id: UUID | None = Field(
+        default=None,
+        description=(
+            "GenerationResult.generation_id from the synthesis call that produced this "
+            "draft (EVALUATION_IMPLEMENTATION_TRACKER.md E21) -- lets a review UI submit "
+            "POST /feedback against the exact generation. None for drafts constructed "
+            "before this field existed (already-completed runs, replayed from a "
+            "pre-existing final-report.json artifact)."
+        ),
+    )

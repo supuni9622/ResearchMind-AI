@@ -191,7 +191,7 @@ E21 too, on top of its declared E6 dependency.
 | [E18](#e18-cost-forecast) | Cost forecast (rolling-average) | **Done** (CLI report; dashboard-panel half deferred to E7, no admin auth exists yet) | Low-Med | High | — |
 | [E19](#e19-register-golden-dataset-in-langsmith) | Register golden dataset in LangSmith | **Done** (dataset live in LangSmith, confirmed; Experiment-logging subtask not started) | Med | High | E1 |
 | [E20](#e20-ci-live-service-benchmark-triggers--citation-metric-wiring) | CI live-service benchmark triggers + citation-metric wiring | Not started | High | Low-Med | E1, E2, E4 |
-| [E21](#e21-frontend-thumbs-updown-affordance) | Frontend thumbs up/down affordance | Not started | High | Med-High | E3 |
+| [E21](#e21-frontend-thumbs-updown-affordance) | Frontend thumbs up/down affordance | **Built, all 3 surfaces** (backend `generation_id` exposure + frontend UI; browser click-test not run by me, no browser tool available) | High | Med-High | E3 |
 
 E19-E21 are gap-closure follow-ups to already-"Done" items, surfaced by
 the 2026-08-11 cross-check pass — see [§0](#0-corrections-found-during-this-pass).
@@ -1387,35 +1387,90 @@ exist in `thresholds.py`.
 
 ---
 
-### E21. Frontend thumbs up/down affordance
+### E21. Frontend thumbs up/down affordance — **Built, browser click-test not run by me** (2026-08-11)
 
 **Roadmap:** Wave 1, follow-up to row 3. **Eval Plan:** §12 (1c). Surfaced
 as a dangling subtask inside
 [E3](#e3-post-feedback--thumbsupdown) during the 2026-08-11 cross-check
 pass — see [§0](#0-corrections-found-during-this-pass).
 
-**Current state:** `POST /feedback` is fully live and tested (E3), but no
-UI calls it. A real user cannot submit feedback through the product today
-— only a direct API call can reach the endpoint.
+**Current state:** `POST /feedback` is fully live and tested (E3); all
+three surfaces now call it. Turned out **not** to be a self-contained
+frontend task — `generation_id` was never exposed to the frontend on any
+surface (confirmed via `Explore` agent before writing any code: internal
+to `GenerationResult`, never in a response schema or SSE event). Required
+backend changes across all three surfaces before any button could work:
+
+- **Chat + Linear Research** (share `StreamingService` — one fix covers
+  both): `generation_id` is now generated upfront in
+  `StreamingService.stream_generate()` and stamped into every SSE event's
+  `metadata` (both the live-provider path and the cache-hit-replay path,
+  which reuses the *original* cached result's id, not a fresh one — must
+  match whatever `GenerationUsageRepository` actually persisted). Threaded
+  into `_build_stream_result()` so the id streamed to the frontend is
+  exactly the id in the `GenerationUsage` row. New regression tests:
+  `test_cache_hit_replay_events_carry_the_original_results_generation_id`,
+  `test_live_stream_events_carry_a_generation_id_matching_the_persisted_row`.
+- **Deep Research**: materially deeper — its completed report isn't a
+  simple DB-column echo, it's read from a LangGraph checkpoint
+  (`ResearchDraftInspectionService`) while pending, then persisted as a
+  JSON+PDF artifact pair (`ResearchFinalReportArtifactWriter`) once
+  approved; the frontend's completed-report view doesn't even render the
+  report text, only a status badge + presigned PDF download link
+  (`GET .../report`). Added `generation_id` to `ResearchDraft` itself
+  (populated in `synthesis/service.py` from the real `GenerationResult`),
+  which flows automatically into both the checkpoint state and the JSON
+  artifact since both just `model_validate`/`model_dump` the whole model.
+  `ResearchReportDownloadService` now best-effort reads the JSON artifact
+  (`final-report.json`) alongside generating the presigned PDF URL,
+  purely to extract `generation_id` — a missing/corrupt artifact never
+  blocks the PDF download itself. New tests:
+  `test_report_download_surfaces_generation_id_from_the_json_artifact`,
+  `test_report_download_swallows_a_corrupt_json_artifact_without_failing`.
 
 **Subtasks:**
-- [ ] Thumbs up/down component, mounted under each assistant response on
-      Chat, Linear Research, and Deep Research
-- [ ] Calls `POST /feedback` with `generation_id`, `rating`, `surface`;
+- [x] Thumbs up/down component, mounted under each assistant response on
+      Chat (`message-bubble.tsx`), Linear Research (`research-block.tsx`),
+      Deep Research (`deep-research-block.tsx`, both the approved-report
+      status row and the rejected-report plain-answer view) — one shared
+      `FeedbackControl` component (`components/ui/feedback-control.tsx`),
+      not three separate implementations
+- [x] Calls `POST /feedback` with `generation_id`, `rating`, `surface`;
       a comment field appears on thumbs-down (optional, matches the
-      backend's nullable `comment` column)
-- [ ] Optimistic UI update + resubmission support — re-clicking changes
-      the vote in place rather than erroring, matching the backend's
-      upsert-on-`(owner_id, generation_id)` semantics (E3)
-- [ ] Handle the "no `generation_id` available yet" case (e.g. mid-stream)
-      by disabling the affordance until the response is complete, rather
-      than allowing a vote against an incomplete/undefined generation
+      backend's nullable `comment` column) — `api.feedback.submit()` in
+      `lib/api.ts`
+- [x] Optimistic UI update + resubmission support — re-clicking re-submits;
+      backend upsert (E3) makes this safe. No toast/notification library
+      exists anywhere in this app (checked before building) — feedback
+      state is inline text next to the buttons, not a global toast
+- [x] Handle the "no `generation_id` available yet" case — `FeedbackControl`
+      renders nothing (not a disabled button) until `generationId` is
+      defined, avoiding a dead control flashing during streaming
+- [x] Two new icons (`ThumbsUpIcon`/`ThumbsDownIcon`, filled/outline
+      states) added to `components/ui/icons.tsx`, matching this app's
+      existing hand-rolled-SVG convention (no icon library exists)
+
+**Verification — what was and wasn't actually possible:**
+- [x] `mypy .`: clean, 1242 source files. `ruff check`/`format`: clean.
+      Full backend suite: 1687/1687 passing (12 new/updated tests across
+      streaming, synthesis, and report-download).
+      `tsc --noEmit`: clean. `next lint`: clean, no warnings.
+      OpenAPI schema (`/openapi.json` on the live, `--reload`d API
+      server) confirmed to include the new `generation_id` field on
+      `ResearchReportDownloadResponse` — the running server actually
+      picked up the change, not just a static code read.
+- [ ] **Not verified: an actual browser click.** No browser-automation
+      tool (Playwright/Puppeteer/screenshot) is available in this
+      environment — flagged explicitly rather than claiming UI
+      verification that didn't happen. Everything up to "a real click
+      would work" is verified; the click itself needs a human (or a
+      future session with browser tooling) to actually perform.
 
 **Acceptance criteria:** a real thumbs-down click in the browser produces
-a row queryable by `owner_id`/`generation_id` — closes the loop the
-backend-only tests (`tests/api/test_feedback.py`,
-`tests/integration/test_feedback_repository.py`) could only verify below
-the UI layer.
+a row queryable by `owner_id`/`generation_id` — **not independently
+confirmed**, pending the manual click-test above. Everything the click
+would exercise (schema, wiring, persistence, upsert idempotency) is
+covered by the passing test suite and confirmed live-server schema check.
 
 ---
 

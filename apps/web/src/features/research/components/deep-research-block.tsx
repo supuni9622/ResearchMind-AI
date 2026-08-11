@@ -19,6 +19,7 @@ import { DraftReview } from '@/features/research/components/draft-review';
 import { PlanGoalReview } from '@/features/research/components/plan-goal-review';
 import { WebSearchApprovalReview } from '@/features/research/components/web-search-approval-review';
 import { renderAnswer } from '@/features/research/components/research-block';
+import { FeedbackControl } from '@/components/ui/feedback-control';
 
 /** Mirrors `_MAX_RESEARCH_RUN_RETRIES` in `app/ai/runtime/research/run_service.py` --
  * only gates when the Retry button is shown; the backend is the authoritative cap. */
@@ -500,27 +501,35 @@ export function DeepResearchBlock({
                   <AlertIcon size={11} className="flex-shrink-0" />
                   Report rejected -- shown as a plain answer, no PDF was generated.
                 </p>
+                <FeedbackControl
+                  generationId={turn.generationId}
+                  surface="deep_research"
+                  className="mt-2"
+                />
               </div>
             ) : (
-              <div className="flex items-center justify-between pt-1">
-                <span className="flex items-center gap-1.5 text-stone-500 text-[13px]">
-                  <CheckCircleIcon size={13} className="text-sage-500" />
-                  {turn.run ? (STATUS_LABEL[turn.run.status] ?? turn.run.status) : 'Completed'}
-                </span>
-                {turn.reportDownloadUrl ? (
-                  <a
-                    href={turn.reportDownloadUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    onClick={(e) => e.stopPropagation()}
-                    className="flex items-center gap-1.5 font-mono text-[11px] text-sage-500 hover:text-sage-400 transition-colors"
-                  >
-                    <ArrowDownIcon size={11} />
-                    Download PDF
-                  </a>
-                ) : (
-                  <span className="font-mono text-[10px] text-stone-700">Preparing PDF…</span>
-                )}
+              <div className="flex flex-col gap-2 pt-1">
+                <div className="flex items-center justify-between">
+                  <span className="flex items-center gap-1.5 text-stone-500 text-[13px]">
+                    <CheckCircleIcon size={13} className="text-sage-500" />
+                    {turn.run ? (STATUS_LABEL[turn.run.status] ?? turn.run.status) : 'Completed'}
+                  </span>
+                  {turn.reportDownloadUrl ? (
+                    <a
+                      href={turn.reportDownloadUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      onClick={(e) => e.stopPropagation()}
+                      className="flex items-center gap-1.5 font-mono text-[11px] text-sage-500 hover:text-sage-400 transition-colors"
+                    >
+                      <ArrowDownIcon size={11} />
+                      Download PDF
+                    </a>
+                  ) : (
+                    <span className="font-mono text-[10px] text-stone-700">Preparing PDF…</span>
+                  )}
+                </div>
+                <FeedbackControl generationId={turn.generationId} surface="deep_research" />
               </div>
             )}
           </div>

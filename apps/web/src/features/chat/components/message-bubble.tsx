@@ -1,6 +1,7 @@
 import type { ChatMessage } from '@/features/chat/types';
 import { AlertIcon, BookIcon, NetworkIcon, SparklesIcon } from '@/components/ui/icons';
 import { Markdown } from '@/components/ui/markdown';
+import { FeedbackControl } from '@/components/ui/feedback-control';
 
 function WebSearchStatus({ webSearch }: { webSearch: NonNullable<ChatMessage['webSearch']> }) {
   return (
@@ -117,6 +118,13 @@ export function MessageBubble({ message }: { message: ChatMessage }) {
               <span className="inline-block w-1.5 h-3.5 ml-0.5 bg-sage-500 animate-pulse align-middle" />
             )}
           </div>
+          {message.stage === 'done' && (
+            <FeedbackControl
+              generationId={message.generationId}
+              surface="chat"
+              className="mt-2 pt-2 border-t border-ink-700"
+            />
+          )}
         </div>
       )}
     </div>

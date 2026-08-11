@@ -895,18 +895,19 @@ async def get_research_report_download(
     current_user: User = Depends(get_current_user),
     report_downloads: ResearchReportDownloadService = Depends(get_research_report_download_service),
 ) -> ResearchReportDownloadResponse:
-    download_url = await report_downloads.get_download_url(
+    download = await report_downloads.get_download_url(
         research_run_id=research_run_id,
         owner_id=current_user.id,
     )
-    if download_url is None:
+    if download is None:
         raise NotFoundException(
             message=f"Research report for run '{research_run_id}' was not found."
         )
     return ResearchReportDownloadResponse(
         research_run_id=research_run_id,
-        download_url=download_url,
+        download_url=download.download_url,
         expires_in_seconds=ResearchReportDownloadService.EXPIRES_IN_SECONDS,
+        generation_id=download.generation_id,
     )
 
 

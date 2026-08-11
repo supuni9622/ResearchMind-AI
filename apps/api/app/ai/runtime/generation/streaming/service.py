@@ -4,6 +4,7 @@ from collections.abc import AsyncGenerator
 from datetime import UTC, datetime
 from time import perf_counter
 from typing import Any
+from uuid import UUID, uuid4
 
 import structlog
 from app.ai.artifacts.enums import (
@@ -178,6 +179,16 @@ class StreamingService:
             )
 
             if cache_result.hit:
+                # The same id already persisted (or about to be persisted,
+                # just below) to `GenerationUsage` for this replay -- the
+                # frontend's `POST /feedback` needs whichever id actually
+                # ended up in that table, not a freshly-minted one that
+                # would silently not match any row.
+                replay_generation_id = (
+                    cache_result.generation_result.generation_id
+                    if cache_result.generation_result is not None
+                    else uuid4()
+                )
                 if self._usage_service is not None and cache_result.generation_result is not None:
                     # A replay is a completed user request but incurs no new
                     # provider spend. Preserve the original output/tokens
@@ -204,15 +215,18 @@ class StreamingService:
                     content=cache_result.generation_result.content
                     if cache_result.generation_result
                     else "",
+                    generation_id=replay_generation_id,
                 ):
                     yield event
                 return
 
+        generation_id = uuid4()
         async for event in self._stream_live(
             request=request,
             provider=resolved_provider,
             generation_provider_config_model=generation_provider.config.model_name,
             routing_strategy=routing_strategy_used,
+            generation_id=generation_id,
         ):
             yield event
 
@@ -226,6 +240,7 @@ class StreamingService:
         request: GenerationRequest,
         cache_result_level: Any,
         content: str,
+        generation_id: UUID,
     ) -> AsyncGenerator[StreamEvent, None]:
 
         logger.info(
@@ -242,6 +257,7 @@ class StreamingService:
                     level=cache_result_level,
                     replayed=True,
                 ).model_dump(mode="json"),
+                "generation_id": str(generation_id),
             },
         )
 
@@ -268,6 +284,7 @@ class StreamingService:
         provider: GenerationProvider,
         generation_provider_config_model: str,
         routing_strategy: RoutingStrategy | None,
+        generation_id: UUID,
     ) -> AsyncGenerator[StreamEvent, None]:
 
         content_parts: list[str] = []
@@ -300,6 +317,14 @@ class StreamingService:
                         session_id=request.session_id,
                         request_id=request.request_id,
                     )
+                    # Stamped onto every event (not just a final one) so the
+                    # frontend can read it off whichever event it happens to
+                    # be tracking as "the" response -- e.g. the last TOKEN
+                    # event -- without needing a dedicated terminal event
+                    # type. Matches the id `_build_stream_result()` below
+                    # gives the persisted `GenerationUsage` row, so
+                    # `POST /feedback` always references a real row.
+                    event.metadata = {**event.metadata, "generation_id": str(generation_id)}
                     emitted_events.append(event)
 
                     yield event
@@ -351,6 +376,7 @@ class StreamingService:
             content="".join(content_parts),
             latency_ms=(perf_counter() - started) * 1000,
             routing_strategy=routing_strategy,
+            generation_id=generation_id,
         )
 
         result = await self._generation_service.score_completed_stream(
@@ -455,6 +481,7 @@ class StreamingService:
         content: str,
         latency_ms: float,
         routing_strategy: RoutingStrategy | None,
+        generation_id: UUID,
     ) -> GenerationResult:
         """
         Best-effort statistics: today's provider `stream()` implementations
@@ -481,6 +508,7 @@ class StreamingService:
         )
 
         return GenerationResult(
+            generation_id=generation_id,
             request=request,
             execution=GenerationExecution(
                 completed_at=datetime.now(UTC),

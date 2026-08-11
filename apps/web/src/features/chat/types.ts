@@ -45,6 +45,11 @@ export interface ChatMessage {
   createdAt: string;
   webSearch?: ChatWebSearchStatus;
   paperSearch?: ChatPaperSearchStatus;
+  /** From the stream's `generation_id` metadata (E21) -- present once the
+   * first event carrying it has arrived; required to submit feedback.
+   * Absent for messages loaded from conversation history (the backend
+   * doesn't return it on GET /chat/{id} yet), not just mid-stream. */
+  generationId?: string;
 }
 
 export interface ChatConversation {

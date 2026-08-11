@@ -185,6 +185,38 @@ async def test_cache_hit_records_zero_cost_owner_scoped_usage() -> None:
     assert recorded.statistics.estimated_cost_usd == 0
 
 
+async def test_cache_hit_replay_events_carry_the_original_results_generation_id() -> None:
+    """
+    E21 (EVALUATION_IMPLEMENTATION_TRACKER.md): the frontend needs a
+    generation_id on stream events to submit POST /feedback against the
+    right row. For a cache hit, that must be the *original* cached
+    result's generation_id -- the same one usage_service.record() reuses
+    via model_copy() just above -- not a freshly-minted one that
+    wouldn't match anything in GenerationUsage.
+    """
+
+    provider = _make_registered_provider()
+    generation_service = _make_generation_service()
+    generation_service.resolve_streaming_provider = MagicMock(return_value=GenerationProvider.GROQ)
+    cached_result = _make_result("hello world")
+    caching_service = AsyncMock()
+    caching_service.lookup = AsyncMock(
+        return_value=CacheResult(hit=True, level=CacheLevel.EXACT, generation_result=cached_result)
+    )
+
+    service = _make_service(
+        generation_service=generation_service,
+        provider=provider,
+        caching_service=caching_service,
+    )
+
+    events = await _collect(
+        service.stream_generate(request=_make_request(), provider=GenerationProvider.GROQ)
+    )
+
+    assert events[0].metadata["generation_id"] == str(cached_result.generation_id)
+
+
 async def test_cache_miss_streams_live_and_stores_the_assembled_result() -> None:
     provider = _make_registered_provider()
 
@@ -249,6 +281,46 @@ async def test_completed_stream_records_owner_scoped_usage() -> None:
     assert recorded.request is request
     assert recorded.statistics.streamed is True
     assert recorded.statistics.routing_strategy is None
+
+
+async def test_live_stream_events_carry_a_generation_id_matching_the_persisted_row() -> None:
+    """
+    E21: every event on the live (non-cache) path must carry the same
+    generation_id that ends up in the persisted GenerationUsage row, so
+    the frontend can submit POST /feedback against a row that actually
+    exists.
+    """
+
+    provider = _make_registered_provider()
+    generation_service = _make_generation_service()
+    generation_service.resolve_streaming_provider = MagicMock(return_value=GenerationProvider.GROQ)
+    generation_service.stream_generate = MagicMock(
+        return_value=_fake_stream(
+            [
+                StreamChunk(event=StreamEventType.TOKEN, content="hel"),
+                StreamChunk(event=StreamEventType.TOKEN, content="lo"),
+                StreamChunk(event=StreamEventType.COMPLETED),
+            ]
+        )
+    )
+    usage_service = AsyncMock()
+    request = _make_request()
+    request.owner_id = uuid4()
+
+    service = _make_service(
+        generation_service=generation_service,
+        provider=provider,
+        caching_service=None,
+        usage_service=usage_service,
+    )
+
+    events = await _collect(
+        service.stream_generate(request=request, provider=GenerationProvider.GROQ)
+    )
+
+    recorded = usage_service.record.await_args.args[0]
+    generation_ids = {e.metadata.get("generation_id") for e in events}
+    assert generation_ids == {str(recorded.generation_id)}
 
 
 async def test_stream_generate_with_no_provider_records_the_resolved_routing_strategy() -> None:

@@ -121,6 +121,9 @@ export interface DeepResearchTurn {
   /** Fetched once `stage` reaches `report_review` -- the draft the approve/reject decision is about. */
   draft: DeepResearchDraft | null;
   reportDownloadUrl: string | null;
+  /** From `getReportDownload`'s response (E21) -- required to submit
+   * feedback on a completed, approved report. */
+  generationId?: string;
   /** Set instead of `reportDownloadUrl` when the report was rejected but still published as a plain answer. */
   linearAnswer: DeepResearchLinearAnswer | null;
   /** Populated from `research_related_papers_completed`'s metadata, if the
@@ -145,6 +148,9 @@ export interface ResearchTurn {
   durationMs?: number;
   provider?: GenerationProvider;
   createdAt: string;
+  /** From the stream's `generation_id` metadata (E21) -- required to
+   * submit feedback; absent until the first event carrying it arrives. */
+  generationId?: string;
 }
 
 /**

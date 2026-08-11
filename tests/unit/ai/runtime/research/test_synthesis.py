@@ -36,7 +36,9 @@ def _evidence() -> ResearchEvidenceBundle:
 @pytest.mark.asyncio
 async def test_synthesis_uses_structured_generation_and_accepts_known_citations() -> None:
     runtime = AsyncMock()
-    runtime.execute.return_value = SimpleNamespace(parsed_output=_draft(citation_ids=["c1"]))
+    runtime.execute.return_value = SimpleNamespace(
+        parsed_output=_draft(citation_ids=["c1"]), generation_id=uuid4()
+    )
     draft = await ResearchSynthesisService(runtime).synthesize(
         goal="q", evidence=_evidence(), owner_id=uuid4(), research_run_id=uuid4()
     )
@@ -52,7 +54,9 @@ async def test_synthesis_is_never_cached_under_the_shared_research_answer_namesp
     run's evidence bundle. See PRODUCT_FLOWS_AND_GAPS.md Loophole D1."""
 
     runtime = AsyncMock()
-    runtime.execute.return_value = SimpleNamespace(parsed_output=_draft(citation_ids=["c1"]))
+    runtime.execute.return_value = SimpleNamespace(
+        parsed_output=_draft(citation_ids=["c1"]), generation_id=uuid4()
+    )
     await ResearchSynthesisService(runtime).synthesize(
         goal="q", evidence=_evidence(), owner_id=uuid4(), research_run_id=uuid4()
     )
@@ -65,7 +69,7 @@ async def test_synthesis_is_never_cached_under_the_shared_research_answer_namesp
 async def test_synthesis_rejects_invented_citation_ids() -> None:
     runtime = AsyncMock()
     runtime.execute.return_value = SimpleNamespace(
-        parsed_output=_draft(citation_ids=["invented"]).model_dump()
+        parsed_output=_draft(citation_ids=["invented"]).model_dump(), generation_id=uuid4()
     )
     with pytest.raises(ResearchSynthesisError, match="unknown citation"):
         await ResearchSynthesisService(runtime).synthesize(

@@ -185,6 +185,9 @@ export interface ResearchReportDownloadResponse {
   research_run_id: string;
   download_url: string;
   expires_in_seconds: number;
+  /** E21: read from the persisted final-report.json artifact; null for
+   * reports persisted before this field existed. */
+  generation_id: string | null;
 }
 
 // Matches `app/ai/runtime/research/planner/models.py::ResearchComplexity`.
@@ -395,6 +398,21 @@ export interface RuntimeStreamEvent {
 
 // Alias kept for call sites that specifically mean "a research stream event".
 export type ResearchStreamEvent = RuntimeStreamEvent;
+
+// Matches `app/models/enums.py::FeedbackRating`/`FeedbackSurface` (E21,
+// EVALUATION_PLAN.md §16 phase 3).
+export type FeedbackRating = 'up' | 'down';
+export type FeedbackSurface = 'chat' | 'linear_research' | 'deep_research';
+
+export interface FeedbackResponse {
+  id: string;
+  generation_id: string;
+  surface: FeedbackSurface;
+  rating: FeedbackRating;
+  comment: string | null;
+  created_at: string;
+  updated_at: string;
+}
 
 export const PROVIDER_OPTIONS: { value: GenerationProvider | 'auto'; label: string }[] = [
   { value: 'auto', label: 'Auto' },
@@ -736,5 +754,26 @@ export const api = {
       }
       return res.json() as Promise<Document>;
     },
+  },
+
+  feedback: {
+    // Idempotent server-side (upsert on (owner_id, generation_id)) --
+    // resubmitting for the same generation_id updates the existing
+    // rating/comment rather than erroring, so re-clicking is safe.
+    submit: (
+      generationId: string,
+      surface: FeedbackSurface,
+      rating: FeedbackRating,
+      comment?: string
+    ) =>
+      request<FeedbackResponse>('/api/v1/feedback', {
+        method: 'POST',
+        body: JSON.stringify({
+          generation_id: generationId,
+          surface,
+          rating,
+          comment: comment ?? null,
+        }),
+      }),
   },
 };

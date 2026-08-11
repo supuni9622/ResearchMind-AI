@@ -223,6 +223,15 @@ class ResearchReportDownloadResponse(BaseModel):
     research_run_id: UUID
     download_url: str
     expires_in_seconds: int
+    generation_id: UUID | None = Field(
+        default=None,
+        description=(
+            "The synthesis call's generation_id (E21), read from the persisted "
+            "final-report.json artifact -- None for reports persisted before this "
+            "field existed, or if the JSON artifact is unexpectedly missing/corrupt "
+            "(best-effort: never fails the download itself)."
+        ),
+    )
 
 
 class ResearchDraftFindingResponse(BaseModel):

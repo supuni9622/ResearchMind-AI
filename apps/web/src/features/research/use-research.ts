@@ -107,6 +107,7 @@ export function useResearch() {
     async (localId: string, query: string, conversationIdAtStart: string | null, provider?: GenerationProvider) => {
       const startedAt = performance.now();
       let researchId: string | null = null;
+      let generationId: string | null = null;
 
       try {
         for await (const { data: event } of api.research.stream(query, {
@@ -116,6 +117,12 @@ export function useResearch() {
           if (event.session_id && !researchId) {
             researchId = event.session_id;
             setTurns((prev) => patchTurn(prev, localId, { researchId }));
+          }
+
+          // Stamped on every event by StreamingService (E21), same as Chat.
+          if (!generationId && typeof event.metadata?.generation_id === 'string') {
+            generationId = event.metadata.generation_id;
+            setTurns((prev) => patchTurn(prev, localId, { generationId: generationId! }));
           }
 
           if (!conversationIdAtStart && event.metadata?.conversation_id) {

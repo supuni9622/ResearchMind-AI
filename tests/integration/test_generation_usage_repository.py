@@ -1,4 +1,5 @@
 import uuid
+from datetime import UTC, date, datetime
 
 import pytest
 from app.ai.knowledge.context.models import PromptContext
@@ -43,6 +44,7 @@ def _make_usage(
     tokens: int,
     conversation_id: uuid.UUID | None = None,
     session_id: uuid.UUID | None = None,
+    completed_at: datetime | None = None,
 ) -> GenerationUsage:
     return GenerationUsage(
         request_id=uuid.uuid4(),
@@ -56,6 +58,7 @@ def _make_usage(
         completion_tokens=0,
         total_tokens=tokens,
         estimated_cost_usd=cost,
+        **({"completed_at": completed_at} if completed_at is not None else {}),
     )
 
 
@@ -239,3 +242,61 @@ async def test_sum_for_conversation_excludes_other_owners_run_usage(db_session) 
     assert summary["total_cost_usd"] == pytest.approx(0.0)
     assert summary["total_requests"] == 0
     assert summary["total_tokens"] == 0
+
+
+@pytest.mark.asyncio
+async def test_daily_cost_totals_groups_and_sums_by_calendar_day(db_session) -> None:
+    """E18: real date-grouping against Postgres, not a mock -- two rows on
+    the same day must collapse into one total, and rows from different
+    owners must both count (system-wide, unlike summary_for_owner)."""
+
+    owner_a = await _make_owner(db_session)
+    owner_b = await _make_owner(db_session)
+
+    day_one = datetime(2026, 1, 5, 9, 0, tzinfo=UTC)
+    day_one_later = datetime(2026, 1, 5, 22, 30, tzinfo=UTC)
+    day_two = datetime(2026, 1, 6, 10, 0, tzinfo=UTC)
+
+    db_session.add_all(
+        [
+            _make_usage(owner_id=owner_a, cost=1.0, tokens=10, completed_at=day_one),
+            _make_usage(owner_id=owner_b, cost=2.5, tokens=20, completed_at=day_one_later),
+            _make_usage(owner_id=owner_a, cost=3.0, tokens=30, completed_at=day_two),
+        ]
+    )
+    await db_session.flush()
+
+    repository = GenerationUsageRepository(db_session)
+    totals = await repository.daily_cost_totals(since=datetime(2026, 1, 1, tzinfo=UTC))
+
+    by_day = {day: cost for day, cost in totals}
+    assert by_day[date(2026, 1, 5)] == pytest.approx(3.5)
+    assert by_day[date(2026, 1, 6)] == pytest.approx(3.0)
+
+
+@pytest.mark.asyncio
+async def test_daily_cost_totals_excludes_rows_before_since(db_session) -> None:
+    owner_id = await _make_owner(db_session)
+
+    db_session.add_all(
+        [
+            _make_usage(
+                owner_id=owner_id,
+                cost=5.0,
+                tokens=50,
+                completed_at=datetime(2025, 12, 31, tzinfo=UTC),
+            ),
+            _make_usage(
+                owner_id=owner_id,
+                cost=1.0,
+                tokens=10,
+                completed_at=datetime(2026, 1, 2, tzinfo=UTC),
+            ),
+        ]
+    )
+    await db_session.flush()
+
+    repository = GenerationUsageRepository(db_session)
+    totals = await repository.daily_cost_totals(since=datetime(2026, 1, 1, tzinfo=UTC))
+
+    assert [day for day, _ in totals] == [date(2026, 1, 2)]

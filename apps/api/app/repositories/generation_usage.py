@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import TypedDict
 from uuid import UUID
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import cast, func, or_, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.types import Date
 
 from app.ai.runtime.generation.models import GenerationResult
 from app.models.generation_usage import GenerationUsage
@@ -65,6 +66,25 @@ class GenerationUsageRepository:
             )
             .on_conflict_do_nothing(index_elements=[GenerationUsage.request_id])
         )
+
+    async def daily_cost_totals(self, *, since: datetime) -> list[tuple[date, float]]:
+        """System-wide (not owner-scoped) cost per calendar day since `since`.
+
+        Feeds the cost-forecast rolling average (`app/services/cost_forecast.py`,
+        EVALUATION_IMPLEMENTATION_TRACKER.md E18) -- deliberately system-wide,
+        distinct from `summary_for_owner`'s per-user totals, since a burn-rate
+        projection is a product-level question, not a per-user one.
+        """
+
+        day_column = cast(GenerationUsage.completed_at, Date)
+        statement = (
+            select(day_column, func.sum(GenerationUsage.estimated_cost_usd))
+            .where(GenerationUsage.completed_at >= since)
+            .group_by(day_column)
+            .order_by(day_column)
+        )
+        rows = (await self._session.execute(statement)).all()
+        return [(row[0], float(row[1])) for row in rows]
 
     async def sum_cost_for_session(self, session_id: UUID) -> float:
         """Sum estimated cost recorded so far for one runtime session (e.g. a research run).

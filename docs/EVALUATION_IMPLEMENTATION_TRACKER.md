@@ -188,7 +188,7 @@ E21 too, on top of its declared E6 dependency.
 | [E15](#e15-adversarial-dataset) | Adversarial dataset (10-20 cases) | **Done** | Med | Med | — |
 | [E16](#e16-llm-as-judge-metric) | LLM-as-judge metric | Not started | Med | Med | E1 |
 | [E17](#e17-latency-slo-alerts--eval_scores-grafana-panel) | Latency-SLO alerts + `eval_scores` Grafana panel | Not started | Med | High | E6 (for the panel half) |
-| [E18](#e18-cost-forecast) | Cost forecast (rolling-average) | Not started | Low-Med | High | — |
+| [E18](#e18-cost-forecast) | Cost forecast (rolling-average) | **Done** (CLI report; dashboard-panel half deferred to E7, no admin auth exists yet) | Low-Med | High | — |
 | [E19](#e19-register-golden-dataset-in-langsmith) | Register golden dataset in LangSmith | **Done** (dataset live in LangSmith, confirmed; Experiment-logging subtask not started) | Med | High | E1 |
 | [E20](#e20-ci-live-service-benchmark-triggers--citation-metric-wiring) | CI live-service benchmark triggers + citation-metric wiring | Not started | High | Low-Med | E1, E2, E4 |
 | [E21](#e21-frontend-thumbs-updown-affordance) | Frontend thumbs up/down affordance | Not started | High | Med-High | E3 |
@@ -1175,24 +1175,60 @@ yet" state, shouldn't block the alert-rule half).
 
 ---
 
-### E18. Cost forecast
+### E18. Cost forecast — **Done** (2026-08-11)
 
 **Roadmap:** Wave 1, row 18 (roadmap-only addition, closes
 `PRODUCTION_READINESS_EVALUATION.md` item 1, P2). **Eval Plan:** §11.
 
 **Current state:** `GenerationUsage` ledger is real and live
-(`estimated_cost_usd` per record). No forecasting/projection built on top
-of it yet.
+(`estimated_cost_usd` per record). Rolling-average month-end cost
+projection now built on top of it: `GenerationUsageRepository.
+daily_cost_totals()` + `app/services/cost_forecast.py`
+(`project_month_end_cost()`/`compute_cost_forecast()`).
+
+**Real scoping finding, not silently defaulted:** the tracker's own
+acceptance criteria said "dashboard panel or scheduled report," but this
+codebase has **no admin-authorization concept anywhere** (checked:
+`grep`'d for `is_admin`/role-based dependencies across `apps/api/app`,
+found none) — `/usage/summary`'s existing pattern (`get_current_user`)
+only gates *per-user* data, and month-end cost is a system-wide, product-
+level number that shouldn't sit behind that same per-user auth. Rather
+than invent a new authorization system to expose this as an API endpoint
+for a P2 item, went with the "scheduled report" half of the acceptance
+criteria: a runnable CLI (`python -m app.services.cost_forecast`),
+verified end-to-end against the real ledger (below). The "dashboard
+panel" half is deferred to [E7](#e7-internal-dashboard--owner-scoped-drill-down)'s
+internal dashboard, which is where a real internal/admin-gated surface
+belongs — flagged explicitly rather than building an unauthenticated
+financial endpoint to check a box.
 
 **Subtasks:**
-- [ ] Rolling-average query over `GenerationUsage.estimated_cost_usd`,
-      grouped by day/week
-- [ ] Simple linear/rolling-average projection (explicitly not a novel
-      forecasting model — this is a P2 item, keep it cheap)
-- [ ] Surface as a dashboard panel or scheduled report
+- [x] Rolling-average query over `GenerationUsage.estimated_cost_usd`,
+      grouped by day — `daily_cost_totals(since)`, system-wide (not
+      owner-scoped, deliberately distinct from `summary_for_owner`).
+      Verified against real Postgres (`test_daily_cost_totals_groups_and_
+      sums_by_calendar_day`, `..._excludes_rows_before_since`, real
+      date-grouping via `cast(completed_at, Date)`, not a mock)
+- [x] Simple linear/rolling-average projection — `project_month_end_cost()`,
+      a pure function: month-to-date actual + (trailing-14-day average
+      daily rate × days remaining in month). Explicitly not a novel
+      forecasting model, per this item's own scoping — 8 unit tests
+      covering the arithmetic (zero-usage days count toward the average
+      denominator, not just days with activity; future/out-of-window
+      costs correctly excluded; last-day-of-month edge case)
+- [x] Surface as a dashboard panel or scheduled report — scheduled-report
+      half done (CLI); dashboard-panel half deferred to E7, see above
 
 **Acceptance criteria:** answers "at current burn rate, what will this
-month cost" from existing ledger data, no new data collection.
+month cost" from existing ledger data, no new data collection — **met**,
+verified end-to-end against the real ledger:
+```
+As of 2026-08-11:
+  Month-to-date cost:       $1.28
+  Average daily cost (last 14d): $0.09
+  Days remaining in month:  20
+  Projected month-end cost: $3.11
+```
 
 ---
 

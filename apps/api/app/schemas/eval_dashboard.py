@@ -7,6 +7,8 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict
 
+from app.services.segment_analysis import ContentSegmentAggregate
+
 
 class EvalScoreResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
@@ -72,3 +74,26 @@ class OfflineExampleListResponse(BaseModel):
     total: int
     limit: int
     offset: int
+
+
+class FingerprintSegmentAggregate(BaseModel):
+    """One config-fingerprint value's aggregate score for a metric (E9, online half)."""
+
+    fingerprint_value: str | None
+    count: int
+    avg_score: float | None
+    pass_rate: float | None
+
+
+class FingerprintSegmentAnalysisResponse(BaseModel):
+    metric_name: str
+    fingerprint_field: str
+    items: list[FingerprintSegmentAggregate]
+
+
+class ContentSegmentAnalysisResponse(BaseModel):
+    """E9's offline half -- grouped by a golden-example field, not a fingerprint."""
+
+    metric_name: str
+    segment_field: str
+    items: list[ContentSegmentAggregate]

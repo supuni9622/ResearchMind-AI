@@ -44,6 +44,12 @@ class _FakeEvalScoreRepository:
     async def list_offline_page(self, *, dataset_example_id, metric_name, limit, offset):  # noqa: ANN001
         return [], 0
 
+    async def aggregate_online_by_fingerprint(self, *, metric_name, fingerprint_field):  # noqa: ANN001
+        return [("chat-v1", 2, 0.8, 1.0)]
+
+    async def list_offline_scores_for_metric(self, *, metric_name, limit=5000):  # noqa: ANN001
+        return []
+
 
 class _FakeResearchRunRepository:
     async def review_decision_counts_for_owner(self, owner_id):  # noqa: ANN001
@@ -281,3 +287,93 @@ def test_benchmark_reports_route_allows_an_allowlisted_user(
     assert len(body) == 1
     assert body[0]["benchmark_name"] == "Embeddings"
     assert body[0]["candidates"][0]["metrics"]["throughput_embeddings_per_second"] == 12.5
+
+
+def test_segment_analysis_online_route_rejects_a_non_allowlisted_user(
+    client: TestClient,
+    fake_repositories: None,
+) -> None:
+    _authenticate_as("not-an-admin@example.com")
+
+    response = client.get(
+        "/api/v1/eval-dashboard/segment-analysis/online",
+        params={"metric_name": "faithfulness", "fingerprint_field": "prompt_version"},
+    )
+
+    assert response.status_code == 403
+
+
+def test_segment_analysis_online_route_allows_an_allowlisted_user(
+    client: TestClient,
+    fake_repositories: None,
+) -> None:
+    _authenticate_as(_ADMIN_EMAIL)
+
+    response = client.get(
+        "/api/v1/eval-dashboard/segment-analysis/online",
+        params={"metric_name": "faithfulness", "fingerprint_field": "prompt_version"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["items"] == [
+        {"fingerprint_value": "chat-v1", "count": 2, "avg_score": 0.8, "pass_rate": 1.0}
+    ]
+
+
+def test_segment_analysis_online_route_rejects_an_unknown_fingerprint_field(
+    client: TestClient,
+    fake_repositories: None,
+) -> None:
+    _authenticate_as(_ADMIN_EMAIL)
+
+    response = client.get(
+        "/api/v1/eval-dashboard/segment-analysis/online",
+        params={"metric_name": "faithfulness", "fingerprint_field": "not_a_real_field"},
+    )
+
+    assert response.status_code == 422
+
+
+def test_segment_analysis_offline_route_rejects_a_non_allowlisted_user(
+    client: TestClient,
+    fake_repositories: None,
+) -> None:
+    _authenticate_as("not-an-admin@example.com")
+
+    response = client.get(
+        "/api/v1/eval-dashboard/segment-analysis/offline",
+        params={"metric_name": "faithfulness", "segment_field": "query_type"},
+    )
+
+    assert response.status_code == 403
+
+
+def test_segment_analysis_offline_route_allows_an_allowlisted_user(
+    client: TestClient,
+    fake_repositories: None,
+) -> None:
+    _authenticate_as(_ADMIN_EMAIL)
+
+    response = client.get(
+        "/api/v1/eval-dashboard/segment-analysis/offline",
+        params={"metric_name": "faithfulness", "segment_field": "query_type"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["items"] == []
+
+
+def test_segment_analysis_offline_route_rejects_an_unknown_segment_field(
+    client: TestClient,
+    fake_repositories: None,
+) -> None:
+    _authenticate_as(_ADMIN_EMAIL)
+
+    response = client.get(
+        "/api/v1/eval-dashboard/segment-analysis/offline",
+        params={"metric_name": "faithfulness", "segment_field": "not_a_real_field"},
+    )
+
+    assert response.status_code == 422

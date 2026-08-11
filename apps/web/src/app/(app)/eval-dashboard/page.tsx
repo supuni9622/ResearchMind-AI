@@ -7,8 +7,9 @@ import { Pill } from '@/components/ui/badge';
 import { OwnerDrilldownView } from '@/features/eval-dashboard/components/owner-drilldown-view';
 import { OfflineDrilldownView } from '@/features/eval-dashboard/components/offline-drilldown-view';
 import { BenchmarkReportsView } from '@/features/eval-dashboard/components/benchmark-reports-view';
+import { SegmentAnalysisView } from '@/features/eval-dashboard/components/segment-analysis-view';
 
-type Tab = 'owner' | 'offline' | 'benchmarks';
+type Tab = 'owner' | 'offline' | 'benchmarks' | 'segments';
 
 export default function EvalDashboardPage() {
   const [forbidden, setForbidden] = useState(false);
@@ -45,11 +46,15 @@ export default function EvalDashboardPage() {
         <Pill active={tab === 'benchmarks'} onClick={() => setTab('benchmarks')}>
           Engineering Benchmarks
         </Pill>
+        <Pill active={tab === 'segments'} onClick={() => setTab('segments')}>
+          Segment Analysis
+        </Pill>
       </div>
 
       {tab === 'owner' && <OwnerDrilldownView onForbidden={() => setForbidden(true)} />}
       {tab === 'offline' && <OfflineDrilldownView onForbidden={() => setForbidden(true)} />}
       {tab === 'benchmarks' && <BenchmarkReportsView onForbidden={() => setForbidden(true)} />}
+      {tab === 'segments' && <SegmentAnalysisView onForbidden={() => setForbidden(true)} />}
     </div>
   );
 }

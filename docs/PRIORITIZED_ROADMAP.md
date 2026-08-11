@@ -55,7 +55,7 @@ instruction, not derived:
 | 1 | ✅ Feedback → trace attachment — Done, plus the missing E1 golden-set Ragas runner (`GoldenSetBenchmark`) built and wired into `eval_scores` | High | Med | Closes the loop between 1c and 1b |
 | 1 | ✅ Internal dashboard + owner-scoped drill-down — Done | High | Med | Read-only view over data Wave 1 already produces |
 | 1 | ✅ Config fingerprint through `GenerationRequest`→`GenerationUsage` — Done | High | Med | Unlocks "what to improve" identification |
-| 1 | Segment-analysis job | High | Med | Depends on the fingerprint above |
+| 1 | ✅ Segment-analysis job — Done, two views (online-by-fingerprint, offline-by-content-segment) | High | Med | Depends on the fingerprint above |
 | 1 | Golden-set promotion review (both directions) | High | Med | Needs feedback volume first — sequenced late within this wave |
 | 1 | Comment classification (objective/preference split) | Med-High | Med | Small bounded LLM call, reuses an existing codebase pattern |
 | 1 | ✅ Ingestion fidelity checks (parse success + fixtures) — Done | Med | Med | New coverage, cheap, deterministic |

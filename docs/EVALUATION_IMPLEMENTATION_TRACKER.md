@@ -1273,27 +1273,107 @@ when `provider` is given explicitly (routing bypassed — an accurate
 
 ---
 
-### E9. Segment-analysis job
+### E9. Segment-analysis job — **Done** (2026-08-12)
 
 **Roadmap:** Wave 1, row 9. **Eval Plan:** §16 phase 10.
 
-**Current state:** Not started, hard-depends on E8's fingerprint fields
-existing to slice by.
+**Real scoping finding, discovered before writing any code, not silently
+defaulted:** the acceptance criterion below ("did the Aug 10 prompt
+version change regress faithfulness for `comparison`-type queries
+specifically") implies slicing by *both* a config fingerprint
+(`prompt_version`) *and* a content segment (`query_type`) in one query.
+That's not possible against the current data model, checked directly
+rather than assumed:
+- Fingerprint fields (`surface`/`prompt_version`/`chunking_strategy`/
+  `embedding_model`/`reranker`/`routing_strategy`) live on
+  `generation_usage`, joined via `eval_scores.generation_id` — **only
+  online-sampled rows have one**. Offline-benchmark rows never went
+  through an answer-producing call site's `config_fingerprint_kwargs()`,
+  so `generation_id` is `NULL` for every one of them (E6's own check
+  constraint requires `dataset_example_id` instead).
+- `query_type`/`difficulty`/`workflow` live in
+  `datasets/golden/rag_answer_gold.json` (a golden-example field) —
+  **only offline-benchmark rows have a `dataset_example_id` to resolve
+  that from**. Online production traffic has no live query-type
+  classification (that would be a new, unbuilt classifier, out of
+  scope here — E11's comment classifier is a different thing, it
+  classifies feedback text, not queries).
+
+These two dimensions are structurally disjoint in the current schema —
+no single row has both. Built E9 as **two separate views over the two
+halves that actually exist**, rather than faking a combined view or
+silently narrowing the acceptance criterion without saying so:
+
+- **Online, by config fingerprint** — `EvalScoreRepository.
+  aggregate_online_by_fingerprint(metric_name, fingerprint_field)`,
+  joins `eval_scores` to `generation_usage` on `generation_id`, groups
+  in SQL. Answers "did `faithfulness` differ between `prompt_version`
+  'chat-v1' and 'chat-v2'" for production traffic.
+- **Offline, by content segment** — `EvalScoreRepository.
+  list_offline_scores_for_metric(metric_name)` (unpaginated fetch, capped
+  at 5000 rows — the golden set is ~100 examples, so even dozens of
+  re-runs stays well under that) feeds
+  `app/services/segment_analysis.py`'s
+  `aggregate_offline_by_content_segment()`, a pure function that loads
+  `rag_answer_gold.json`, builds an `example_id -> segment_value` map,
+  and groups the Postgres rows in Python (the join can't happen in SQL
+  since one side is a JSON file). Answers "is `faithfulness` worse for
+  `query_type=comparison` than `query_type=factual`" — verified against
+  real dev data, not just tests: 0.879 (comparison) vs. 0.771 (factual)
+  vs. 0.718 (exploratory), a real, non-trivial spread.
+- A human comparing a specific prompt-version change's effect on a
+  specific query type today has to run both halves and read them
+  side by side — same "no automated diffing, read the rows yourself"
+  posture as every other view in this dashboard (Owner/Offline/
+  Engineering Benchmarks). Closing that gap for real would need either
+  a live query-type classifier for production traffic, or tagging
+  offline benchmark runs with a prompt-version-equivalent label — both
+  are real future scope, not done here, not pretended to be done.
 
 **Subtasks:**
-- [ ] Job that aggregates `eval_scores` (E6) sliced by E8's fingerprint
-      fields (`prompt_version`, `chunking_strategy`, etc.) and by content
-      segment
-- [ ] Slice by `failure_category` too (§3's taxonomy: `wrong_citation`,
-      `hallucination`, `retrieval_miss`, `unnecessary_tool_use`,
-      `abstention_failure`, `workflow_loop`, `schema_violation`,
-      `injection_success`) once `production_failures` examples (fed by
-      E10's promotion loop) start carrying that tag
-- [ ] Surface output in E7's dashboard — "what changed between config X
-      and config Y"
+- [x] Job that aggregates `eval_scores` (E6) sliced by E8's fingerprint
+      fields — done for the online half (`aggregate_online_by_fingerprint`)
+- [x] Aggregate by content segment (`query_type`/`difficulty`/`workflow`)
+      — done for the offline half (`aggregate_offline_by_content_segment`);
+      **narrower than originally scoped**: no single query slices by
+      *both* fingerprint and content segment (see the scoping finding
+      above)
+- [ ] Slice by `failure_category` too (§3's taxonomy) — correctly still
+      open, hard-depends on E10's promotion loop tagging
+      `production_failures` examples, which doesn't exist yet
+- [x] Surface output in E7's dashboard — new "Segment Analysis" tab
+      (`SegmentAnalysisView`), two side-by-side panels (one per half
+      above), each with a field selector and a metric-name input
+
+**New routes:** `GET /eval-dashboard/segment-analysis/online`
+(`metric_name`, `fingerprint_field` — a closed `Literal` of the 6
+fingerprint fields, 422 on anything else) and `.../offline`
+(`metric_name`, `segment_field` — closed `Literal` of
+`query_type`/`difficulty`/`workflow`). Both gated by
+`require_eval_dashboard_access`, same as every other route here.
 
 **Acceptance criteria:** can answer "did the Aug 10 prompt version change
-regress faithfulness for `comparison`-type queries specifically."
+regress faithfulness for `comparison`-type queries specifically" —
+**partially met, disclosed above**: can answer "did `prompt_version` X
+regress faithfulness" (online) and "is faithfulness worse for
+`comparison`-type queries" (offline) as two separate reads, not one
+combined query, because the underlying data genuinely doesn't support
+combining them yet.
+
+**Verification:** 17 new tests (5 repository integration tests against
+real Postgres — including one confirming offline rows are correctly
+excluded from the online aggregation and vice versa; 6 unit tests for
+the pure content-segment grouping function, including a golden-set-
+schema-drift case where a historical row's `dataset_example_id` no
+longer matches any current example; 6 API auth tests matching the
+established 401/403/200/422 pattern). Clean `mypy`/`ruff` on every
+touched file; `tsc --noEmit`/`eslint` clean on the new frontend tab.
+Both halves verified against real dev data, not just fakes/mocks: the
+online route against real `online_sampled` rows already produced by the
+live `eval_scoring_worker` (2 metrics × 1 `prompt_version` so far,
+`research-synthesis-v1`), the offline route against real golden-set
+scores (92 `faithfulness` rows across 4 query types, real spread
+reported above). 1813/1813 tests pass repo-wide.
 
 ---
 

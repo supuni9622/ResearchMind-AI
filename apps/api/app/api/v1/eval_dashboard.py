@@ -9,6 +9,7 @@ docstring for why that's a settings-based allowlist, not a schema change.
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query
@@ -20,8 +21,11 @@ from app.models.user import User
 from app.repositories.eval_score import EvalScoreRepository
 from app.repositories.research_run import ResearchRunRepository
 from app.schemas.eval_dashboard import (
+    ContentSegmentAnalysisResponse,
     EvalScoreListResponse,
     EvalScoreResponse,
+    FingerprintSegmentAggregate,
+    FingerprintSegmentAnalysisResponse,
     OfflineExampleListResponse,
     OfflineExampleSummary,
     OwnerListResponse,
@@ -29,6 +33,7 @@ from app.schemas.eval_dashboard import (
     ReviewDecisionDistributionResponse,
 )
 from app.services.benchmark_reports import list_benchmark_reports
+from app.services.segment_analysis import aggregate_offline_by_content_segment
 from benchmarks.models.report import BenchmarkReport
 
 router = APIRouter(prefix="/eval-dashboard", tags=["Eval Dashboard"])
@@ -109,6 +114,90 @@ async def list_scores(
         total=total,
         limit=limit,
         offset=offset,
+    )
+
+
+FingerprintField = Literal[
+    "surface",
+    "prompt_version",
+    "chunking_strategy",
+    "embedding_model",
+    "reranker",
+    "routing_strategy",
+]
+"""Must stay in sync with `ONLINE_FINGERPRINT_FIELDS` (eval_score repository)."""
+
+ContentSegmentField = Literal["query_type", "difficulty", "workflow"]
+"""Must stay in sync with `CONTENT_SEGMENT_FIELDS` (segment_analysis service)."""
+
+
+@router.get(
+    "/segment-analysis/online",
+    response_model=FingerprintSegmentAnalysisResponse,
+    summary="Online eval_scores grouped by one config-fingerprint field (E9)",
+)
+async def segment_analysis_online(
+    metric_name: str = Query(..., min_length=1, max_length=50),
+    fingerprint_field: FingerprintField = Query(...),
+    _current_user: User = Depends(require_eval_dashboard_access),
+    repository: EvalScoreRepository = Depends(get_eval_score_repository),
+) -> FingerprintSegmentAnalysisResponse:
+    """
+    "Did average `faithfulness` differ between `prompt_version` X and
+    Y" -- groups online-sampled scores by a `GenerationUsage`
+    config-fingerprint field. Only meaningful for online traffic:
+    offline-benchmark rows have no `generation_usage` row to join
+    against (see `EvalScoreRepository.aggregate_online_by_fingerprint`'s
+    docstring). No before/after diffing here, same as every other view
+    in this dashboard -- read the rows for each fingerprint value and
+    compare by eye.
+    """
+
+    rows = await repository.aggregate_online_by_fingerprint(
+        metric_name=metric_name,
+        fingerprint_field=fingerprint_field,
+    )
+
+    return FingerprintSegmentAnalysisResponse(
+        metric_name=metric_name,
+        fingerprint_field=fingerprint_field,
+        items=[
+            FingerprintSegmentAggregate(
+                fingerprint_value=value,
+                count=count,
+                avg_score=avg_score,
+                pass_rate=pass_rate,
+            )
+            for value, count, avg_score, pass_rate in rows
+        ],
+    )
+
+
+@router.get(
+    "/segment-analysis/offline",
+    response_model=ContentSegmentAnalysisResponse,
+    summary="Offline eval_scores grouped by a golden-example field (E9)",
+)
+async def segment_analysis_offline(
+    metric_name: str = Query(..., min_length=1, max_length=50),
+    segment_field: ContentSegmentField = Query(...),
+    _current_user: User = Depends(require_eval_dashboard_access),
+    repository: EvalScoreRepository = Depends(get_eval_score_repository),
+) -> ContentSegmentAnalysisResponse:
+    """
+    "Is average `faithfulness` worse for `query_type=comparison` than
+    for `query_type=factual`" -- groups offline-benchmark scores by a
+    golden-example field. `query_type`/`difficulty`/`workflow` live in
+    `datasets/golden/rag_answer_gold.json`, not Postgres, so the join
+    happens in Python (`aggregate_offline_by_content_segment`), not SQL.
+    """
+
+    rows = await repository.list_offline_scores_for_metric(metric_name=metric_name)
+
+    return ContentSegmentAnalysisResponse(
+        metric_name=metric_name,
+        segment_field=segment_field,
+        items=aggregate_offline_by_content_segment(rows, segment_field=segment_field),
     )
 
 

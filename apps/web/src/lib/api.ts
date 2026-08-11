@@ -503,6 +503,49 @@ export interface BenchmarkReportResult {
   summary: Record<string, unknown>;
 }
 
+// Segment analysis (E9) -- two dimensions, because that's genuinely what
+// the data supports: online-sampled rows can be grouped by a
+// GenerationUsage config-fingerprint field (prompt_version etc.), since
+// only those rows have a generation_usage row to join against.
+// Offline-benchmark rows have no fingerprint, but do have a
+// dataset_example_id resolvable to the golden set's query_type/
+// difficulty/workflow -- a different join, a different tab.
+export type FingerprintField =
+  | 'surface'
+  | 'prompt_version'
+  | 'chunking_strategy'
+  | 'embedding_model'
+  | 'reranker'
+  | 'routing_strategy';
+
+export type ContentSegmentField = 'query_type' | 'difficulty' | 'workflow';
+
+export interface FingerprintSegmentAggregate {
+  fingerprint_value: string | null;
+  count: number;
+  avg_score: number | null;
+  pass_rate: number | null;
+}
+
+export interface FingerprintSegmentAnalysisResponse {
+  metric_name: string;
+  fingerprint_field: string;
+  items: FingerprintSegmentAggregate[];
+}
+
+export interface ContentSegmentAggregate {
+  segment_value: string;
+  count: number;
+  avg_score: number | null;
+  pass_rate: number | null;
+}
+
+export interface ContentSegmentAnalysisResponse {
+  metric_name: string;
+  segment_field: string;
+  items: ContentSegmentAggregate[];
+}
+
 export const PROVIDER_OPTIONS: { value: GenerationProvider | 'auto'; label: string }[] = [
   { value: 'auto', label: 'Auto' },
   { value: 'claude', label: 'Claude' },
@@ -922,5 +965,23 @@ export const api = {
     },
     listBenchmarkReports: () =>
       request<BenchmarkReportResult[]>('/api/v1/eval-dashboard/benchmark-reports'),
+    segmentAnalysisOnline: (params: { metricName: string; fingerprintField: FingerprintField }) => {
+      const query = new URLSearchParams({
+        metric_name: params.metricName,
+        fingerprint_field: params.fingerprintField,
+      });
+      return request<FingerprintSegmentAnalysisResponse>(
+        `/api/v1/eval-dashboard/segment-analysis/online?${query.toString()}`
+      );
+    },
+    segmentAnalysisOffline: (params: { metricName: string; segmentField: ContentSegmentField }) => {
+      const query = new URLSearchParams({
+        metric_name: params.metricName,
+        segment_field: params.segmentField,
+      });
+      return request<ContentSegmentAnalysisResponse>(
+        `/api/v1/eval-dashboard/segment-analysis/offline?${query.toString()}`
+      );
+    },
   },
 };

@@ -5,13 +5,31 @@ from __future__ import annotations
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import ColumnElement, and_, func, or_, select
+from sqlalchemy import ColumnElement, and_, case, func, or_, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.enums import EvalScoreSource
 from app.models.eval_score import EvalScore
+from app.models.generation_usage import GenerationUsage
 from app.models.user import User
+
+ONLINE_FINGERPRINT_FIELDS = (
+    "surface",
+    "prompt_version",
+    "chunking_strategy",
+    "embedding_model",
+    "reranker",
+    "routing_strategy",
+)
+"""
+The `GenerationUsage` columns E9's online segment analysis can group by
+-- mirrors `config_fingerprint.py`'s fingerprint fields exactly (plus
+`routing_strategy`, populated separately by `RoutingService`). A closed
+list, not an arbitrary caller-supplied column name, since
+`aggregate_online_by_fingerprint` uses `getattr(GenerationUsage, ...)` --
+validating against this tuple first is what keeps that safe.
+"""
 
 
 class EvalScoreRepository:
@@ -338,3 +356,83 @@ class EvalScoreRepository:
         rows = (await self._session.execute(statement)).all()
 
         return [(row[0], row[1], row[2]) for row in rows], total
+
+    async def aggregate_online_by_fingerprint(
+        self,
+        *,
+        metric_name: str,
+        fingerprint_field: str,
+    ) -> list[tuple[str | None, int, float | None, float | None]]:
+        """
+        Online-sampled `eval_scores` rows for `metric_name`, joined to
+        `generation_usage` on `generation_id` and grouped by one config-
+        fingerprint field (E9, EVALUATION_IMPLEMENTATION_TRACKER.md) --
+        e.g. "did average `faithfulness` differ between `prompt_version`
+        'chat-v1' and 'chat-v2'." `fingerprint_field` must be one of
+        `ONLINE_FINGERPRINT_FIELDS`; the caller (the API route) is
+        responsible for that validation before calling this, matching
+        this repository's existing convention of trusting its own
+        service-layer callers.
+
+        Offline-benchmark rows have no `generation_usage` row to join
+        against (no live production request produced them) -- this only
+        ever sees online-sampled traffic. See
+        `list_offline_scores_for_metric` for the offline/content-segment
+        side of E9, which needs a different join entirely (the golden
+        dataset's `query_type` lives in a JSON file, not Postgres).
+        """
+
+        column = getattr(GenerationUsage, fingerprint_field)
+
+        count = func.count(EvalScore.id)
+        avg_score = func.avg(EvalScore.score)
+        pass_rate = func.avg(
+            case((EvalScore.passed.is_(True), 1.0), (EvalScore.passed.is_(False), 0.0))
+        )
+
+        statement = (
+            select(column, count, avg_score, pass_rate)
+            .join(GenerationUsage, GenerationUsage.generation_id == EvalScore.generation_id)
+            .where(
+                EvalScore.metric_name == metric_name,
+                EvalScore.source == EvalScoreSource.ONLINE_SAMPLED.value,
+            )
+            .group_by(column)
+            .order_by(column)
+        )
+
+        rows = (await self._session.execute(statement)).all()
+
+        return [(row[0], row[1], row[2], row[3]) for row in rows]
+
+    async def list_offline_scores_for_metric(
+        self,
+        *,
+        metric_name: str,
+        limit: int = 5000,
+    ) -> list[EvalScore]:
+        """
+        Every `offline_benchmark` row for one metric, unpaginated (up to
+        `limit`) -- feeds E9's content-segment aggregation, which groups
+        by the golden dataset's `query_type`/`difficulty`/`workflow`
+        fields. Those fields live in `datasets/golden/rag_answer_gold.json`,
+        not Postgres, so the grouping itself has to happen in Python
+        (`app/services/segment_analysis.py`) after this fetch, not in
+        SQL like `aggregate_online_by_fingerprint` above. `limit` is a
+        safety cap, not a real pagination control -- the golden set is
+        ~100 examples, so even a few dozen re-runs stays well under it.
+        """
+
+        statement = (
+            select(EvalScore)
+            .where(
+                EvalScore.metric_name == metric_name,
+                EvalScore.source == EvalScoreSource.OFFLINE_BENCHMARK.value,
+            )
+            .order_by(EvalScore.created_at.desc())
+            .limit(limit)
+        )
+
+        rows = (await self._session.execute(statement)).scalars().all()
+
+        return list(rows)

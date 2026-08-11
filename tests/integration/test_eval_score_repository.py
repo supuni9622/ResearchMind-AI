@@ -8,6 +8,7 @@ from datetime import UTC, datetime
 import pytest
 from app.models.enums import EvalScoreSource
 from app.models.eval_score import EvalScore
+from app.models.generation_usage import GenerationUsage
 from app.models.user import User
 from app.repositories.eval_score import EvalScoreRepository
 from sqlalchemy import select
@@ -677,3 +678,118 @@ async def test_search_offline_examples_filters_by_search_term(db_session) -> Non
 
     assert total == 1
     assert rows[0][0] == "findme-example"
+
+
+# -- aggregate_online_by_fingerprint (E9) ---------------------------------
+
+
+async def _make_usage(
+    session, *, owner_id: uuid.UUID, prompt_version: str, generation_id: uuid.UUID | None = None
+) -> uuid.UUID:
+    generation_id = generation_id or uuid.uuid4()
+    usage = GenerationUsage(
+        request_id=uuid.uuid4(),
+        generation_id=generation_id,
+        owner_id=owner_id,
+        provider="groq",
+        model="test-model",
+        surface="chat",
+        prompt_version=prompt_version,
+        chunking_strategy="markdown",
+        embedding_model="voyage-3-lite",
+        reranker="voyage_ai",
+        prompt_tokens=10,
+        completion_tokens=10,
+        total_tokens=20,
+        estimated_cost_usd=0.001,
+    )
+    session.add(usage)
+    await session.flush()
+    return generation_id
+
+
+@pytest.mark.asyncio
+async def test_aggregate_online_by_fingerprint_groups_by_prompt_version(db_session) -> None:
+    owner_id = await _make_owner(db_session)
+    repository = EvalScoreRepository(db_session)
+
+    v1_a = await _make_usage(db_session, owner_id=owner_id, prompt_version="chat-v1")
+    v1_b = await _make_usage(db_session, owner_id=owner_id, prompt_version="chat-v1")
+    v2_a = await _make_usage(db_session, owner_id=owner_id, prompt_version="chat-v2")
+
+    for generation_id, score, passed in [(v1_a, 0.9, True), (v1_b, 0.7, True), (v2_a, 0.3, False)]:
+        await repository.record(
+            owner_id=owner_id,
+            generation_id=generation_id,
+            metric_name="faithfulness",
+            score=score,
+            passed=passed,
+            reason="r",
+            source=EvalScoreSource.ONLINE_SAMPLED.value,
+            sample_category="baseline_sampled",
+        )
+    await db_session.flush()
+
+    rows = await repository.aggregate_online_by_fingerprint(
+        metric_name="faithfulness", fingerprint_field="prompt_version"
+    )
+    by_value = {value: (count, avg_score, pass_rate) for value, count, avg_score, pass_rate in rows}
+
+    assert by_value["chat-v1"][0] == 2
+    assert by_value["chat-v1"][1] == pytest.approx(0.8)
+    assert by_value["chat-v1"][2] == pytest.approx(1.0)
+    assert by_value["chat-v2"][0] == 1
+    assert by_value["chat-v2"][1] == pytest.approx(0.3)
+    assert by_value["chat-v2"][2] == pytest.approx(0.0)
+
+
+@pytest.mark.asyncio
+async def test_aggregate_online_by_fingerprint_ignores_offline_rows(db_session) -> None:
+    repository = EvalScoreRepository(db_session)
+    await repository.record_offline_example(
+        dataset_example_id="g1",
+        metric_name="faithfulness",
+        score=0.5,
+        passed=True,
+        reason="offline row, should never join to generation_usage",
+    )
+    await db_session.flush()
+
+    rows = await repository.aggregate_online_by_fingerprint(
+        metric_name="faithfulness", fingerprint_field="prompt_version"
+    )
+
+    assert rows == []
+
+
+# -- list_offline_scores_for_metric (E9) ----------------------------------
+
+
+@pytest.mark.asyncio
+async def test_list_offline_scores_for_metric_excludes_online_rows(db_session) -> None:
+    owner_id = await _make_owner(db_session)
+    repository = EvalScoreRepository(db_session)
+
+    await repository.record_offline_example(
+        dataset_example_id="g1",
+        metric_name="faithfulness",
+        score=0.8,
+        passed=True,
+        reason="offline",
+    )
+    await repository.record(
+        owner_id=owner_id,
+        generation_id=uuid.uuid4(),
+        metric_name="faithfulness",
+        score=0.6,
+        passed=True,
+        reason="online",
+        source=EvalScoreSource.ONLINE_SAMPLED.value,
+        sample_category="baseline_sampled",
+    )
+    await db_session.flush()
+
+    rows = await repository.list_offline_scores_for_metric(metric_name="faithfulness")
+
+    assert len(rows) == 1
+    assert rows[0].dataset_example_id == "g1"

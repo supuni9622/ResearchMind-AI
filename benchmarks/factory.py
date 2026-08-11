@@ -54,11 +54,13 @@ from app.ai.runtime.generation.create import (
 from app.ai.runtime.generation.service import (
     GenerationService,
 )
+from app.core.settings import settings
 
 from benchmarks.chunking.benchmark import ChunkingBenchmark
 from benchmarks.common.dataset_loader import DatasetLoader
 from benchmarks.embeddings.benchmark import EmbeddingBenchmark
 from benchmarks.generation.benchmark import GenerationBenchmark
+from benchmarks.generation.golden_set_benchmark import GoldenSetBenchmark
 from benchmarks.ingestion.benchmark import IngestionFidelityBenchmark
 from benchmarks.registry import BenchmarkRegistry
 from benchmarks.reranking.benchmark import (
@@ -216,6 +218,28 @@ def create_benchmark_registry() -> BenchmarkRegistry:
             ),
         )
     )
+
+    #
+    # GoldenSetGeneration needs a real Ragas judge, which needs
+    # OPENAI_API_KEY (see `ragas_judge.build_openai_ragas_judge()`, which
+    # raises without one). Registered only when a key is configured, so
+    # `create_benchmark_registry()` -- called unconditionally by every
+    # benchmark run, including ones that need no LLM at all (Ingestion
+    # Fidelity, Chunking) -- never fails to construct the registry itself
+    # just because this one optional benchmark can't be built yet.
+    #
+    if settings.openai_api_key:
+        from benchmarks.generation.ragas_judge import build_openai_ragas_judge
+
+        registry.register(
+            GoldenSetBenchmark(
+                registry=generation_registry,
+                generation_service=GenerationService(
+                    registry=generation_registry,
+                ),
+                judge=build_openai_ragas_judge(),
+            )
+        )
 
     #
     # Future benchmarks

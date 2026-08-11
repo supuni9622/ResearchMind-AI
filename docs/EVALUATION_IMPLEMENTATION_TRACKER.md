@@ -59,7 +59,7 @@ E8 (config fingerprint) ──► E9 (segment-analysis job)          E5 (online 
                                                                        │
                                                                        ▼
                                                         E6 (feedback→trace, eval_scores
-                                                            table already built by E5)
+                                                            table already built by E5) ✅ Done
                                                                        │
                                                                        ▼
                                                         E7 (internal dashboard)
@@ -149,22 +149,21 @@ E21 too, on top of its declared E6 dependency.
   9. [E11](#e11-comment-classification-objectivepreference-split) — Med
      ease, Med-High value
 
-- **R4 — unblocked now that E5's `eval_scores` table + scoring exist**
-  10. [E6](#e6-feedback--trace-attachment--eval_scores-table) — Med ease,
-      High value. Scope narrowed by E5 already building the table: E6 is
-      now "attach feedback + offline results to the existing table," not
-      "build the table"
+- **R4 — unblocked now that E6 is done (2026-08-11)**
+  10. ✅ [E6](#e6-feedback--trace-attachment--eval_scores-table) — Done.
+      Feedback and E1's offline golden-set results both now flow into
+      `eval_scores`; E7/E10 inherit that correlation for free instead of
+      building it themselves
 
-- **R5 — needs E6's `eval_scores` table**
+- **R5 — needs E6's `eval_scores` table (now unblocked)**
   11. [E7](#e7-internal-dashboard--owner-scoped-drill-down) — Med ease,
       High value
   12. [E17](#e17-latency-slo-alerts--eval_scores-grafana-panel)'s
       **Grafana panel half** — the alert-rule half already shipped in R1
   13. [E10](#e10-golden-set-promotion-review-both-directions) — Med ease,
-      High value, but sequence deliberately last: needs both E6 (hard
-      dependency) and real production feedback volume via E21 (soft
-      dependency) — same "sequence last regardless of build order"
-      instruction as the historical order above, now doubly gated
+      High value, but sequence deliberately last: real production
+      feedback volume via E21 is still the soft dependency worth letting
+      accumulate before building the review queue
 
 [E22](#e22-langsmith-create_feedback-wiring) shipped out of this R1-R5
 sequence entirely, same day as E21 — not because it jumped the queue on
@@ -184,7 +183,7 @@ a live user-observed gap beats the planned order.
 | [E3](#e3-post-feedback--thumbsupdown) | `POST /feedback` + thumbs up/down | **Done, backend** (frontend affordance not built) | Very High | Med | — |
 | [E4](#e4-citation-validator-cross-surface-release-blocking) | Citation validator, cross-surface, release-blocking | **Done** (checker built; CI/online-gate wiring is E2/E5) | Very High | High | — |
 | [E5](#e5-online-risk-weighted-scoring-job) | Online risk-weighted scoring job | **Done** | High | Med | E4 (reuses as free signal) |
-| [E6](#e6-feedback--trace-attachment--eval_scores-table) | Feedback → trace attachment + `eval_scores` table | Not started | High | Med | E3, E5 |
+| [E6](#e6-feedback--trace-attachment--eval_scores-table) | Feedback → trace attachment + `eval_scores` table | **Done** | High | Med | E3, E5 |
 | [E7](#e7-internal-dashboard--owner-scoped-drill-down) | Internal dashboard + owner-scoped drill-down | Not started | High | Med | E6 |
 | [E8](#e8-config-fingerprint-through-generationrequestgenerationusage) | Config fingerprint (`GenerationRequest`→`GenerationUsage`) | **Done** | High | Med | — |
 | [E9](#e9-segment-analysis-job) | Segment-analysis job | Not started | High | Med | E8 |
@@ -763,38 +762,122 @@ The flat-baseline sample rate is configurable, not hardcoded — **met**,
 
 ---
 
-### E6. Feedback → trace attachment + `eval_scores` table
+### E6. Feedback → trace attachment + `eval_scores` table — **Done** (2026-08-11)
 
 **Roadmap:** Wave 1, row 6. **Eval Plan:** §16 phase 7.
 
-**Current state (updated 2026-08-11):** The `eval_scores` table already
-exists — E5 built it (`app/models/eval_score.py`, migration
-`9a2b3c4d5e6f`), narrower in scope than originally, because E5's own
-acceptance criteria ("every guardrail-flagged request has a recorded
-score") required *something* to persist into. `EvalScoreSource`
-(`app/models/enums.py`) already declares all three source values
-(`online_sampled`/`offline_benchmark`/`human_feedback`), and E5's
-`OnlineScoringJob` already writes `online_sampled` rows. What's left for
-E6 is narrower than the original scope: attaching `POST /feedback`
-submissions and E1/E2's offline results to the *same, already-existing*
-table — not building the table itself.
+**Current state:** The `eval_scores` table already existed — E5 built it
+(`app/models/eval_score.py`, migration `9a2b3c4d5e6f`), narrower in scope
+than originally, because E5's own acceptance criteria ("every
+guardrail-flagged request has a recorded score") required *something* to
+persist into. `EvalScoreSource` (`app/models/enums.py`) already declared
+all three source values (`online_sampled`/`offline_benchmark`/
+`human_feedback`), and E5's `OnlineScoringJob` already writes
+`online_sampled` rows. This item closed the two remaining attachment
+paths: `POST /feedback` and E1/E2's offline benchmark results.
 
 **Subtasks:**
 - [x] ~~`eval_scores` Postgres table~~ — done by E5, see above
 - [x] ~~Alembic migration~~ — done by E5 (`9a2b3c4d5e6f`)
-- [ ] Attach `POST /feedback` submissions (E3) to their originating trace —
-      likely via `generation_id`, already on `GenerationUsage`
-- [ ] ~~Attach E5's online scoring job output to the same table~~ — E5
+- [x] **Attach `POST /feedback` submissions (E3) — Done.**
+      `FeedbackService.submit()` (`app/services/feedback.py`) now upserts
+      a mirrored `eval_scores` row (`metric_name="user_rating"`,
+      `source=human_feedback`, `score`/`passed` derived from the rating,
+      `reason` = the comment or a synthesized `"user rated {up,down}"`)
+      in the same transaction as the `Feedback` write, before
+      `session.commit()` — so a crash between the two writes can never
+      leave one without the other. New `EvalScoreRepository.upsert()`
+      (`on_conflict_do_update`, not `record()`'s insert-only semantics)
+      mirrors `FeedbackRepository.upsert()` exactly, including its own
+      `populate_existing` gotcha, since a user changing their vote must
+      update the same row, not accumulate a second one. 6 tests (3 unit
+      against mocks in `test_feedback_service.py`, 3 integration against
+      a real Postgres row in `test_eval_score_repository.py`).
+- [x] ~~Attach E5's online scoring job output to the same table~~ — E5
       already writes directly to `eval_scores` via `EvalScoreRepository`,
       nothing further needed here
-- [ ] Attach E1/E2's offline benchmark/regression results to the same
-      table (so E7's dashboard has one place to query, not three) —
-      `EvalScoreSource.OFFLINE_BENCHMARK`/`dataset_example_id` are
-      already declared on the model for exactly this
+- [x] **Attach E1/E2's offline benchmark results — Done, scoped per an
+      explicit decision (2026-08-11).** Investigation found two real
+      blockers, both surfaced to the user before building rather than
+      picked silently: `BenchmarkReport` is aggregate-only (no
+      per-example breakdown existed anywhere), and `benchmarks/runner.py`/
+      `regression/detector.py` have zero database dependency today
+      (confirmed via grep). Given the choice between a small aggregate-only
+      attach, a deeper per-example refactor, or deferring entirely, the
+      per-example refactor was chosen — which surfaced a *third*, deeper
+      finding: `score_generation()` (E1) had no runnable driver at all,
+      only a single pytest test using a fake judge. Built the missing
+      piece:
+    - New `benchmarks/generation/golden_set_benchmark.py`
+      (`GoldenSetBenchmark`) — runs `rag_answer_gold`'s 115 answerable
+      examples through a live generation call per configured provider,
+      then the real Ragas judge suite (`score_generation()`). Per-example
+      results are stashed in `BenchmarkCandidate.notes[
+      "per_example_scores"]` — the existing generic `dict[str, Any]`
+      escape hatch every benchmark already has for extra detail, not a
+      new mechanism — so `BenchmarkReport`'s shared, aggregate-only
+      contract stays unchanged for every other benchmark. A single
+      example's failure is recorded per-example, not aborting the whole
+      candidate run (~100x more per-call failure surface than a
+      candidate-level try/except would tolerate). Registered in
+      `benchmarks/factory.py` **conditionally on `OPENAI_API_KEY`** being
+      configured, so `create_benchmark_registry()` — called
+      unconditionally by every benchmark run, including ones needing no
+      LLM at all — never fails to construct just because this one
+      optional benchmark can't be built yet. Runnable via `python -m
+      benchmarks.runner GoldenSetGeneration --dataset datasets/golden`.
+    - Schema: `EvalScore.owner_id`/`generation_id` made nullable
+      (migration `b1c2d3e4f5a6`) — offline rows belong to neither a user
+      nor a live production generation. New `ck_eval_scores_has_
+      generation_or_example` check constraint keeps every row traceable
+      to *something*. Offline rows are deliberately append-only (no
+      conflict handling): Postgres treats `NULL` as distinct from every
+      other `NULL` in the existing unique constraint, so re-running the
+      same benchmark against the same example/metric correctly produces
+      a new trend-data-point row, not an overwrite — needed for E9's
+      future segment-analysis to see history, not just the latest run.
+    - New `EvalScoreRepository.record_offline_example()` — no
+      `owner_id`/`generation_id` params, plain insert, no upsert.
+    - New `benchmarks/generation/persist_golden_set_scores.py` —
+      deliberately **separate** from `runner.py`, not merged into it:
+      keeps the generic runner's zero-DB-dependency property intact for
+      the other 7 benchmarks. Reads an already-written `report.json`,
+      extracts `per_example_scores`, writes each via
+      `record_offline_example()`. Run as an explicit second step:
+      `python -m benchmarks.generation.persist_golden_set_scores --report
+      benchmarks/reports/goldensetgeneration/report.json`.
+    - 18 new tests: 6 for `GoldenSetBenchmark` (answerable-only filtering,
+      per-example notes shape, aggregate averaging, one example's failure
+      not aborting the run, one candidate per provider) using
+      `MagicMock`/`AsyncMock` for `GenerationService` and the same
+      structural fake-judge pattern `tests/evaluation/test_faithfulness.py`
+      established (including its documented read-only-`@property`-vs-
+      plain-attribute Protocol gotcha, hit again here for the fake
+      metrics' `ascore` signatures), 4 for `persist_golden_set_scores.py`
+      (pure extraction + mocked-repository persist), 4 integration tests
+      against a real Postgres row for the schema change + new repository
+      method (nullable columns persist correctly, append-only semantics
+      hold across two "runs").
+
+**Not done / deliberately out of scope:** no CI job runs
+`GoldenSetGeneration` automatically (expensive by design — one real
+generation call plus up to 4 real Ragas judge calls per example per
+provider — matches §13's "release candidate → full regression suite"
+trigger, not "every PR"); wiring that CI trigger is E20's scope, already
+tracked there. `benchmarks/regression/`'s regression-detection layer
+itself was not extended to compare offline eval_scores trends over time —
+that's E9's segment-analysis territory, not E6's.
 
 **Acceptance criteria:** a single query by `owner_id` returns both a
 user's thumbs-down feedback and the automated scores for that same
-generation.
+generation — **met**, exercised end-to-end via the feedback-mirror
+tests. Whole-repo verification (final, both halves): 1746/1746 tests
+pass (85 new across E5+E6), clean `mypy` (845 source files), clean
+`ruff`/`ruff format` across the whole repository; migration chain
+(`9a2b3c4d5e6f` → `b1c2d3e4f5a6`) verified via a fresh scratch-DB
+`upgrade head` → `downgrade -1` → `upgrade head` pass with the resulting
+schema hand-diffed against the ORM models, then applied to the real dev
+DB.
 
 ---
 

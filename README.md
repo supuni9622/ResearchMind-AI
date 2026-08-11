@@ -532,6 +532,20 @@ it's a tuning question. The dataset improvements above are what's needed
 to find out whether RRF actually helps in this system, and if so, under
 which query categories.
 
+3. Golden-set generation (real Ragas judge, release-candidate tier)
+```
+uv run python -m benchmarks.runner GoldenSetGeneration --dataset datasets/golden
+```
+
+Runs `rag_answer_gold`'s 115 answerable examples through a live generation call per configured provider, then scores each with the real Ragas judge suite (faithfulness/answer_relevancy/context_precision/context_recall). Requires `OPENAI_API_KEY` — the benchmark isn't even registered without one (see `benchmarks/factory.py`), since a missing key would otherwise break every other benchmark's registry construction. Expensive by design (a real generation call plus up to 4 real Ragas judge calls per example per provider) — meant for the release-candidate tier (EVALUATION_PLAN.md §13), not every-PR CI. Report written to `benchmarks/reports/goldensetgeneration/`.
+
+To persist this run's per-example scores into the `eval_scores` table (EVALUATION_PLAN.md §14/§16 phase 6/7, so a specific golden-set example's score trend is queryable alongside online/human-feedback signals), run as an explicit second step:
+```
+uv run python -m benchmarks.generation.persist_golden_set_scores --report benchmarks/reports/goldensetgeneration/report.json
+```
+
+Deliberately a separate script, not a flag on `benchmarks/runner.py`: the generic runner needs no database for any other benchmark, and this keeps that property true for all of them.
+
 ---
 
 ## Authentication (AWS Cognito)

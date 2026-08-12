@@ -53,7 +53,7 @@ ResearchMind-AI/
 │   │       │   │   ├── agent/               # Scaffold-only — AgentArtifact, unwired (no Agent Runtime yet)
 │   │       │   │   ├── evaluation/          # Scaffold-only, deliberately unwired — EvaluationArtifact is S3-backed, but benchmarks/ (the real evaluation harness, see below) is explicitly independent of production infra; reserved for a future online/API-triggered evaluation surface (api/v1/evaluation.py is still empty)
 │   │       │   │   ├── observability/       # Implemented, live (new, Phase 3.9, oberservability_platform_prd.md) — ObservabilityArtifact (metrics/statistics as dict[str, Any], report as markdown string), ObservabilityArtifactBuilder/Writer/Reader; storage layout observability/{execution_id}/{metadata.json,metrics.json,statistics.json?,report.md}; wired from GenerationService.generate()/stream_generate() and ProcessingService.process()
-│   │       │   │   └── replay/              # GenerationReplayService/StreamReplayService (real), ResearchReplayService (stub)
+│   │       │   │   └── replay/              # GenerationReplayService/StreamReplayService/ResearchReplayService — all real, reader-backed, none wired to an API route (2026-08-12: ResearchReplayService fixed, see IMPLEMENTATION_GAP_CROSSCHECK_2026-08-12.md)
 │   │       │   ├── config/
 │   │       │   │   └── settings.py          # AI-specific configuration
 │   │       │   ├── guardrails/               # Guardrails Platform (Milestone 11.16) — standalone, spans input/retrieval/generation/runtime; wired into GenerationService + ContextBuilderService (guardrail_integration_prd.md)

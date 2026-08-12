@@ -76,10 +76,15 @@ instruction, not derived:
 | 2 | **Reject-with-revise, i.e. "edit interruption capability"** (plan/report approval) | Med-High | Med | Reuses `REVISE_SYNTHESIS` path; see expanded detail below — this is more than one line captures |
 | 2 | Live cost/token visibility in Deep Research events | Med | High | Reuses an existing cost-lookup query pattern |
 | 2 | HITL confirmation on memory deletion + gated document-delete endpoint design | Med-High | Med | Readiness P0/P1 item — reuses the same `interrupt()` mechanism this wave already uses twice, doesn't need to wait for Wave 7 |
+| 2 | Proposal-level rejection/expiry (before a run exists) | Med | Med | One stage earlier than reject-with-revise above, same approval-checkpoint family; triaged in from `AI_ENGINEERING_AUDIT.md` §5 P4#24's still-open half, 2026-08-12 |
+| 2 | Deep Research rate limiting: per-owner fair-share, not just total-queue-depth | Med | Med | Today one owner's burst can fill the global queue cap and get other owners' approvals shed; reuses the existing `ValkeyRateLimiter`/`deep_research_max_queued_runs` infra, just needs fair-share accounting on top; triaged in from `REMAINING_WORK.md` item 3, 2026-08-12 |
+| 2 | Cross-conversation Deep Research run-history browser | Med | Med | Today's browsing path is "pick a conversation, see its runs" — this adds "see every run a user has ever started" independent of conversation; `GET /research/{id}` already exists, needs a new list endpoint + UI; triaged in from `REMAINING_WORK.md` item 5, 2026-08-12 |
+| 2 | Parallelize Linear Research's escalation-check call instead of gating on it | Low-Med | High | Today the default Linear-mode path blocks on an uncached escalation-check LLM call before running at all; cheap fix, no new infra; triaged in from `PRODUCT_FLOWS_AND_GAPS.md` D7, 2026-08-12 |
+| 2 | Cost dashboard (user + admin facing) + enforced per-user monthly cap | Med | Med | Wider than Wave 1's CLI-only cost forecast; the cap half overlaps with Wave 7's dormant `BudgetGuardrail` runtime-stage wiring — coordinate scope with that item rather than building a second budget enforcement path; triaged in from `PRODUCT_FLOWS_AND_GAPS.md` X2, 2026-08-12 |
 | 3 | Project schema (expanded scope, anchors typed objects) | Very High | Med-Low | Foundational for North Star; scoped once to avoid rebuild |
 | 3 | Project workspace UI (create/list/switch projects) | High | Med | Without this the schema has no way to be used at all — implied but not optional |
 | 3 | "@document" inline mentioning (frontend affordance) | Med | Med | Explicitly named in `PHASE_2_3_ROADMAP.md` V2 #3, sits on top of the same grouping |
-| 3 | Typed research-object domain model (Knowledge/Evidence/HumanInsight/Hypothesis) | High | Med | Builds on the already-scaffolded, unused `artifacts/research` category |
+| 3 | Typed research-object domain model (Knowledge/Evidence/HumanInsight/Hypothesis) | High | Med | Builds inside the `artifacts/research` category — **not unused**: `ResearchArtifactBuilder` already writes there live on every Linear Research request (see Wave 3 note below); must be designed to coexist with that write path, not dropped into a blank slate |
 | 4 | Vision — chat-only image attachments (≤5/turn) | Med-High | Med | Needs a real schema addition, no new dependency |
 | 4 | Vision — image-to-RAG ingestion | Med | Med | Pluggable parser architecture already supports this shape |
 | 4 | Vision — AI-generated charts/graphs/maps | Med-High | Low | Needs a genuinely new charting dependency |
@@ -88,6 +93,8 @@ instruction, not derived:
 | 6 | Voice (real-time STT/TTS, visible transcript) | Med | Very Low | Confirmed largest genuinely-new build, zero existing scaffold |
 | 7 | Guardrails — in-house gap-filling (see below) | Med | Med | **Ordered last by explicit decision**, not by score |
 | ∥ | AWS ECS Fargate deployment | High | Med | Runs in parallel — doesn't block or get blocked by anything above |
+| ∥ | Paper Search MCP client production-hardening (JWT service-token auth, retry-with-backoff, error taxonomy, request-ID propagation, remaining 5 MCP tools) | Low-Med | Med | Explicitly deferred at ship time (ADR-037) pending a production deployment target; triaged in as a **follow-on to the AWS ECS Fargate item above**, not standalone — revisit once that item is underway. Source: `REMAINING_WORK.md` item 8 |
+| ∥ | Engineering hygiene backlog (12 items, see dedicated section below) | Mixed | Mixed | Infra/reliability chores from `AI_ENGINEERING_AUDIT.md` §5, re-verified against code 2026-08-12; none block or depend on product Waves 2–7 |
 
 ---
 
@@ -200,6 +207,40 @@ applies twice (Socratic node, reject-with-revise), so there's no reason to
 gate it behind the guardrails-vendor decision, which is a different kind
 of question entirely.
 
+**Five items triaged into this wave 2026-08-12**, per
+`docs/IMPLEMENTATION_GAP_CROSSCHECK_2026-08-12.md` Table B — each was
+already written down somewhere else in the repo but had no roadmap line
+item until now:
+- **Proposal-level rejection/expiry (before a run exists).** A distinct,
+  earlier stage than reject-with-revise above: today a proposal can only be
+  approved or left to expire per TTL, with no explicit "decline this
+  proposal" endpoint or scope/priority adjustment prior to committing to a
+  run. Source: `AI_ENGINEERING_AUDIT.md` §5 P4#24 (the still-open half,
+  after 2026-08-12 split — see Table A).
+- **Deep Research rate limiting: per-owner fair-share.** The existing
+  `deep_research_max_queued_runs` cap is global total-depth, not fair-share
+  — one owner's burst can still fill it and get other owners' approvals
+  shed. Source: `REMAINING_WORK.md` item 3.
+- **Cross-conversation Deep Research run-history browser.** Today's
+  browsing path is conversation-scoped only ("pick a conversation, see its
+  runs"); this adds a cross-conversation "every run this user has started"
+  view. `GET /research/{id}` already returns what's needed per-run; this is
+  a new list endpoint plus a UI surface. Source: `REMAINING_WORK.md` item 5.
+- **Parallelize Linear Research's escalation-check call.** The default
+  Linear-mode path currently blocks on an uncached escalation-check LLM
+  call before running at all — a disclosed, real latency/cost tradeoff, not
+  a bug, per `AI_ENGINEERING_AUDIT.md` §5 item 26. Cheapest item in this
+  batch: run it concurrently with retrieval instead of gating on it first.
+  Source: `PRODUCT_FLOWS_AND_GAPS.md` D7.
+- **Cost dashboard (user + admin facing) + enforced per-user monthly cap.**
+  Wider than Wave 1's CLI-only rolling-average forecast — this is a real UI
+  surface plus an actually-enforced cap, not just visibility. The cap half
+  should be scoped together with Wave 7's dormant `BudgetGuardrail`
+  runtime-stage wiring (`evaluate_runtime()` already has real budget-check
+  logic, just never called from either production call site) rather than
+  building a second, competing enforcement path. Source:
+  `PRODUCT_FLOWS_AND_GAPS.md` X2.
+
 Full detail: `PHASE_2_3_ROADMAP.md` V2 items 2 and 5 (including "Item 5 in
 detail"), `docs/todo/user-memory-profile-injection-gap.md`,
 `PRODUCTION_READINESS_EVALUATION.md` items 5 and 6.
@@ -221,9 +262,29 @@ belong together:
    Project item in `PHASE_2_3_ROADMAP.md` V2 #3, sitting on top of the same
    grouping as (1) and (2).
 
-The typed research-object domain model itself is built inside the
-already-scaffolded-but-unused `artifacts/research` category — zero blast
-radius on anything live today. Full detail: `NORTH_STAR.md` §§5, 7, 8;
+**Correction, 2026-08-12 (`IMPLEMENTATION_GAP_CROSSCHECK_2026-08-12.md`
+Table D):** earlier drafts of this section described the typed
+research-object domain model as building inside an
+"already-scaffolded-but-unused `artifacts/research` category — zero blast
+radius on anything live today." That premise is false and was corrected
+after a code cross-check. `apps/api/app/ai/artifacts/research/models.py`
+(`ResearchArtifact`) is live production code: `ResearchArtifactBuilder` is
+called on **every** Linear Research (`/research`) request
+(`apps/api/app/ai/research/service.py:837`) as a best-effort,
+policy-gated S3 audit-trail write (`plan.json`/`queries.json`/
+`retrievals.json`/`citations.json`/`report.json`), wired through
+`apps/api/app/dependencies/research.py` and `apps/api/app/ai/artifacts/create.py`.
+
+The domain classes themselves (`Knowledge`/`Evidence`/`HumanInsight`/
+`Hypothesis`) genuinely don't exist yet — that part of the original claim
+holds. But whoever picks this item up must design the new typed model to
+**coexist with the existing live artifact-write path and its on-disk/S3
+shape**, not assume a blank category with no callers to consider. Concretely:
+decide up front whether the typed objects extend/wrap the existing
+`ResearchArtifact` writes, live alongside them as a separate artifact
+category, or require a migration of the existing write path — do not start
+implementation assuming the third option is unnecessary just because the
+category "looks" unused. Full detail: `NORTH_STAR.md` §§5, 7, 8;
 `PHASE_2_3_ROADMAP.md` V2 item 3.
 
 ## Wave 4 — Vision
@@ -291,6 +352,45 @@ block or get blocked by anything above — infrastructure work with its own
 open questions (L2 semantic-cache module gap, NAT Gateway cost, worker
 scaling, Qdrant persistence, secrets management), runs whenever capacity
 allows alongside any wave.
+
+**Follow-on, triaged in 2026-08-12:** the Paper Search MCP client's fuller
+production-hardening scope (`REMAINING_WORK.md` item 8, ADR-037) — a
+cached/refreshed JWT service-token provider, retry-with-backoff, a
+9-category error taxonomy, `X-Request-ID`/`X-Correlation-ID` propagation,
+and typed methods for the other 5 MCP tools — was deliberately deferred at
+ship time specifically pending "if this integration needs to run against a
+production ECS deployment behind real service-to-service auth." That
+condition is what this track exists to satisfy, so treat this item as a
+follow-on once ECS work is underway, not a standalone backlog item with its
+own independent timing.
+
+## Parallel track — Engineering hygiene backlog
+
+Twelve items from `AI_ENGINEERING_AUDIT.md` §5 (P0–P3), re-verified against
+live code 2026-08-12 (`docs/IMPLEMENTATION_GAP_CROSSCHECK_2026-08-12.md`)
+since none had ever been given a roadmap line item — they'd existed only as
+numbered prose in that one audit doc. All are infrastructure/reliability
+work, independent of the product-feature Waves above; none block or are
+blocked by Waves 2–7. Two more items with their own standalone
+`docs/todo/*.md` files are folded in at the bottom since they're the same
+shape of "real, confirmed-open, no Wave" gap.
+
+| Item | Value | Ease | 2026-08-12 verified status |
+|---|---|---|---|
+| **Fix the production JSON-logging bug** | High | Very High | **Confirmed still broken, not cosmetic.** `core/logging.py`'s own docstring says "In production: JSONRenderer," but the code picks `structlog.processors.ExceptionRenderer()` for `is_production`, never `JSONRenderer()`. Any log-aggregation tooling expecting one-line JSON in prod is silently getting the wrong renderer. Highest value-per-effort item in this whole table — same shape as Wave 0's cheap high-value fixes. |
+| Bounded query rewriting/condensation before retrieval | High | Med | Confirmed still open — no rewriting/condensation service exists anywhere in `app/ai/`; follow-ups don't resolve pronoun/reference queries into standalone retrieval queries before searching. |
+| Make AI-domain exceptions inherit `AppException` | Med | High | Confirmed still open — spot-checked `RetrievalError`/`GenerationError`/etc., all still subclass plain `Exception`, not `app/exceptions/base.py`'s `AppException`. |
+| Gemini timeout plumbing | Low-Med | High | **Partially closed since the audit was written** — `OllamaProvider` now passes `timeout=config.timeout_seconds` (fixed). `GeminiProvider`'s `genai.Client(api_key=...)` still takes no timeout argument at all. Original item covered both providers; only Gemini remains. |
+| CI test-coverage gate | Med | High | Confirmed still open — `ci.yml` runs `pytest --cov=apps` but no `--cov-fail-under` threshold exists anywhere in the workflow; coverage is measured, never enforced. |
+| Real multi-message provider API | Med | Med | Confirmed still open — `BaseGenerationProvider.build_messages()` still emits exactly one system + one user message every time, blocking provider-native (vs. transcript-flattened) history for Chat/Research. |
+| Tool-execution loop over `request.tools` | Med | Low | Confirmed still open — `request.tools` is only ever checked for provider capability support (`supports_tools()`); nothing loops over declared tools and actually executes them. |
+| Per-user concurrent-stream cap | Low-Med | Med | Confirmed still open — zero rate-limiting code references stream concurrency; today's `ValkeyRateLimiter` bounds request rate, not simultaneous open streams. |
+| L3 Session Cache wiring | Low | Med | Confirmed still open — `CacheService.get_session()`/`set_session()` are real and callable, but grepping the whole generation/research call surface finds zero callers; nothing invokes L3 today. |
+| Native provider prompt-caching (Anthropic/OpenAI) | Low-Med | Med | Confirmed still open — zero references to `cache_control`/prompt-caching in any provider file; complementary to, not a replacement for, this app's own L1/L2/L3. |
+| Artifact-replay API routes | Low | Med | Confirmed still open — `GenerationReplayService`/`StreamReplayService`/`ResearchReplayService` (the last one just fixed, see Table C) are all real and tested, but no API route exposes any of the three. |
+| `record_retrieval()`/`record_agent()` observability call sites | Low | Med | Confirmed still open — the canonical `RetrievalMetricsSnapshot`/`AgentMetricsSnapshot` models/builders exist; zero call sites persist them anywhere. |
+| L1 retrieval cache short-circuit | Med | Med | **Not yet scored for a Wave** — its own todo doc (`docs/todo/l1-retrieval-cache-short-circuit.md`) explicitly says "needs more investigation before implementation." Confirmed still open 2026-08-12: retrieval runs on every `/research` call even when the eventual answer would be a cache hit. Also flagged independently in `PRODUCT_FLOWS_AND_GAPS.md` L1. |
+| Vector indexing idempotency (deterministic point IDs) | Med | Med | **Not originally in Table B, added here for the same reason** — `docs/todo/vector-indexing-idempotency-gap.md` describes a real, confirmed-still-open gap (`uuid4()` random IDs passed straight through as Qdrant point IDs, no UUIDv5/deterministic scheme, so re-ingesting the same chunk creates a duplicate rather than upserting) that had no Wave placement either. |
 
 ---
 

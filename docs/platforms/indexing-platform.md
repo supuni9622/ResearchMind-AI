@@ -1,6 +1,9 @@
 # Indexing Platform
 
-**Status:** Planned
+**Status:** ✅ Complete — see [`../PROJECT_STATUS.md`](../PROJECT_STATUS.md)
+Milestone 2.6 (Indexing Platform / Hybrid Retrieval). This document's design
+content below remains accurate as a description of the shipped platform;
+only the header was stale.
 
 **Version:** 1.0
 

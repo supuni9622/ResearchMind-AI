@@ -1,6 +1,11 @@
 # Retrieval Platform
 
-**Status:** Planned
+**Status:** ✅ Complete — see [`../PROJECT_STATUS.md`](../PROJECT_STATUS.md)
+Milestone 2.7. Dense, sparse, and hybrid (RRF-fused) retrieval, metadata
+filtering, reranking, and 3-way parallel retrieval are implemented,
+benchmarked, and live in production. This document's design content below
+remains accurate as a description of the shipped platform; only the header
+was stale.
 
 **Version:** 1.0
 

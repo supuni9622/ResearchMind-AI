@@ -1,14 +1,24 @@
 # Evaluation Strategy
 
-## Current Status: Not Implemented
+## Current Status: Superseded
 
-There is no evaluation logic in this codebase yet. This document exists to
-record what's scaffolded so far and what each placeholder is meant to hold,
-so the next implementation work has a clear target instead of starting from
-nothing.
+**This document is historical.** It was written when no evaluation logic
+existed in this codebase — that's no longer true. The Evaluation Platform
+(golden dataset, Ragas scoring, CI regression gates, online scoring,
+dashboard, LLM-as-judge, latency SLOs, feedback loop, promotion review,
+tool-invocation metrics) has since been built per
+[`../PRIORITIZED_ROADMAP.md`](../PRIORITIZED_ROADMAP.md) Wave 0/Wave 1
+(items E1–E23), with full task-level detail and code citations in
+[`../EVALUATION_IMPLEMENTATION_TRACKER.md`](../EVALUATION_IMPLEMENTATION_TRACKER.md).
+Treat those two documents as canonical; the content below describes the
+pre-implementation scaffolding state and is kept only as a historical
+record of what this doc originally called for.
 
-Do not infer from the directory names below that any of this runs today —
-every file listed is either empty or contains only an `__init__.py`.
+Do not infer from the directory names below that any of this still runs as
+described — several of the "empty" scaffolds referenced (e.g.
+`app/ai/quality/`, `api/v1/evaluation.py`) remain intentionally unused, since
+the real evaluation logic was built into repo-root `benchmarks/` instead;
+see the tracker linked above for where things actually live today.
 
 ---
 

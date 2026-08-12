@@ -232,6 +232,39 @@ jobs:
           --output benchmarks/reports
           --check-regression
 
+      - name: Abstention regression check
+        # E20 follow-up (2026-08-12): populates abstention_pass_rate,
+        # EVALUATION_PLAN.md §13's third absolute gate -- previously
+        # declared but never emitted by any benchmark run. Runs
+        # rag_answer_gold's unanswerable ("u"-prefixed) examples through
+        # the same live-generation machinery as GoldenSetGeneration above,
+        # scored by AbstentionJudge instead of Ragas.
+        env:
+          ENVIRONMENT: test
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: >
+          uv run python -m benchmarks.runner AbstentionRegression
+          --dataset datasets/golden
+          --output benchmarks/reports
+          --check-regression
+
+      - name: Schema-validity regression check
+        # E20 follow-up (2026-08-12): populates schema_validity_rate,
+        # EVALUATION_PLAN.md §13's fourth absolute gate. Exercises
+        # ResearchPlanner.plan()'s real structured-output contract
+        # against a small fixed query set -- see
+        # EVALUATION_IMPLEMENTATION_TRACKER.md's E20 entry for why this
+        # benchmark, unlike the three above, isn't a GoldenSetBenchmark
+        # extension.
+        env:
+          ENVIRONMENT: test
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: >
+          uv run python -m benchmarks.runner SchemaValidityRegression
+          --dataset datasets/schema_validity
+          --output benchmarks/reports
+          --check-regression
+
       - name: Upload regression reports
         if: always()
         uses: actions/upload-artifact@v4
@@ -240,4 +273,6 @@ jobs:
           path: |
             benchmarks/reports/goldensetgeneration/regression*
             benchmarks/reports/productionfailuresregression/regression*
+            benchmarks/reports/abstentionregression/regression*
+            benchmarks/reports/schemavalidityregression/regression*
           if-no-files-found: ignore

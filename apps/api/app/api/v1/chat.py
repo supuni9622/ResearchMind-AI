@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncGenerator
 from datetime import datetime
+from typing import Any
 from uuid import UUID
 
 import structlog
@@ -381,6 +382,8 @@ async def _build_request(
     prompt_history: PromptHistory,
     web_context_text: str | None = None,
     paper_context_text: str | None = None,
+    web_invoked: bool = False,
+    paper_invoked: bool = False,
 ) -> GenerationRequest:
     history = prompt_history.messages
     transcript = _format_transcript(
@@ -404,6 +407,24 @@ async def _build_request(
     prompt_context = _with_web_search_context(prompt_context, web_context_text)
     prompt_context = _with_paper_search_context(prompt_context, paper_context_text)
 
+    # E23 (EVALUATION_PLAN.md §10): recorded only when the toggle was on
+    # for this turn -- "invoked" is only a meaningful question once the
+    # tool was eligible. `OnlineScoringJob` reads these back off the
+    # persisted `GenerationArtifact.request.metadata` and emits
+    # `eval_scores` rows for them (same "free, 100%-sampled deterministic
+    # signal" path `citation_validity` already uses), which
+    # `_sync_to_langsmith` mirrors to LangSmith automatically -- no new
+    # wiring needed in either place.
+    tool_invocation_metadata: dict[str, Any] = {}
+    if payload.web_search_enabled:
+        tool_invocation_metadata["web_search_invoked"] = web_invoked
+        if web_invoked:
+            tool_invocation_metadata["web_search_success"] = web_context_text is not None
+    if payload.paper_search_enabled:
+        tool_invocation_metadata["paper_search_invoked"] = paper_invoked
+        if paper_invoked:
+            tool_invocation_metadata["paper_search_success"] = paper_context_text is not None
+
     return GenerationRequest(
         prompt_context=prompt_context,
         user_prompt=transcript,
@@ -420,6 +441,7 @@ async def _build_request(
         cache_runtime=CacheRuntime.CHAT,
         runtime=RuntimeType.CHAT,
         artifact_runtime=ArtifactRuntime.CHAT,
+        metadata=tool_invocation_metadata,
         **config_fingerprint_kwargs(surface="chat", prompt_version="chat-v1"),
     )
 
@@ -486,6 +508,8 @@ async def _prepare_chat_generation(
         prompt_history=prompt_history,
         web_context_text=web_outcome.context_text,
         paper_context_text=paper_outcome.context_text,
+        web_invoked=web_outcome.invoked,
+        paper_invoked=paper_outcome.invoked,
     )
     return [*web_outcome.events, *paper_outcome.events], request
 

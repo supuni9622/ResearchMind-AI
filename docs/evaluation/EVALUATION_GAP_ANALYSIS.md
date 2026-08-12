@@ -3,6 +3,27 @@
 **Reviewed:** 2026-08-05  
 **Scope:** Offline benchmarks, datasets, metrics, regression controls, runtime signals, tests, API integration, and CI
 
+**Historical, mostly superseded (2026-08-12 note, not a 2026-08-05
+correction).** This document's own point-in-time findings below are kept
+as-is for the record — this note only says what changed since. Every P0
+gap this doc identified (no end-to-end golden QA, no CI evaluation gate,
+tiny single-domain dataset, lexical-only generation proxies, no
+citation/schema/abstention gates) and every "Missing" row in the
+Evaluation Coverage table (end-to-end RAG, safety/security, human/product
+quality, evaluation API/dashboard) has since shipped — see
+[`EVALUATION_PLAN.md`](../EVALUATION_PLAN.md) for the current design and
+[`EVALUATION_IMPLEMENTATION_TRACKER.md`](../EVALUATION_IMPLEMENTATION_TRACKER.md)
+for verified current status of every item (E1-E23 as of 2026-08-12). The
+"Final implementation plan" section at the bottom of this file already
+carries its own, earlier (2026-08-10) supersession note for the same
+reason — this banner extends that same fact to the rest of the document,
+which had no equivalent notice even though it's just as out of date in
+substance. One genuine gap this pass' cross-doc audit found — not
+something this 2026-08-05 doc called out either — was `EVALUATION_PLAN.md`
+§10's "tool-invocation rate & success rate" metric, never previously
+tracked at all; built same day for Chat as E23 (Deep Research/Linear
+Research explicitly excluded, see that item's own entry).
+
 ## Executive assessment
 
 | Area | Assessment | Evidence |

@@ -522,7 +522,7 @@ export type FingerprintField =
   | 'reranker'
   | 'routing_strategy';
 
-export type ContentSegmentField = 'query_type' | 'difficulty' | 'workflow';
+export type ContentSegmentField = 'query_type' | 'difficulty' | 'workflow' | 'failure_category';
 
 export interface FingerprintSegmentAggregate {
   fingerprint_value: string | null;

@@ -161,3 +161,97 @@ def test_results_are_sorted_by_segment_value(tmp_path, monkeypatch) -> None:
     result = segment_analysis.aggregate_offline_by_content_segment(rows, segment_field="query_type")
 
     assert [aggregate.segment_value for aggregate in result] == ["comparison", "factual"]
+
+
+# -- failure_category (E9 follow-up, only production_failures examples have one) --
+
+
+def _write_production_failures(path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(
+            {
+                "version": "test",
+                "examples": [
+                    {
+                        "example_id": "pf1",
+                        "question": "q1",
+                        "query_type": "factual",
+                        "difficulty": "easy",
+                        "workflow": "chat",
+                        "failure_category": "wrong_citation",
+                    },
+                    {
+                        "example_id": "pf2",
+                        "question": "q2",
+                        "query_type": "factual",
+                        "difficulty": "easy",
+                        "workflow": "chat",
+                        "failure_category": "hallucination",
+                    },
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+
+def test_groups_by_failure_category_from_the_production_failures_dataset(
+    tmp_path, monkeypatch
+) -> None:
+    golden_path = tmp_path / "golden" / "rag_answer_gold.json"
+    failures_path = tmp_path / "production_failures" / "production_failures.json"
+    _write_dataset(golden_path)
+    _write_production_failures(failures_path)
+    monkeypatch.setattr(segment_analysis, "GOLDEN_DATASET_PATH", golden_path)
+    monkeypatch.setattr(segment_analysis, "PRODUCTION_FAILURES_DATASET_PATH", failures_path)
+
+    rows = [
+        _score(dataset_example_id="pf1", score=0.2, passed=False),
+        _score(dataset_example_id="pf2", score=0.1, passed=False),
+    ]
+
+    result = segment_analysis.aggregate_offline_by_content_segment(
+        rows, segment_field="failure_category"
+    )
+    by_segment = {aggregate.segment_value: aggregate for aggregate in result}
+
+    assert by_segment["wrong_citation"].count == 1
+    assert by_segment["hallucination"].count == 1
+
+
+def test_rag_answer_gold_rows_never_appear_in_the_failure_category_slice(
+    tmp_path, monkeypatch
+) -> None:
+    """rag_answer_gold examples have no failure_category at all -- must
+    be excluded entirely, not grouped under a bogus "None" bucket."""
+
+    golden_path = tmp_path / "golden" / "rag_answer_gold.json"
+    failures_path = tmp_path / "production_failures" / "production_failures.json"
+    _write_dataset(golden_path)
+    _write_production_failures(failures_path)
+    monkeypatch.setattr(segment_analysis, "GOLDEN_DATASET_PATH", golden_path)
+    monkeypatch.setattr(segment_analysis, "PRODUCTION_FAILURES_DATASET_PATH", failures_path)
+
+    rows = [_score(dataset_example_id="g1", score=0.9, passed=True)]
+
+    result = segment_analysis.aggregate_offline_by_content_segment(
+        rows, segment_field="failure_category"
+    )
+
+    assert result == []
+
+
+def test_missing_production_failures_file_does_not_error(tmp_path, monkeypatch) -> None:
+    golden_path = tmp_path / "golden" / "rag_answer_gold.json"
+    _write_dataset(golden_path)
+    monkeypatch.setattr(segment_analysis, "GOLDEN_DATASET_PATH", golden_path)
+    monkeypatch.setattr(
+        segment_analysis, "PRODUCTION_FAILURES_DATASET_PATH", tmp_path / "does-not-exist.json"
+    )
+
+    rows = [_score(dataset_example_id="g1", score=0.9, passed=True)]
+
+    result = segment_analysis.aggregate_offline_by_content_segment(rows, segment_field="query_type")
+
+    assert result[0].segment_value == "factual"

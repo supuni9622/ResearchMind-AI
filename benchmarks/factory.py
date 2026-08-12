@@ -60,11 +60,13 @@ from app.core.settings import settings
 from benchmarks.chunking.benchmark import ChunkingBenchmark
 from benchmarks.common.dataset_loader import DatasetLoader
 from benchmarks.embeddings.benchmark import EmbeddingBenchmark
+from benchmarks.generation.abstention_benchmark import AbstentionBenchmark
 from benchmarks.generation.benchmark import GenerationBenchmark
 from benchmarks.generation.golden_set_benchmark import GoldenSetBenchmark
 from benchmarks.generation.production_failures_benchmark import (
     ProductionFailuresBenchmark,
 )
+from benchmarks.generation.schema_validity_benchmark import SchemaValidityBenchmark
 from benchmarks.ingestion.benchmark import IngestionFidelityBenchmark
 from benchmarks.registry import BenchmarkRegistry
 from benchmarks.reranking.benchmark import (
@@ -234,6 +236,12 @@ def create_benchmark_registry() -> BenchmarkRegistry:
     # just because these two optional benchmarks can't be built yet.
     #
     if settings.openai_api_key:
+        from app.ai.runtime.generation.orchestration.create import (
+            create_generation_runtime,
+        )
+        from app.ai.runtime.research.planner.service import ResearchPlanner
+
+        from benchmarks.generation.abstention_judge import build_abstention_judge
         from benchmarks.generation.ragas_judge import build_openai_ragas_judge
         from benchmarks.generation.rubric_judge import build_rubric_judge
 
@@ -249,6 +257,10 @@ def create_benchmark_registry() -> BenchmarkRegistry:
         # answers (see rubric_judge.py's own module docstring for why
         # that would be a real cost problem, not just a style choice).
         rubric_judge = build_rubric_judge()
+        # Same reasoning as rubric_judge above, its own fixed-cheap-model
+        # client -- feeds abstention_pass_rate (AbstentionBenchmark) and
+        # ProductionFailuresBenchmark's abstention_failure category.
+        abstention_judge = build_abstention_judge()
         provider_fallback_chain = [GenerationProvider.OPENAI, GenerationProvider.CLAUDE]
 
         registry.register(
@@ -275,6 +287,23 @@ def create_benchmark_registry() -> BenchmarkRegistry:
                 judge=judge,
                 providers=provider_fallback_chain,
                 rubric_judge=rubric_judge,
+                abstention_judge=abstention_judge,
+            )
+        )
+
+        registry.register(
+            AbstentionBenchmark(
+                generation_service=GenerationService(
+                    registry=generation_registry,
+                ),
+                abstention_judge=abstention_judge,
+                providers=provider_fallback_chain,
+            )
+        )
+
+        registry.register(
+            SchemaValidityBenchmark(
+                planner=ResearchPlanner(generation_runtime=create_generation_runtime()),
             )
         )
 

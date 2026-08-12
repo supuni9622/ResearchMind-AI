@@ -93,6 +93,24 @@ ScoreGenerationFn = Callable[..., Awaitable[_GenerationScoreReportLike]]
 """Structurally: `async def(*, question, answer, contexts, reference,
 judge, rubric=None, rubric_judge=None) -> _GenerationScoreReportLike`."""
 
+TOOL_INVOCATION_METRIC_NAMES = (
+    "web_search_invoked",
+    "web_search_success",
+    "paper_search_invoked",
+    "paper_search_success",
+)
+"""E23 (`EVALUATION_PLAN.md` §10, tool-invocation rate & success rate) --
+set on `GenerationRequest.metadata` by whichever call site actually ran
+the tool (today: `api/v1/chat.py`'s `_build_request`, the only caller
+that threads this through -- Linear Research/Deep Research generations
+never carry these keys at all). Absent entirely, not a `False` row, for
+a Chat turn where the corresponding toggle was off -- "was it invoked"
+is only a meaningful question once the tool was eligible this turn, same
+"don't bucket not-applicable under a bogus value" principle
+`segment_analysis.py`'s `failure_category` slice uses. `*_success` is
+itself only present when `*_invoked` was `True` -- success is meaningless
+to ask about a tool that never ran."""
+
 _GENERIC_ONLINE_RUBRIC = (
     "The answer directly addresses the question asked, is appropriately "
     "complete for its complexity (neither padded nor missing an obvious "
@@ -212,6 +230,22 @@ class OnlineScoringJob:
             sample_category=sampling_decision.category.value,
         )
         self._sync_to_langsmith(langsmith_run_id, citation_score)
+
+        for metric_name in TOOL_INVOCATION_METRIC_NAMES:
+            if metric_name not in artifact.request.metadata:
+                continue
+            invoked_or_succeeded = bool(artifact.request.metadata[metric_name])
+            tool_score = await self._eval_score_repository.record(
+                owner_id=row.owner_id,
+                generation_id=row.generation_id,
+                metric_name=metric_name,
+                score=1.0 if invoked_or_succeeded else 0.0,
+                passed=invoked_or_succeeded,
+                reason=None,
+                source=EvalScoreSource.ONLINE_SAMPLED.value,
+                sample_category=sampling_decision.category.value,
+            )
+            self._sync_to_langsmith(langsmith_run_id, tool_score)
 
         if not sampling_decision.should_score_judges:
             log.debug("online_scoring_job.judges_skipped", reason=sampling_decision.reason)

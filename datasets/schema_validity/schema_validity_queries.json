@@ -1,0 +1,54 @@
+{
+  "version": "1.0",
+  "notes": "schema_validity_rate benchmark query set (EVALUATION_IMPLEMENTATION_TRACKER.md's 'do all 1-5' follow-up, 2026-08-12). Deliberately varied query shapes -- short/long, single-topic/comparative, narrow/open-ended -- since schema-invalid output tends to correlate with prompt shape (e.g. a very open-ended query producing more tasks than ResearchPlanningPolicy's budget, or the model padding a long rambling 'goal' field a strict schema rejects), not just topic.",
+  "queries": [
+    {
+      "query_id": "sv1",
+      "query": "What are the main approaches to few-shot learning in large language models?"
+    },
+    {
+      "query_id": "sv2",
+      "query": "Compare transformer-based and CNN-based architectures for medical image segmentation."
+    },
+    {
+      "query_id": "sv3",
+      "query": "How does retrieval-augmented generation reduce hallucination in question answering systems?"
+    },
+    {
+      "query_id": "sv4",
+      "query": "Summarize recent findings on the relationship between gut microbiome diversity and autoimmune disease."
+    },
+    {
+      "query_id": "sv5",
+      "query": "What evidence exists for climate tipping points in the Amazon rainforest, and how confident are researchers in current model projections?"
+    },
+    {
+      "query_id": "sv6",
+      "query": "quantum error correction"
+    },
+    {
+      "query_id": "sv7",
+      "query": "Give me a broad, comprehensive overview of everything known about CRISPR gene editing, its history, mechanisms, applications in agriculture and medicine, ethical debates, regulatory status across different countries, and open technical challenges."
+    },
+    {
+      "query_id": "sv8",
+      "query": "What is the current consensus on the effectiveness of mRNA vaccines against emerging viral variants?"
+    },
+    {
+      "query_id": "sv9",
+      "query": "How do reinforcement learning from human feedback (RLHF) and constitutional AI differ as alignment techniques?"
+    },
+    {
+      "query_id": "sv10",
+      "query": "What are the leading hypotheses explaining the accelerating expansion of the universe?"
+    },
+    {
+      "query_id": "sv11",
+      "query": "Explain the tradeoffs between sparse and dense retrieval methods in information retrieval systems."
+    },
+    {
+      "query_id": "sv12",
+      "query": "What do longitudinal studies say about the long-term cognitive effects of chronic sleep deprivation?"
+    }
+  ]
+}

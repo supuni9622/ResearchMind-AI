@@ -110,7 +110,10 @@ async def main() -> None:
         print(
             "Per-example scores available in this report — run "
             "`python -m benchmarks.generation.persist_golden_set_scores "
-            f"--report {report_path}` to make them queryable in the eval dashboard."
+            f"--report {report_path}` to make them queryable in the eval dashboard, and "
+            "`python -m benchmarks.generation.langsmith_experiment "
+            f"--report {report_path}` to log it as a LangSmith Experiment comparable "
+            "against prior runs (needs the dataset already registered via langsmith_sync.py)."
         )
 
     if not args.check_regression:

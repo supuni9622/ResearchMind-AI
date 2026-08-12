@@ -19,6 +19,7 @@ import pytest
 from app.ai.runtime.generation.enums import GenerationProvider
 from app.ai.runtime.generation.models import GenerationResult
 
+from benchmarks.generation.abstention_judge import AbstentionJudgeResult
 from benchmarks.generation.golden_dataset import (
     Difficulty,
     ExpectedBehavior,
@@ -131,11 +132,24 @@ def _fake_result(*, content: str = "a generated answer") -> GenerationResult:
     return result
 
 
-def _benchmark(generation_service: MagicMock) -> ProductionFailuresBenchmark:
+class _FakeAbstentionJudge:
+    def __init__(self, *, passed: bool = True) -> None:
+        self._passed = passed
+
+    async def ascore(
+        self, *, question: str, answer: str, rubric: str | None = None
+    ) -> AbstentionJudgeResult:
+        return AbstentionJudgeResult(passed=self._passed, reason="fake abstention verdict")
+
+
+def _benchmark(
+    generation_service: MagicMock, *, abstention_judge: _FakeAbstentionJudge | None = None
+) -> ProductionFailuresBenchmark:
     return ProductionFailuresBenchmark(
         generation_service=generation_service,
         judge=_FakeJudge(),
         providers=[GenerationProvider.OPENAI],
+        abstention_judge=abstention_judge,
     )
 
 
@@ -147,6 +161,7 @@ async def test_included_failure_categories_are_evaluated(tmp_path: Path) -> None
             _failure_example("f1", failure_category="wrong_citation"),
             _failure_example("f2", failure_category="hallucination"),
             _failure_example("f3", failure_category="retrieval_miss"),
+            _failure_example("f4", failure_category="injection_success"),
         ],
     )
     generation_service = MagicMock()
@@ -154,25 +169,26 @@ async def test_included_failure_categories_are_evaluated(tmp_path: Path) -> None
 
     result = await _benchmark(generation_service).run(dataset_dir)
 
-    assert result.dataset.document_count == 3
-    assert generation_service.generate.await_count == 3
+    assert result.dataset.document_count == 4
+    assert generation_service.generate.await_count == 4
 
 
 @pytest.mark.asyncio
-async def test_excluded_failure_categories_are_not_evaluated(tmp_path: Path) -> None:
-    """abstention_failure/workflow_loop/schema_violation/injection_success/
-    unnecessary_tool_use don't fit this benchmark's answerable/Ragas-scored
-    model -- excluded until their own check logic exists, not silently
-    mis-scored as if they were citation/faithfulness failures."""
+async def test_architecturally_infeasible_failure_categories_are_not_evaluated(
+    tmp_path: Path,
+) -> None:
+    """workflow_loop/schema_violation/unnecessary_tool_use don't fit this
+    benchmark's single-generation-call-per-example model at all (see
+    INCLUDED_FAILURE_CATEGORIES's own docstring) -- excluded until their
+    own check logic exists, not silently mis-scored as if they were
+    citation/faithfulness failures."""
 
     dataset_dir = _write_dataset(
         tmp_path,
         [
-            _failure_example("f1", failure_category="abstention_failure"),
-            _failure_example("f2", failure_category="workflow_loop"),
-            _failure_example("f3", failure_category="schema_violation"),
-            _failure_example("f4", failure_category="injection_success"),
-            _failure_example("f5", failure_category="unnecessary_tool_use"),
+            _failure_example("f1", failure_category="workflow_loop"),
+            _failure_example("f2", failure_category="schema_violation"),
+            _failure_example("f3", failure_category="unnecessary_tool_use"),
         ],
     )
     generation_service = MagicMock()
@@ -182,6 +198,65 @@ async def test_excluded_failure_categories_are_not_evaluated(tmp_path: Path) -> 
 
     assert result.dataset.document_count == 0
     generation_service.generate.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_abstention_failure_examples_are_skipped_without_an_abstention_judge(
+    tmp_path: Path,
+) -> None:
+    """Same opt-in shape as rubric_judge: no abstention_judge wired means
+    abstention_failure examples are left out of the report, not
+    mis-scored via the Ragas path."""
+
+    dataset_dir = _write_dataset(
+        tmp_path,
+        [
+            _failure_example(
+                "f1",
+                failure_category="abstention_failure",
+                expected_behavior=ExpectedBehavior.ABSTAIN,
+            ),
+        ],
+    )
+    generation_service = MagicMock()
+    generation_service.generate = AsyncMock(return_value=_fake_result())
+
+    result = await _benchmark(generation_service).run(dataset_dir)
+
+    assert result.dataset.document_count == 0
+    generation_service.generate.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_abstention_failure_examples_are_scored_via_the_abstention_judge(
+    tmp_path: Path,
+) -> None:
+    dataset_dir = _write_dataset(
+        tmp_path,
+        [
+            _failure_example("f1", failure_category="wrong_citation"),
+            _failure_example(
+                "f2",
+                failure_category="abstention_failure",
+                expected_behavior=ExpectedBehavior.ABSTAIN,
+            ),
+        ],
+    )
+    generation_service = MagicMock()
+    generation_service.generate = AsyncMock(return_value=_fake_result())
+
+    result = await _benchmark(
+        generation_service, abstention_judge=_FakeAbstentionJudge(passed=True)
+    ).run(dataset_dir)
+
+    assert result.dataset.document_count == 2
+    assert generation_service.generate.await_count == 2
+    assert result.candidates[0].metrics["abstention_pass_rate"] == 1.0
+    per_example = result.candidates[0].notes["per_example_scores"]
+    assert any(
+        entry["example_id"] == "f2" and entry["metric"] == "abstention_pass_rate"
+        for entry in per_example
+    )
 
 
 @pytest.mark.asyncio

@@ -24,15 +24,22 @@ from pydantic import BaseModel
 
 from app.core.constants import DATASETS_DIRECTORY
 from app.models.eval_score import EvalScore
-from benchmarks.generation.golden_dataset import load_golden_dataset
+from benchmarks.generation.golden_dataset import GoldenExample, load_golden_dataset
 
 GOLDEN_DATASET_PATH = DATASETS_DIRECTORY / "golden" / "rag_answer_gold.json"
+PRODUCTION_FAILURES_DATASET_PATH = (
+    DATASETS_DIRECTORY / "production_failures" / "production_failures.json"
+)
 
-CONTENT_SEGMENT_FIELDS = ("query_type", "difficulty", "workflow")
+CONTENT_SEGMENT_FIELDS = ("query_type", "difficulty", "workflow", "failure_category")
 """
 The golden-example fields E9's offline segment analysis can group by --
 a closed list, not an arbitrary caller-supplied attribute name, mirroring
-`ONLINE_FINGERPRINT_FIELDS`'s same safety rationale.
+`ONLINE_FINGERPRINT_FIELDS`'s same safety rationale. `failure_category`
+(E10 follow-up, EVALUATION_IMPLEMENTATION_TRACKER.md E9) only exists on
+`production_failures` examples -- `rag_answer_gold` examples always leave
+it unset -- so this is the one field where most examples contribute
+nothing to this particular slice, by design, not a bug.
 """
 
 
@@ -60,10 +67,19 @@ def aggregate_offline_by_content_segment(
     historical rows shouldn't break this view.
     """
 
-    dataset = load_golden_dataset(GOLDEN_DATASET_PATH)
+    examples: list[GoldenExample] = list(load_golden_dataset(GOLDEN_DATASET_PATH).examples)
+    if PRODUCTION_FAILURES_DATASET_PATH.exists():
+        examples += load_golden_dataset(PRODUCTION_FAILURES_DATASET_PATH).examples
 
+    # `failure_category` is unset (None) on every rag_answer_gold example
+    # and on any production_failures example promoted for a category
+    # this doesn't apply to -- excluded here rather than grouped under a
+    # bogus "None" segment bucket, since it's "not applicable", not a
+    # real, nameable segment (see CONTENT_SEGMENT_FIELDS' own docstring).
     segment_by_example_id = {
-        example.example_id: str(getattr(example, segment_field)) for example in dataset.examples
+        example.example_id: str(value)
+        for example in examples
+        if (value := getattr(example, segment_field, None)) is not None
     }
 
     grouped: dict[str, list[EvalScore]] = {}

@@ -31,6 +31,7 @@ from app.ai.runtime.generation.models import (
 )
 from app.ai.runtime.generation.online_scoring.job import (
     _GENERIC_ONLINE_RUBRIC,
+    TOOL_INVOCATION_METRIC_NAMES,
     OnlineScoringJob,
 )
 from app.ai.runtime.generation.online_scoring.sampling import OnlineScoringConfig
@@ -62,6 +63,7 @@ def _make_artifact_result(
     chunks: list[ContextChunk] | None = None,
     citations: list[Citation] | None = None,
     guardrails: GuardrailReport | None = None,
+    metadata: dict[str, object] | None = None,
 ) -> GenerationResult:
     chunks = chunks if chunks is not None else [_make_context_chunk()]
     citations = (
@@ -81,6 +83,7 @@ def _make_artifact_result(
         owner_id=owner_id,
         surface="chat",
         prompt_version="chat-v1",
+        metadata=metadata or {},
     )
     result = GenerationResult(
         request=request,
@@ -726,3 +729,172 @@ async def test_rubric_adherence_score_is_persisted_and_synced_like_any_other_met
     assert rubric_call["passed"] is False
     assert rubric_call["reason"] == "misses the required tone"
     assert rubric_call["source"] == EvalScoreSource.ONLINE_SAMPLED.value
+
+
+# ==============================================================
+# E23: tool-invocation rate & success rate (EVALUATION_PLAN.md §10)
+# ==============================================================
+
+
+@pytest.mark.asyncio
+async def test_tool_invocation_metrics_absent_from_metadata_are_not_recorded() -> None:
+    """Linear Research/Deep Research generations, and Chat turns where
+    both toggles were off, carry no tool-invocation keys at all -- must
+    not appear as a False/0.0 row, just not recorded."""
+
+    owner_id = uuid.uuid4()
+    generation_id = uuid.uuid4()
+    row = _make_usage_row(owner_id=owner_id, generation_id=generation_id)
+    artifact = GenerationArtifactBuilder().build(
+        result=_make_artifact_result(owner_id=owner_id, generation_id=generation_id)
+    )
+
+    harness = _JobHarness()
+    harness.generation_usage_repository.list_unscored_since = AsyncMock(return_value=[row])
+    harness.artifact_reader.read = AsyncMock(return_value=artifact)
+
+    await harness.job.run_once()
+
+    metric_names = {c["metric_name"] for c in harness.record_calls()}
+    assert metric_names.isdisjoint(TOOL_INVOCATION_METRIC_NAMES)
+
+
+@pytest.mark.asyncio
+async def test_web_search_invoked_and_succeeded_records_both_metrics_as_passed() -> None:
+    owner_id = uuid.uuid4()
+    generation_id = uuid.uuid4()
+    row = _make_usage_row(owner_id=owner_id, generation_id=generation_id)
+    artifact = GenerationArtifactBuilder().build(
+        result=_make_artifact_result(
+            owner_id=owner_id,
+            generation_id=generation_id,
+            metadata={"web_search_invoked": True, "web_search_success": True},
+        )
+    )
+
+    harness = _JobHarness()
+    harness.generation_usage_repository.list_unscored_since = AsyncMock(return_value=[row])
+    harness.artifact_reader.read = AsyncMock(return_value=artifact)
+
+    await harness.job.run_once()
+
+    calls = {c["metric_name"]: c for c in harness.record_calls()}
+    assert calls["web_search_invoked"]["passed"] is True
+    assert calls["web_search_invoked"]["score"] == 1.0
+    assert calls["web_search_success"]["passed"] is True
+    assert calls["web_search_success"]["score"] == 1.0
+    assert "paper_search_invoked" not in calls
+
+
+@pytest.mark.asyncio
+async def test_web_search_invoked_but_unsuccessful_records_a_failing_success_metric() -> None:
+    owner_id = uuid.uuid4()
+    generation_id = uuid.uuid4()
+    row = _make_usage_row(owner_id=owner_id, generation_id=generation_id)
+    artifact = GenerationArtifactBuilder().build(
+        result=_make_artifact_result(
+            owner_id=owner_id,
+            generation_id=generation_id,
+            metadata={"web_search_invoked": True, "web_search_success": False},
+        )
+    )
+
+    harness = _JobHarness()
+    harness.generation_usage_repository.list_unscored_since = AsyncMock(return_value=[row])
+    harness.artifact_reader.read = AsyncMock(return_value=artifact)
+
+    await harness.job.run_once()
+
+    calls = {c["metric_name"]: c for c in harness.record_calls()}
+    assert calls["web_search_invoked"]["passed"] is True
+    assert calls["web_search_success"]["passed"] is False
+    assert calls["web_search_success"]["score"] == 0.0
+
+
+@pytest.mark.asyncio
+async def test_toggled_on_but_not_invoked_records_only_the_invocation_metric() -> None:
+    """Toggle was on this turn (so `web_search_invoked` is a meaningful
+    question) but the necessity check decided against it -- `invoked`
+    is `False`, and there is no `web_search_success` key at all (success
+    is meaningless for a search that never ran)."""
+
+    owner_id = uuid.uuid4()
+    generation_id = uuid.uuid4()
+    row = _make_usage_row(owner_id=owner_id, generation_id=generation_id)
+    artifact = GenerationArtifactBuilder().build(
+        result=_make_artifact_result(
+            owner_id=owner_id,
+            generation_id=generation_id,
+            metadata={"web_search_invoked": False},
+        )
+    )
+
+    harness = _JobHarness()
+    harness.generation_usage_repository.list_unscored_since = AsyncMock(return_value=[row])
+    harness.artifact_reader.read = AsyncMock(return_value=artifact)
+
+    await harness.job.run_once()
+
+    calls = {c["metric_name"]: c for c in harness.record_calls()}
+    assert calls["web_search_invoked"]["passed"] is False
+    assert calls["web_search_invoked"]["score"] == 0.0
+    assert "web_search_success" not in calls
+
+
+@pytest.mark.asyncio
+async def test_paper_search_metrics_are_recorded_independently_of_web_search() -> None:
+    owner_id = uuid.uuid4()
+    generation_id = uuid.uuid4()
+    row = _make_usage_row(owner_id=owner_id, generation_id=generation_id)
+    artifact = GenerationArtifactBuilder().build(
+        result=_make_artifact_result(
+            owner_id=owner_id,
+            generation_id=generation_id,
+            metadata={"paper_search_invoked": True, "paper_search_success": True},
+        )
+    )
+
+    harness = _JobHarness()
+    harness.generation_usage_repository.list_unscored_since = AsyncMock(return_value=[row])
+    harness.artifact_reader.read = AsyncMock(return_value=artifact)
+
+    await harness.job.run_once()
+
+    calls = {c["metric_name"]: c for c in harness.record_calls()}
+    assert calls["paper_search_invoked"]["passed"] is True
+    assert calls["paper_search_success"]["passed"] is True
+    assert "web_search_invoked" not in calls
+
+
+@pytest.mark.asyncio
+async def test_tool_invocation_metrics_are_synced_to_langsmith() -> None:
+    owner_id = uuid.uuid4()
+    generation_id = uuid.uuid4()
+    row = _make_usage_row(owner_id=owner_id, generation_id=generation_id)
+    artifact = GenerationArtifactBuilder().build(
+        result=_make_artifact_result(
+            owner_id=owner_id,
+            generation_id=generation_id,
+            metadata={"web_search_invoked": True, "web_search_success": True},
+        )
+    )
+    run_id = uuid.uuid4()
+
+    harness = _JobHarness()
+    harness.generation_usage_repository.list_unscored_since = AsyncMock(return_value=[row])
+    harness.artifact_reader.read = AsyncMock(return_value=artifact)
+    harness.generation_usage_repository.get_langsmith_run_id = AsyncMock(return_value=run_id)
+    harness.eval_score_repository.record = AsyncMock(
+        side_effect=[
+            _fake_eval_score(metric_name="citation_validity", score=1.0, reason="ok"),
+            _fake_eval_score(metric_name="web_search_invoked", score=1.0, reason=""),
+            _fake_eval_score(metric_name="web_search_success", score=1.0, reason=""),
+        ]
+    )
+
+    with patch("app.ai.runtime.generation.online_scoring.job.sync_eval_score") as sync_mock:
+        await harness.job.run_once()
+
+    synced_metrics = {call.kwargs["metric_name"] for call in sync_mock.call_args_list}
+    assert "web_search_invoked" in synced_metrics
+    assert "web_search_success" in synced_metrics

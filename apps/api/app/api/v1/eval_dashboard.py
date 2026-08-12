@@ -127,7 +127,7 @@ FingerprintField = Literal[
 ]
 """Must stay in sync with `ONLINE_FINGERPRINT_FIELDS` (eval_score repository)."""
 
-ContentSegmentField = Literal["query_type", "difficulty", "workflow"]
+ContentSegmentField = Literal["query_type", "difficulty", "workflow", "failure_category"]
 """Must stay in sync with `CONTENT_SEGMENT_FIELDS` (segment_analysis service)."""
 
 

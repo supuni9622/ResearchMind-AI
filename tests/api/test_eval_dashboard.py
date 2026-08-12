@@ -403,6 +403,23 @@ def test_segment_analysis_offline_route_allows_an_allowlisted_user(
     assert body["items"] == []
 
 
+def test_segment_analysis_offline_route_accepts_failure_category(
+    client: TestClient,
+    fake_repositories: None,
+) -> None:
+    """E9 follow-up: failure_category is a real, allowed segment field,
+    not just query_type/difficulty/workflow."""
+
+    _authenticate_as(_ADMIN_EMAIL)
+
+    response = client.get(
+        "/api/v1/eval-dashboard/segment-analysis/offline",
+        params={"metric_name": "faithfulness", "segment_field": "failure_category"},
+    )
+
+    assert response.status_code == 200
+
+
 def test_segment_analysis_offline_route_rejects_an_unknown_segment_field(
     client: TestClient,
     fake_repositories: None,

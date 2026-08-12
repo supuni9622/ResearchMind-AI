@@ -180,30 +180,34 @@ a live user-observed gap beats the planned order.
 | ID | Item | Status | Value | Ease | Depends on |
 |---|---|---|---|---|---|
 | [E1](#e1-golden-dataset--ragas-scoring-function) | Golden dataset + Ragas scoring function | **Done** (115/50-150 examples, grown 2026-08-11; LangSmith registration not done) | Very High | Med | — |
-| [E2](#e2-wire-benchmarksregression-into-ci) | Wire `benchmarks/regression/` into CI | **Done** (smoke tier only — retrieval/generation triggers need live-service CI credentials, not yet set up) | Very High | Med | E4 (for absolute gates) |
+| [E2](#e2-wire-benchmarksregression-into-ci) | Wire `benchmarks/regression/` into CI | **Done** (smoke tier — retrieval/generation live-service triggers deliberately scoped to E20 instead, done there) | Very High | Med | E4 (for absolute gates) |
 | [E3](#e3-post-feedback--thumbsupdown) | `POST /feedback` + thumbs up/down | **Done, backend** (frontend affordance not built) | Very High | Med | — |
 | [E4](#e4-citation-validator-cross-surface-release-blocking) | Citation validator, cross-surface, release-blocking | **Done** (checker built; CI/online-gate wiring is E2/E5) | Very High | High | — |
 | [E5](#e5-online-risk-weighted-scoring-job) | Online risk-weighted scoring job | **Done** | High | Med | E4 (reuses as free signal) |
 | [E6](#e6-feedback--trace-attachment--eval_scores-table) | Feedback → trace attachment + `eval_scores` table | **Done** | High | Med | E3, E5 |
 | [E7](#e7-internal-dashboard--owner-scoped-drill-down) | Internal dashboard + owner-scoped drill-down | **Done** | High | Med | E6 |
 | [E8](#e8-config-fingerprint-through-generationrequestgenerationusage) | Config fingerprint (`GenerationRequest`→`GenerationUsage`) | **Done** | High | Med | — |
-| [E9](#e9-segment-analysis-job) | Segment-analysis job | Not started | High | Med | E8 |
-| [E10](#e10-golden-set-promotion-review-both-directions) | Golden-set promotion review (both directions) | Not started | High | Med | E3, E6 |
-| [E11](#e11-comment-classification-objectivepreference-split) | Comment classification (objective/preference split) | Not started | Med-High | Med | E3 |
+| [E9](#e9-segment-analysis-job) | Segment-analysis job | **Done** (both content-segment fields and `failure_category` slice built) | High | Med | E8 |
+| [E10](#e10-golden-set-promotion-review-both-directions) | Golden-set promotion review (both directions) | **Done** (5 of 8 `failure_category` values now exercised by CI; 3 architecturally infeasible, documented not silently skipped) | High | Med | E3, E6 |
+| [E11](#e11-comment-classification-objectivepreference-split) | Comment classification (objective/preference split) | **Done** | Med-High | Med | E3 |
 | [E12](#e12-ingestion-fidelity-checks) | Ingestion fidelity checks | **Done** | Med | Med | — |
 | [E13](#e13-context-construction-checks) | Context-construction checks | **Done** | Med | Med | E4 (shares provenance logic) |
 | [E14](#e14-retrieval-metric-completeness) | Retrieval metric completeness | **Done** | Med | High | — |
 | [E15](#e15-adversarial-dataset) | Adversarial dataset (10-20 cases) | **Done** | Med | Med | — |
-| [E16](#e16-llm-as-judge-metric) | LLM-as-judge metric | Not started | Med | Med | E1 |
+| [E16](#e16-llm-as-judge-metric) | LLM-as-judge metric | **Done** | Med | Med | E1 |
 | [E17](#e17-latency-slo-alerts--eval_scores-grafana-panel) | Latency-SLO alerts + `eval_scores` Grafana panel | **Alert-rules half done** (Chat + Linear Research; Deep Research has no duration metric yet; panel half now unblocked by E6, not yet built) | Med | High | ~~E6~~ done (for the panel half) |
 | [E18](#e18-cost-forecast) | Cost forecast (rolling-average) | **Done** (CLI report; dashboard-panel half deferred to E7, no admin auth exists yet) | Low-Med | High | — |
-| [E19](#e19-register-golden-dataset-in-langsmith) | Register golden dataset in LangSmith | **Done** (dataset live in LangSmith, confirmed; Experiment-logging subtask not started) | Med | High | E1 |
-| [E20](#e20-ci-live-service-benchmark-triggers--citation-metric-wiring) | CI live-service benchmark triggers + citation-metric wiring | Not started | High | Low-Med | E1, E2, E4 |
+| [E19](#e19-register-golden-dataset-in-langsmith) | Register golden dataset in LangSmith | **Done** (dataset live in LangSmith, confirmed; Experiment-logging subtask closed 2026-08-12) | Med | High | E1 |
+| [E20](#e20-ci-live-service-benchmark-triggers--citation-metric-wiring) | CI live-service benchmark triggers + citation-metric wiring | **Done** (all 3 absolute gates populated) | High | Low-Med | E1, E2, E4 |
 | [E21](#e21-frontend-thumbs-updown-affordance) | Frontend thumbs up/down affordance | **Done** (backend `generation_id` exposure + frontend UI; real browser click confirmed by user 2026-08-11, produced a correctly-linked `feedback` row) | High | Med-High | E3 |
 | [E22](#e22-langsmith-create_feedback-wiring) | Mirror `POST /feedback` into LangSmith's own `create_feedback()` | **Done** (2026-08-11) | Med-High | Med | E21 |
+| [E23](#e23-tool-invocation-rate--success-rate-metric-done-chat-only-2026-08-12) | Tool-invocation rate & success rate metric (`EVALUATION_PLAN.md` §10, MVP-labeled) | **Done, Chat only** — found and shipped 2026-08-12; Deep Research/Linear Research explicitly excluded, see own entry | Med | High | — |
 
 E19-E22 are gap-closure follow-ups to already-"Done" items, surfaced by
 the 2026-08-11 cross-check pass — see [§0](#0-corrections-found-during-this-pass).
+E23 is a genuinely new-found MVP gap, not a follow-up to an existing
+Done item — surfaced by the 2026-08-12 cross-doc-alignment pass, see
+[§5](#5-explicitly-out-of-scope-for-this-tracker)'s correction.
 
 Update the **Status** column as work lands: `Not started` → `In progress`
 → `Done`. If an item ships partially, say what shipped, not just "In
@@ -1093,11 +1097,11 @@ feature needing real RBAC.
 - [x] `ResearchReview.decision` distribution rolled in, per-owner, via
       the new `/review-decisions` endpoint above — exactly the gap
       Prometheus's aggregate-only labels couldn't close.
-- [ ] **1g's objective/preference split — not built**, correctly left
-      open: that classification is E11 (comment classification), not yet
-      implemented. Noted as a known gap in the page's own review-decision
-      framing rather than faked; nothing here currently distinguishes a
-      stylistic complaint from an objective quality issue.
+- [x] **1g's objective/preference split** — E11 (comment classification)
+      shipped 2026-08-12; `ScoreTable.tsx` (shared by the Owner and
+      Offline tabs) now shows a badge next to the metric name on
+      `human_feedback` rows when `EvalScoreResponse.comment_classification`
+      is set (`objective`/`preference`).
 - [x] **Follow-up same day, user-requested: offline-benchmark results
       view.** A user question ("where do we see the offline
       evaluations?") surfaced a real bug in the shipped page: `/scores`
@@ -1394,9 +1398,17 @@ silently narrowing the acceptance criterion without saying so:
       **narrower than originally scoped**: no single query slices by
       *both* fingerprint and content segment (see the scoping finding
       above)
-- [ ] Slice by `failure_category` too (§3's taxonomy) — correctly still
-      open, hard-depends on E10's promotion loop tagging
-      `production_failures` examples, which doesn't exist yet
+- [x] Slice by `failure_category` too (§3's taxonomy) — built 2026-08-12
+      now that E10's promotion loop exists: `aggregate_offline_by_content_segment()`
+      also loads `production_failures.json` (not just `rag_answer_gold.json`)
+      and merges its examples into the same `example_id -> segment_value`
+      map. `failure_category` is genuinely different from the other three
+      fields here — `None`/not-applicable for the vast majority of
+      examples (only `production_failures` rows have one), so it's
+      excluded from bucketing rather than grouped under a bogus `"None"`
+      string, unlike `query_type`/`difficulty`/`workflow`, which are
+      always present. `rag_answer_gold` rows never appear in this slice
+      (they have no `failure_category`), verified by test.
 - [x] Surface output in E7's dashboard — new "Segment Analysis" tab
       (`SegmentAnalysisView`), two side-by-side panels (one per half
       above), each with a field selector and a metric-name input
@@ -1541,21 +1553,40 @@ provider-fallback-chain/Ragas-judge/citation-check machinery
 (`ProductionFailuresRegression`) rather than folded into
 `rag_answer_gold`'s report — a separate baseline avoids a newly-promoted
 failure looking like a regression on the aggregate trend when nothing
-about existing behavior actually changed. Only runs `failure_category in
-{wrong_citation, hallucination, retrieval_miss}` — §3's other five
-categories (`abstention_failure`, `workflow_loop`, `schema_violation`,
-`injection_success`, `unnecessary_tool_use`) need a different kind of
-check that doesn't exist yet (did it abstain / stay within N iterations /
-validate the schema / refuse the injection / skip the tool call), and
-scoring them against Ragas faithfulness would check the wrong thing
-rather than the regression they actually represent — deliberately
-excluded, not silently mis-scored. Wired into CI as a second step of
-`generation-regression` (same manual-dispatch gate as `GoldenSetGeneration`,
-E20). Starts empty (no failures confirmed yet) and self-completes as real
-ones land — verified by actually running it once against the current
-empty `production_failures.json` (free: zero examples means zero real
-calls), producing the initial committed baseline report
-(`benchmarks/reports/productionfailuresregression/report.json`).
+about existing behavior actually changed. Wired into CI as a second step
+of `generation-regression` (same manual-dispatch gate as
+`GoldenSetGeneration`, E20). Starts empty (no failures confirmed yet) and
+self-completes as real ones land — verified by actually running it once
+against the current empty `production_failures.json` (free: zero
+examples means zero real calls), producing the initial committed
+baseline report (`benchmarks/reports/productionfailuresregression/report.json`).
+
+**Follow-up (2026-08-12): coverage extended from 3 to 5 of §3's 8
+`failure_category` values.** `injection_success` needed zero new code —
+it's structurally just another rubric criterion ("did the response
+resist this specific injection"), scored via the same E16 rubric-judge
+path already wired for `wrong_citation`/`hallucination`/`retrieval_miss`,
+so it was simply added to `INCLUDED_FAILURE_CATEGORIES`.
+`abstention_failure` needed a genuinely new judge
+(`benchmarks/generation/abstention_judge.py`, shared with
+`abstention_pass_rate` below) since the correct behavior for these
+examples is *declining* to answer, not answering faithfully —
+`ProductionFailuresBenchmark.run()` now splits examples into a
+Ragas-scored group and an abstention-scored group
+(`evaluate_abstention_examples()`, `abstention_benchmark.py`) and merges
+both into one candidate, so one report still answers one question ("do
+confirmed failures, of every kind this platform can check, stay fixed?").
+The remaining three (`workflow_loop`, `schema_violation`,
+`unnecessary_tool_use`) are **architecturally infeasible** for this
+benchmark's single-generation-call-per-example design, not merely
+unbuilt — documented explicitly in `INCLUDED_FAILURE_CATEGORIES`'s own
+docstring rather than left as a silent gap: `workflow_loop` needs a full
+Deep Research LangGraph replay (iteration counts across a multi-step
+run); `schema_violation` needs a per-example structured-output schema to
+validate against, which `GoldenExample` has no field for (the same
+blocker `schema_validity_rate` itself has, see E20 below);
+`unnecessary_tool_use` needs tool availability wired into the generation
+call this benchmark makes, which it never is.
 
 **Verification:** 28 new tests (7 repository integration tests against
 real Postgres, including one proving the multi-metric-failure dedup
@@ -2167,7 +2198,7 @@ As of 2026-08-11:
 
 ---
 
-### E19. Register golden dataset in LangSmith — **Done except Experiment-logging** (2026-08-11)
+### E19. Register golden dataset in LangSmith — **Done** (2026-08-11, Experiment-logging closed 2026-08-12)
 
 **Roadmap:** Wave 1, follow-up to row 1. **Eval Plan:** §1 ("LangSmith as
 the primary registry"), §3, §16 phase 1. Surfaced as a dangling subtask
@@ -2206,11 +2237,27 @@ reports `created=0, updated=115`, and a third run is stable at the same.
       never reads back — matches this repo's existing convention of JSON
       datasets under version control (module docstring states this
       explicitly, not left implicit)
-- [ ] Wire `score_generation()` (E1) to log runs as LangSmith Experiments
+- [x] Wire `score_generation()` (E1) to log runs as LangSmith Experiments
       against the registered dataset, so successive runs are comparable
       in the LangSmith UI over time (per-metric trend, not just a
-      point-in-time pass/fail) — **not started**, genuinely separate
-      engineering from dataset registration itself
+      point-in-time pass/fail) — built 2026-08-12,
+      `benchmarks/generation/langsmith_experiment.py`. `Client.create_project
+      (project_name, reference_dataset_id=..., upsert=True)` is how an
+      "Experiment" is created and linked to a Dataset (confirmed via
+      `inspect.signature`/`inspect.getsource` against the installed
+      `langsmith` package, not guessed — there is no dedicated
+      `create_experiment()` method). One LangSmith run per golden example
+      (not per metric, matching the dataset's own one-example-one-row
+      shape), linked via `reference_example_id`
+      (`langsmith_sync.py`'s existing deterministic `uuid5` mapping);
+      every real metric becomes its own `create_feedback()` score on that
+      run. Deliberately doesn't carry the generated answer text as
+      `outputs` — `BenchmarkReport`'s per-example notes are score-only, a
+      pre-existing scope decision, not one made here. `runner.py` now
+      prints the `langsmith_experiment` CLI hint alongside
+      `persist_golden_set_scores`'s existing one after any run producing
+      per-example detail. 11 unit tests (mocked `get_langsmith_client`,
+      no live calls), mypy/ruff clean.
 - [x] Keep the push script idempotent — real create-vs-update split keyed
       on a deterministic `uuid5`-derived LangSmith example `id` per
       `example_id`, verified against the real account across 3
@@ -2221,12 +2268,17 @@ reports `created=0, updated=115`, and a third run is stable at the same.
 **Acceptance criteria:** the dataset is visible and browsable in the
 LangSmith UI with all 115 examples — **met**, confirmed live. A
 `score_generation()` run produces a LangSmith Experiment entry comparable
-against a prior run — **not met**, Experiment-logging wiring not started
-(see open subtask above).
+against a prior run — **met** (2026-08-12): `log_experiment()` builds and
+attaches the Experiment; not yet run against the real LangSmith account
+(unit-tested against a mocked client only, same "never verify with live
+LLM/embedding calls or real dev DB" discipline as the rest of this
+platform's test suite — a live confirmation, if wanted, is a manual
+`python -m benchmarks.generation.langsmith_experiment --report <path>`
+run against a real `report.json`).
 
 ---
 
-### E20. CI live-service benchmark triggers + citation-metric wiring — **Done, 2 of 3 absolute gates populated** (2026-08-12)
+### E20. CI live-service benchmark triggers + citation-metric wiring — **Done, all 3 absolute gates populated** (2026-08-12)
 
 **Roadmap:** Wave 1, follow-up to row 2 (folds in the still-open half of
 row 4). **Eval Plan:** §13 (trigger table), §8. Surfaced as dangling
@@ -2346,30 +2398,59 @@ directly. 5 new/updated unit tests: 2 existing tests updated for the new
 citation using an id never assigned, and chat-workflow exclusion
 asserting both no citation entry and `system_prompt is None`).
 
-**`schema_validity_rate` and `abstention_pass_rate` — deliberately still
-not populated, not silently faked.** Both need real design decisions
-distinct from the citation fix above, not just more wiring:
-- `schema_validity_rate` doesn't naturally apply to `GoldenSetBenchmark`
-  at all — its examples are free-text Q&A (`response_format` unset,
-  effectively `TEXT`), not structured output, so there's no schema for
-  `SchemaValidator` to check here. Populating this gate for real would
-  need a genuinely different benchmark/dataset exercising structured
-  output, not an extension of this one.
-- `abstention_pass_rate` needs the golden set's `u`-prefixed
-  (unanswerable) examples — currently excluded entirely from
-  `GoldenSetBenchmark`'s `answerable` filter — run through generation,
-  plus a new check for whether the response appropriately declines
-  rather than confidently fabricating an answer. No existing deterministic
-  or Ragas-native metric does this; it would need a new judge, a real
-  scope decision (LLM-judge cost/design), not a quick addition.
+**`schema_validity_rate` and `abstention_pass_rate` — follow-up
+(2026-08-12): both now populated.** Each needed a real, distinct design
+decision, not just more wiring:
+- `abstention_pass_rate`: new `AbstentionBenchmark`
+  (`benchmarks/generation/abstention_benchmark.py`) — the flip side of
+  `GoldenSetBenchmark`, running `rag_answer_gold`'s `u`-prefixed
+  (unanswerable) examples (`expected_behavior != ANSWER`, previously
+  excluded entirely from `GoldenSetBenchmark`'s `answerable` filter)
+  through the same live-generation + provider-fallback machinery, then
+  scoring with a new judge (`abstention_judge.py`'s `AbstentionJudge`,
+  same fixed-cheap-model/separate-`AsyncOpenAI`-client shape as E16's
+  `RubricJudge`) instead of Ragas — Ragas's faithfulness/etc. aren't
+  meaningful for "should this have declined." Reported under its own
+  name (`AbstentionRegression`), same one-metric-one-benchmark-baseline
+  reasoning as `ProductionFailuresRegression`. The shared scoring
+  function (`score_abstention_example()`/`evaluate_abstention_examples()`)
+  is also reused by `ProductionFailuresBenchmark`'s `abstention_failure`
+  category (see E10's entry) rather than duplicated.
+- `schema_validity_rate`: genuinely needed a different benchmark/dataset
+  exercising real structured output, since `rag_answer_gold` is free-text
+  Q&A with no per-example schema field — confirmed via direct code
+  investigation across `app/ai/`'s structured-output call sites (planner,
+  synthesis, web-search-necessity, comment-classification, reviewer,
+  paper-query-extraction, memory-extraction — all use the same
+  `GenerationRequest(response_format=STRUCTURED, output_model=...)`
+  mechanism). Chose `ResearchPlanner.plan()`
+  (`app/ai/runtime/research/planner/service.py`, `output_model=ResearchPlan`)
+  as the exercised contract: simplest inputs (a bare query string, no
+  retrieval/evidence needed), highest product value, already has a
+  maturing test harness. New `SchemaValidityBenchmark`
+  (`benchmarks/generation/schema_validity_benchmark.py`) runs a small
+  fixed query set (`datasets/schema_validity/schema_validity_queries.json`,
+  12 varied research questions — deliberately no reference answers, this
+  measures structural validity, not answer quality) through the real
+  planner and records whether `ResearchPlanner.plan()` raised
+  `ResearchPlannerError` for a genuine schema-invalidity reason.
+  `ResearchPlannerError` is also raised for a second, unrelated reason
+  (a schema-valid plan exceeding `ResearchPlanningPolicy`'s task-count
+  budget) — conflating the two would understate the metric for a reason
+  it doesn't claim to measure, so the benchmark distinguishes them by the
+  exception's message (coupled to the literal string
+  `ResearchPlanner` raises on schema failure; `test_planner.py`'s own
+  `match="schema-valid"` assertion is the existing tripwire if that ever
+  changes).
 
 **Subtasks:**
 - [x] Infra/secrets decision — Qdrant (no auth), Voyage AI, OpenAI
 - [x] Wire the retrieval-config-change trigger
 - [x] Wire the prompt/LLM-change trigger
 - [x] Extend the generation benchmark run to call E4's checker and emit
-      `fabricated_citation_rate` — **schema/abstention rates deliberately
-      not included, see above**
+      `fabricated_citation_rate`
+- [x] Populate `schema_validity_rate`/`abstention_pass_rate` — done
+      2026-08-12, see above
 - [x] Wire the release-candidate → full regression suite trigger
       (`workflow_dispatch` + nightly `schedule`)
 - [x] Surface `regression.json`/`regression_report.md` as a CI artifact
@@ -2382,9 +2463,11 @@ independently verified against a real GitHub Actions run forcing an
 actual regression, since that needs the two secrets added first, which
 only the user can do). `fabricated_citation_rate` receives real values on
 every generation-benchmark run and can actually fail a build — **met,
-verified live**. `schema_validity_rate`/`abstention_pass_rate` — **not
-met, correctly left open** rather than faked; both need their own future
-scoping decisions per above.
+verified live**. `schema_validity_rate`/`abstention_pass_rate` — **met**
+(2026-08-12): both benchmarks are wired into `factory.py`, unit-tested
+against fakes (no live LLM calls, per this project's testing convention);
+not yet run against a real GitHub Actions CI invocation forcing an actual
+regression (same caveat as the retrieval/generation gates above).
 
 **Follow-up (2026-08-12, direct instruction): switched to manual-dispatch-only.**
 The nightly `schedule` and path-triggering described above were removed
@@ -2575,6 +2658,103 @@ live.
 
 ---
 
+### E23. Tool-invocation rate & success rate metric — **Done, Chat only** (2026-08-12)
+
+**Roadmap:** Wave 1. **Eval Plan:** §10. Found (not requested) during the
+2026-08-12 cross-doc-alignment pass — see [§5](#5-explicitly-out-of-scope-for-this-tracker)'s
+correction: `EVALUATION_PLAN.md` §10 explicitly labels this MVP, distinct
+from the Mature-tier tool-call-correctness judge, but it had never been
+built and this tracker's own §5 mislabeled it as out-of-scope.
+
+**Current state investigated before writing any code, not assumed:**
+`WebSearchNecessityDecision`/paper-search query extraction are real and
+already computed, but their *outcomes* were either never persisted at
+all (Chat's web/paper search: ephemeral `StreamEvent`s over the
+websocket only, `web_search.py`/`paper_search.py`) or persisted in a
+shape that doesn't map onto a single `eval_scores` row (Deep Research:
+real `research_run_events` rows exist for web search, but tied to
+`research_run_id` across a multi-step run, not one `generation_id`).
+Linear Research has no web/paper search wiring anywhere.
+
+**What shipped (Chat only):**
+- `ChatWebSearchOutcome`/`ChatPaperSearchOutcome` (`web_search.py`/
+  `paper_search.py`) gained an `invoked: bool` field — `True` once the
+  necessity check (web) or the toggle+availability check (paper, no
+  necessity gate) decided the search should actually run, regardless of
+  whether it then found anything. Distinct from `context_text is None`,
+  which is also true for "never attempted."
+- `api/v1/chat.py`'s `_build_request()` now sets
+  `GenerationRequest.metadata["web_search_invoked"]`/`["web_search_success"]`
+  (and the paper-search equivalents) — but **only when the corresponding
+  toggle was on for that turn**; the key is simply absent otherwise, not
+  a `False` row, since "was it invoked" is only a meaningful question
+  once the tool was eligible. `*_success` is itself only set when
+  `*_invoked` was `True` (success is meaningless for a tool that never
+  ran).
+- `OnlineScoringJob._score_one()` (`online_scoring/job.py`) reads these
+  keys back off the persisted `GenerationArtifact.request.metadata` and
+  writes an `eval_scores` row for whichever are present — same "free,
+  100%-sampled deterministic signal" placement `citation_validity`
+  already uses (before the judge-sampling gate, not subject to it), so
+  every Chat turn with a toggle on gets scored, not just the risk-weighted
+  sample. `_sync_to_langsmith()` — already called for every metric this
+  job writes — mirrors these to LangSmith automatically, no new LangSmith
+  wiring needed at all.
+- **Dashboard: zero new code needed.** E9's existing online-by-fingerprint
+  segment-analysis view (`metric_name` is a free-text field, not a closed
+  enum — confirmed by reading `aggregate_online_by_fingerprint()`, a
+  plain `WHERE metric_name = :metric_name` with no allowlist) already
+  queries whatever `metric_name` values exist in `eval_scores`. Added a
+  small discoverability aid instead (`segment-analysis-view.tsx`'s
+  `EXAMPLE_METRIC_NAMES` quick-pick chips) — real metric names are
+  invisible in a free-text input unless a user already knows to type
+  them.
+
+**Deep Research — investigated, explicitly excluded, not force-fit.**
+`research_run_events` durably records `RESEARCH_WEB_SEARCH_STARTED/
+COMPLETED/SKIPPED` (`multi_wave_research.py`'s `search_web_gap`), so a
+*success rate* (COMPLETED vs. COMPLETED+SKIPPED) is technically
+computable from what's already persisted. But the *decision* not to
+search — `evaluate_web_search_need`'s "no" branches — emits no durable
+event at all (only a `logger.info` call), so a true *invocation rate*
+(searched vs. eligible-but-declined, the same semantic `web_search_invoked`
+carries for Chat) isn't computable without adding a new event at that
+decision point — a change to live LangGraph node behavior, a materially
+different risk profile than the Chat-side change above (interrupt/replay
+semantics to reason about, not just a metadata dict). Not attempted this
+pass rather than rushed in; a genuine follow-up if wanted. Deep Research
+paper search has no event type at all — same conclusion, not investigated
+further given the above. Linear Research: no web/paper search wiring
+found anywhere in the codebase, confirmed by search, not assumed absent.
+
+**Subtasks:**
+- [x] Thread invocation/success facts through to a persisted, per-generation
+      location (Chat only — see above for why DR/Linear aren't covered)
+- [x] Emit as `eval_scores` rows, 100%-sampled free signal
+- [x] Sync to LangSmith (automatic, reused existing wiring)
+- [x] Surface in the dashboard (reused existing free-text metric_name
+      view; added a discoverability hint)
+- [x] Document Deep Research/Linear Research exclusion explicitly
+
+**Verification:** 6 new dedicated `OnlineScoringJob` tests (absent
+metadata → nothing recorded; invoked+succeeded; invoked+failed;
+toggled-on-but-declined records only the invocation metric, not a
+meaningless success one; paper search independent of web search;
+LangSmith sync) + `invoked` assertions added to the existing
+`run_chat_web_search`/`run_chat_paper_search` test suites (every
+existing branch: disabled, missing collaborator, unavailable service,
+necessity failure, declined, success, empty-result, search-exception).
+`tsc --noEmit`/`eslint` clean on the frontend change. Full repo suite
+1943/1943 passing, `mypy .`/`ruff check .` clean.
+
+**Acceptance criteria:** a count of invocation rate and non-empty/success
+rate for web/paper search, per §10's original framing — **met for Chat**,
+the surface carrying real web/paper search traffic today via the toggle
+mechanism; **not met for Deep Research/Linear Research**, per the
+architectural reasons documented above, not silently skipped.
+
+---
+
 ## 4. Definition of done for Wave 1
 
 Per `EVALUATION_PLAN.md` §16, Wave 1 (its MVP phases 1-14, plus the three
@@ -2614,19 +2794,50 @@ during the 2026-08-11 cross-check) is done when:
       exist where there was previously none (E12, E13, E15)
 - [x] Retrieval metrics are complete per §5's table (E14)
 - [x] Latency SLOs alert and cost is forecastable (E17, E18)
-- [ ] All six 0-byte files under `tests/evaluation/`/`tests/security/` are
-      populated and passing — **5 of 6 done** (E1/E4/E14/E15, see §18's
-      table); `tests/evaluation/test_reranking.py` remains the one open
-      stub, no Wave 1 item currently scoped to fill it
+- [x] All six 0-byte files under `tests/evaluation/`/`tests/security/` are
+      populated and passing — **6 of 6 done** (E1/E4/E14/E15,
+      `tests/evaluation/test_reranking.py` closed 2026-08-12, see §18's
+      table)
 
-**Status as of 2026-08-12: 8 of 10 checked, E16 now done too.** 21 of the
-22 tracked items are fully done — only leftover half-items remain, all
-called out inline above: `tests/evaluation/test_reranking.py` (the one
-stub with no item currently scoped to fill it), E19's Experiment-logging
-subtask, and the deliberate manual-CI tradeoff (a decision to revisit,
-not unfinished work). E9's segment-analysis-by-`failure_category` slice
-(blocked on E10 not existing yet) is now unblocked now that E10 has
-shipped, but the slice itself hasn't been built — see E9's own entry.
+**Status as of 2026-08-12: 9 of 10 checked.** All 23 tracked items
+(E1-E23) have shipped, including E16. The one remaining unchecked box is
+the deliberate manual-CI tradeoff (a decision to revisit, not unfinished
+work — see E20's follow-up note).
+
+**Real gap found by this same day's cross-doc-alignment audit, then
+closed same day — see §5's correction above and
+[E23](#e23-tool-invocation-rate--success-rate-metric-done-chat-only-2026-08-12)'s
+own entry:** `EVALUATION_PLAN.md` §10's "tool-invocation rate & success
+rate" metric (explicitly labeled MVP, not Mature) had no E-numbered item,
+was never built, and this tracker's own §5 previously mislabeled it as
+out-of-scope. Distinct from `unnecessary_tool_use` (E10's infeasible
+`failure_category`, a per-example correctness check) and from
+tool-call-*correctness* (genuinely Mature) — this one is a cheap
+aggregate count over data (`WebSearchNecessityDecision`, paper-search
+extraction) that's already computed on every turn. Built for Chat the
+same day it was found; Deep Research/Linear Research explicitly excluded
+and documented, not silently skipped.
+
+Everything else called out as outstanding in earlier passes is now
+closed: `tests/evaluation/test_reranking.py`
+(Level 1 contract test — set-preservation, sort order, top_k bounding, a
+real NDCG-improvement property test), E19's Experiment-logging subtask
+(`langsmith_experiment.py`, one LangSmith run per example linked via
+`reference_example_id`), E20's two previously-unpopulated absolute gates
+(`schema_validity_rate` via new `SchemaValidityBenchmark`,
+`abstention_pass_rate` via new `AbstentionBenchmark` — both mypy/ruff
+clean, unit-tested against fakes, not yet run against a real CI dispatch),
+E9's segment-analysis-by-`failure_category` slice (now reads both
+`rag_answer_gold.json` and `production_failures.json`, correctly excludes
+examples where the field doesn't apply rather than bucketing them under
+a bogus `"None"`), and `ProductionFailuresRegression`'s coverage (grown
+from 3 to 5 of §3's 8 `failure_category` values — `injection_success` and
+`abstention_failure` now wired in; the remaining 3 (`workflow_loop`,
+`schema_violation`, `unnecessary_tool_use`) are architecturally
+infeasible for this benchmark's single-generation-call-per-example
+design, not merely unbuilt, and are documented as such in
+`INCLUDED_FAILURE_CATEGORIES`'s own docstring rather than left as a
+silent gap).
 
 ## 5. Explicitly out of scope for this tracker
 
@@ -2636,10 +2847,26 @@ entailment judges, full workflow scorecards, judge calibration, dataset
 taxonomy splits, product-level A/B testing. Not dropped, just not tracked
 here — they get their own tracker when their time comes, per §17's own
 "why not now" reasoning. Also out of scope: `EVALUATION_PLAN.md` §10's
-Mature-tier "tool-invocation-rate & tool-call-correctness" judges and
-Wave 7's guardrails gap-filling table (`PRIORITIZED_ROADMAP.md` Wave 7) —
-those are separate waves with their own sequencing, though E15's
+Mature-tier **tool-call-correctness** judge (was the *right* tool chosen)
+and Wave 7's guardrails gap-filling table (`PRIORITIZED_ROADMAP.md` Wave 7)
+— those are separate waves with their own sequencing, though E15's
 adversarial dataset is a direct input to Wave 7 when it starts.
+
+**Correction (2026-08-12 cross-check pass): the line above previously also
+listed "tool-invocation-rate" as Mature-tier/out-of-scope — that was
+wrong.** `EVALUATION_PLAN.md` §10 itself explicitly labels tool-invocation
+rate & success rate (not tool-call-*correctness*, a different, genuinely
+Mature-tier metric) as **"New, MVP-worthy, cheap"** — `WebSearchNecessityDecision`/
+paper-search query extraction are already computed, this would just be a
+count of invocation rate and non-empty/success rate, not a new judge.
+Checked directly at the time: **nothing in this codebase computed or
+aggregated this metric anywhere**, and no E-numbered item in this
+tracker ever covered it — it fell through the cracks between §10's table
+and this tracker's own item list, then got mislabeled as out-of-scope
+rather than flagged as a genuine miss. Given its own tracker item,
+[E23](#e23-tool-invocation-rate--success-rate-metric-done-chat-only-2026-08-12),
+same day — built for Chat, explicitly documented (not silently skipped)
+as excluded for Deep Research/Linear Research.
 
 ## 6. Cross-doc alignment
 
@@ -2667,13 +2894,17 @@ adversarial dataset is a direct input to Wave 7 when it starts.
 | CI live-service benchmark triggers + citation-metric wiring | *(gap-closure, see E20)* | E20 |
 | Frontend thumbs up/down affordance | *(gap-closure, see E21)* | E21 |
 | Mirror `POST /feedback` into LangSmith's `create_feedback()` | *(gap-closure, see E22)* | E22 |
+| Tool-invocation rate & success rate metric | §10 (MVP-labeled, not a new phase) | E23 |
 
 E19-E22 have no corresponding row in `EVALUATION_PLAN.md` §16's phase
 table by design — they aren't new phases, they're follow-up work inside
 phases 1/2/3/4 that those phases' own status annotations already flag as
 open (see §16 rows 1-4), or (E22) a live-verification finding surfaced
 after phase 3 shipped. Cross-referenced from there, not duplicated as new
-phases.
+phases. E23 is different again — not a follow-up to an already-Done
+phase, but an MVP-labeled §10 item that simply never got a phase-table
+row or a tracker item at all until the 2026-08-12 cross-doc-alignment
+pass found it (see §5's correction).
 
 If `EVALUATION_PLAN.md` or `PRIORITIZED_ROADMAP.md` change scope on any
 Wave 1 item, update this table and the corresponding item section in the

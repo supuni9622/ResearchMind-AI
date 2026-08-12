@@ -19,7 +19,34 @@ const FINGERPRINT_FIELDS: FingerprintField[] = [
   'routing_strategy',
 ];
 
-const CONTENT_SEGMENT_FIELDS: ContentSegmentField[] = ['query_type', 'difficulty', 'workflow'];
+const CONTENT_SEGMENT_FIELDS: ContentSegmentField[] = [
+  'query_type',
+  'difficulty',
+  'workflow',
+  'failure_category',
+];
+
+const EXAMPLE_METRIC_NAMES = [
+  'faithfulness',
+  'answer_relevancy',
+  'citation_validity',
+  'rubric_adherence',
+  'web_search_invoked',
+  'web_search_success',
+  'paper_search_invoked',
+  'paper_search_success',
+];
+/**
+ * `metric_name` is free text, not a closed enum (new metrics like E23's
+ * tool-invocation ones need no dashboard change to become queryable) --
+ * these are just a discoverability aid so a user doesn't need to already
+ * know a metric name exists to find it. web_search_invoked/success and
+ * paper_search_invoked/success are Chat-only (E23,
+ * `EVALUATION_PLAN.md` §10): Linear Research has no web/paper search
+ * wiring, and Deep Research's search happens outside any single
+ * generation's `eval_scores` row, so slicing them by `surface` will only
+ * ever show `chat`.
+ */
 
 function formatNumber(value: number | null): string {
   return value === null ? '—' : value.toFixed(3);
@@ -148,7 +175,7 @@ export function SegmentAnalysisView({ onForbidden }: { onForbidden: () => void }
         before/after diffing — read the rows and compare by eye, same as the rest of this dashboard.
       </p>
 
-      <div className="flex items-center gap-3 mb-6">
+      <div className="flex items-center gap-3 mb-3">
         <label className="text-stone-500 text-[12px] font-mono">metric_name</label>
         <input
           type="text"
@@ -157,6 +184,23 @@ export function SegmentAnalysisView({ onForbidden }: { onForbidden: () => void }
           placeholder="faithfulness"
           className="px-3 py-1.5 rounded-lg bg-ink-800 border border-ink-600 text-stone-200 text-[13px] font-mono placeholder:text-stone-600 focus:outline-none focus:border-sage-600 w-56"
         />
+      </div>
+
+      <div className="flex flex-wrap items-center gap-2 mb-6">
+        {EXAMPLE_METRIC_NAMES.map((name) => (
+          <button
+            key={name}
+            type="button"
+            onClick={() => setMetricName(name)}
+            className={`px-2 py-1 rounded-md text-[11px] font-mono border transition-colors ${
+              metricName === name
+                ? 'border-sage-600 text-sage-400 bg-sage-800/40'
+                : 'border-ink-700 text-stone-500 hover:text-stone-300 hover:border-ink-600'
+            }`}
+          >
+            {name}
+          </button>
+        ))}
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

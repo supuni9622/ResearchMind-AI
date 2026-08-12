@@ -216,10 +216,28 @@ jobs:
           --output benchmarks/reports
           --check-regression
 
-      - name: Upload regression report
+      - name: Production-failures regression check
+        # Gap 2 (Evaluation Platform): closes E10's "both directions"
+        # loop for real -- a confirmed failure now gets re-exercised by
+        # this same release-candidate gate, not just written to a file
+        # nothing reads. Starts empty (no failures confirmed yet) and
+        # self-completes as real ones land via sync_promoted_examples.py
+        # -- safe to run unconditionally even at zero examples.
+        env:
+          ENVIRONMENT: test
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: >
+          uv run python -m benchmarks.runner ProductionFailuresRegression
+          --dataset datasets/production_failures
+          --output benchmarks/reports
+          --check-regression
+
+      - name: Upload regression reports
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: generation-regression-report
-          path: benchmarks/reports/goldensetgeneration/regression*
+          path: |
+            benchmarks/reports/goldensetgeneration/regression*
+            benchmarks/reports/productionfailuresregression/regression*
           if-no-files-found: ignore

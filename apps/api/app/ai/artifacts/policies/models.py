@@ -67,6 +67,11 @@ DEFAULT_ARTIFACT_POLICY_RULES: list[ArtifactPolicyRule] = [
         policy=ArtifactPolicy.PERMANENT,
     ),
     ArtifactPolicyRule(
+        runtime=ArtifactRuntime.RESEARCH,
+        category=ArtifactCategory.GENERATION,
+        policy=ArtifactPolicy.PERMANENT,
+    ),
+    ArtifactPolicyRule(
         runtime=ArtifactRuntime.AGENT,
         category=ArtifactCategory.AGENT,
         policy=ArtifactPolicy.LONG_TERM,

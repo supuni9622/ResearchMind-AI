@@ -6,6 +6,7 @@ from uuid import UUID
 
 import structlog
 
+from app.ai.artifacts.enums import ArtifactRuntime
 from app.ai.knowledge.context.models import PromptContext
 from app.ai.runtime.generation.caching.enums import CacheRuntime
 from app.ai.runtime.generation.config_fingerprint import config_fingerprint_kwargs
@@ -88,6 +89,16 @@ class ResearchSynthesisService:
                 # that's the shared, cached Linear Research answer namespace.
                 cache_runtime=CacheRuntime.REVIEWER,
                 runtime=RuntimeType.RESEARCH,
+                # Previously left unset, which fell back to
+                # ArtifactRuntime.CHAT (GenerationService's own default) --
+                # this synthesis call happened to get persisted anyway
+                # (CHAT -> SESSION policy resolves non-NEVER), but only by
+                # accident: an unrelated future change to CHAT's default
+                # policy could have silently stopped covering Deep
+                # Research. Explicit now that a (RESEARCH, GENERATION)
+                # policy rule exists (Category 1, canonical, PERMANENT --
+                # same tier as this run's own ResearchArtifact).
+                artifact_runtime=ArtifactRuntime.RESEARCH,
                 metadata={
                     "research_run_id": str(research_run_id),
                     "prompt_version": "research-synthesis-v1",

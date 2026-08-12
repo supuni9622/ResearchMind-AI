@@ -50,8 +50,8 @@ instruction, not derived:
 | 1 | ✅ Golden QA set + Ragas scoring function — Done, 115 examples (grown from 24) | Very High | Med | Foundation for everything eval-related |
 | 1 | ✅ Wire `benchmarks/regression/` into CI — Done, smoke tier (live-service benchmark triggers still open) | Very High | Med | Tooling already built, just needs a workflow job |
 | 1 | ✅ Real `POST /feedback` + thumbs up/down — Done, backend only | Very High | Med | Closes readiness item 7, feeds the self-learning loop |
-| 1 | ✅ **Citation validator, cross-surface, release-blocking** — Done (checker built; online-job wiring done via E5; CI/regression-gate wiring still pending, see E20) | Very High | High | Generalizes an already-proven check (`citation_integrity_score`) — best value-per-effort in the whole roadmap |
-| 1 | ✅ Online risk-weighted scoring job — Done | High | Med | Reuses free signals (guardrail flags, review decision) |
+| 1 | ✅ **Citation validator, cross-surface, release-blocking** — Done (checker built; online-job wiring done via E5, verified live end-to-end 2026-08-12; CI/regression-gate wiring done via E20, `fabricated_citation_rate` populated and verified live) | Very High | High | Generalizes an already-proven check (`citation_integrity_score`) — best value-per-effort in the whole roadmap |
+| 1 | ✅ Online risk-weighted scoring job — Done, all 3 surfaces verified live 2026-08-12 (fixed a real gap where streamed traffic never produced a scoreable artifact) | High | Med | Reuses free signals (guardrail flags, review decision) |
 | 1 | ✅ Feedback → trace attachment — Done, plus the missing E1 golden-set Ragas runner (`GoldenSetBenchmark`) built and wired into `eval_scores` | High | Med | Closes the loop between 1c and 1b |
 | 1 | ✅ Internal dashboard + owner-scoped drill-down — Done | High | Med | Read-only view over data Wave 1 already produces |
 | 1 | ✅ Config fingerprint through `GenerationRequest`→`GenerationUsage` — Done | High | Med | Unlocks "what to improve" identification |

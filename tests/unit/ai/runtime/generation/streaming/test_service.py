@@ -20,6 +20,9 @@ from __future__ import annotations
 from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
+from app.ai.artifacts.enums import ArtifactCategory, ArtifactPolicy, ArtifactRuntime
+from app.ai.artifacts.policies.models import ArtifactPolicyRule
+from app.ai.artifacts.policies.service import ArtifactPolicyService
 from app.ai.knowledge.context.models import PromptContext
 from app.ai.runtime.events.create import get_event_adapter
 from app.ai.runtime.events.enums import CoreEventType
@@ -98,6 +101,8 @@ def _make_service(
     provider: MagicMock,
     caching_service: AsyncMock | None,
     artifact_writer: AsyncMock | None = None,
+    generation_artifact_writer: AsyncMock | None = None,
+    artifact_policy_service: ArtifactPolicyService | None = None,
     metrics_service: MagicMock | None = None,
     observability_service: AsyncMock | None = None,
     tracer: MagicMock | None = None,
@@ -109,6 +114,8 @@ def _make_service(
         event_adapter=get_event_adapter(),
         caching_service=caching_service,
         artifact_writer=artifact_writer,
+        generation_artifact_writer=generation_artifact_writer,
+        artifact_policy_service=artifact_policy_service,
         metrics_service=metrics_service,
         observability_service=observability_service,
         tracer=tracer,
@@ -606,6 +613,140 @@ async def test_stream_artifact_write_failure_does_not_break_the_stream() -> None
         provider=provider,
         caching_service=None,
         artifact_writer=artifact_writer,
+    )
+
+    events = await _collect(
+        service.stream_generate(request=_make_request(), provider=GenerationProvider.GROQ)
+    )
+
+    assert len(events) == 1
+    assert events[0].content == "hi"
+
+
+# ==============================================================
+# GenerationArtifact persistence (Evaluation Platform Gap 1,
+# streaming-specific follow-up, 2026-08-12) -- previously only
+# StreamArtifact (category STREAM, no request/response content) was
+# persisted for a genuinely streamed call, regardless of the
+# (runtime, GENERATION) policy, because this path never called the
+# shared persist_generation_artifact() logic GenerationService.generate()
+# uses. That silently meant the online-scoring job (which reads
+# GenerationArtifact specifically) could never score real streamed
+# traffic for any surface.
+# ==============================================================
+
+
+async def test_generation_artifact_is_persisted_on_successful_stream_completion() -> None:
+    provider = _make_registered_provider()
+
+    chunks = [StreamChunk(event=StreamEventType.TOKEN, content="hi")]
+
+    generation_service = _make_generation_service()
+    generation_service.resolve_streaming_provider = MagicMock(return_value=GenerationProvider.GROQ)
+    generation_service.stream_generate = MagicMock(return_value=_fake_stream(chunks))
+
+    generation_artifact_writer = AsyncMock()
+
+    service = _make_service(
+        generation_service=generation_service,
+        provider=provider,
+        caching_service=None,
+        generation_artifact_writer=generation_artifact_writer,
+        # Default request has no artifact_runtime -> falls back to CHAT,
+        # whose (CHAT, GENERATION) policy is SESSION (real default rules,
+        # not a fake) -- proves this isn't gated behind a test-only policy.
+        artifact_policy_service=ArtifactPolicyService(),
+    )
+
+    await _collect(
+        service.stream_generate(request=_make_request(), provider=GenerationProvider.GROQ)
+    )
+
+    generation_artifact_writer.write.assert_awaited_once()
+    written = generation_artifact_writer.write.await_args.args[0]
+    assert written.response.content == "hi"
+
+
+async def test_generation_artifact_is_not_persisted_when_no_writer_wired() -> None:
+    provider = _make_registered_provider()
+
+    chunks = [StreamChunk(event=StreamEventType.TOKEN, content="hi")]
+
+    generation_service = _make_generation_service()
+    generation_service.resolve_streaming_provider = MagicMock(return_value=GenerationProvider.GROQ)
+    generation_service.stream_generate = MagicMock(return_value=_fake_stream(chunks))
+
+    service = _make_service(
+        generation_service=generation_service,
+        provider=provider,
+        caching_service=None,
+        generation_artifact_writer=None,
+    )
+
+    events = await _collect(
+        service.stream_generate(request=_make_request(), provider=GenerationProvider.GROQ)
+    )
+
+    assert len(events) == 1
+
+
+async def test_generation_artifact_respects_the_artifact_policy() -> None:
+    """A runtime/category combination with no policy rule must not
+    persist, mirroring GenerationService.generate()'s own behavior --
+    proves this new call site actually goes through the same policy
+    check, not an unconditional write."""
+
+    provider = _make_registered_provider()
+
+    chunks = [StreamChunk(event=StreamEventType.TOKEN, content="hi")]
+
+    generation_service = _make_generation_service()
+    generation_service.resolve_streaming_provider = MagicMock(return_value=GenerationProvider.GROQ)
+    generation_service.stream_generate = MagicMock(return_value=_fake_stream(chunks))
+
+    generation_artifact_writer = AsyncMock()
+
+    service = _make_service(
+        generation_service=generation_service,
+        provider=provider,
+        caching_service=None,
+        generation_artifact_writer=generation_artifact_writer,
+        artifact_policy_service=ArtifactPolicyService(
+            rules=[
+                ArtifactPolicyRule(
+                    runtime=ArtifactRuntime.CHAT,
+                    category=ArtifactCategory.GENERATION,
+                    policy=ArtifactPolicy.NEVER,
+                ),
+            ]
+        ),
+    )
+
+    await _collect(
+        service.stream_generate(request=_make_request(), provider=GenerationProvider.GROQ)
+    )
+
+    generation_artifact_writer.write.assert_not_awaited()
+
+
+async def test_generation_artifact_write_failure_does_not_break_the_stream() -> None:
+    provider = _make_registered_provider()
+
+    chunks = [StreamChunk(event=StreamEventType.TOKEN, content="hi")]
+
+    generation_service = _make_generation_service()
+    generation_service.resolve_streaming_provider = MagicMock(return_value=GenerationProvider.GROQ)
+    generation_service.stream_generate = MagicMock(return_value=_fake_stream(chunks))
+
+    generation_artifact_writer = AsyncMock()
+    generation_artifact_writer.write = AsyncMock(side_effect=RuntimeError("storage unavailable"))
+
+    service = _make_service(
+        generation_service=generation_service,
+        provider=provider,
+        caching_service=None,
+        generation_artifact_writer=generation_artifact_writer,
+        artifact_policy_service=ArtifactPolicyService(),
     )
 
     events = await _collect(

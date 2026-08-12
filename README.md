@@ -640,6 +640,17 @@ uv run python -m benchmarks.generation.sync_promoted_examples
 
 The eval dashboard's Promotion Review tab writes confirmed thumbs-up/flagged-failure reviews into a `promotion_reviews` Postgres table only — never directly into the checked-in dataset files. This script reads every `status=confirmed, synced=false` row, appends "good" promotions to `datasets/golden/rag_answer_gold.json` (new `p<N>`-prefixed IDs) and "failure" promotions to `datasets/production_failures/production_failures.json` (new `pf<N>`-prefixed IDs, tagged with their `failure_category`), then marks each row synced. Same two-step pattern as `persist_golden_set_scores.py` above, for the same reason: every change to a version-controlled dataset file stays a normal, reviewable git diff instead of a live API mutation.
 
+10. Production-failures regression (real Ragas judge, release-candidate tier)
+```
+uv run python -m benchmarks.runner ProductionFailuresRegression --dataset datasets/production_failures --check-regression
+```
+
+Closes E10's "both directions" loop for real: previously, a confirmed failure landed in `production_failures.json` (via the command above) but nothing ever re-ran it. Same machinery as `GoldenSetGeneration` above (provider fallback chain, real Ragas judge, citation-validity check), applied to `production_failures.json` instead, and reported under its own name/directory (`benchmarks/reports/productionfailuresregression/`) so its regression baseline answers a narrower question — *do previously-confirmed failures stay fixed?* — rather than blending into `rag_answer_gold`'s aggregate trend, where a newly-promoted failure could look like a regression that never happened.
+
+Only runs `failure_category in {wrong_citation, hallucination, retrieval_miss}` examples — the three categories that actually fit an "answerable, Ragas-scored" check. The other five (`abstention_failure`, `workflow_loop`, `schema_violation`, `injection_success`, `unnecessary_tool_use`) need a different kind of check that doesn't exist yet (did it abstain / stay within N iterations / validate the schema / refuse the injection / skip the tool call), so scoring them here would check the wrong thing rather than the regression they actually represent — deliberately excluded rather than force-fit. They're still written to `production_failures.json` by the sync script above, just not yet exercised by this benchmark.
+
+Starts empty (no failures confirmed yet) and self-completes as real ones get promoted and synced — safe to run unconditionally, including at zero examples (no real calls made). Also wired into CI as a second step of `generation-regression` (manual-dispatch-only, same as `GoldenSetGeneration`) — see the note at the top of this section.
+
 ---
 
 ## Authentication (AWS Cognito)

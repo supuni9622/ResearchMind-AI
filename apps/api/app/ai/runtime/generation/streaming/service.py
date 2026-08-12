@@ -11,6 +11,12 @@ from app.ai.artifacts.enums import (
     ArtifactCategory,
     ArtifactRuntime,
 )
+from app.ai.artifacts.generation.persist import (
+    persist_generation_artifact,
+)
+from app.ai.artifacts.generation.writers import (
+    GenerationArtifactWriter,
+)
 from app.ai.artifacts.policies.service import (
     ArtifactPolicyService,
 )
@@ -108,6 +114,7 @@ class StreamingService:
         event_adapter: ProviderEventAdapterInterface,
         caching_service: CachingService | None = None,
         artifact_writer: StreamArtifactWriter | None = None,
+        generation_artifact_writer: GenerationArtifactWriter | None = None,
         artifact_policy_service: ArtifactPolicyService | None = None,
         metrics_service: GenerationMetricsService | None = None,
         observability_service: ObservabilityService | None = None,
@@ -119,6 +126,18 @@ class StreamingService:
         self._event_adapter = event_adapter
         self._caching_service = caching_service
         self._artifact_writer = artifact_writer
+        self._generation_artifact_writer = generation_artifact_writer
+        """
+        Persists a full `GenerationArtifact` (category `GENERATION`) from
+        the same `GenerationResult` a stream assembles, alongside the
+        `StreamArtifact` `artifact_writer` above persists (category
+        `STREAM`, a thin events/timeline/metrics record with no request/
+        response content). Without this, the online-scoring job (E5) --
+        which reads `GenerationArtifact` specifically -- could never
+        score any surface's real streamed traffic, only non-streaming
+        answer-producing calls. `None` skips it, same opt-in shape as
+        every other artifact writer here.
+        """
         self._artifact_policy_service = artifact_policy_service
 
         self._metrics_service = metrics_service or GenerationMetricsService()
@@ -401,6 +420,14 @@ class StreamingService:
                 events=emitted_events,
                 started_at=started_at,
                 completed_at=completed_at,
+            )
+
+        if self._generation_artifact_writer is not None:
+            await persist_generation_artifact(
+                request=request,
+                result=result,
+                artifact_writer=self._generation_artifact_writer,
+                artifact_policy_service=self._artifact_policy_service,
             )
 
         snapshot = self._metrics_service.record(

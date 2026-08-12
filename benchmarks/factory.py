@@ -62,6 +62,9 @@ from benchmarks.common.dataset_loader import DatasetLoader
 from benchmarks.embeddings.benchmark import EmbeddingBenchmark
 from benchmarks.generation.benchmark import GenerationBenchmark
 from benchmarks.generation.golden_set_benchmark import GoldenSetBenchmark
+from benchmarks.generation.production_failures_benchmark import (
+    ProductionFailuresBenchmark,
+)
 from benchmarks.ingestion.benchmark import IngestionFidelityBenchmark
 from benchmarks.registry import BenchmarkRegistry
 from benchmarks.reranking.benchmark import (
@@ -221,29 +224,48 @@ def create_benchmark_registry() -> BenchmarkRegistry:
     )
 
     #
-    # GoldenSetGeneration needs a real Ragas judge, which needs
-    # OPENAI_API_KEY (see `ragas_judge.build_openai_ragas_judge()`, which
-    # raises without one). Registered only when a key is configured, so
+    # GoldenSetGeneration/ProductionFailuresRegression both need a real
+    # Ragas judge, which needs OPENAI_API_KEY (see
+    # `ragas_judge.build_openai_ragas_judge()`, which raises without
+    # one). Registered only when a key is configured, so
     # `create_benchmark_registry()` -- called unconditionally by every
     # benchmark run, including ones that need no LLM at all (Ingestion
     # Fidelity, Chunking) -- never fails to construct the registry itself
-    # just because this one optional benchmark can't be built yet.
+    # just because these two optional benchmarks can't be built yet.
     #
     if settings.openai_api_key:
         from benchmarks.generation.ragas_judge import build_openai_ragas_judge
+
+        # Same fallback chain, same judge instance for both -- building
+        # the judge is a cheap local client-wrapper construction (no
+        # network call), and one real judge identity should score both
+        # datasets for the same run rather than two separately
+        # constructed (but behaviorally identical) instances.
+        judge = build_openai_ragas_judge()
+        provider_fallback_chain = [GenerationProvider.OPENAI, GenerationProvider.CLAUDE]
 
         registry.register(
             GoldenSetBenchmark(
                 generation_service=GenerationService(
                     registry=generation_registry,
                 ),
-                judge=build_openai_ragas_judge(),
+                judge=judge,
                 # OpenAI first, falling back to Claude per-example on
                 # failure -- not the full registry (which includes Groq,
                 # whose free-tier daily token limit a real 115-example
                 # run has already hit mid-pass; see golden_set_benchmark
                 # .py's own module docstring).
-                providers=[GenerationProvider.OPENAI, GenerationProvider.CLAUDE],
+                providers=provider_fallback_chain,
+            )
+        )
+
+        registry.register(
+            ProductionFailuresBenchmark(
+                generation_service=GenerationService(
+                    registry=generation_registry,
+                ),
+                judge=judge,
+                providers=provider_fallback_chain,
             )
         )
 

@@ -583,12 +583,11 @@ now delegate to.
       `check_prompt_context_citation_validity()` unconditionally on every
       scored generation (E5 shipped after this item; see E5's own "not
       done" list for the cross-reference)
-- [ ] Feed into [E2](#e2-wire-benchmarksregression-into-ci)'s absolute
-      regression gates — still open, tracked under
+- [x] Feed into [E2](#e2-wire-benchmarksregression-into-ci)'s absolute
+      regression gates — **done via**
       [E20](#e20-ci-live-service-benchmark-triggers--citation-metric-wiring)
-      (needs the generation benchmark to call the checker per example and
-      emit `fabricated_citation_rate` into the `BenchmarkReport`; the
-      checker itself is ready, this is CI/benchmark wiring only)
+      (`GoldenSetBenchmark` now calls the checker per example and emits
+      `fabricated_citation_rate` into the `BenchmarkReport`, verified live)
 - [x] New home: `tests/evaluation/test_citation_validity.py` (none of the
       six originally-named stub files was actually citation-specific —
       documented as a correction in the test file's own docstring and
@@ -761,6 +760,63 @@ working exactly as designed. Flagged here per this project's
 fixed in this pass per direct instruction. See also
 [[artifact-platform]] in memory for the policy table's original design
 note.
+
+**Follow-up (2026-08-12): both halves fixed, and the real root cause
+turned out bigger than the policy table.** First pass added a
+`(RESEARCH, GENERATION)` → `PERMANENT` rule to
+`DEFAULT_ARTIFACT_POLICY_RULES` (matches the existing `(RESEARCH,
+RESEARCH)`/`(RESEARCH, OBSERVABILITY)` rules' Category 1/canonical
+framing, not `SESSION`) and made Deep Research's synthesis call
+explicitly tag `artifact_runtime=ArtifactRuntime.RESEARCH` instead of
+relying on the accidental `ArtifactRuntime.CHAT` fallback it had been
+hitting.
+
+**Live manual testing (real Linear Research query through the actual
+browser UI, not a script) showed this alone did nothing** — the policy
+fix only covers `GenerationService.generate()`'s persistence step, but
+the live product's real answer-producing calls all go through
+`/research/stream` / `/chat/stream` → `StreamingService.stream_generate()`,
+a completely different code path that only ever persisted a
+`StreamArtifact` (category `STREAM` — a thin events/timeline/metrics
+record with no `request`/`response` content) regardless of the
+`(runtime, GENERATION)` policy, because `StreamingService` never called
+the generation-artifact persistence logic at all. This meant the
+online-scoring job (which reads `GenerationArtifact` specifically, via
+`GenerationArtifactReader`) could never score **any** surface's real
+streamed traffic — the `chat` half of this same gap (`storage.exists()`
+returning `False` despite a matching `SESSION` policy, left unconfirmed
+above) turned out to be the identical root cause, confirmed by checking
+two pre-fix Chat generation ids and finding neither had a
+`GenerationArtifact` either. Deep Research alone worked, purely because
+its synthesis call happens to be non-streaming.
+
+**Real fix:** extracted the generation-artifact persist logic (policy
+check + build + write + best-effort catch) out of
+`GenerationService._persist_generation_artifact` into a shared
+`persist_generation_artifact()` (new `app/ai/artifacts/generation/
+persist.py`), and `StreamingService._stream_live()` now calls it too
+using the same `GenerationResult` it already assembles for metrics/
+observability — via a new `generation_artifact_writer` constructor
+param, wired in `streaming/create.py` by reusing `generation_service
+.artifact_writer` (new public property) rather than composing a second
+writer instance. 9 new tests (4 for the shared function, 5 for
+`StreamingService`'s new call site: persists on success, skipped when no
+writer wired, respects the policy check, write failure doesn't break the
+stream). 1874/1874 tests passing, clean mypy/ruff.
+
+**Verified live end-to-end, all three surfaces, after this fix** (real
+browser queries, real artifact-existence checks against S3, real
+`eval_scores` rows produced by the actual running online-scoring
+worker — not simulated):
+- Linear Research (`f3b1cdc0-...`): artifact persisted, `citation_validity`
+  scored.
+- Chat (`51530e81-...`): artifact persisted, `citation_validity` scored
+  — confirms the `chat` gap above is now closed too, not just Linear
+  Research's.
+- Deep Research (`9c5c14d7-...`): still works post-refactor (regression
+  check) — artifact persisted, both `citation_validity` and a real
+  Ragas `answer_relevancy` score landed (it was sampled into the
+  LLM-judge tier, unlike the other two in this same check).
 
 **Follow-up, user-requested (2026-08-11): automated scores now sync to
 LangSmith too.** Previously only human feedback reached LangSmith (E22);
@@ -1475,11 +1531,31 @@ full create → `list_confirmed_unsynced` → `mark_synced` round-trip is
 integration-tested against real Postgres, and `sync_promoted_examples.py`
 correctly appends a `failure_category`-tagged example to
 `production_failures.json` (unit-tested with real file I/O against
-`tmp_path`); the next `GoldenSetGeneration --check-regression` run (E20)
-would pick it up automatically once `production_failures.json` examples
-are folded into that run -- **not yet wired, a real follow-up**:
-`GoldenSetBenchmark` today still only reads `rag_answer_gold.json`, not
-`production_failures.json`. Flagged, not silently assumed done.
+`tmp_path`).
+
+**Follow-up (2026-08-12): the "gets exercised by CI" half fixed.** New
+`ProductionFailuresBenchmark` (`benchmarks/generation/production_failures
+_benchmark.py`) reads `production_failures.json` through the same
+provider-fallback-chain/Ragas-judge/citation-check machinery
+`GoldenSetBenchmark` already uses, reported under its own name
+(`ProductionFailuresRegression`) rather than folded into
+`rag_answer_gold`'s report — a separate baseline avoids a newly-promoted
+failure looking like a regression on the aggregate trend when nothing
+about existing behavior actually changed. Only runs `failure_category in
+{wrong_citation, hallucination, retrieval_miss}` — §3's other five
+categories (`abstention_failure`, `workflow_loop`, `schema_violation`,
+`injection_success`, `unnecessary_tool_use`) need a different kind of
+check that doesn't exist yet (did it abstain / stay within N iterations /
+validate the schema / refuse the injection / skip the tool call), and
+scoring them against Ragas faithfulness would check the wrong thing
+rather than the regression they actually represent — deliberately
+excluded, not silently mis-scored. Wired into CI as a second step of
+`generation-regression` (same manual-dispatch gate as `GoldenSetGeneration`,
+E20). Starts empty (no failures confirmed yet) and self-completes as real
+ones land — verified by actually running it once against the current
+empty `production_failures.json` (free: zero examples means zero real
+calls), producing the initial committed baseline report
+(`benchmarks/reports/productionfailuresregression/report.json`).
 
 **Verification:** 28 new tests (7 repository integration tests against
 real Postgres, including one proving the multi-metric-failure dedup
@@ -2223,6 +2299,22 @@ verified live**. `schema_validity_rate`/`abstention_pass_rate` — **not
 met, correctly left open** rather than faked; both need their own future
 scoping decisions per above.
 
+**Follow-up (2026-08-12, direct instruction): switched to manual-dispatch-only.**
+The nightly `schedule` and path-triggering described above were removed
+— `retrieval-regression`/`generation-regression` now only run from
+`workflow_dispatch`, gated behind a boolean input defaulting `false`, so
+clicking "Run workflow" without checking the box does nothing beyond the
+normal `quality` job. Reason: these jobs make real Voyage AI + OpenAI
+calls, which cost real money, and shouldn't run unattended until that's
+explicitly wanted. The `dorny/paths-filter@v3` patterns worked out above
+are left in the workflow file (not deleted) specifically so automatic
+triggering can be restored later by re-adding a `schedule`/path trigger
+— this doc entry is the reference for how that was originally wired.
+Same pass also excluded `chat`-workflow examples from the citation
+instruction/check (§7/§8 — Chat is intentionally citation-free in
+production) and added `ProductionFailuresRegression` as a second step of
+the same manual-dispatch job (see E10's entry).
+
 ---
 
 ### E21. Frontend thumbs up/down affordance — **Done** (2026-08-11)
@@ -2402,35 +2494,53 @@ Per `EVALUATION_PLAN.md` §16, Wave 1 (its MVP phases 1-14, plus the three
 roadmap-only additions E16-E18, plus the E19-E22 gap-closure items found
 during the 2026-08-11 cross-check) is done when:
 
-- [ ] `rag_answer_gold` exists with ≥50 examples, full schema, and is
-      registered in LangSmith (E1, E19)
+- [x] `rag_answer_gold` exists with ≥50 examples, full schema, and is
+      registered in LangSmith (E1, E19) — 115 examples, live and browsable
+      in LangSmith. (E19's separate Experiment-logging subtask — successive
+      runs comparable over time in-UI — isn't required by this box's
+      wording and remains its own open item, see below)
 - [ ] CI blocks merges on regression-gate failures, both relative and
-      absolute, across retrieval/generation/ingestion benchmarks — not
-      just the one offline benchmark wired in today (E2, E4, E20)
-- [ ] Real user feedback flows in through an actual UI, not only via
+      absolute, across retrieval/generation/ingestion benchmarks (E2, E4,
+      E20) — **deliberately not fully met, by direct instruction, not an
+      oversight**: the live-service regression jobs (retrieval/reranking/
+      metadata-filtering/golden-set-generation) are manual-dispatch-only
+      as of 2026-08-12 (real Voyage AI/OpenAI cost), so they don't block
+      every merge automatically today — only the smoke-tier `quality` job
+      does. Re-enabling automatic triggering is a config flip away (the
+      `paths-filter` wiring is already built, see E20's follow-up note),
+      not new engineering, whenever that tradeoff is revisited
+- [x] Real user feedback flows in through an actual UI, not only via
       direct API call, and is classified (E3, E11, E21; E22 additionally
       mirrors it into LangSmith's own UI, not required for this box but
       done anyway per direct user request)
-- [ ] Every response on every surface gets a citation-validity check,
-      100% sampled (E4, E5)
-- [ ] `eval_scores` is the single source of truth queried by the
+- [x] Every response on every surface gets a citation-validity check,
+      100% sampled (E4, E5) — **genuinely completed 2026-08-12**: verified
+      live that Chat and Linear Research's real streamed traffic reached
+      the checker (previously did not — see E5's follow-up note, a real
+      bug found only by live testing, not assumed fixed from the policy
+      change alone)
+- [x] `eval_scores` is the single source of truth queried by the
       dashboard, segment-analysis, and promotion review (E6, E7, E9, E10)
-- [ ] A production answer can be traced back to the exact config that
+- [x] A production answer can be traced back to the exact config that
       produced it (E8)
-- [ ] Ingestion, context-construction, and adversarial-guardrail coverage
+- [x] Ingestion, context-construction, and adversarial-guardrail coverage
       exist where there was previously none (E12, E13, E15)
-- [ ] Retrieval metrics are complete per §5's table (E14)
-- [ ] Latency SLOs alert and cost is forecastable (E17, E18)
+- [x] Retrieval metrics are complete per §5's table (E14)
+- [x] Latency SLOs alert and cost is forecastable (E17, E18)
 - [ ] All six 0-byte files under `tests/evaluation/`/`tests/security/` are
-      populated and passing
+      populated and passing — **5 of 6 done** (E1/E4/E14/E15, see §18's
+      table); `tests/evaluation/test_reranking.py` remains the one open
+      stub, no Wave 1 item currently scoped to fill it
 
-**Status as of 2026-08-11: 0 of 10 checked.** 11 of the (now) 22 tracked
-items are fully done (E1-E4, E8, E12-E15, E21, E22), but every box above
-needs at least one not-yet-started item (E5-E7, E9-E11, E16-E20) to close
-— including three of the boxes above that now explicitly need E19-E21 on
-top of their already-done parent items, since "the checker/dataset/
-endpoint exists" turned out not to mean "the box is checkable" for any of
-the first three rows.
+**Status as of 2026-08-12: 8 of 10 checked.** 20 of the 22 tracked items
+are fully done. The two genuinely open items blocking full closure:
+**E16** (LLM-as-judge metric — not started at all) and the leftover
+half-items already called out inline above (`test_reranking.py`,
+Experiment-logging, and the deliberate manual-CI tradeoff, which is a
+decision to revisit rather than unfinished work). E19/E20 are otherwise
+done; E9's segment-analysis-by-`failure_category` slice (blocked on E10
+not existing yet) is now unblocked now that E10 has shipped, but the
+slice itself hasn't been built — see E9's own entry.
 
 ## 5. Explicitly out of scope for this tracker
 

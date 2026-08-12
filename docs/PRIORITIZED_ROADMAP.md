@@ -56,7 +56,7 @@ instruction, not derived:
 | 1 | ✅ Internal dashboard + owner-scoped drill-down — Done | High | Med | Read-only view over data Wave 1 already produces |
 | 1 | ✅ Config fingerprint through `GenerationRequest`→`GenerationUsage` — Done | High | Med | Unlocks "what to improve" identification |
 | 1 | ✅ Segment-analysis job — Done, two views (online-by-fingerprint, offline-by-content-segment) | High | Med | Depends on the fingerprint above |
-| 1 | Golden-set promotion review (both directions) | High | Med | Needs feedback volume first — sequenced late within this wave |
+| 1 | ✅ Golden-set promotion review (both directions) — Done, links out to LangSmith traces for reviewer content | High | Med | Needs feedback volume first — sequenced late within this wave |
 | 1 | ✅ Comment classification (objective/preference split) — Done, 6/6 real classifications correct | Med-High | Med | Small bounded LLM call, reuses an existing codebase pattern |
 | 1 | ✅ Ingestion fidelity checks (parse success + fixtures) — Done | Med | Med | New coverage, cheap, deterministic |
 | 1 | ✅ Context-construction checks (provenance, token efficiency) — Done | Med | Med | New layer, deterministic |

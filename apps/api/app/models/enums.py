@@ -87,3 +87,78 @@ class EvalScoreSource(StrEnum):
     ONLINE_SAMPLED = "online_sampled"
     OFFLINE_BENCHMARK = "offline_benchmark"
     HUMAN_FEEDBACK = "human_feedback"
+
+
+class PromotionCandidateSource(StrEnum):
+    """
+    Where a `PromotionReview` candidate's signal came from (E10,
+    EVALUATION_PLAN.md §3/§15). Mirrors §15's loop: "Free/deterministic
+    checks... LLM judges... route to the review queue."
+    """
+
+    HUMAN_FEEDBACK = "human_feedback"
+    """A thumbs up/down (`Feedback`), optionally with a comment already
+    classified `objective` by E11."""
+
+    ONLINE_FLAGGED = "online_flagged"
+    """An online-sampled `eval_scores` row (E5) that failed a check or
+    was guardrail-flagged -- "E5's flagged-but-scored generations" per
+    the tracker's own E10 subtask wording."""
+
+
+class PromotionDirection(StrEnum):
+    """
+    "Both directions" (E10's own framing, EVALUATION_PLAN.md §3/§15):
+    confirmed genuine failures feed `production_failures`; confirmed
+    *good* examples feed `rag_answer_gold` directly, not just harvesting
+    the negative side of feedback.
+    """
+
+    FAILURE = "failure"
+    GOOD = "good"
+
+
+class PromotionCandidateView(StrEnum):
+    """
+    Which unreviewed-candidate list `GET .../candidates` returns --
+    distinct from `PromotionDirection` (what a *confirmed* row actually
+    becomes) because `PREFERENCE` never becomes its own dataset: it's
+    thumbs-down feedback E11 classified `preference`, surfaced separately
+    so a human reviewer can override the classifier's conservative
+    default rather than have it silently vanish from the queue forever.
+    Overriding one still confirms with `PromotionDirection.FAILURE`, same
+    as the `FAILURE` view.
+    """
+
+    GOOD = "good"
+    FAILURE = "failure"
+    PREFERENCE = "preference"
+
+
+class PromotionStatus(StrEnum):
+    """Outcome of a human review (E10) -- a `PromotionReview` row only
+    ever exists for something a human has already acted on; there is no
+    "pending" state stored here, since unreviewed candidates are derived
+    live from `Feedback`/`eval_scores`, not persisted separately."""
+
+    CONFIRMED = "confirmed"
+    REJECTED = "rejected"
+
+
+class FailureCategory(StrEnum):
+    """
+    §3's failure-category taxonomy (EVALUATION_PLAN.md), assigned by a
+    human reviewer confirming a genuine production failure (E10). Feeds
+    the future segment-analysis-by-failure-type slice E9's own tracker
+    entry left open pending this taxonomy actually being applied to real
+    rows.
+    """
+
+    WRONG_CITATION = "wrong_citation"
+    HALLUCINATION = "hallucination"
+    RETRIEVAL_MISS = "retrieval_miss"
+    UNNECESSARY_TOOL_USE = "unnecessary_tool_use"
+    ABSTENTION_FAILURE = "abstention_failure"
+    WORKFLOW_LOOP = "workflow_loop"
+    SCHEMA_VIOLATION = "schema_violation"
+    INJECTION_SUCCESS = "injection_success"

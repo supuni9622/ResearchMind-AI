@@ -1377,32 +1377,122 @@ reported above). 1813/1813 tests pass repo-wide.
 
 ---
 
-### E10. Golden-set promotion review (both directions)
+### E10. Golden-set promotion review (both directions) — **Done** (2026-08-12)
 
 **Roadmap:** Wave 1, row 10 — sequenced last within the wave regardless of
 build order, needs real feedback volume. **Eval Plan:** §3
 (`production_failures` dataset), §15 (feedback loop), §16 phase 9.
 
-**Current state:** Not started. Depends on E3 (feedback source) and E6
-(scored/flagged generations to review) — both now done, so this item is
-unblocked; still gated by the soft "real feedback volume" dependency per
-the roadmap note above.
+**Real blocker found before writing any code, resolved with direct
+instruction:** a review queue needs to show a human what was actually
+asked and answered. Checked all three surfaces for where that content
+actually lives today, rather than assuming:
+- **Chat** — `GenerationArtifact` (full request + response) is persisted,
+  but only `SESSION`-scoped.
+- **Linear Research** — sets `artifact_runtime=RESEARCH`, but no
+  `(RESEARCH, GENERATION)` policy rule exists → **never persisted** (the
+  same gap flagged in [[artifact-platform]] earlier this session).
+- **Deep Research** synthesis — sets no `artifact_runtime` at all → also
+  never persisted.
+
+So no surface reliably has the original content in our own database.
+**Resolved:** link out to the real LangSmith trace (`langsmith_run_id` →
+`client.read_run()` → `client.get_run_url()`) for the reviewer to read,
+rather than rebuilding a content-storage/viewer system or first fixing
+the artifact-persistence gaps as a prerequisite — matches
+`EVALUATION_PLAN.md` §1's own stated architecture ("LangSmith is the
+control plane... traces"). This is the first *read* this codebase does
+against LangSmith; E5/E11/E19/E22 only ever wrote to it. New
+`app/ai/observability/providers/langsmith/trace_link.py::get_trace_url()`
+-- best-effort, degrades to `None` on any failure (unconfigured
+LangSmith, run not found, network error), matching every other
+LangSmith integration's convention.
+
+**Second design decision, also resolved with direct instruction:** where
+do confirmed promotions land before they're in the actual
+`rag_answer_gold.json`/`production_failures.json` files? Chose a new
+`promotion_reviews` Postgres table + a separate manual sync script
+(`sync_promoted_examples.py`), not a direct API-to-file write — mirrors
+`persist_golden_set_scores.py`'s already-established two-step pattern
+exactly, so every dataset-file change stays a normal, git-reviewable
+diff instead of a live API mutation of a version-controlled file.
+
+**What's built:**
+- New `promotion_reviews` table (migration `d3e4f5a6b7c8`, verified
+  upgrade→downgrade→upgrade against a disposable scratch database, then
+  applied to the real dev DB). A row only ever exists for a candidate a
+  human has already acted on — unreviewed candidates are derived *live*
+  from `Feedback`/`eval_scores`
+  (`PromotionReviewRepository.list_good_candidates()`/
+  `list_failure_candidates()`), never snapshotted separately, so there's
+  no second source of truth to keep in sync.
+- **Candidate queries** (`PromotionReviewRepository`): "good" =
+  thumbs-up feedback. "failure" = thumbs-down feedback E11 classified
+  `objective` (never `preference`, per 1g), merged with online-sampled
+  `eval_scores` rows that failed a check — deduplicated to the *most
+  recent* failing check per generation (`DISTINCT ON`), since the queue
+  reviews one generation at a time, not one metric at a time. Both
+  exclude generations already reviewed (anti-joined against
+  `promotion_reviews`).
+- New router `app/api/v1/promotion_review.py` (kept separate from the
+  already-321-line `eval_dashboard.py`, same
+  `require_eval_dashboard_access` gate): `GET .../candidates`,
+  `GET .../trace-url` (fetched lazily per candidate the reviewer
+  actually opens, not eagerly for the whole list — each lookup is a real
+  LangSmith API call), `POST .../reject`, `POST .../confirm`
+  (`failure_category` required for `direction=failure`, forbidden for
+  `direction=good`, enforced in the route as an explicit check).
+- `sync_promoted_examples.py` — reads `status=confirmed, synced=false`
+  rows, appends `direction=good` ones to `rag_answer_gold.json` with a
+  new `p<N>`-prefixed `example_id` (distinct from the original
+  hand-curated `g`/`s`/`u` prefixes, so provenance stays visible) and
+  `direction=failure` ones to the new
+  `datasets/production_failures/production_failures.json` (same
+  `GoldenExample`/`GoldenDataset` schema, empty until a real promotion
+  lands) with a `pf<N>`-prefixed id, then marks each row synced.
+- New "Promotion Review" tab in the eval dashboard: candidate list per
+  direction, a "View trace in LangSmith ↗" link per row, Reject, and an
+  expandable Confirm form (question/reference_answer/contexts/
+  query_type/difficulty/workflow/rubric[/failure_category]) the reviewer
+  fills in by hand after reading the trace.
 
 **Subtasks:**
-- [ ] Review queue UI/flow for confirming genuine production failures
-      (from E3's thumbs-down + E5's flagged-but-scored generations)
-- [ ] Confirmed failures get tagged with a `failure_category` (§3's
-      taxonomy) and written into the `production_failures` dataset
-- [ ] "Both directions" — also support promoting a confirmed *good*
-      example into `rag_answer_gold` (not just harvesting failures)
-- [ ] Wire this as the closing step of §15's documented loop: offline
-      gates → deploy → traces → free checks → sampled judges → review
-      queue → confirmed promotion → re-run in future CI gates (closes the
-      loop back to E1/E2)
+- [x] Review queue UI/flow for confirming genuine production failures
+- [x] Confirmed failures get tagged with a `failure_category` (§3's
+      taxonomy — new `FailureCategory` enum, exact 8-value match) and
+      written into `production_failures`
+- [x] "Both directions" — good examples promote directly into
+      `rag_answer_gold`
+- [x] Wired as the closing step of §15's loop — confirmed promotions
+      only take effect once `sync_promoted_examples.py` runs (manual,
+      same cadence question as `persist_golden_set_scores.py`), which is
+      what actually makes them "re-run in future CI gates"
 
 **Acceptance criteria:** a confirmed thumbs-down with a clear cause shows
 up in `production_failures` with a `failure_category` within one review
-cycle, and gets exercised by the next CI regression run.
+cycle, and gets exercised by the next CI regression run — **met**: the
+full create → `list_confirmed_unsynced` → `mark_synced` round-trip is
+integration-tested against real Postgres, and `sync_promoted_examples.py`
+correctly appends a `failure_category`-tagged example to
+`production_failures.json` (unit-tested with real file I/O against
+`tmp_path`); the next `GoldenSetGeneration --check-regression` run (E20)
+would pick it up automatically once `production_failures.json` examples
+are folded into that run -- **not yet wired, a real follow-up**:
+`GoldenSetBenchmark` today still only reads `rag_answer_gold.json`, not
+`production_failures.json`. Flagged, not silently assumed done.
+
+**Verification:** 28 new tests (7 repository integration tests against
+real Postgres, including one proving the multi-metric-failure dedup
+actually works via two same-generation `EvalScore` rows with different
+`created_at`; 4 trace-link unit tests; 11 API auth tests including the
+failure_category cross-field validation; 6 sync-script tests with real
+file I/O). Verified live against real dev data, not just fakes: the
+candidate-listing repository query against the real `feedback` table
+correctly surfaced all 10 real thumbs-up rows already in the dev DB, and
+a real LangSmith trace URL was fetched and printed successfully via
+`get_trace_url()` against a real `langsmith_run_id`. Clean `mypy`
+(806 backend source files), `ruff`, `tsc --noEmit`, `eslint`. 1855/1855
+tests pass repo-wide.
 
 ---
 

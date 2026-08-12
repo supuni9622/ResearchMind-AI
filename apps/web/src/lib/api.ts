@@ -547,6 +547,67 @@ export interface ContentSegmentAnalysisResponse {
   items: ContentSegmentAggregate[];
 }
 
+// Promotion review (E10) -- the closing step of the offline-gates ->
+// deploy -> traces -> free checks -> sampled judges -> review queue ->
+// confirmed promotion -> re-run-in-CI loop (EVALUATION_PLAN.md §15).
+// This app never stores/replays the original question/answer/context
+// (see PromotionReview's own backend docstring for why) -- a reviewer
+// reads the real content via the LangSmith trace link, then fills in
+// this form by hand.
+export type PromotionDirection = 'good' | 'failure';
+
+// Which unreviewed-candidate list to fetch -- distinct from
+// PromotionDirection (what a *confirmed* row becomes): 'preference' never
+// becomes its own dataset, it's thumbs-down feedback E11 classified
+// 'preference' rather than 'objective', surfaced separately so a reviewer
+// can override the classifier instead of it vanishing from the queue.
+export type PromotionCandidateView = PromotionDirection | 'preference';
+
+export interface PromotionCandidate {
+  source: string;
+  owner_id: string;
+  generation_id: string;
+  reason: string;
+  created_at: string;
+}
+
+export interface PromotionCandidateListResponse {
+  items: PromotionCandidate[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+export type PromotionQueryType = 'factual' | 'synthesis' | 'comparison' | 'exploratory' | 'unanswerable';
+export type PromotionDifficulty = 'easy' | 'medium' | 'hard';
+export type PromotionWorkflow = 'chat' | 'linear_research' | 'deep_research';
+export type PromotionFailureCategory =
+  | 'wrong_citation'
+  | 'hallucination'
+  | 'retrieval_miss'
+  | 'unnecessary_tool_use'
+  | 'abstention_failure'
+  | 'workflow_loop'
+  | 'schema_violation'
+  | 'injection_success';
+
+export interface ConfirmPromotionPayload {
+  source: string;
+  direction: PromotionDirection;
+  owner_id: string;
+  generation_id: string;
+  question: string;
+  reference_answer: string;
+  contexts: string[];
+  reference_context_ids: string[];
+  expected_citation_ids: string[];
+  query_type: PromotionQueryType;
+  difficulty: PromotionDifficulty;
+  workflow: PromotionWorkflow;
+  rubric?: string | null;
+  failure_category?: PromotionFailureCategory | null;
+}
+
 export const PROVIDER_OPTIONS: { value: GenerationProvider | 'auto'; label: string }[] = [
   { value: 'auto', label: 'Auto' },
   { value: 'claude', label: 'Claude' },
@@ -984,5 +1045,34 @@ export const api = {
         `/api/v1/eval-dashboard/segment-analysis/offline?${query.toString()}`
       );
     },
+  },
+
+  promotionReview: {
+    listCandidates: (params: {
+      direction: PromotionCandidateView;
+      limit?: number;
+      offset?: number;
+    }) => {
+      const query = new URLSearchParams({ direction: params.direction });
+      if (params.limit !== undefined) query.set('limit', String(params.limit));
+      if (params.offset !== undefined) query.set('offset', String(params.offset));
+      return request<PromotionCandidateListResponse>(
+        `/api/v1/eval-dashboard/promotion-review/candidates?${query.toString()}`
+      );
+    },
+    traceUrl: (generationId: string) =>
+      request<{ trace_url: string | null }>(
+        `/api/v1/eval-dashboard/promotion-review/trace-url?generation_id=${generationId}`
+      ),
+    reject: (payload: { source: string; owner_id: string; generation_id: string }) =>
+      request('/api/v1/eval-dashboard/promotion-review/reject', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      }),
+    confirm: (payload: ConfirmPromotionPayload) =>
+      request('/api/v1/eval-dashboard/promotion-review/confirm', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      }),
   },
 };

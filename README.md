@@ -633,6 +633,13 @@ uv run python -m benchmarks.generation.persist_golden_set_scores --report benchm
 
 Deliberately a separate script, not a flag on `benchmarks/runner.py`: the generic runner needs no database for any other benchmark, and this keeps that property true for all of them.
 
+9. Sync confirmed promotion-review examples into the dataset files (EVALUATION_PLAN.md §3/§15, tracker E10)
+```
+uv run python -m benchmarks.generation.sync_promoted_examples
+```
+
+The eval dashboard's Promotion Review tab writes confirmed thumbs-up/flagged-failure reviews into a `promotion_reviews` Postgres table only — never directly into the checked-in dataset files. This script reads every `status=confirmed, synced=false` row, appends "good" promotions to `datasets/golden/rag_answer_gold.json` (new `p<N>`-prefixed IDs) and "failure" promotions to `datasets/production_failures/production_failures.json` (new `pf<N>`-prefixed IDs, tagged with their `failure_category`), then marks each row synced. Same two-step pattern as `persist_golden_set_scores.py` above, for the same reason: every change to a version-controlled dataset file stays a normal, reviewable git diff instead of a live API mutation.
+
 ---
 
 ## Authentication (AWS Cognito)

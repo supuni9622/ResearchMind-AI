@@ -8,8 +8,9 @@ import { OwnerDrilldownView } from '@/features/eval-dashboard/components/owner-d
 import { OfflineDrilldownView } from '@/features/eval-dashboard/components/offline-drilldown-view';
 import { BenchmarkReportsView } from '@/features/eval-dashboard/components/benchmark-reports-view';
 import { SegmentAnalysisView } from '@/features/eval-dashboard/components/segment-analysis-view';
+import { PromotionReviewView } from '@/features/eval-dashboard/components/promotion-review-view';
 
-type Tab = 'owner' | 'offline' | 'benchmarks' | 'segments';
+type Tab = 'owner' | 'offline' | 'benchmarks' | 'segments' | 'promotion';
 
 export default function EvalDashboardPage() {
   const [forbidden, setForbidden] = useState(false);
@@ -49,12 +50,16 @@ export default function EvalDashboardPage() {
         <Pill active={tab === 'segments'} onClick={() => setTab('segments')}>
           Segment Analysis
         </Pill>
+        <Pill active={tab === 'promotion'} onClick={() => setTab('promotion')}>
+          Promotion Review
+        </Pill>
       </div>
 
       {tab === 'owner' && <OwnerDrilldownView onForbidden={() => setForbidden(true)} />}
       {tab === 'offline' && <OfflineDrilldownView onForbidden={() => setForbidden(true)} />}
       {tab === 'benchmarks' && <BenchmarkReportsView onForbidden={() => setForbidden(true)} />}
       {tab === 'segments' && <SegmentAnalysisView onForbidden={() => setForbidden(true)} />}
+      {tab === 'promotion' && <PromotionReviewView onForbidden={() => setForbidden(true)} />}
     </div>
   );
 }

@@ -37,3 +37,4 @@ storage/
 
 # Large local media (hosted on YouTube instead, see README)
 docs/videos/
+benchmarks/datasets/research-papers-sources

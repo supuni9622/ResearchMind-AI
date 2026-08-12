@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from app.services.benchmark_reports import load_reports_from
+from app.services.benchmark_reports import load_offline_summaries_from, load_reports_from
 
 from benchmarks.generation.golden_set_benchmark import PER_EXAMPLE_SCORES_NOTE_KEY
 
@@ -78,3 +78,37 @@ def test_skips_reports_with_per_example_detail(tmp_path: Path) -> None:
     reports = load_reports_from(tmp_path)
 
     assert [report.benchmark_name for report in reports] == ["Embeddings"]
+
+
+# -- load_offline_summaries_from (mirror image) -----------------------------
+
+
+def test_offline_summaries_returns_only_reports_with_per_example_detail(tmp_path: Path) -> None:
+    _write_report(
+        tmp_path / "goldensetgeneration",
+        benchmark_name="GoldenSetGeneration",
+        notes={PER_EXAMPLE_SCORES_NOTE_KEY: [{"example_id": "g1"}]},
+    )
+    _write_report(tmp_path / "embeddings", benchmark_name="Embeddings")
+
+    reports = load_offline_summaries_from(tmp_path)
+
+    assert [report.benchmark_name for report in reports] == ["GoldenSetGeneration"]
+
+
+def test_offline_summaries_strips_notes_but_keeps_metrics(tmp_path: Path) -> None:
+    _write_report(
+        tmp_path / "goldensetgeneration",
+        benchmark_name="GoldenSetGeneration",
+        notes={PER_EXAMPLE_SCORES_NOTE_KEY: [{"example_id": "g1", "metric": "faithfulness"}]},
+    )
+
+    reports = load_offline_summaries_from(tmp_path)
+
+    candidate = reports[0].candidates[0]
+    assert candidate.notes == {}
+    assert candidate.metrics == {"recall_at_5": 0.9}
+
+
+def test_missing_directory_returns_empty_offline_summaries(tmp_path: Path) -> None:
+    assert load_offline_summaries_from(tmp_path / "does-not-exist") == []

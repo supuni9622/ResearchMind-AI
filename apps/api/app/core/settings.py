@@ -419,6 +419,16 @@ class Settings(BaseSettings):
     got scored stays unscored rather than being picked up on every poll
     forever."""
 
+    eval_online_rubric_judge_enabled: bool = False
+    """E16 follow-up -- extends the rubric-adherence judge (previously
+    golden-set-only, since only curated examples have a per-example
+    `rubric`) to online-sampled production traffic, judged against one
+    fixed, generic quality rubric instead (see `online_scoring/job.py`'s
+    `_GENERIC_ONLINE_RUBRIC`). Default off: this is a genuinely new,
+    ongoing LLM-call cost on top of the existing Ragas suite, even though
+    it rides the same risk-weighted sample -- an operator should opt in
+    deliberately, not get it silently enabled by an unrelated deploy."""
+
     @field_validator(
         "eval_online_baseline_sample_rate",
         "eval_online_canary_oversample_rate",

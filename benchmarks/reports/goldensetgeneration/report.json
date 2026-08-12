@@ -1,19 +1,19 @@
 {
   "benchmark_name": "GoldenSetGeneration",
-  "generated_at": "2026-08-11T19:09:17.637542Z",
+  "generated_at": "2026-08-12T07:37:25.088005Z",
   "dataset": {
     "name": "golden",
     "document_count": 101
   },
   "metadata": {
-    "git_commit": "aa6d110fee2fb8324fd2ec807586e6e4c7189a38",
+    "git_commit": "46bbbc278b1aabd8970c67e2ae087183e4f324e2",
     "branch": "researchmind-v2",
     "dataset_version": "1.0",
     "model_versions": {
       "openai+claude": "gpt-5.5"
     },
     "benchmark_version": "1.0.0",
-    "timestamp": "2026-08-11T19:09:17.637480Z"
+    "timestamp": "2026-08-12T07:37:25.087966Z"
   },
   "candidates": [
     {
@@ -21,10 +21,12 @@
       "version": "gpt-5.5",
       "metrics": {
         "examples_evaluated": 101,
-        "answer_relevancy": 0.8294,
-        "faithfulness": 0.7638,
-        "context_precision": 0.9945,
-        "context_recall": 0.9881,
+        "answer_relevancy": 0.7141,
+        "faithfulness": 0.7355,
+        "context_precision": 0.9933,
+        "context_recall": 0.9892,
+        "fabricated_citation_rate": 0.0,
+        "rubric_adherence": 0.7143,
         "examples_via_openai": 101
       },
       "notes": {
@@ -32,17 +34,17 @@
           {
             "example_id": "g1",
             "metric": "answer_relevancy",
-            "score": 0.7624035516578173,
+            "score": 0.5647726679652143,
             "passed": true,
-            "reason": "answer_relevancy scored 0.76 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "reason": "answer_relevancy scored 0.56 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
             "provider": "openai"
           },
           {
             "example_id": "g1",
             "metric": "faithfulness",
-            "score": 0.8,
+            "score": 1.0,
             "passed": true,
-            "reason": "faithfulness scored 0.80 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "reason": "faithfulness scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
             "provider": "openai"
           },
           {
@@ -62,9 +64,17 @@
             "provider": "openai"
           },
           {
+            "example_id": "g1",
+            "metric": "fabricated_citation_rate",
+            "score": 0.0,
+            "passed": true,
+            "reason": "All citation markers are well-formed.; Every cited source exists in the retrieved set.; 0% of cited sources are fabricated (target 0%).; Every cited source's chunks were retrieved this turn.",
+            "provider": "openai"
+          },
+          {
             "example_id": "g2",
             "metric": "answer_relevancy",
-            "score": 0.9108007752698142,
+            "score": 0.911125834355676,
             "passed": true,
             "reason": "answer_relevancy scored 0.91 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
             "provider": "openai"
@@ -72,9 +82,9 @@
           {
             "example_id": "g2",
             "metric": "faithfulness",
-            "score": 0.5714285714285714,
+            "score": 0.7777777777777778,
             "passed": true,
-            "reason": "faithfulness scored 0.57 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "reason": "faithfulness scored 0.78 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
             "provider": "openai"
           },
           {
@@ -94,11 +104,19 @@
             "provider": "openai"
           },
           {
+            "example_id": "g2",
+            "metric": "fabricated_citation_rate",
+            "score": 0.0,
+            "passed": true,
+            "reason": "All citation markers are well-formed.; Every cited source exists in the retrieved set.; 0% of cited sources are fabricated (target 0%).; Every cited source's chunks were retrieved this turn.",
+            "provider": "openai"
+          },
+          {
             "example_id": "g3",
             "metric": "answer_relevancy",
-            "score": 0.49478935907844485,
-            "passed": false,
-            "reason": "answer_relevancy scored 0.49 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "score": 0.5168883768379671,
+            "passed": true,
+            "reason": "answer_relevancy scored 0.52 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
             "provider": "openai"
           },
           {
@@ -128,9 +146,9 @@
           {
             "example_id": "g4",
             "metric": "answer_relevancy",
-            "score": 0.8725524227248141,
+            "score": 0.8857154107693552,
             "passed": true,
-            "reason": "answer_relevancy scored 0.87 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "reason": "answer_relevancy scored 0.89 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
             "provider": "openai"
           },
           {
@@ -160,17 +178,17 @@
           {
             "example_id": "g5",
             "metric": "answer_relevancy",
-            "score": 0.801090947218976,
+            "score": 0.8218967128958444,
             "passed": true,
-            "reason": "answer_relevancy scored 0.80 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "reason": "answer_relevancy scored 0.82 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
             "provider": "openai"
           },
           {
             "example_id": "g5",
             "metric": "faithfulness",
-            "score": 1.0,
+            "score": 0.6666666666666666,
             "passed": true,
-            "reason": "faithfulness scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "reason": "faithfulness scored 0.67 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
             "provider": "openai"
           },
           {
@@ -183,6 +201,46 @@
           },
           {
             "example_id": "g5",
+            "metric": "context_recall",
+            "score": 1.0,
+            "passed": true,
+            "reason": "context_recall scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "provider": "openai"
+          },
+          {
+            "example_id": "g5",
+            "metric": "fabricated_citation_rate",
+            "score": 0.0,
+            "passed": true,
+            "reason": "All citation markers are well-formed.; Every cited source exists in the retrieved set.; 0% of cited sources are fabricated (target 0%).; Every cited source's chunks were retrieved this turn.",
+            "provider": "openai"
+          },
+          {
+            "example_id": "g6",
+            "metric": "answer_relevancy",
+            "score": 0.8110673862669565,
+            "passed": true,
+            "reason": "answer_relevancy scored 0.81 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "provider": "openai"
+          },
+          {
+            "example_id": "g6",
+            "metric": "faithfulness",
+            "score": 0.8571428571428571,
+            "passed": true,
+            "reason": "faithfulness scored 0.86 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "provider": "openai"
+          },
+          {
+            "example_id": "g6",
+            "metric": "context_precision",
+            "score": 0.9999999999,
+            "passed": true,
+            "reason": "context_precision scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "provider": "openai"
+          },
+          {
+            "example_id": "g6",
             "metric": "context_recall",
             "score": 1.0,
             "passed": true,
@@ -191,22 +249,110 @@
           },
           {
             "example_id": "g6",
+            "metric": "fabricated_citation_rate",
+            "score": 0.0,
+            "passed": true,
+            "reason": "All citation markers are well-formed.; Every cited source exists in the retrieved set.; 0% of cited sources are fabricated (target 0%).; Every cited source's chunks were retrieved this turn.",
+            "provider": "openai"
+          },
+          {
+            "example_id": "g7",
             "metric": "answer_relevancy",
-            "score": 0.9554096825928592,
+            "score": 0.720114952153026,
+            "passed": true,
+            "reason": "answer_relevancy scored 0.72 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "provider": "openai"
+          },
+          {
+            "example_id": "g7",
+            "metric": "faithfulness",
+            "score": 0.6666666666666666,
+            "passed": true,
+            "reason": "faithfulness scored 0.67 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "provider": "openai"
+          },
+          {
+            "example_id": "g7",
+            "metric": "context_precision",
+            "score": 0.9999999999,
+            "passed": true,
+            "reason": "context_precision scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "provider": "openai"
+          },
+          {
+            "example_id": "g7",
+            "metric": "context_recall",
+            "score": 1.0,
+            "passed": true,
+            "reason": "context_recall scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "provider": "openai"
+          },
+          {
+            "example_id": "g7",
+            "metric": "fabricated_citation_rate",
+            "score": 0.0,
+            "passed": true,
+            "reason": "All citation markers are well-formed.; Every cited source exists in the retrieved set.; 0% of cited sources are fabricated (target 0%).; Every cited source's chunks were retrieved this turn.",
+            "provider": "openai"
+          },
+          {
+            "example_id": "g8",
+            "metric": "answer_relevancy",
+            "score": 0.6219742390428994,
+            "passed": true,
+            "reason": "answer_relevancy scored 0.62 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "provider": "openai"
+          },
+          {
+            "example_id": "g8",
+            "metric": "faithfulness",
+            "score": 0.3333333333333333,
+            "passed": false,
+            "reason": "faithfulness scored 0.33 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "provider": "openai"
+          },
+          {
+            "example_id": "g8",
+            "metric": "context_precision",
+            "score": 0.9999999999,
+            "passed": true,
+            "reason": "context_precision scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "provider": "openai"
+          },
+          {
+            "example_id": "g8",
+            "metric": "context_recall",
+            "score": 1.0,
+            "passed": true,
+            "reason": "context_recall scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "provider": "openai"
+          },
+          {
+            "example_id": "g8",
+            "metric": "fabricated_citation_rate",
+            "score": 0.0,
+            "passed": true,
+            "reason": "All citation markers are well-formed.; Every cited source exists in the retrieved set.; 0% of cited sources are fabricated (target 0%).; Every cited source's chunks were retrieved this turn.",
+            "provider": "openai"
+          },
+          {
+            "example_id": "g9",
+            "metric": "answer_relevancy",
+            "score": 0.9567024525664971,
             "passed": true,
             "reason": "answer_relevancy scored 0.96 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
             "provider": "openai"
           },
           {
-            "example_id": "g6",
+            "example_id": "g9",
             "metric": "faithfulness",
-            "score": 1.0,
+            "score": 0.75,
             "passed": true,
-            "reason": "faithfulness scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "reason": "faithfulness scored 0.75 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
             "provider": "openai"
           },
           {
-            "example_id": "g6",
+            "example_id": "g9",
             "metric": "context_precision",
             "score": 0.9999999999,
             "passed": true,
@@ -214,71 +360,7 @@
             "provider": "openai"
           },
           {
-            "example_id": "g6",
-            "metric": "context_recall",
-            "score": 1.0,
-            "passed": true,
-            "reason": "context_recall scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
-            "provider": "openai"
-          },
-          {
-            "example_id": "g7",
-            "metric": "answer_relevancy",
-            "score": 0.9092329305315298,
-            "passed": true,
-            "reason": "answer_relevancy scored 0.91 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
-            "provider": "openai"
-          },
-          {
-            "example_id": "g7",
-            "metric": "faithfulness",
-            "score": 1.0,
-            "passed": true,
-            "reason": "faithfulness scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
-            "provider": "openai"
-          },
-          {
-            "example_id": "g7",
-            "metric": "context_precision",
-            "score": 0.9999999999,
-            "passed": true,
-            "reason": "context_precision scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
-            "provider": "openai"
-          },
-          {
-            "example_id": "g7",
-            "metric": "context_recall",
-            "score": 1.0,
-            "passed": true,
-            "reason": "context_recall scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
-            "provider": "openai"
-          },
-          {
-            "example_id": "g8",
-            "metric": "answer_relevancy",
-            "score": 0.5390140894807983,
-            "passed": true,
-            "reason": "answer_relevancy scored 0.54 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
-            "provider": "openai"
-          },
-          {
-            "example_id": "g8",
-            "metric": "faithfulness",
-            "score": 0.2777777777777778,
-            "passed": false,
-            "reason": "faithfulness scored 0.28 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
-            "provider": "openai"
-          },
-          {
-            "example_id": "g8",
-            "metric": "context_precision",
-            "score": 0.9999999999,
-            "passed": true,
-            "reason": "context_precision scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
-            "provider": "openai"
-          },
-          {
-            "example_id": "g8",
+            "example_id": "g9",
             "metric": "context_recall",
             "score": 1.0,
             "passed": true,
@@ -287,15 +369,16 @@
           },
           {
             "example_id": "g9",
-            "metric": "error",
-            "score": null,
-            "passed": false,
-            "reason": "scoring failed: The output is incomplete due to a max_tokens length limit."
+            "metric": "fabricated_citation_rate",
+            "score": 0.0,
+            "passed": true,
+            "reason": "All citation markers are well-formed.; Every cited source exists in the retrieved set.; 0% of cited sources are fabricated (target 0%).; Every cited source's chunks were retrieved this turn.",
+            "provider": "openai"
           },
           {
             "example_id": "g10",
             "metric": "answer_relevancy",
-            "score": 0.9999998625688882,
+            "score": 0.9999995959661724,
             "passed": true,
             "reason": "answer_relevancy scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
             "provider": "openai"
@@ -303,9 +386,9 @@
           {
             "example_id": "g10",
             "metric": "faithfulness",
-            "score": 0.14285714285714285,
-            "passed": false,
-            "reason": "faithfulness scored 0.14 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "score": 0.8571428571428571,
+            "passed": true,
+            "reason": "faithfulness scored 0.86 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
             "provider": "openai"
           },
           {
@@ -325,11 +408,19 @@
             "provider": "openai"
           },
           {
+            "example_id": "g10",
+            "metric": "fabricated_citation_rate",
+            "score": 0.0,
+            "passed": true,
+            "reason": "All citation markers are well-formed.; Every cited source exists in the retrieved set.; 0% of cited sources are fabricated (target 0%).; Every cited source's chunks were retrieved this turn.",
+            "provider": "openai"
+          },
+          {
             "example_id": "g11",
             "metric": "answer_relevancy",
-            "score": 0.6751604697729787,
+            "score": 0.7631954336918979,
             "passed": true,
-            "reason": "answer_relevancy scored 0.68 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "reason": "answer_relevancy scored 0.76 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
             "provider": "openai"
           },
           {
@@ -357,19 +448,27 @@
             "provider": "openai"
           },
           {
+            "example_id": "g11",
+            "metric": "fabricated_citation_rate",
+            "score": 0.0,
+            "passed": true,
+            "reason": "All citation markers are well-formed.; Every cited source exists in the retrieved set.; 0% of cited sources are fabricated (target 0%).; Every cited source's chunks were retrieved this turn.",
+            "provider": "openai"
+          },
+          {
             "example_id": "g12",
             "metric": "answer_relevancy",
-            "score": 0.9874607152411118,
+            "score": 0.9271949556696909,
             "passed": true,
-            "reason": "answer_relevancy scored 0.99 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "reason": "answer_relevancy scored 0.93 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
             "provider": "openai"
           },
           {
             "example_id": "g12",
             "metric": "faithfulness",
-            "score": 1.0,
+            "score": 0.625,
             "passed": true,
-            "reason": "faithfulness scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "reason": "faithfulness scored 0.62 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
             "provider": "openai"
           },
           {
@@ -389,19 +488,27 @@
             "provider": "openai"
           },
           {
+            "example_id": "g12",
+            "metric": "fabricated_citation_rate",
+            "score": 0.0,
+            "passed": true,
+            "reason": "All citation markers are well-formed.; Every cited source exists in the retrieved set.; 0% of cited sources are fabricated (target 0%).; Every cited source's chunks were retrieved this turn.",
+            "provider": "openai"
+          },
+          {
             "example_id": "g13",
             "metric": "answer_relevancy",
-            "score": 0.8883365133782978,
+            "score": 0.9919075823148732,
             "passed": true,
-            "reason": "answer_relevancy scored 0.89 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "reason": "answer_relevancy scored 0.99 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
             "provider": "openai"
           },
           {
             "example_id": "g13",
             "metric": "faithfulness",
-            "score": 1.0,
+            "score": 0.75,
             "passed": true,
-            "reason": "faithfulness scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "reason": "faithfulness scored 0.75 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
             "provider": "openai"
           },
           {
@@ -414,6 +521,54 @@
           },
           {
             "example_id": "g13",
+            "metric": "context_recall",
+            "score": 1.0,
+            "passed": true,
+            "reason": "context_recall scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "provider": "openai"
+          },
+          {
+            "example_id": "g13",
+            "metric": "fabricated_citation_rate",
+            "score": 0.0,
+            "passed": true,
+            "reason": "All citation markers are well-formed.; Every cited source exists in the retrieved set.; 0% of cited sources are fabricated (target 0%).; Every cited source's chunks were retrieved this turn.",
+            "provider": "openai"
+          },
+          {
+            "example_id": "s1",
+            "metric": "answer_relevancy",
+            "score": 0.4376733332667965,
+            "passed": false,
+            "reason": "answer_relevancy scored 0.44 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "provider": "openai"
+          },
+          {
+            "example_id": "s1",
+            "metric": "rubric_adherence",
+            "score": 1.0,
+            "passed": true,
+            "reason": "pass: includes the hypothesis statement, the four named roles, and the F1 improvement from 0.61 to 0.74 as required by the rubric.",
+            "provider": "openai"
+          },
+          {
+            "example_id": "s1",
+            "metric": "faithfulness",
+            "score": 0.75,
+            "passed": true,
+            "reason": "faithfulness scored 0.75 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "provider": "openai"
+          },
+          {
+            "example_id": "s1",
+            "metric": "context_precision",
+            "score": 0.8333333332916666,
+            "passed": true,
+            "reason": "context_precision scored 0.83 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "provider": "openai"
+          },
+          {
+            "example_id": "s1",
             "metric": "context_recall",
             "score": 1.0,
             "passed": true,
@@ -422,31 +577,106 @@
           },
           {
             "example_id": "s1",
-            "metric": "error",
-            "score": null,
-            "passed": false,
-            "reason": "scoring failed: The output is incomplete due to a max_tokens length limit."
+            "metric": "fabricated_citation_rate",
+            "score": 0.0,
+            "passed": true,
+            "reason": "All citation markers are well-formed.; Every cited source exists in the retrieved set.; 0% of cited sources are fabricated (target 0%).; Every cited source's chunks were retrieved this turn.",
+            "provider": "openai"
           },
           {
             "example_id": "s2",
-            "metric": "error",
-            "score": null,
-            "passed": false,
-            "reason": "scoring failed: The output is incomplete due to a max_tokens length limit."
+            "metric": "answer_relevancy",
+            "score": 0.6140448219031498,
+            "passed": true,
+            "reason": "answer_relevancy scored 0.61 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "provider": "openai"
+          },
+          {
+            "example_id": "s2",
+            "metric": "rubric_adherence",
+            "score": 1.0,
+            "passed": true,
+            "reason": "pass: the answer successfully covers both the six named components of the framework and contrasts loop engineering with workflow orchestration.",
+            "provider": "openai"
+          },
+          {
+            "example_id": "s2",
+            "metric": "faithfulness",
+            "score": 0.7142857142857143,
+            "passed": true,
+            "reason": "faithfulness scored 0.71 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "provider": "openai"
+          },
+          {
+            "example_id": "s2",
+            "metric": "context_precision",
+            "score": 0.9999999999666667,
+            "passed": true,
+            "reason": "context_precision scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "provider": "openai"
+          },
+          {
+            "example_id": "s2",
+            "metric": "context_recall",
+            "score": 1.0,
+            "passed": true,
+            "reason": "context_recall scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "provider": "openai"
+          },
+          {
+            "example_id": "s2",
+            "metric": "fabricated_citation_rate",
+            "score": 0.0,
+            "passed": true,
+            "reason": "All citation markers are well-formed.; Every cited source exists in the retrieved set.; 0% of cited sources are fabricated (target 0%).; Every cited source's chunks were retrieved this turn.",
+            "provider": "openai"
           },
           {
             "example_id": "s3",
-            "metric": "error",
-            "score": null,
-            "passed": false,
-            "reason": "scoring failed: The output is incomplete due to a max_tokens length limit."
+            "metric": "answer_relevancy",
+            "score": 0.8496434382713566,
+            "passed": true,
+            "reason": "answer_relevancy scored 0.85 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "provider": "openai"
+          },
+          {
+            "example_id": "s3",
+            "metric": "faithfulness",
+            "score": 0.8571428571428571,
+            "passed": true,
+            "reason": "faithfulness scored 0.86 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "provider": "openai"
+          },
+          {
+            "example_id": "s3",
+            "metric": "context_precision",
+            "score": 0.99999999995,
+            "passed": true,
+            "reason": "context_precision scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "provider": "openai"
+          },
+          {
+            "example_id": "s3",
+            "metric": "context_recall",
+            "score": 1.0,
+            "passed": true,
+            "reason": "context_recall scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "provider": "openai"
+          },
+          {
+            "example_id": "s3",
+            "metric": "fabricated_citation_rate",
+            "score": 0.0,
+            "passed": true,
+            "reason": "All citation markers are well-formed.; Every cited source exists in the retrieved set.; 0% of cited sources are fabricated (target 0%).; Every cited source's chunks were retrieved this turn.",
+            "provider": "openai"
           },
           {
             "example_id": "g14",
             "metric": "answer_relevancy",
-            "score": 0.7792937994124842,
+            "score": 0.795676581511359,
             "passed": true,
-            "reason": "answer_relevancy scored 0.78 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "reason": "answer_relevancy scored 0.80 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
             "provider": "openai"
           },
           {
@@ -476,81 +706,97 @@
           {
             "example_id": "g15",
             "metric": "answer_relevancy",
-            "score": 0.868416401119851,
-            "passed": true,
-            "reason": "answer_relevancy scored 0.87 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
-            "provider": "openai"
-          },
-          {
-            "example_id": "g15",
-            "metric": "faithfulness",
-            "score": 0.6,
-            "passed": true,
-            "reason": "faithfulness scored 0.60 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
-            "provider": "openai"
-          },
-          {
-            "example_id": "g15",
-            "metric": "context_precision",
-            "score": 0.9999999999,
-            "passed": true,
-            "reason": "context_precision scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
-            "provider": "openai"
-          },
-          {
-            "example_id": "g15",
-            "metric": "context_recall",
-            "score": 1.0,
-            "passed": true,
-            "reason": "context_recall scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
-            "provider": "openai"
-          },
-          {
-            "example_id": "g16",
-            "metric": "answer_relevancy",
-            "score": 0.909071397052407,
-            "passed": true,
-            "reason": "answer_relevancy scored 0.91 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
-            "provider": "openai"
-          },
-          {
-            "example_id": "g16",
-            "metric": "faithfulness",
-            "score": 1.0,
-            "passed": true,
-            "reason": "faithfulness scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
-            "provider": "openai"
-          },
-          {
-            "example_id": "g16",
-            "metric": "context_precision",
-            "score": 0.9999999999,
-            "passed": true,
-            "reason": "context_precision scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
-            "provider": "openai"
-          },
-          {
-            "example_id": "g16",
-            "metric": "context_recall",
-            "score": 1.0,
-            "passed": true,
-            "reason": "context_recall scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
-            "provider": "openai"
-          },
-          {
-            "example_id": "g17",
-            "metric": "answer_relevancy",
-            "score": 0.5170337398624764,
+            "score": 0.5163805326790873,
             "passed": true,
             "reason": "answer_relevancy scored 0.52 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
             "provider": "openai"
           },
           {
+            "example_id": "g15",
+            "metric": "faithfulness",
+            "score": 0.8,
+            "passed": true,
+            "reason": "faithfulness scored 0.80 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "provider": "openai"
+          },
+          {
+            "example_id": "g15",
+            "metric": "context_precision",
+            "score": 0.9999999999,
+            "passed": true,
+            "reason": "context_precision scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "provider": "openai"
+          },
+          {
+            "example_id": "g15",
+            "metric": "context_recall",
+            "score": 1.0,
+            "passed": true,
+            "reason": "context_recall scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "provider": "openai"
+          },
+          {
+            "example_id": "g15",
+            "metric": "fabricated_citation_rate",
+            "score": 0.0,
+            "passed": false,
+            "reason": "Malformed citation marker(s): 474; Every cited source exists in the retrieved set.; 0% of cited sources are fabricated (target 0%).; Every cited source's chunks were retrieved this turn.",
+            "provider": "openai"
+          },
+          {
+            "example_id": "g16",
+            "metric": "answer_relevancy",
+            "score": 0.9015934260607962,
+            "passed": true,
+            "reason": "answer_relevancy scored 0.90 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "provider": "openai"
+          },
+          {
+            "example_id": "g16",
+            "metric": "faithfulness",
+            "score": 1.0,
+            "passed": true,
+            "reason": "faithfulness scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "provider": "openai"
+          },
+          {
+            "example_id": "g16",
+            "metric": "context_precision",
+            "score": 0.9999999999,
+            "passed": true,
+            "reason": "context_precision scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "provider": "openai"
+          },
+          {
+            "example_id": "g16",
+            "metric": "context_recall",
+            "score": 1.0,
+            "passed": true,
+            "reason": "context_recall scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "provider": "openai"
+          },
+          {
+            "example_id": "g16",
+            "metric": "fabricated_citation_rate",
+            "score": 0.0,
+            "passed": true,
+            "reason": "All citation markers are well-formed.; Every cited source exists in the retrieved set.; 0% of cited sources are fabricated (target 0%).; Every cited source's chunks were retrieved this turn.",
+            "provider": "openai"
+          },
+          {
+            "example_id": "g17",
+            "metric": "answer_relevancy",
+            "score": 0.510261244104003,
+            "passed": true,
+            "reason": "answer_relevancy scored 0.51 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "provider": "openai"
+          },
+          {
             "example_id": "g17",
             "metric": "faithfulness",
-            "score": 0.3333333333333333,
-            "passed": false,
-            "reason": "faithfulness scored 0.33 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "score": 1.0,
+            "passed": true,
+            "reason": "faithfulness scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
             "provider": "openai"
           },
           {
@@ -570,9 +816,17 @@
             "provider": "openai"
           },
           {
+            "example_id": "g17",
+            "metric": "fabricated_citation_rate",
+            "score": 0.0,
+            "passed": true,
+            "reason": "All citation markers are well-formed.; Every cited source exists in the retrieved set.; 0% of cited sources are fabricated (target 0%).; Every cited source's chunks were retrieved this turn.",
+            "provider": "openai"
+          },
+          {
             "example_id": "g18",
             "metric": "answer_relevancy",
-            "score": 0.6370454950656693,
+            "score": 0.6370389738547264,
             "passed": true,
             "reason": "answer_relevancy scored 0.64 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
             "provider": "openai"
@@ -580,9 +834,9 @@
           {
             "example_id": "g18",
             "metric": "faithfulness",
-            "score": 1.0,
+            "score": 0.9,
             "passed": true,
-            "reason": "faithfulness scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "reason": "faithfulness scored 0.90 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
             "provider": "openai"
           },
           {
@@ -602,19 +856,27 @@
             "provider": "openai"
           },
           {
+            "example_id": "g18",
+            "metric": "fabricated_citation_rate",
+            "score": 0.0,
+            "passed": true,
+            "reason": "All citation markers are well-formed.; Every cited source exists in the retrieved set.; 0% of cited sources are fabricated (target 0%).; Every cited source's chunks were retrieved this turn.",
+            "provider": "openai"
+          },
+          {
             "example_id": "g19",
             "metric": "answer_relevancy",
-            "score": 0.9664167027032601,
+            "score": 0.9543746713648414,
             "passed": true,
-            "reason": "answer_relevancy scored 0.97 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "reason": "answer_relevancy scored 0.95 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
             "provider": "openai"
           },
           {
             "example_id": "g19",
             "metric": "faithfulness",
-            "score": 0.8333333333333334,
+            "score": 1.0,
             "passed": true,
-            "reason": "faithfulness scored 0.83 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "reason": "faithfulness scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
             "provider": "openai"
           },
           {
@@ -634,51 +896,59 @@
             "provider": "openai"
           },
           {
+            "example_id": "g19",
+            "metric": "fabricated_citation_rate",
+            "score": 0.0,
+            "passed": false,
+            "reason": "Malformed citation marker(s): 931; Every cited source exists in the retrieved set.; 0% of cited sources are fabricated (target 0%).; Every cited source's chunks were retrieved this turn.",
+            "provider": "openai"
+          },
+          {
             "example_id": "g20",
             "metric": "answer_relevancy",
-            "score": 0.8935359374234291,
+            "score": 0.9803361205811901,
+            "passed": true,
+            "reason": "answer_relevancy scored 0.98 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "provider": "openai"
+          },
+          {
+            "example_id": "g20",
+            "metric": "faithfulness",
+            "score": 0.75,
+            "passed": true,
+            "reason": "faithfulness scored 0.75 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "provider": "openai"
+          },
+          {
+            "example_id": "g20",
+            "metric": "context_precision",
+            "score": 0.9999999999,
+            "passed": true,
+            "reason": "context_precision scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "provider": "openai"
+          },
+          {
+            "example_id": "g20",
+            "metric": "context_recall",
+            "score": 1.0,
+            "passed": true,
+            "reason": "context_recall scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "provider": "openai"
+          },
+          {
+            "example_id": "g21",
+            "metric": "answer_relevancy",
+            "score": 0.8941602615452554,
             "passed": true,
             "reason": "answer_relevancy scored 0.89 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
             "provider": "openai"
           },
           {
-            "example_id": "g20",
-            "metric": "faithfulness",
-            "score": 1.0,
-            "passed": true,
-            "reason": "faithfulness scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
-            "provider": "openai"
-          },
-          {
-            "example_id": "g20",
-            "metric": "context_precision",
-            "score": 0.9999999999,
-            "passed": true,
-            "reason": "context_precision scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
-            "provider": "openai"
-          },
-          {
-            "example_id": "g20",
-            "metric": "context_recall",
-            "score": 1.0,
-            "passed": true,
-            "reason": "context_recall scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
-            "provider": "openai"
-          },
-          {
-            "example_id": "g21",
-            "metric": "answer_relevancy",
-            "score": 0.8941625155804133,
-            "passed": true,
-            "reason": "answer_relevancy scored 0.89 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
-            "provider": "openai"
-          },
-          {
             "example_id": "g21",
             "metric": "faithfulness",
-            "score": 0.8333333333333334,
+            "score": 0.625,
             "passed": true,
-            "reason": "faithfulness scored 0.83 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "reason": "faithfulness scored 0.62 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
             "provider": "openai"
           },
           {
@@ -692,153 +962,193 @@
           {
             "example_id": "g21",
             "metric": "context_recall",
-            "score": 1.0,
-            "passed": true,
-            "reason": "context_recall scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
-            "provider": "openai"
-          },
-          {
-            "example_id": "g22",
-            "metric": "answer_relevancy",
-            "score": 0.7883770325039526,
-            "passed": true,
-            "reason": "answer_relevancy scored 0.79 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
-            "provider": "openai"
-          },
-          {
-            "example_id": "g22",
-            "metric": "faithfulness",
-            "score": 1.0,
-            "passed": true,
-            "reason": "faithfulness scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
-            "provider": "openai"
-          },
-          {
-            "example_id": "g22",
-            "metric": "context_precision",
-            "score": 0.9999999999,
-            "passed": true,
-            "reason": "context_precision scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
-            "provider": "openai"
-          },
-          {
-            "example_id": "g22",
-            "metric": "context_recall",
-            "score": 1.0,
-            "passed": true,
-            "reason": "context_recall scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
-            "provider": "openai"
-          },
-          {
-            "example_id": "g23",
-            "metric": "answer_relevancy",
-            "score": 0.6756369300277686,
-            "passed": true,
-            "reason": "answer_relevancy scored 0.68 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
-            "provider": "openai"
-          },
-          {
-            "example_id": "g23",
-            "metric": "faithfulness",
-            "score": 1.0,
-            "passed": true,
-            "reason": "faithfulness scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
-            "provider": "openai"
-          },
-          {
-            "example_id": "g23",
-            "metric": "context_precision",
-            "score": 0.9999999999,
-            "passed": true,
-            "reason": "context_precision scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
-            "provider": "openai"
-          },
-          {
-            "example_id": "g23",
-            "metric": "context_recall",
-            "score": 1.0,
-            "passed": true,
-            "reason": "context_recall scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
-            "provider": "openai"
-          },
-          {
-            "example_id": "g24",
-            "metric": "answer_relevancy",
-            "score": 0.8298781968514376,
-            "passed": true,
-            "reason": "answer_relevancy scored 0.83 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
-            "provider": "openai"
-          },
-          {
-            "example_id": "g24",
-            "metric": "faithfulness",
-            "score": 0.7857142857142857,
-            "passed": true,
-            "reason": "faithfulness scored 0.79 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
-            "provider": "openai"
-          },
-          {
-            "example_id": "g24",
-            "metric": "context_precision",
-            "score": 0.9999999999,
-            "passed": true,
-            "reason": "context_precision scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
-            "provider": "openai"
-          },
-          {
-            "example_id": "g24",
-            "metric": "context_recall",
-            "score": 1.0,
-            "passed": true,
-            "reason": "context_recall scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
-            "provider": "openai"
-          },
-          {
-            "example_id": "g25",
-            "metric": "answer_relevancy",
-            "score": 0.9670843020782233,
-            "passed": true,
-            "reason": "answer_relevancy scored 0.97 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
-            "provider": "openai"
-          },
-          {
-            "example_id": "g25",
-            "metric": "faithfulness",
-            "score": 1.0,
-            "passed": true,
-            "reason": "faithfulness scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
-            "provider": "openai"
-          },
-          {
-            "example_id": "g25",
-            "metric": "context_precision",
-            "score": 0.9999999999,
-            "passed": true,
-            "reason": "context_precision scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
-            "provider": "openai"
-          },
-          {
-            "example_id": "g25",
-            "metric": "context_recall",
-            "score": 1.0,
-            "passed": true,
-            "reason": "context_recall scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
-            "provider": "openai"
-          },
-          {
-            "example_id": "g26",
-            "metric": "answer_relevancy",
-            "score": 0.9419342914830683,
-            "passed": true,
-            "reason": "answer_relevancy scored 0.94 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
-            "provider": "openai"
-          },
-          {
-            "example_id": "g26",
-            "metric": "faithfulness",
             "score": 0.6666666666666666,
             "passed": true,
-            "reason": "faithfulness scored 0.67 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "reason": "context_recall scored 0.67 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "provider": "openai"
+          },
+          {
+            "example_id": "g21",
+            "metric": "fabricated_citation_rate",
+            "score": 0.0,
+            "passed": true,
+            "reason": "All citation markers are well-formed.; Every cited source exists in the retrieved set.; 0% of cited sources are fabricated (target 0%).; Every cited source's chunks were retrieved this turn.",
+            "provider": "openai"
+          },
+          {
+            "example_id": "g22",
+            "metric": "answer_relevancy",
+            "score": 0.0,
+            "passed": false,
+            "reason": "answer_relevancy scored 0.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "provider": "openai"
+          },
+          {
+            "example_id": "g22",
+            "metric": "faithfulness",
+            "score": 0.7142857142857143,
+            "passed": true,
+            "reason": "faithfulness scored 0.71 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "provider": "openai"
+          },
+          {
+            "example_id": "g22",
+            "metric": "context_precision",
+            "score": 0.9999999999,
+            "passed": true,
+            "reason": "context_precision scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "provider": "openai"
+          },
+          {
+            "example_id": "g22",
+            "metric": "context_recall",
+            "score": 1.0,
+            "passed": true,
+            "reason": "context_recall scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "provider": "openai"
+          },
+          {
+            "example_id": "g22",
+            "metric": "fabricated_citation_rate",
+            "score": 0.0,
+            "passed": true,
+            "reason": "All citation markers are well-formed.; Every cited source exists in the retrieved set.; 0% of cited sources are fabricated (target 0%).; Every cited source's chunks were retrieved this turn.",
+            "provider": "openai"
+          },
+          {
+            "example_id": "g23",
+            "metric": "answer_relevancy",
+            "score": 0.6704764662402564,
+            "passed": true,
+            "reason": "answer_relevancy scored 0.67 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "provider": "openai"
+          },
+          {
+            "example_id": "g23",
+            "metric": "faithfulness",
+            "score": 0.5714285714285714,
+            "passed": true,
+            "reason": "faithfulness scored 0.57 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "provider": "openai"
+          },
+          {
+            "example_id": "g23",
+            "metric": "context_precision",
+            "score": 0.9999999999,
+            "passed": true,
+            "reason": "context_precision scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "provider": "openai"
+          },
+          {
+            "example_id": "g23",
+            "metric": "context_recall",
+            "score": 1.0,
+            "passed": true,
+            "reason": "context_recall scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "provider": "openai"
+          },
+          {
+            "example_id": "g23",
+            "metric": "fabricated_citation_rate",
+            "score": 0.0,
+            "passed": true,
+            "reason": "All citation markers are well-formed.; Every cited source exists in the retrieved set.; 0% of cited sources are fabricated (target 0%).; Every cited source's chunks were retrieved this turn.",
+            "provider": "openai"
+          },
+          {
+            "example_id": "g24",
+            "metric": "answer_relevancy",
+            "score": 0.6237171494015391,
+            "passed": true,
+            "reason": "answer_relevancy scored 0.62 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "provider": "openai"
+          },
+          {
+            "example_id": "g24",
+            "metric": "faithfulness",
+            "score": 0.8571428571428571,
+            "passed": true,
+            "reason": "faithfulness scored 0.86 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "provider": "openai"
+          },
+          {
+            "example_id": "g24",
+            "metric": "context_precision",
+            "score": 0.9999999999,
+            "passed": true,
+            "reason": "context_precision scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "provider": "openai"
+          },
+          {
+            "example_id": "g24",
+            "metric": "context_recall",
+            "score": 1.0,
+            "passed": true,
+            "reason": "context_recall scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "provider": "openai"
+          },
+          {
+            "example_id": "g24",
+            "metric": "fabricated_citation_rate",
+            "score": 0.0,
+            "passed": true,
+            "reason": "All citation markers are well-formed.; Every cited source exists in the retrieved set.; 0% of cited sources are fabricated (target 0%).; Every cited source's chunks were retrieved this turn.",
+            "provider": "openai"
+          },
+          {
+            "example_id": "g25",
+            "metric": "answer_relevancy",
+            "score": 0.9257078676605076,
+            "passed": true,
+            "reason": "answer_relevancy scored 0.93 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "provider": "openai"
+          },
+          {
+            "example_id": "g25",
+            "metric": "faithfulness",
+            "score": 1.0,
+            "passed": true,
+            "reason": "faithfulness scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "provider": "openai"
+          },
+          {
+            "example_id": "g25",
+            "metric": "context_precision",
+            "score": 0.9999999999,
+            "passed": true,
+            "reason": "context_precision scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "provider": "openai"
+          },
+          {
+            "example_id": "g25",
+            "metric": "context_recall",
+            "score": 1.0,
+            "passed": true,
+            "reason": "context_recall scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "provider": "openai"
+          },
+          {
+            "example_id": "g25",
+            "metric": "fabricated_citation_rate",
+            "score": 0.0,
+            "passed": true,
+            "reason": "All citation markers are well-formed.; Every cited source exists in the retrieved set.; 0% of cited sources are fabricated (target 0%).; Every cited source's chunks were retrieved this turn.",
+            "provider": "openai"
+          },
+          {
+            "example_id": "g26",
+            "metric": "answer_relevancy",
+            "score": 0.9228431851287908,
+            "passed": true,
+            "reason": "answer_relevancy scored 0.92 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "provider": "openai"
+          },
+          {
+            "example_id": "g26",
+            "metric": "faithfulness",
+            "score": 0.7777777777777778,
+            "passed": true,
+            "reason": "faithfulness scored 0.78 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
             "provider": "openai"
           },
           {
@@ -860,7 +1170,7 @@
           {
             "example_id": "g27",
             "metric": "answer_relevancy",
-            "score": 0.648085701458916,
+            "score": 0.6480859135547119,
             "passed": true,
             "reason": "answer_relevancy scored 0.65 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
             "provider": "openai"
@@ -868,9 +1178,9 @@
           {
             "example_id": "g27",
             "metric": "faithfulness",
-            "score": 0.7,
+            "score": 1.0,
             "passed": true,
-            "reason": "faithfulness scored 0.70 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "reason": "faithfulness scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
             "provider": "openai"
           },
           {
@@ -890,11 +1200,19 @@
             "provider": "openai"
           },
           {
+            "example_id": "g27",
+            "metric": "fabricated_citation_rate",
+            "score": 0.0,
+            "passed": true,
+            "reason": "All citation markers are well-formed.; Every cited source exists in the retrieved set.; 0% of cited sources are fabricated (target 0%).; Every cited source's chunks were retrieved this turn.",
+            "provider": "openai"
+          },
+          {
             "example_id": "g28",
             "metric": "answer_relevancy",
-            "score": 0.8651462706919988,
+            "score": 0.889244614936071,
             "passed": true,
-            "reason": "answer_relevancy scored 0.87 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "reason": "answer_relevancy scored 0.89 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
             "provider": "openai"
           },
           {
@@ -922,9 +1240,17 @@
             "provider": "openai"
           },
           {
+            "example_id": "g28",
+            "metric": "fabricated_citation_rate",
+            "score": 0.0,
+            "passed": true,
+            "reason": "All citation markers are well-formed.; Every cited source exists in the retrieved set.; 0% of cited sources are fabricated (target 0%).; Every cited source's chunks were retrieved this turn.",
+            "provider": "openai"
+          },
+          {
             "example_id": "g29",
             "metric": "answer_relevancy",
-            "score": 0.9520584268989677,
+            "score": 0.9518609101407632,
             "passed": true,
             "reason": "answer_relevancy scored 0.95 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
             "provider": "openai"
@@ -954,19 +1280,27 @@
             "provider": "openai"
           },
           {
+            "example_id": "g29",
+            "metric": "fabricated_citation_rate",
+            "score": 0.0,
+            "passed": true,
+            "reason": "All citation markers are well-formed.; Every cited source exists in the retrieved set.; 0% of cited sources are fabricated (target 0%).; Every cited source's chunks were retrieved this turn.",
+            "provider": "openai"
+          },
+          {
             "example_id": "g30",
             "metric": "answer_relevancy",
-            "score": 0.8418105754996127,
-            "passed": true,
-            "reason": "answer_relevancy scored 0.84 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "score": 0.0,
+            "passed": false,
+            "reason": "answer_relevancy scored 0.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
             "provider": "openai"
           },
           {
             "example_id": "g30",
             "metric": "faithfulness",
-            "score": 0.8,
+            "score": 0.5,
             "passed": true,
-            "reason": "faithfulness scored 0.80 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "reason": "faithfulness scored 0.50 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
             "provider": "openai"
           },
           {
@@ -986,51 +1320,67 @@
             "provider": "openai"
           },
           {
+            "example_id": "g30",
+            "metric": "fabricated_citation_rate",
+            "score": 0.0,
+            "passed": true,
+            "reason": "All citation markers are well-formed.; Every cited source exists in the retrieved set.; 0% of cited sources are fabricated (target 0%).; Every cited source's chunks were retrieved this turn.",
+            "provider": "openai"
+          },
+          {
             "example_id": "g31",
             "metric": "answer_relevancy",
-            "score": 0.8554373261201937,
+            "score": 0.8264037915252346,
+            "passed": true,
+            "reason": "answer_relevancy scored 0.83 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "provider": "openai"
+          },
+          {
+            "example_id": "g31",
+            "metric": "faithfulness",
+            "score": 1.0,
+            "passed": true,
+            "reason": "faithfulness scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "provider": "openai"
+          },
+          {
+            "example_id": "g31",
+            "metric": "context_precision",
+            "score": 0.9999999999,
+            "passed": true,
+            "reason": "context_precision scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "provider": "openai"
+          },
+          {
+            "example_id": "g31",
+            "metric": "context_recall",
+            "score": 1.0,
+            "passed": true,
+            "reason": "context_recall scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "provider": "openai"
+          },
+          {
+            "example_id": "g31",
+            "metric": "fabricated_citation_rate",
+            "score": 0.0,
+            "passed": true,
+            "reason": "All citation markers are well-formed.; Every cited source exists in the retrieved set.; 0% of cited sources are fabricated (target 0%).; Every cited source's chunks were retrieved this turn.",
+            "provider": "openai"
+          },
+          {
+            "example_id": "g32",
+            "metric": "answer_relevancy",
+            "score": 0.8607136809943822,
             "passed": true,
             "reason": "answer_relevancy scored 0.86 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
             "provider": "openai"
           },
           {
-            "example_id": "g31",
-            "metric": "faithfulness",
-            "score": 1.0,
-            "passed": true,
-            "reason": "faithfulness scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
-            "provider": "openai"
-          },
-          {
-            "example_id": "g31",
-            "metric": "context_precision",
-            "score": 0.9999999999,
-            "passed": true,
-            "reason": "context_precision scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
-            "provider": "openai"
-          },
-          {
-            "example_id": "g31",
-            "metric": "context_recall",
-            "score": 1.0,
-            "passed": true,
-            "reason": "context_recall scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
-            "provider": "openai"
-          },
-          {
-            "example_id": "g32",
-            "metric": "answer_relevancy",
-            "score": 0.8219411123896557,
-            "passed": true,
-            "reason": "answer_relevancy scored 0.82 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
-            "provider": "openai"
-          },
-          {
             "example_id": "g32",
             "metric": "faithfulness",
-            "score": 0.625,
+            "score": 0.6666666666666666,
             "passed": true,
-            "reason": "faithfulness scored 0.62 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "reason": "faithfulness scored 0.67 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
             "provider": "openai"
           },
           {
@@ -1052,17 +1402,17 @@
           {
             "example_id": "g33",
             "metric": "answer_relevancy",
-            "score": 0.6354186628061372,
+            "score": 0.7234566827196532,
             "passed": true,
-            "reason": "answer_relevancy scored 0.64 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "reason": "answer_relevancy scored 0.72 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
             "provider": "openai"
           },
           {
             "example_id": "g33",
             "metric": "faithfulness",
-            "score": 1.0,
+            "score": 0.875,
             "passed": true,
-            "reason": "faithfulness scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "reason": "faithfulness scored 0.88 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
             "provider": "openai"
           },
           {
@@ -1075,6 +1425,46 @@
           },
           {
             "example_id": "g33",
+            "metric": "context_recall",
+            "score": 1.0,
+            "passed": true,
+            "reason": "context_recall scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "provider": "openai"
+          },
+          {
+            "example_id": "g33",
+            "metric": "fabricated_citation_rate",
+            "score": 0.0,
+            "passed": true,
+            "reason": "All citation markers are well-formed.; Every cited source exists in the retrieved set.; 0% of cited sources are fabricated (target 0%).; Every cited source's chunks were retrieved this turn.",
+            "provider": "openai"
+          },
+          {
+            "example_id": "g34",
+            "metric": "answer_relevancy",
+            "score": 0.97147165581895,
+            "passed": true,
+            "reason": "answer_relevancy scored 0.97 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "provider": "openai"
+          },
+          {
+            "example_id": "g34",
+            "metric": "faithfulness",
+            "score": 0.7142857142857143,
+            "passed": true,
+            "reason": "faithfulness scored 0.71 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "provider": "openai"
+          },
+          {
+            "example_id": "g34",
+            "metric": "context_precision",
+            "score": 0.9999999999,
+            "passed": true,
+            "reason": "context_precision scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "provider": "openai"
+          },
+          {
+            "example_id": "g34",
             "metric": "context_recall",
             "score": 1.0,
             "passed": true,
@@ -1083,25 +1473,26 @@
           },
           {
             "example_id": "g34",
-            "metric": "error",
-            "score": null,
-            "passed": false,
-            "reason": "scoring failed: The output is incomplete due to a max_tokens length limit."
+            "metric": "fabricated_citation_rate",
+            "score": 0.0,
+            "passed": true,
+            "reason": "All citation markers are well-formed.; Every cited source exists in the retrieved set.; 0% of cited sources are fabricated (target 0%).; Every cited source's chunks were retrieved this turn.",
+            "provider": "openai"
           },
           {
             "example_id": "g35",
             "metric": "answer_relevancy",
-            "score": 0.906115191379056,
-            "passed": true,
-            "reason": "answer_relevancy scored 0.91 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "score": 0.0,
+            "passed": false,
+            "reason": "answer_relevancy scored 0.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
             "provider": "openai"
           },
           {
             "example_id": "g35",
             "metric": "faithfulness",
-            "score": 0.5,
+            "score": 0.7777777777777778,
             "passed": true,
-            "reason": "faithfulness scored 0.50 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "reason": "faithfulness scored 0.78 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
             "provider": "openai"
           },
           {
@@ -1118,6 +1509,14 @@
             "score": 1.0,
             "passed": true,
             "reason": "context_recall scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "provider": "openai"
+          },
+          {
+            "example_id": "g35",
+            "metric": "fabricated_citation_rate",
+            "score": 0.0,
+            "passed": true,
+            "reason": "All citation markers are well-formed.; Every cited source exists in the retrieved set.; 0% of cited sources are fabricated (target 0%).; Every cited source's chunks were retrieved this turn.",
             "provider": "openai"
           },
           {
@@ -1131,9 +1530,9 @@
           {
             "example_id": "g36",
             "metric": "faithfulness",
-            "score": 0.8571428571428571,
+            "score": 1.0,
             "passed": true,
-            "reason": "faithfulness scored 0.86 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "reason": "faithfulness scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
             "provider": "openai"
           },
           {
@@ -1153,19 +1552,27 @@
             "provider": "openai"
           },
           {
+            "example_id": "g36",
+            "metric": "fabricated_citation_rate",
+            "score": 0.0,
+            "passed": true,
+            "reason": "All citation markers are well-formed.; Every cited source exists in the retrieved set.; 0% of cited sources are fabricated (target 0%).; Every cited source's chunks were retrieved this turn.",
+            "provider": "openai"
+          },
+          {
             "example_id": "g37",
             "metric": "answer_relevancy",
-            "score": 0.9376515771051898,
-            "passed": true,
-            "reason": "answer_relevancy scored 0.94 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "score": 0.0,
+            "passed": false,
+            "reason": "answer_relevancy scored 0.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
             "provider": "openai"
           },
           {
             "example_id": "g37",
             "metric": "faithfulness",
-            "score": 0.23076923076923078,
+            "score": 0.4,
             "passed": false,
-            "reason": "faithfulness scored 0.23 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "reason": "faithfulness scored 0.40 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
             "provider": "openai"
           },
           {
@@ -1185,19 +1592,27 @@
             "provider": "openai"
           },
           {
+            "example_id": "g37",
+            "metric": "fabricated_citation_rate",
+            "score": 0.0,
+            "passed": true,
+            "reason": "All citation markers are well-formed.; Every cited source exists in the retrieved set.; 0% of cited sources are fabricated (target 0%).; Every cited source's chunks were retrieved this turn.",
+            "provider": "openai"
+          },
+          {
             "example_id": "g38",
             "metric": "answer_relevancy",
-            "score": 0.9072882052830432,
+            "score": 0.7739306906504521,
             "passed": true,
-            "reason": "answer_relevancy scored 0.91 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "reason": "answer_relevancy scored 0.77 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
             "provider": "openai"
           },
           {
             "example_id": "g38",
             "metric": "faithfulness",
-            "score": 0.2,
-            "passed": false,
-            "reason": "faithfulness scored 0.20 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "score": 0.5,
+            "passed": true,
+            "reason": "faithfulness scored 0.50 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
             "provider": "openai"
           },
           {
@@ -1218,15 +1633,48 @@
           },
           {
             "example_id": "g39",
-            "metric": "error",
-            "score": null,
+            "metric": "answer_relevancy",
+            "score": 0.0,
             "passed": false,
-            "reason": "scoring failed: The output is incomplete due to a max_tokens length limit."
+            "reason": "answer_relevancy scored 0.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "provider": "openai"
+          },
+          {
+            "example_id": "g39",
+            "metric": "faithfulness",
+            "score": 0.6666666666666666,
+            "passed": true,
+            "reason": "faithfulness scored 0.67 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "provider": "openai"
+          },
+          {
+            "example_id": "g39",
+            "metric": "context_precision",
+            "score": 0.9999999999,
+            "passed": true,
+            "reason": "context_precision scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "provider": "openai"
+          },
+          {
+            "example_id": "g39",
+            "metric": "context_recall",
+            "score": 1.0,
+            "passed": true,
+            "reason": "context_recall scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "provider": "openai"
+          },
+          {
+            "example_id": "g39",
+            "metric": "fabricated_citation_rate",
+            "score": 0.0,
+            "passed": true,
+            "reason": "All citation markers are well-formed.; Every cited source exists in the retrieved set.; 0% of cited sources are fabricated (target 0%).; Every cited source's chunks were retrieved this turn.",
+            "provider": "openai"
           },
           {
             "example_id": "g40",
             "metric": "answer_relevancy",
-            "score": 0.9566341866748095,
+            "score": 0.9592860934628664,
             "passed": true,
             "reason": "answer_relevancy scored 0.96 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
             "provider": "openai"
@@ -1256,19 +1704,27 @@
             "provider": "openai"
           },
           {
+            "example_id": "g40",
+            "metric": "fabricated_citation_rate",
+            "score": 0.0,
+            "passed": true,
+            "reason": "All citation markers are well-formed.; Every cited source exists in the retrieved set.; 0% of cited sources are fabricated (target 0%).; Every cited source's chunks were retrieved this turn.",
+            "provider": "openai"
+          },
+          {
             "example_id": "g41",
             "metric": "answer_relevancy",
-            "score": 0.8918871815928565,
+            "score": 0.8795347996540713,
             "passed": true,
-            "reason": "answer_relevancy scored 0.89 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "reason": "answer_relevancy scored 0.88 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
             "provider": "openai"
           },
           {
             "example_id": "g41",
             "metric": "faithfulness",
-            "score": 0.6,
-            "passed": true,
-            "reason": "faithfulness scored 0.60 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "score": 0.2,
+            "passed": false,
+            "reason": "faithfulness scored 0.20 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
             "provider": "openai"
           },
           {
@@ -1281,6 +1737,46 @@
           },
           {
             "example_id": "g41",
+            "metric": "context_recall",
+            "score": 1.0,
+            "passed": true,
+            "reason": "context_recall scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "provider": "openai"
+          },
+          {
+            "example_id": "g41",
+            "metric": "fabricated_citation_rate",
+            "score": 0.0,
+            "passed": true,
+            "reason": "All citation markers are well-formed.; Every cited source exists in the retrieved set.; 0% of cited sources are fabricated (target 0%).; Every cited source's chunks were retrieved this turn.",
+            "provider": "openai"
+          },
+          {
+            "example_id": "g42",
+            "metric": "answer_relevancy",
+            "score": 0.0,
+            "passed": false,
+            "reason": "answer_relevancy scored 0.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "provider": "openai"
+          },
+          {
+            "example_id": "g42",
+            "metric": "faithfulness",
+            "score": 0.75,
+            "passed": true,
+            "reason": "faithfulness scored 0.75 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "provider": "openai"
+          },
+          {
+            "example_id": "g42",
+            "metric": "context_precision",
+            "score": 0.9999999999,
+            "passed": true,
+            "reason": "context_precision scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "provider": "openai"
+          },
+          {
+            "example_id": "g42",
             "metric": "context_recall",
             "score": 1.0,
             "passed": true,
@@ -1289,15 +1785,16 @@
           },
           {
             "example_id": "g42",
-            "metric": "error",
-            "score": null,
-            "passed": false,
-            "reason": "scoring failed: The output is incomplete due to a max_tokens length limit."
+            "metric": "fabricated_citation_rate",
+            "score": 0.0,
+            "passed": true,
+            "reason": "All citation markers are well-formed.; Every cited source exists in the retrieved set.; 0% of cited sources are fabricated (target 0%).; Every cited source's chunks were retrieved this turn.",
+            "provider": "openai"
           },
           {
             "example_id": "g43",
             "metric": "answer_relevancy",
-            "score": 0.8562580577105492,
+            "score": 0.8557346407589987,
             "passed": true,
             "reason": "answer_relevancy scored 0.86 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
             "provider": "openai"
@@ -1305,9 +1802,9 @@
           {
             "example_id": "g43",
             "metric": "faithfulness",
-            "score": 1.0,
+            "score": 0.8181818181818182,
             "passed": true,
-            "reason": "faithfulness scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "reason": "faithfulness scored 0.82 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
             "provider": "openai"
           },
           {
@@ -1327,79 +1824,23 @@
             "provider": "openai"
           },
           {
+            "example_id": "g43",
+            "metric": "fabricated_citation_rate",
+            "score": 0.0,
+            "passed": true,
+            "reason": "All citation markers are well-formed.; Every cited source exists in the retrieved set.; 0% of cited sources are fabricated (target 0%).; Every cited source's chunks were retrieved this turn.",
+            "provider": "openai"
+          },
+          {
             "example_id": "g44",
             "metric": "answer_relevancy",
-            "score": 0.8588841207086836,
+            "score": 0.8590955630832483,
             "passed": true,
             "reason": "answer_relevancy scored 0.86 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
             "provider": "openai"
           },
           {
             "example_id": "g44",
-            "metric": "faithfulness",
-            "score": 0.4,
-            "passed": false,
-            "reason": "faithfulness scored 0.40 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
-            "provider": "openai"
-          },
-          {
-            "example_id": "g44",
-            "metric": "context_precision",
-            "score": 0.9999999999,
-            "passed": true,
-            "reason": "context_precision scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
-            "provider": "openai"
-          },
-          {
-            "example_id": "g44",
-            "metric": "context_recall",
-            "score": 1.0,
-            "passed": true,
-            "reason": "context_recall scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
-            "provider": "openai"
-          },
-          {
-            "example_id": "g45",
-            "metric": "answer_relevancy",
-            "score": 0.9999998663801564,
-            "passed": true,
-            "reason": "answer_relevancy scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
-            "provider": "openai"
-          },
-          {
-            "example_id": "g45",
-            "metric": "faithfulness",
-            "score": 0.6666666666666666,
-            "passed": true,
-            "reason": "faithfulness scored 0.67 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
-            "provider": "openai"
-          },
-          {
-            "example_id": "g45",
-            "metric": "context_precision",
-            "score": 0.9999999999,
-            "passed": true,
-            "reason": "context_precision scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
-            "provider": "openai"
-          },
-          {
-            "example_id": "g45",
-            "metric": "context_recall",
-            "score": 1.0,
-            "passed": true,
-            "reason": "context_recall scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
-            "provider": "openai"
-          },
-          {
-            "example_id": "g46",
-            "metric": "answer_relevancy",
-            "score": 0.9116861527076067,
-            "passed": true,
-            "reason": "answer_relevancy scored 0.91 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
-            "provider": "openai"
-          },
-          {
-            "example_id": "g46",
             "metric": "faithfulness",
             "score": 0.5,
             "passed": true,
@@ -1407,6 +1848,78 @@
             "provider": "openai"
           },
           {
+            "example_id": "g44",
+            "metric": "context_precision",
+            "score": 0.9999999999,
+            "passed": true,
+            "reason": "context_precision scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "provider": "openai"
+          },
+          {
+            "example_id": "g44",
+            "metric": "context_recall",
+            "score": 1.0,
+            "passed": true,
+            "reason": "context_recall scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "provider": "openai"
+          },
+          {
+            "example_id": "g45",
+            "metric": "answer_relevancy",
+            "score": 0.7775494177589627,
+            "passed": true,
+            "reason": "answer_relevancy scored 0.78 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "provider": "openai"
+          },
+          {
+            "example_id": "g45",
+            "metric": "faithfulness",
+            "score": 0.8571428571428571,
+            "passed": true,
+            "reason": "faithfulness scored 0.86 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "provider": "openai"
+          },
+          {
+            "example_id": "g45",
+            "metric": "context_precision",
+            "score": 0.9999999999,
+            "passed": true,
+            "reason": "context_precision scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "provider": "openai"
+          },
+          {
+            "example_id": "g45",
+            "metric": "context_recall",
+            "score": 1.0,
+            "passed": true,
+            "reason": "context_recall scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "provider": "openai"
+          },
+          {
+            "example_id": "g45",
+            "metric": "fabricated_citation_rate",
+            "score": 0.0,
+            "passed": true,
+            "reason": "All citation markers are well-formed.; Every cited source exists in the retrieved set.; 0% of cited sources are fabricated (target 0%).; Every cited source's chunks were retrieved this turn.",
+            "provider": "openai"
+          },
+          {
+            "example_id": "g46",
+            "metric": "answer_relevancy",
+            "score": 0.9341718618129696,
+            "passed": true,
+            "reason": "answer_relevancy scored 0.93 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "provider": "openai"
+          },
+          {
+            "example_id": "g46",
+            "metric": "faithfulness",
+            "score": 0.75,
+            "passed": true,
+            "reason": "faithfulness scored 0.75 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "provider": "openai"
+          },
+          {
             "example_id": "g46",
             "metric": "context_precision",
             "score": 0.9999999999,
@@ -1423,19 +1936,27 @@
             "provider": "openai"
           },
           {
+            "example_id": "g46",
+            "metric": "fabricated_citation_rate",
+            "score": 0.0,
+            "passed": true,
+            "reason": "All citation markers are well-formed.; Every cited source exists in the retrieved set.; 0% of cited sources are fabricated (target 0%).; Every cited source's chunks were retrieved this turn.",
+            "provider": "openai"
+          },
+          {
             "example_id": "g47",
             "metric": "answer_relevancy",
-            "score": 0.8779686710936397,
+            "score": 0.8067109174927559,
             "passed": true,
-            "reason": "answer_relevancy scored 0.88 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "reason": "answer_relevancy scored 0.81 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
             "provider": "openai"
           },
           {
             "example_id": "g47",
             "metric": "faithfulness",
-            "score": 0.8125,
+            "score": 0.75,
             "passed": true,
-            "reason": "faithfulness scored 0.81 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "reason": "faithfulness scored 0.75 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
             "provider": "openai"
           },
           {
@@ -1455,19 +1976,27 @@
             "provider": "openai"
           },
           {
+            "example_id": "g47",
+            "metric": "fabricated_citation_rate",
+            "score": 0.0,
+            "passed": true,
+            "reason": "All citation markers are well-formed.; Every cited source exists in the retrieved set.; 0% of cited sources are fabricated (target 0%).; Every cited source's chunks were retrieved this turn.",
+            "provider": "openai"
+          },
+          {
             "example_id": "g48",
             "metric": "answer_relevancy",
-            "score": 0.9497710111705039,
-            "passed": true,
-            "reason": "answer_relevancy scored 0.95 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "score": 0.0,
+            "passed": false,
+            "reason": "answer_relevancy scored 0.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
             "provider": "openai"
           },
           {
             "example_id": "g48",
             "metric": "faithfulness",
-            "score": 0.875,
+            "score": 0.7142857142857143,
             "passed": true,
-            "reason": "faithfulness scored 0.88 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "reason": "faithfulness scored 0.71 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
             "provider": "openai"
           },
           {
@@ -1484,14 +2013,22 @@
             "score": 1.0,
             "passed": true,
             "reason": "context_recall scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "provider": "openai"
+          },
+          {
+            "example_id": "g48",
+            "metric": "fabricated_citation_rate",
+            "score": 0.0,
+            "passed": true,
+            "reason": "All citation markers are well-formed.; Every cited source exists in the retrieved set.; 0% of cited sources are fabricated (target 0%).; Every cited source's chunks were retrieved this turn.",
             "provider": "openai"
           },
           {
             "example_id": "g49",
             "metric": "answer_relevancy",
-            "score": 0.9315844918498916,
+            "score": 0.8724169837505388,
             "passed": true,
-            "reason": "answer_relevancy scored 0.93 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "reason": "answer_relevancy scored 0.87 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
             "provider": "openai"
           },
           {
@@ -1519,9 +2056,17 @@
             "provider": "openai"
           },
           {
+            "example_id": "g49",
+            "metric": "fabricated_citation_rate",
+            "score": 0.0,
+            "passed": true,
+            "reason": "All citation markers are well-formed.; Every cited source exists in the retrieved set.; 0% of cited sources are fabricated (target 0%).; Every cited source's chunks were retrieved this turn.",
+            "provider": "openai"
+          },
+          {
             "example_id": "g50",
             "metric": "answer_relevancy",
-            "score": 0.8408278813536666,
+            "score": 0.8408464367910821,
             "passed": true,
             "reason": "answer_relevancy scored 0.84 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
             "provider": "openai"
@@ -1529,9 +2074,9 @@
           {
             "example_id": "g50",
             "metric": "faithfulness",
-            "score": 1.0,
+            "score": 0.8888888888888888,
             "passed": true,
-            "reason": "faithfulness scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "reason": "faithfulness scored 0.89 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
             "provider": "openai"
           },
           {
@@ -1553,7 +2098,7 @@
           {
             "example_id": "g51",
             "metric": "answer_relevancy",
-            "score": 0.8611150439049092,
+            "score": 0.8581431703649413,
             "passed": true,
             "reason": "answer_relevancy scored 0.86 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
             "provider": "openai"
@@ -1583,9 +2128,17 @@
             "provider": "openai"
           },
           {
+            "example_id": "g51",
+            "metric": "fabricated_citation_rate",
+            "score": 0.0,
+            "passed": true,
+            "reason": "All citation markers are well-formed.; Every cited source exists in the retrieved set.; 0% of cited sources are fabricated (target 0%).; Every cited source's chunks were retrieved this turn.",
+            "provider": "openai"
+          },
+          {
             "example_id": "g52",
             "metric": "answer_relevancy",
-            "score": 0.8100510366947296,
+            "score": 0.8120205553496437,
             "passed": true,
             "reason": "answer_relevancy scored 0.81 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
             "provider": "openai"
@@ -1612,6 +2165,14 @@
             "score": 1.0,
             "passed": true,
             "reason": "context_recall scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "provider": "openai"
+          },
+          {
+            "example_id": "g52",
+            "metric": "fabricated_citation_rate",
+            "score": 0.0,
+            "passed": true,
+            "reason": "All citation markers are well-formed.; Every cited source exists in the retrieved set.; 0% of cited sources are fabricated (target 0%).; Every cited source's chunks were retrieved this turn.",
             "provider": "openai"
           },
           {
@@ -1647,11 +2208,19 @@
             "provider": "openai"
           },
           {
+            "example_id": "g53",
+            "metric": "fabricated_citation_rate",
+            "score": 0.0,
+            "passed": true,
+            "reason": "All citation markers are well-formed.; Every cited source exists in the retrieved set.; 0% of cited sources are fabricated (target 0%).; Every cited source's chunks were retrieved this turn.",
+            "provider": "openai"
+          },
+          {
             "example_id": "g54",
             "metric": "answer_relevancy",
-            "score": 0.8900715460323726,
+            "score": 0.878038896322119,
             "passed": true,
-            "reason": "answer_relevancy scored 0.89 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "reason": "answer_relevancy scored 0.88 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
             "provider": "openai"
           },
           {
@@ -1679,143 +2248,23 @@
             "provider": "openai"
           },
           {
-            "example_id": "g55",
-            "metric": "answer_relevancy",
-            "score": 0.8680102059131632,
+            "example_id": "g54",
+            "metric": "fabricated_citation_rate",
+            "score": 0.0,
             "passed": true,
-            "reason": "answer_relevancy scored 0.87 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "reason": "All citation markers are well-formed.; Every cited source exists in the retrieved set.; 0% of cited sources are fabricated (target 0%).; Every cited source's chunks were retrieved this turn.",
             "provider": "openai"
           },
           {
             "example_id": "g55",
-            "metric": "faithfulness",
-            "score": 1.0,
+            "metric": "answer_relevancy",
+            "score": 0.9036820808186068,
             "passed": true,
-            "reason": "faithfulness scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "reason": "answer_relevancy scored 0.90 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
             "provider": "openai"
           },
           {
             "example_id": "g55",
-            "metric": "context_precision",
-            "score": 0.9999999999,
-            "passed": true,
-            "reason": "context_precision scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
-            "provider": "openai"
-          },
-          {
-            "example_id": "g55",
-            "metric": "context_recall",
-            "score": 1.0,
-            "passed": true,
-            "reason": "context_recall scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
-            "provider": "openai"
-          },
-          {
-            "example_id": "g56",
-            "metric": "answer_relevancy",
-            "score": 0.8657815970230806,
-            "passed": true,
-            "reason": "answer_relevancy scored 0.87 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
-            "provider": "openai"
-          },
-          {
-            "example_id": "g56",
-            "metric": "faithfulness",
-            "score": 0.75,
-            "passed": true,
-            "reason": "faithfulness scored 0.75 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
-            "provider": "openai"
-          },
-          {
-            "example_id": "g56",
-            "metric": "context_precision",
-            "score": 0.9999999999,
-            "passed": true,
-            "reason": "context_precision scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
-            "provider": "openai"
-          },
-          {
-            "example_id": "g56",
-            "metric": "context_recall",
-            "score": 1.0,
-            "passed": true,
-            "reason": "context_recall scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
-            "provider": "openai"
-          },
-          {
-            "example_id": "g57",
-            "metric": "answer_relevancy",
-            "score": 0.924712044703418,
-            "passed": true,
-            "reason": "answer_relevancy scored 0.92 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
-            "provider": "openai"
-          },
-          {
-            "example_id": "g57",
-            "metric": "faithfulness",
-            "score": 0.5,
-            "passed": true,
-            "reason": "faithfulness scored 0.50 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
-            "provider": "openai"
-          },
-          {
-            "example_id": "g57",
-            "metric": "context_precision",
-            "score": 0.9999999999,
-            "passed": true,
-            "reason": "context_precision scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
-            "provider": "openai"
-          },
-          {
-            "example_id": "g57",
-            "metric": "context_recall",
-            "score": 1.0,
-            "passed": true,
-            "reason": "context_recall scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
-            "provider": "openai"
-          },
-          {
-            "example_id": "g58",
-            "metric": "answer_relevancy",
-            "score": 0.7865865017276289,
-            "passed": true,
-            "reason": "answer_relevancy scored 0.79 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
-            "provider": "openai"
-          },
-          {
-            "example_id": "g58",
-            "metric": "faithfulness",
-            "score": 0.5,
-            "passed": true,
-            "reason": "faithfulness scored 0.50 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
-            "provider": "openai"
-          },
-          {
-            "example_id": "g58",
-            "metric": "context_precision",
-            "score": 0.9999999999,
-            "passed": true,
-            "reason": "context_precision scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
-            "provider": "openai"
-          },
-          {
-            "example_id": "g58",
-            "metric": "context_recall",
-            "score": 1.0,
-            "passed": true,
-            "reason": "context_recall scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
-            "provider": "openai"
-          },
-          {
-            "example_id": "g59",
-            "metric": "answer_relevancy",
-            "score": 0.7900721419682272,
-            "passed": true,
-            "reason": "answer_relevancy scored 0.79 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
-            "provider": "openai"
-          },
-          {
-            "example_id": "g59",
             "metric": "faithfulness",
             "score": 0.6666666666666666,
             "passed": true,
@@ -1823,7 +2272,7 @@
             "provider": "openai"
           },
           {
-            "example_id": "g59",
+            "example_id": "g55",
             "metric": "context_precision",
             "score": 0.9999999999,
             "passed": true,
@@ -1831,7 +2280,7 @@
             "provider": "openai"
           },
           {
-            "example_id": "g59",
+            "example_id": "g55",
             "metric": "context_recall",
             "score": 1.0,
             "passed": true,
@@ -1839,15 +2288,23 @@
             "provider": "openai"
           },
           {
-            "example_id": "g60",
-            "metric": "answer_relevancy",
-            "score": 0.9410521059428486,
+            "example_id": "g55",
+            "metric": "fabricated_citation_rate",
+            "score": 0.0,
             "passed": true,
-            "reason": "answer_relevancy scored 0.94 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "reason": "All citation markers are well-formed.; Every cited source exists in the retrieved set.; 0% of cited sources are fabricated (target 0%).; Every cited source's chunks were retrieved this turn.",
             "provider": "openai"
           },
           {
-            "example_id": "g60",
+            "example_id": "g56",
+            "metric": "answer_relevancy",
+            "score": 0.804580890503872,
+            "passed": true,
+            "reason": "answer_relevancy scored 0.80 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "provider": "openai"
+          },
+          {
+            "example_id": "g56",
             "metric": "faithfulness",
             "score": 1.0,
             "passed": true,
@@ -1855,7 +2312,7 @@
             "provider": "openai"
           },
           {
-            "example_id": "g60",
+            "example_id": "g56",
             "metric": "context_precision",
             "score": 0.9999999999,
             "passed": true,
@@ -1863,7 +2320,7 @@
             "provider": "openai"
           },
           {
-            "example_id": "g60",
+            "example_id": "g56",
             "metric": "context_recall",
             "score": 1.0,
             "passed": true,
@@ -1871,87 +2328,23 @@
             "provider": "openai"
           },
           {
-            "example_id": "g61",
+            "example_id": "g57",
             "metric": "answer_relevancy",
-            "score": 0.9192525244317634,
-            "passed": true,
-            "reason": "answer_relevancy scored 0.92 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
-            "provider": "openai"
-          },
-          {
-            "example_id": "g61",
-            "metric": "faithfulness",
-            "score": 0.8333333333333334,
-            "passed": true,
-            "reason": "faithfulness scored 0.83 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
-            "provider": "openai"
-          },
-          {
-            "example_id": "g61",
-            "metric": "context_precision",
-            "score": 0.9999999999,
-            "passed": true,
-            "reason": "context_precision scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
-            "provider": "openai"
-          },
-          {
-            "example_id": "g61",
-            "metric": "context_recall",
-            "score": 1.0,
-            "passed": true,
-            "reason": "context_recall scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
-            "provider": "openai"
-          },
-          {
-            "example_id": "g62",
-            "metric": "answer_relevancy",
-            "score": 0.9147898739153072,
-            "passed": true,
-            "reason": "answer_relevancy scored 0.91 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
-            "provider": "openai"
-          },
-          {
-            "example_id": "g62",
-            "metric": "faithfulness",
-            "score": 1.0,
-            "passed": true,
-            "reason": "faithfulness scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
-            "provider": "openai"
-          },
-          {
-            "example_id": "g62",
-            "metric": "context_precision",
-            "score": 0.9999999999,
-            "passed": true,
-            "reason": "context_precision scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
-            "provider": "openai"
-          },
-          {
-            "example_id": "g62",
-            "metric": "context_recall",
-            "score": 1.0,
-            "passed": true,
-            "reason": "context_recall scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
-            "provider": "openai"
-          },
-          {
-            "example_id": "g63",
-            "metric": "answer_relevancy",
-            "score": 0.839158639077894,
+            "score": 0.8356399187908043,
             "passed": true,
             "reason": "answer_relevancy scored 0.84 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
             "provider": "openai"
           },
           {
-            "example_id": "g63",
+            "example_id": "g57",
             "metric": "faithfulness",
-            "score": 0.4444444444444444,
+            "score": 0.3333333333333333,
             "passed": false,
-            "reason": "faithfulness scored 0.44 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "reason": "faithfulness scored 0.33 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
             "provider": "openai"
           },
           {
-            "example_id": "g63",
+            "example_id": "g57",
             "metric": "context_precision",
             "score": 0.9999999999,
             "passed": true,
@@ -1959,7 +2352,7 @@
             "provider": "openai"
           },
           {
-            "example_id": "g63",
+            "example_id": "g57",
             "metric": "context_recall",
             "score": 1.0,
             "passed": true,
@@ -1967,19 +2360,267 @@
             "provider": "openai"
           },
           {
-            "example_id": "g64",
+            "example_id": "g57",
+            "metric": "fabricated_citation_rate",
+            "score": 0.0,
+            "passed": true,
+            "reason": "All citation markers are well-formed.; Every cited source exists in the retrieved set.; 0% of cited sources are fabricated (target 0%).; Every cited source's chunks were retrieved this turn.",
+            "provider": "openai"
+          },
+          {
+            "example_id": "g58",
             "metric": "answer_relevancy",
-            "score": 0.9381002964998997,
+            "score": 0.8915013153994747,
+            "passed": true,
+            "reason": "answer_relevancy scored 0.89 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "provider": "openai"
+          },
+          {
+            "example_id": "g58",
+            "metric": "faithfulness",
+            "score": 0.5,
+            "passed": true,
+            "reason": "faithfulness scored 0.50 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "provider": "openai"
+          },
+          {
+            "example_id": "g58",
+            "metric": "context_precision",
+            "score": 0.9999999999,
+            "passed": true,
+            "reason": "context_precision scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "provider": "openai"
+          },
+          {
+            "example_id": "g58",
+            "metric": "context_recall",
+            "score": 1.0,
+            "passed": true,
+            "reason": "context_recall scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "provider": "openai"
+          },
+          {
+            "example_id": "g58",
+            "metric": "fabricated_citation_rate",
+            "score": 0.0,
+            "passed": true,
+            "reason": "All citation markers are well-formed.; Every cited source exists in the retrieved set.; 0% of cited sources are fabricated (target 0%).; Every cited source's chunks were retrieved this turn.",
+            "provider": "openai"
+          },
+          {
+            "example_id": "g59",
+            "metric": "answer_relevancy",
+            "score": 0.9431297554603254,
             "passed": true,
             "reason": "answer_relevancy scored 0.94 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
             "provider": "openai"
           },
           {
+            "example_id": "g59",
+            "metric": "faithfulness",
+            "score": 0.3333333333333333,
+            "passed": false,
+            "reason": "faithfulness scored 0.33 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "provider": "openai"
+          },
+          {
+            "example_id": "g59",
+            "metric": "context_precision",
+            "score": 0.9999999999,
+            "passed": true,
+            "reason": "context_precision scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "provider": "openai"
+          },
+          {
+            "example_id": "g59",
+            "metric": "context_recall",
+            "score": 1.0,
+            "passed": true,
+            "reason": "context_recall scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "provider": "openai"
+          },
+          {
+            "example_id": "g59",
+            "metric": "fabricated_citation_rate",
+            "score": 0.0,
+            "passed": true,
+            "reason": "All citation markers are well-formed.; Every cited source exists in the retrieved set.; 0% of cited sources are fabricated (target 0%).; Every cited source's chunks were retrieved this turn.",
+            "provider": "openai"
+          },
+          {
+            "example_id": "g60",
+            "metric": "answer_relevancy",
+            "score": 0.9303051721794534,
+            "passed": true,
+            "reason": "answer_relevancy scored 0.93 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "provider": "openai"
+          },
+          {
+            "example_id": "g60",
+            "metric": "faithfulness",
+            "score": 0.8571428571428571,
+            "passed": true,
+            "reason": "faithfulness scored 0.86 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "provider": "openai"
+          },
+          {
+            "example_id": "g60",
+            "metric": "context_precision",
+            "score": 0.9999999999,
+            "passed": true,
+            "reason": "context_precision scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "provider": "openai"
+          },
+          {
+            "example_id": "g60",
+            "metric": "context_recall",
+            "score": 1.0,
+            "passed": true,
+            "reason": "context_recall scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "provider": "openai"
+          },
+          {
+            "example_id": "g60",
+            "metric": "fabricated_citation_rate",
+            "score": 0.0,
+            "passed": true,
+            "reason": "All citation markers are well-formed.; Every cited source exists in the retrieved set.; 0% of cited sources are fabricated (target 0%).; Every cited source's chunks were retrieved this turn.",
+            "provider": "openai"
+          },
+          {
+            "example_id": "g61",
+            "metric": "answer_relevancy",
+            "score": 0.9446751046019871,
+            "passed": true,
+            "reason": "answer_relevancy scored 0.94 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "provider": "openai"
+          },
+          {
+            "example_id": "g61",
+            "metric": "faithfulness",
+            "score": 1.0,
+            "passed": true,
+            "reason": "faithfulness scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "provider": "openai"
+          },
+          {
+            "example_id": "g61",
+            "metric": "context_precision",
+            "score": 0.9999999999,
+            "passed": true,
+            "reason": "context_precision scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "provider": "openai"
+          },
+          {
+            "example_id": "g61",
+            "metric": "context_recall",
+            "score": 1.0,
+            "passed": true,
+            "reason": "context_recall scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "provider": "openai"
+          },
+          {
+            "example_id": "g61",
+            "metric": "fabricated_citation_rate",
+            "score": 0.0,
+            "passed": true,
+            "reason": "All citation markers are well-formed.; Every cited source exists in the retrieved set.; 0% of cited sources are fabricated (target 0%).; Every cited source's chunks were retrieved this turn.",
+            "provider": "openai"
+          },
+          {
+            "example_id": "g62",
+            "metric": "answer_relevancy",
+            "score": 0.5650467027392384,
+            "passed": true,
+            "reason": "answer_relevancy scored 0.57 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "provider": "openai"
+          },
+          {
+            "example_id": "g62",
+            "metric": "faithfulness",
+            "score": 1.0,
+            "passed": true,
+            "reason": "faithfulness scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "provider": "openai"
+          },
+          {
+            "example_id": "g62",
+            "metric": "context_precision",
+            "score": 0.9999999999,
+            "passed": true,
+            "reason": "context_precision scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "provider": "openai"
+          },
+          {
+            "example_id": "g62",
+            "metric": "context_recall",
+            "score": 1.0,
+            "passed": true,
+            "reason": "context_recall scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "provider": "openai"
+          },
+          {
+            "example_id": "g62",
+            "metric": "fabricated_citation_rate",
+            "score": 0.0,
+            "passed": true,
+            "reason": "All citation markers are well-formed.; Every cited source exists in the retrieved set.; 0% of cited sources are fabricated (target 0%).; Every cited source's chunks were retrieved this turn.",
+            "provider": "openai"
+          },
+          {
+            "example_id": "g63",
+            "metric": "answer_relevancy",
+            "score": 0.5363046101876785,
+            "passed": true,
+            "reason": "answer_relevancy scored 0.54 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "provider": "openai"
+          },
+          {
+            "example_id": "g63",
+            "metric": "faithfulness",
+            "score": 0.5,
+            "passed": true,
+            "reason": "faithfulness scored 0.50 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "provider": "openai"
+          },
+          {
+            "example_id": "g63",
+            "metric": "context_precision",
+            "score": 0.9999999999,
+            "passed": true,
+            "reason": "context_precision scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "provider": "openai"
+          },
+          {
+            "example_id": "g63",
+            "metric": "context_recall",
+            "score": 1.0,
+            "passed": true,
+            "reason": "context_recall scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "provider": "openai"
+          },
+          {
+            "example_id": "g63",
+            "metric": "fabricated_citation_rate",
+            "score": 0.0,
+            "passed": true,
+            "reason": "All citation markers are well-formed.; Every cited source exists in the retrieved set.; 0% of cited sources are fabricated (target 0%).; Every cited source's chunks were retrieved this turn.",
+            "provider": "openai"
+          },
+          {
+            "example_id": "g64",
+            "metric": "answer_relevancy",
+            "score": 0.9555505205111045,
+            "passed": true,
+            "reason": "answer_relevancy scored 0.96 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "provider": "openai"
+          },
+          {
             "example_id": "g64",
             "metric": "faithfulness",
-            "score": 0.8333333333333334,
+            "score": 0.5,
             "passed": true,
-            "reason": "faithfulness scored 0.83 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "reason": "faithfulness scored 0.50 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
             "provider": "openai"
           },
           {
@@ -1999,9 +2640,17 @@
             "provider": "openai"
           },
           {
+            "example_id": "g64",
+            "metric": "fabricated_citation_rate",
+            "score": 0.0,
+            "passed": true,
+            "reason": "All citation markers are well-formed.; Every cited source exists in the retrieved set.; 0% of cited sources are fabricated (target 0%).; Every cited source's chunks were retrieved this turn.",
+            "provider": "openai"
+          },
+          {
             "example_id": "g65",
             "metric": "answer_relevancy",
-            "score": 0.7652271306038165,
+            "score": 0.7704975151940717,
             "passed": true,
             "reason": "answer_relevancy scored 0.77 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
             "provider": "openai"
@@ -2009,9 +2658,9 @@
           {
             "example_id": "g65",
             "metric": "faithfulness",
-            "score": 0.75,
-            "passed": true,
-            "reason": "faithfulness scored 0.75 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "score": 0.4,
+            "passed": false,
+            "reason": "faithfulness scored 0.40 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
             "provider": "openai"
           },
           {
@@ -2031,19 +2680,27 @@
             "provider": "openai"
           },
           {
+            "example_id": "g65",
+            "metric": "fabricated_citation_rate",
+            "score": 0.0,
+            "passed": true,
+            "reason": "All citation markers are well-formed.; Every cited source exists in the retrieved set.; 0% of cited sources are fabricated (target 0%).; Every cited source's chunks were retrieved this turn.",
+            "provider": "openai"
+          },
+          {
             "example_id": "g66",
             "metric": "answer_relevancy",
-            "score": 0.6031506195129351,
-            "passed": true,
-            "reason": "answer_relevancy scored 0.60 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "score": 0.0,
+            "passed": false,
+            "reason": "answer_relevancy scored 0.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
             "provider": "openai"
           },
           {
             "example_id": "g66",
             "metric": "faithfulness",
-            "score": 1.0,
+            "score": 0.5,
             "passed": true,
-            "reason": "faithfulness scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "reason": "faithfulness scored 0.50 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
             "provider": "openai"
           },
           {
@@ -2056,6 +2713,46 @@
           },
           {
             "example_id": "g66",
+            "metric": "context_recall",
+            "score": 1.0,
+            "passed": true,
+            "reason": "context_recall scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "provider": "openai"
+          },
+          {
+            "example_id": "g66",
+            "metric": "fabricated_citation_rate",
+            "score": 0.0,
+            "passed": true,
+            "reason": "All citation markers are well-formed.; Every cited source exists in the retrieved set.; 0% of cited sources are fabricated (target 0%).; Every cited source's chunks were retrieved this turn.",
+            "provider": "openai"
+          },
+          {
+            "example_id": "g67",
+            "metric": "answer_relevancy",
+            "score": 0.646857027845583,
+            "passed": true,
+            "reason": "answer_relevancy scored 0.65 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "provider": "openai"
+          },
+          {
+            "example_id": "g67",
+            "metric": "faithfulness",
+            "score": 0.5,
+            "passed": true,
+            "reason": "faithfulness scored 0.50 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "provider": "openai"
+          },
+          {
+            "example_id": "g67",
+            "metric": "context_precision",
+            "score": 0.9999999999,
+            "passed": true,
+            "reason": "context_precision scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "provider": "openai"
+          },
+          {
+            "example_id": "g67",
             "metric": "context_recall",
             "score": 1.0,
             "passed": true,
@@ -2064,50 +2761,26 @@
           },
           {
             "example_id": "g67",
-            "metric": "answer_relevancy",
-            "score": 0.8368102491320853,
+            "metric": "fabricated_citation_rate",
+            "score": 0.0,
             "passed": true,
-            "reason": "answer_relevancy scored 0.84 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
-            "provider": "openai"
-          },
-          {
-            "example_id": "g67",
-            "metric": "faithfulness",
-            "score": 1.0,
-            "passed": true,
-            "reason": "faithfulness scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
-            "provider": "openai"
-          },
-          {
-            "example_id": "g67",
-            "metric": "context_precision",
-            "score": 0.9999999999,
-            "passed": true,
-            "reason": "context_precision scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
-            "provider": "openai"
-          },
-          {
-            "example_id": "g67",
-            "metric": "context_recall",
-            "score": 1.0,
-            "passed": true,
-            "reason": "context_recall scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "reason": "All citation markers are well-formed.; Every cited source exists in the retrieved set.; 0% of cited sources are fabricated (target 0%).; Every cited source's chunks were retrieved this turn.",
             "provider": "openai"
           },
           {
             "example_id": "g68",
             "metric": "answer_relevancy",
-            "score": 0.872393856758559,
+            "score": 0.7977628541624293,
             "passed": true,
-            "reason": "answer_relevancy scored 0.87 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "reason": "answer_relevancy scored 0.80 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
             "provider": "openai"
           },
           {
             "example_id": "g68",
             "metric": "faithfulness",
-            "score": 0.6666666666666666,
+            "score": 0.5,
             "passed": true,
-            "reason": "faithfulness scored 0.67 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "reason": "faithfulness scored 0.50 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
             "provider": "openai"
           },
           {
@@ -2127,19 +2800,27 @@
             "provider": "openai"
           },
           {
+            "example_id": "g68",
+            "metric": "fabricated_citation_rate",
+            "score": 0.0,
+            "passed": true,
+            "reason": "All citation markers are well-formed.; Every cited source exists in the retrieved set.; 0% of cited sources are fabricated (target 0%).; Every cited source's chunks were retrieved this turn.",
+            "provider": "openai"
+          },
+          {
             "example_id": "g69",
             "metric": "answer_relevancy",
-            "score": 0.8894207600946006,
+            "score": 0.8757325838406875,
             "passed": true,
-            "reason": "answer_relevancy scored 0.89 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "reason": "answer_relevancy scored 0.88 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
             "provider": "openai"
           },
           {
             "example_id": "g69",
             "metric": "faithfulness",
-            "score": 0.7142857142857143,
+            "score": 0.8333333333333334,
             "passed": true,
-            "reason": "faithfulness scored 0.71 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "reason": "faithfulness scored 0.83 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
             "provider": "openai"
           },
           {
@@ -2159,47 +2840,23 @@
             "provider": "openai"
           },
           {
+            "example_id": "g69",
+            "metric": "fabricated_citation_rate",
+            "score": 0.0,
+            "passed": true,
+            "reason": "All citation markers are well-formed.; Every cited source exists in the retrieved set.; 0% of cited sources are fabricated (target 0%).; Every cited source's chunks were retrieved this turn.",
+            "provider": "openai"
+          },
+          {
             "example_id": "g70",
             "metric": "answer_relevancy",
-            "score": 0.6948327707360747,
-            "passed": true,
-            "reason": "answer_relevancy scored 0.69 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "score": 0.0,
+            "passed": false,
+            "reason": "answer_relevancy scored 0.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
             "provider": "openai"
           },
           {
             "example_id": "g70",
-            "metric": "faithfulness",
-            "score": 1.0,
-            "passed": true,
-            "reason": "faithfulness scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
-            "provider": "openai"
-          },
-          {
-            "example_id": "g70",
-            "metric": "context_precision",
-            "score": 0.9999999999,
-            "passed": true,
-            "reason": "context_precision scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
-            "provider": "openai"
-          },
-          {
-            "example_id": "g70",
-            "metric": "context_recall",
-            "score": 1.0,
-            "passed": true,
-            "reason": "context_recall scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
-            "provider": "openai"
-          },
-          {
-            "example_id": "g71",
-            "metric": "answer_relevancy",
-            "score": 0.5577804673503163,
-            "passed": true,
-            "reason": "answer_relevancy scored 0.56 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
-            "provider": "openai"
-          },
-          {
-            "example_id": "g71",
             "metric": "faithfulness",
             "score": 0.75,
             "passed": true,
@@ -2207,6 +2864,46 @@
             "provider": "openai"
           },
           {
+            "example_id": "g70",
+            "metric": "context_precision",
+            "score": 0.9999999999,
+            "passed": true,
+            "reason": "context_precision scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "provider": "openai"
+          },
+          {
+            "example_id": "g70",
+            "metric": "context_recall",
+            "score": 1.0,
+            "passed": true,
+            "reason": "context_recall scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "provider": "openai"
+          },
+          {
+            "example_id": "g70",
+            "metric": "fabricated_citation_rate",
+            "score": 0.0,
+            "passed": true,
+            "reason": "All citation markers are well-formed.; Every cited source exists in the retrieved set.; 0% of cited sources are fabricated (target 0%).; Every cited source's chunks were retrieved this turn.",
+            "provider": "openai"
+          },
+          {
+            "example_id": "g71",
+            "metric": "answer_relevancy",
+            "score": 0.5811385344595663,
+            "passed": true,
+            "reason": "answer_relevancy scored 0.58 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "provider": "openai"
+          },
+          {
+            "example_id": "g71",
+            "metric": "faithfulness",
+            "score": 1.0,
+            "passed": true,
+            "reason": "faithfulness scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "provider": "openai"
+          },
+          {
             "example_id": "g71",
             "metric": "context_precision",
             "score": 0.9999999999,
@@ -2220,12 +2917,20 @@
             "score": 1.0,
             "passed": true,
             "reason": "context_recall scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "provider": "openai"
+          },
+          {
+            "example_id": "g71",
+            "metric": "fabricated_citation_rate",
+            "score": 0.0,
+            "passed": false,
+            "reason": "Malformed citation marker(s): Castle et al. (1976); Every cited source exists in the retrieved set.; 0% of cited sources are fabricated (target 0%).; Every cited source's chunks were retrieved this turn.",
             "provider": "openai"
           },
           {
             "example_id": "g72",
             "metric": "answer_relevancy",
-            "score": 0.7769781695262669,
+            "score": 0.7769538985328209,
             "passed": true,
             "reason": "answer_relevancy scored 0.78 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
             "provider": "openai"
@@ -2233,9 +2938,9 @@
           {
             "example_id": "g72",
             "metric": "faithfulness",
-            "score": 0.7142857142857143,
+            "score": 0.8,
             "passed": true,
-            "reason": "faithfulness scored 0.71 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "reason": "faithfulness scored 0.80 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
             "provider": "openai"
           },
           {
@@ -2255,19 +2960,27 @@
             "provider": "openai"
           },
           {
+            "example_id": "g72",
+            "metric": "fabricated_citation_rate",
+            "score": 0.0,
+            "passed": true,
+            "reason": "All citation markers are well-formed.; Every cited source exists in the retrieved set.; 0% of cited sources are fabricated (target 0%).; Every cited source's chunks were retrieved this turn.",
+            "provider": "openai"
+          },
+          {
             "example_id": "g73",
             "metric": "answer_relevancy",
-            "score": 0.7936501834943691,
+            "score": 0.6291809588240069,
             "passed": true,
-            "reason": "answer_relevancy scored 0.79 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "reason": "answer_relevancy scored 0.63 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
             "provider": "openai"
           },
           {
             "example_id": "g73",
             "metric": "faithfulness",
-            "score": 0.5714285714285714,
+            "score": 0.7142857142857143,
             "passed": true,
-            "reason": "faithfulness scored 0.57 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "reason": "faithfulness scored 0.71 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
             "provider": "openai"
           },
           {
@@ -2280,6 +2993,46 @@
           },
           {
             "example_id": "g73",
+            "metric": "context_recall",
+            "score": 1.0,
+            "passed": true,
+            "reason": "context_recall scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "provider": "openai"
+          },
+          {
+            "example_id": "g73",
+            "metric": "fabricated_citation_rate",
+            "score": 0.0,
+            "passed": true,
+            "reason": "All citation markers are well-formed.; Every cited source exists in the retrieved set.; 0% of cited sources are fabricated (target 0%).; Every cited source's chunks were retrieved this turn.",
+            "provider": "openai"
+          },
+          {
+            "example_id": "g74",
+            "metric": "answer_relevancy",
+            "score": 0.958890990890446,
+            "passed": true,
+            "reason": "answer_relevancy scored 0.96 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "provider": "openai"
+          },
+          {
+            "example_id": "g74",
+            "metric": "faithfulness",
+            "score": 0.75,
+            "passed": true,
+            "reason": "faithfulness scored 0.75 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "provider": "openai"
+          },
+          {
+            "example_id": "g74",
+            "metric": "context_precision",
+            "score": 0.9999999999,
+            "passed": true,
+            "reason": "context_precision scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "provider": "openai"
+          },
+          {
+            "example_id": "g74",
             "metric": "context_recall",
             "score": 1.0,
             "passed": true,
@@ -2288,17 +3041,18 @@
           },
           {
             "example_id": "g74",
-            "metric": "error",
-            "score": null,
-            "passed": false,
-            "reason": "scoring failed: The output is incomplete due to a max_tokens length limit."
+            "metric": "fabricated_citation_rate",
+            "score": 0.0,
+            "passed": true,
+            "reason": "All citation markers are well-formed.; Every cited source exists in the retrieved set.; 0% of cited sources are fabricated (target 0%).; Every cited source's chunks were retrieved this turn.",
+            "provider": "openai"
           },
           {
             "example_id": "g75",
             "metric": "answer_relevancy",
-            "score": 0.9645597918356167,
+            "score": 0.8080561025853276,
             "passed": true,
-            "reason": "answer_relevancy scored 0.96 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "reason": "answer_relevancy scored 0.81 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
             "provider": "openai"
           },
           {
@@ -2326,11 +3080,19 @@
             "provider": "openai"
           },
           {
+            "example_id": "g75",
+            "metric": "fabricated_citation_rate",
+            "score": 0.0,
+            "passed": true,
+            "reason": "All citation markers are well-formed.; Every cited source exists in the retrieved set.; 0% of cited sources are fabricated (target 0%).; Every cited source's chunks were retrieved this turn.",
+            "provider": "openai"
+          },
+          {
             "example_id": "g76",
             "metric": "answer_relevancy",
-            "score": 0.8970903470424957,
+            "score": 0.8834611343456947,
             "passed": true,
-            "reason": "answer_relevancy scored 0.90 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "reason": "answer_relevancy scored 0.88 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
             "provider": "openai"
           },
           {
@@ -2358,19 +3120,27 @@
             "provider": "openai"
           },
           {
+            "example_id": "g76",
+            "metric": "fabricated_citation_rate",
+            "score": 0.0,
+            "passed": true,
+            "reason": "All citation markers are well-formed.; Every cited source exists in the retrieved set.; 0% of cited sources are fabricated (target 0%).; Every cited source's chunks were retrieved this turn.",
+            "provider": "openai"
+          },
+          {
             "example_id": "g77",
             "metric": "answer_relevancy",
-            "score": 0.9240095150677536,
+            "score": 0.891942148035672,
             "passed": true,
-            "reason": "answer_relevancy scored 0.92 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "reason": "answer_relevancy scored 0.89 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
             "provider": "openai"
           },
           {
             "example_id": "g77",
             "metric": "faithfulness",
-            "score": 0.5714285714285714,
+            "score": 1.0,
             "passed": true,
-            "reason": "faithfulness scored 0.57 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "reason": "faithfulness scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
             "provider": "openai"
           },
           {
@@ -2390,19 +3160,27 @@
             "provider": "openai"
           },
           {
+            "example_id": "g77",
+            "metric": "fabricated_citation_rate",
+            "score": 0.0,
+            "passed": true,
+            "reason": "All citation markers are well-formed.; Every cited source exists in the retrieved set.; 0% of cited sources are fabricated (target 0%).; Every cited source's chunks were retrieved this turn.",
+            "provider": "openai"
+          },
+          {
             "example_id": "g78",
             "metric": "answer_relevancy",
-            "score": 0.756634309315154,
-            "passed": true,
-            "reason": "answer_relevancy scored 0.76 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "score": 0.47762543003594593,
+            "passed": false,
+            "reason": "answer_relevancy scored 0.48 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
             "provider": "openai"
           },
           {
             "example_id": "g78",
             "metric": "faithfulness",
-            "score": 0.75,
+            "score": 0.6666666666666666,
             "passed": true,
-            "reason": "faithfulness scored 0.75 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "reason": "faithfulness scored 0.67 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
             "provider": "openai"
           },
           {
@@ -2422,19 +3200,27 @@
             "provider": "openai"
           },
           {
+            "example_id": "g78",
+            "metric": "fabricated_citation_rate",
+            "score": 0.0,
+            "passed": true,
+            "reason": "All citation markers are well-formed.; Every cited source exists in the retrieved set.; 0% of cited sources are fabricated (target 0%).; Every cited source's chunks were retrieved this turn.",
+            "provider": "openai"
+          },
+          {
             "example_id": "g79",
             "metric": "answer_relevancy",
-            "score": 0.8488161130339927,
+            "score": 0.7328756563679604,
             "passed": true,
-            "reason": "answer_relevancy scored 0.85 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "reason": "answer_relevancy scored 0.73 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
             "provider": "openai"
           },
           {
             "example_id": "g79",
             "metric": "faithfulness",
-            "score": 0.6111111111111112,
+            "score": 0.7,
             "passed": true,
-            "reason": "faithfulness scored 0.61 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "reason": "faithfulness scored 0.70 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
             "provider": "openai"
           },
           {
@@ -2448,17 +3234,25 @@
           {
             "example_id": "g79",
             "metric": "context_recall",
-            "score": 0.6666666666666666,
+            "score": 1.0,
             "passed": true,
-            "reason": "context_recall scored 0.67 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "reason": "context_recall scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "provider": "openai"
+          },
+          {
+            "example_id": "g79",
+            "metric": "fabricated_citation_rate",
+            "score": 0.0,
+            "passed": true,
+            "reason": "All citation markers are well-formed.; Every cited source exists in the retrieved set.; 0% of cited sources are fabricated (target 0%).; Every cited source's chunks were retrieved this turn.",
             "provider": "openai"
           },
           {
             "example_id": "g80",
             "metric": "answer_relevancy",
-            "score": 0.8616740347466371,
+            "score": 0.9042118757558528,
             "passed": true,
-            "reason": "answer_relevancy scored 0.86 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "reason": "answer_relevancy scored 0.90 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
             "provider": "openai"
           },
           {
@@ -2488,77 +3282,13 @@
           {
             "example_id": "g81",
             "metric": "answer_relevancy",
-            "score": 0.932472431071354,
+            "score": 0.8285968688939797,
             "passed": true,
-            "reason": "answer_relevancy scored 0.93 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "reason": "answer_relevancy scored 0.83 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
             "provider": "openai"
           },
           {
             "example_id": "g81",
-            "metric": "faithfulness",
-            "score": 0.5,
-            "passed": true,
-            "reason": "faithfulness scored 0.50 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
-            "provider": "openai"
-          },
-          {
-            "example_id": "g81",
-            "metric": "context_precision",
-            "score": 0.9999999999,
-            "passed": true,
-            "reason": "context_precision scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
-            "provider": "openai"
-          },
-          {
-            "example_id": "g81",
-            "metric": "context_recall",
-            "score": 1.0,
-            "passed": true,
-            "reason": "context_recall scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
-            "provider": "openai"
-          },
-          {
-            "example_id": "g82",
-            "metric": "answer_relevancy",
-            "score": 0.9453693043042274,
-            "passed": true,
-            "reason": "answer_relevancy scored 0.95 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
-            "provider": "openai"
-          },
-          {
-            "example_id": "g82",
-            "metric": "faithfulness",
-            "score": 0.875,
-            "passed": true,
-            "reason": "faithfulness scored 0.88 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
-            "provider": "openai"
-          },
-          {
-            "example_id": "g82",
-            "metric": "context_precision",
-            "score": 0.9999999999,
-            "passed": true,
-            "reason": "context_precision scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
-            "provider": "openai"
-          },
-          {
-            "example_id": "g82",
-            "metric": "context_recall",
-            "score": 1.0,
-            "passed": true,
-            "reason": "context_recall scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
-            "provider": "openai"
-          },
-          {
-            "example_id": "g83",
-            "metric": "answer_relevancy",
-            "score": 0.8163375118865751,
-            "passed": true,
-            "reason": "answer_relevancy scored 0.82 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
-            "provider": "openai"
-          },
-          {
-            "example_id": "g83",
             "metric": "faithfulness",
             "score": 0.8571428571428571,
             "passed": true,
@@ -2566,6 +3296,86 @@
             "provider": "openai"
           },
           {
+            "example_id": "g81",
+            "metric": "context_precision",
+            "score": 0.9999999999,
+            "passed": true,
+            "reason": "context_precision scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "provider": "openai"
+          },
+          {
+            "example_id": "g81",
+            "metric": "context_recall",
+            "score": 1.0,
+            "passed": true,
+            "reason": "context_recall scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "provider": "openai"
+          },
+          {
+            "example_id": "g81",
+            "metric": "fabricated_citation_rate",
+            "score": 0.0,
+            "passed": true,
+            "reason": "All citation markers are well-formed.; Every cited source exists in the retrieved set.; 0% of cited sources are fabricated (target 0%).; Every cited source's chunks were retrieved this turn.",
+            "provider": "openai"
+          },
+          {
+            "example_id": "g82",
+            "metric": "answer_relevancy",
+            "score": 0.9453913694524178,
+            "passed": true,
+            "reason": "answer_relevancy scored 0.95 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "provider": "openai"
+          },
+          {
+            "example_id": "g82",
+            "metric": "faithfulness",
+            "score": 0.625,
+            "passed": true,
+            "reason": "faithfulness scored 0.62 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "provider": "openai"
+          },
+          {
+            "example_id": "g82",
+            "metric": "context_precision",
+            "score": 0.9999999999,
+            "passed": true,
+            "reason": "context_precision scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "provider": "openai"
+          },
+          {
+            "example_id": "g82",
+            "metric": "context_recall",
+            "score": 1.0,
+            "passed": true,
+            "reason": "context_recall scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "provider": "openai"
+          },
+          {
+            "example_id": "g82",
+            "metric": "fabricated_citation_rate",
+            "score": 0.0,
+            "passed": true,
+            "reason": "All citation markers are well-formed.; Every cited source exists in the retrieved set.; 0% of cited sources are fabricated (target 0%).; Every cited source's chunks were retrieved this turn.",
+            "provider": "openai"
+          },
+          {
+            "example_id": "g83",
+            "metric": "answer_relevancy",
+            "score": 0.8067656227763017,
+            "passed": true,
+            "reason": "answer_relevancy scored 0.81 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "provider": "openai"
+          },
+          {
+            "example_id": "g83",
+            "metric": "faithfulness",
+            "score": 0.8,
+            "passed": true,
+            "reason": "faithfulness scored 0.80 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "provider": "openai"
+          },
+          {
             "example_id": "g83",
             "metric": "context_precision",
             "score": 0.9999999999,
@@ -2582,19 +3392,27 @@
             "provider": "openai"
           },
           {
+            "example_id": "g83",
+            "metric": "fabricated_citation_rate",
+            "score": 0.0,
+            "passed": true,
+            "reason": "All citation markers are well-formed.; Every cited source exists in the retrieved set.; 0% of cited sources are fabricated (target 0%).; Every cited source's chunks were retrieved this turn.",
+            "provider": "openai"
+          },
+          {
             "example_id": "g84",
             "metric": "answer_relevancy",
-            "score": 0.7025066966148823,
+            "score": 0.6854127484147335,
             "passed": true,
-            "reason": "answer_relevancy scored 0.70 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "reason": "answer_relevancy scored 0.69 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
             "provider": "openai"
           },
           {
             "example_id": "g84",
             "metric": "faithfulness",
-            "score": 1.0,
+            "score": 0.8,
             "passed": true,
-            "reason": "faithfulness scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "reason": "faithfulness scored 0.80 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
             "provider": "openai"
           },
           {
@@ -2614,19 +3432,27 @@
             "provider": "openai"
           },
           {
+            "example_id": "g84",
+            "metric": "fabricated_citation_rate",
+            "score": 0.0,
+            "passed": true,
+            "reason": "All citation markers are well-formed.; Every cited source exists in the retrieved set.; 0% of cited sources are fabricated (target 0%).; Every cited source's chunks were retrieved this turn.",
+            "provider": "openai"
+          },
+          {
             "example_id": "g85",
             "metric": "answer_relevancy",
-            "score": 0.8951499666884123,
+            "score": 0.5984146556663487,
             "passed": true,
-            "reason": "answer_relevancy scored 0.90 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "reason": "answer_relevancy scored 0.60 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
             "provider": "openai"
           },
           {
             "example_id": "g85",
             "metric": "faithfulness",
-            "score": 0.5,
+            "score": 0.6666666666666666,
             "passed": true,
-            "reason": "faithfulness scored 0.50 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "reason": "faithfulness scored 0.67 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
             "provider": "openai"
           },
           {
@@ -2643,6 +3469,14 @@
             "score": 1.0,
             "passed": true,
             "reason": "context_recall scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "provider": "openai"
+          },
+          {
+            "example_id": "g85",
+            "metric": "fabricated_citation_rate",
+            "score": 0.0,
+            "passed": true,
+            "reason": "All citation markers are well-formed.; Every cited source exists in the retrieved set.; 0% of cited sources are fabricated (target 0%).; Every cited source's chunks were retrieved this turn.",
             "provider": "openai"
           },
           {
@@ -2680,49 +3514,57 @@
           {
             "example_id": "g87",
             "metric": "answer_relevancy",
-            "score": 0.8849468474324005,
-            "passed": true,
-            "reason": "answer_relevancy scored 0.88 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
-            "provider": "openai"
-          },
-          {
-            "example_id": "g87",
-            "metric": "faithfulness",
-            "score": 0.8,
-            "passed": true,
-            "reason": "faithfulness scored 0.80 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
-            "provider": "openai"
-          },
-          {
-            "example_id": "g87",
-            "metric": "context_precision",
-            "score": 0.9999999999,
-            "passed": true,
-            "reason": "context_precision scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
-            "provider": "openai"
-          },
-          {
-            "example_id": "g87",
-            "metric": "context_recall",
-            "score": 1.0,
-            "passed": true,
-            "reason": "context_recall scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
-            "provider": "openai"
-          },
-          {
-            "example_id": "g88",
-            "metric": "answer_relevancy",
-            "score": 0.8928888779201928,
+            "score": 0.889043345901286,
             "passed": true,
             "reason": "answer_relevancy scored 0.89 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
             "provider": "openai"
           },
           {
+            "example_id": "g87",
+            "metric": "faithfulness",
+            "score": 0.5,
+            "passed": true,
+            "reason": "faithfulness scored 0.50 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "provider": "openai"
+          },
+          {
+            "example_id": "g87",
+            "metric": "context_precision",
+            "score": 0.9999999999,
+            "passed": true,
+            "reason": "context_precision scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "provider": "openai"
+          },
+          {
+            "example_id": "g87",
+            "metric": "context_recall",
+            "score": 1.0,
+            "passed": true,
+            "reason": "context_recall scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "provider": "openai"
+          },
+          {
+            "example_id": "g87",
+            "metric": "fabricated_citation_rate",
+            "score": 0.0,
+            "passed": true,
+            "reason": "All citation markers are well-formed.; Every cited source exists in the retrieved set.; 0% of cited sources are fabricated (target 0%).; Every cited source's chunks were retrieved this turn.",
+            "provider": "openai"
+          },
+          {
+            "example_id": "g88",
+            "metric": "answer_relevancy",
+            "score": 0.5025734834902841,
+            "passed": true,
+            "reason": "answer_relevancy scored 0.50 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "provider": "openai"
+          },
+          {
             "example_id": "g88",
             "metric": "faithfulness",
-            "score": 0.6,
+            "score": 0.6666666666666666,
             "passed": true,
-            "reason": "faithfulness scored 0.60 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "reason": "faithfulness scored 0.67 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
             "provider": "openai"
           },
           {
@@ -2742,11 +3584,19 @@
             "provider": "openai"
           },
           {
+            "example_id": "g88",
+            "metric": "fabricated_citation_rate",
+            "score": 0.0,
+            "passed": true,
+            "reason": "All citation markers are well-formed.; Every cited source exists in the retrieved set.; 0% of cited sources are fabricated (target 0%).; Every cited source's chunks were retrieved this turn.",
+            "provider": "openai"
+          },
+          {
             "example_id": "g89",
             "metric": "answer_relevancy",
-            "score": 0.9262826544417541,
+            "score": 0.8668666509419559,
             "passed": true,
-            "reason": "answer_relevancy scored 0.93 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "reason": "answer_relevancy scored 0.87 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
             "provider": "openai"
           },
           {
@@ -2774,6 +3624,14 @@
             "provider": "openai"
           },
           {
+            "example_id": "g89",
+            "metric": "fabricated_citation_rate",
+            "score": 0.0,
+            "passed": true,
+            "reason": "All citation markers are well-formed.; Every cited source exists in the retrieved set.; 0% of cited sources are fabricated (target 0%).; Every cited source's chunks were retrieved this turn.",
+            "provider": "openai"
+          },
+          {
             "example_id": "g90",
             "metric": "answer_relevancy",
             "score": 0.9470338396508285,
@@ -2784,9 +3642,9 @@
           {
             "example_id": "g90",
             "metric": "faithfulness",
-            "score": 0.7272727272727273,
+            "score": 0.5,
             "passed": true,
-            "reason": "faithfulness scored 0.73 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "reason": "faithfulness scored 0.50 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
             "provider": "openai"
           },
           {
@@ -2806,19 +3664,27 @@
             "provider": "openai"
           },
           {
+            "example_id": "g90",
+            "metric": "fabricated_citation_rate",
+            "score": 0.0,
+            "passed": true,
+            "reason": "All citation markers are well-formed.; Every cited source exists in the retrieved set.; 0% of cited sources are fabricated (target 0%).; Every cited source's chunks were retrieved this turn.",
+            "provider": "openai"
+          },
+          {
             "example_id": "g91",
             "metric": "answer_relevancy",
-            "score": 0.9999999999999999,
+            "score": 0.5011487364738914,
             "passed": true,
-            "reason": "answer_relevancy scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "reason": "answer_relevancy scored 0.50 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
             "provider": "openai"
           },
           {
             "example_id": "g91",
             "metric": "faithfulness",
-            "score": 0.8888888888888888,
+            "score": 1.0,
             "passed": true,
-            "reason": "faithfulness scored 0.89 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "reason": "faithfulness scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
             "provider": "openai"
           },
           {
@@ -2838,19 +3704,27 @@
             "provider": "openai"
           },
           {
+            "example_id": "g91",
+            "metric": "fabricated_citation_rate",
+            "score": 0.0,
+            "passed": true,
+            "reason": "All citation markers are well-formed.; Every cited source exists in the retrieved set.; 0% of cited sources are fabricated (target 0%).; Every cited source's chunks were retrieved this turn.",
+            "provider": "openai"
+          },
+          {
             "example_id": "g92",
             "metric": "answer_relevancy",
-            "score": 0.8264926213773052,
+            "score": 0.8662978390850903,
             "passed": true,
-            "reason": "answer_relevancy scored 0.83 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "reason": "answer_relevancy scored 0.87 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
             "provider": "openai"
           },
           {
             "example_id": "g92",
             "metric": "faithfulness",
-            "score": 0.75,
-            "passed": true,
-            "reason": "faithfulness scored 0.75 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "score": 0.25,
+            "passed": false,
+            "reason": "faithfulness scored 0.25 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
             "provider": "openai"
           },
           {
@@ -2872,17 +3746,25 @@
           {
             "example_id": "s4",
             "metric": "answer_relevancy",
-            "score": 0.8470435674773911,
+            "score": 0.9560406166517899,
             "passed": true,
-            "reason": "answer_relevancy scored 0.85 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "reason": "answer_relevancy scored 0.96 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "provider": "openai"
+          },
+          {
+            "example_id": "s4",
+            "metric": "rubric_adherence",
+            "score": 1.0,
+            "passed": true,
+            "reason": "pass: clearly mentions Grover's algorithm threatening AES-style encryption and QKD/one-time pad providing unbreakable security, fulfilling the requirement for both directions.",
             "provider": "openai"
           },
           {
             "example_id": "s4",
             "metric": "faithfulness",
-            "score": 0.5882352941176471,
+            "score": 0.6363636363636364,
             "passed": true,
-            "reason": "faithfulness scored 0.59 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "reason": "faithfulness scored 0.64 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
             "provider": "openai"
           },
           {
@@ -2902,19 +3784,35 @@
             "provider": "openai"
           },
           {
+            "example_id": "s4",
+            "metric": "fabricated_citation_rate",
+            "score": 0.0,
+            "passed": true,
+            "reason": "All citation markers are well-formed.; Every cited source exists in the retrieved set.; 0% of cited sources are fabricated (target 0%).; Every cited source's chunks were retrieved this turn.",
+            "provider": "openai"
+          },
+          {
             "example_id": "s5",
             "metric": "answer_relevancy",
-            "score": 0.6332789230199131,
+            "score": 0.6108520701098805,
             "passed": true,
-            "reason": "answer_relevancy scored 0.63 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "reason": "answer_relevancy scored 0.61 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "provider": "openai"
+          },
+          {
+            "example_id": "s5",
+            "metric": "rubric_adherence",
+            "score": 1.0,
+            "passed": true,
+            "reason": "pass: successfully combines the model-selection result (XGBoost, 99.95% accuracy) with the deployment scale (SASPe, 111 stations, 18 million Peruvians).",
             "provider": "openai"
           },
           {
             "example_id": "s5",
             "metric": "faithfulness",
-            "score": 0.9166666666666666,
+            "score": 0.8571428571428571,
             "passed": true,
-            "reason": "faithfulness scored 0.92 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "reason": "faithfulness scored 0.86 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
             "provider": "openai"
           },
           {
@@ -2934,26 +3832,83 @@
             "provider": "openai"
           },
           {
+            "example_id": "s5",
+            "metric": "fabricated_citation_rate",
+            "score": 0.0,
+            "passed": true,
+            "reason": "All citation markers are well-formed.; Every cited source exists in the retrieved set.; 0% of cited sources are fabricated (target 0%).; Every cited source's chunks were retrieved this turn.",
+            "provider": "openai"
+          },
+          {
             "example_id": "s6",
-            "metric": "error",
-            "score": null,
+            "metric": "answer_relevancy",
+            "score": 0.7331939046938105,
+            "passed": true,
+            "reason": "answer_relevancy scored 0.73 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "provider": "openai"
+          },
+          {
+            "example_id": "s6",
+            "metric": "rubric_adherence",
+            "score": 0.0,
             "passed": false,
-            "reason": "scoring failed: The output is incomplete due to a max_tokens length limit."
+            "reason": "fail: does not include the specific prediction accuracy of SRV (78.3%) and the comparison values for Loop Persistence (0.23 vs 0.41) as required by the rubric.",
+            "provider": "openai"
+          },
+          {
+            "example_id": "s6",
+            "metric": "faithfulness",
+            "score": 0.7777777777777778,
+            "passed": true,
+            "reason": "faithfulness scored 0.78 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "provider": "openai"
+          },
+          {
+            "example_id": "s6",
+            "metric": "context_precision",
+            "score": 0.99999999995,
+            "passed": true,
+            "reason": "context_precision scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "provider": "openai"
+          },
+          {
+            "example_id": "s6",
+            "metric": "context_recall",
+            "score": 1.0,
+            "passed": true,
+            "reason": "context_recall scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "provider": "openai"
+          },
+          {
+            "example_id": "s6",
+            "metric": "fabricated_citation_rate",
+            "score": 0.0,
+            "passed": true,
+            "reason": "All citation markers are well-formed.; Every cited source exists in the retrieved set.; 0% of cited sources are fabricated (target 0%).; Every cited source's chunks were retrieved this turn.",
+            "provider": "openai"
           },
           {
             "example_id": "s7",
             "metric": "answer_relevancy",
-            "score": 0.4539526688477606,
+            "score": 0.4528801987595628,
             "passed": false,
             "reason": "answer_relevancy scored 0.45 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
             "provider": "openai"
           },
           {
             "example_id": "s7",
+            "metric": "rubric_adherence",
+            "score": 0.0,
+            "passed": false,
+            "reason": "fail: only one fact is cited regarding GTZAN's dominance, and the accuracy of Random Forest is presented without citation, failing to meet the requirement for distinct facts from different papers.",
+            "provider": "openai"
+          },
+          {
+            "example_id": "s7",
             "metric": "faithfulness",
-            "score": 0.8,
+            "score": 0.5555555555555556,
             "passed": true,
-            "reason": "faithfulness scored 0.80 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "reason": "faithfulness scored 0.56 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
             "provider": "openai"
           },
           {
@@ -2973,6 +3928,14 @@
             "provider": "openai"
           },
           {
+            "example_id": "s7",
+            "metric": "fabricated_citation_rate",
+            "score": 0.0,
+            "passed": true,
+            "reason": "All citation markers are well-formed.; Every cited source exists in the retrieved set.; 0% of cited sources are fabricated (target 0%).; Every cited source's chunks were retrieved this turn.",
+            "provider": "openai"
+          },
+          {
             "example_id": "s8",
             "metric": "answer_relevancy",
             "score": 0.0,
@@ -2982,10 +3945,18 @@
           },
           {
             "example_id": "s8",
-            "metric": "faithfulness",
-            "score": 0.6923076923076923,
+            "metric": "rubric_adherence",
+            "score": 1.0,
             "passed": true,
-            "reason": "faithfulness scored 0.69 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "reason": "pass: clearly contrasts the Arecibo message's distance-based explanation with the Zoo Hypothesis's deliberate concealment explanation, fulfilling the requirement for cross-document synthesis.",
+            "provider": "openai"
+          },
+          {
+            "example_id": "s8",
+            "metric": "faithfulness",
+            "score": 0.5454545454545454,
+            "passed": true,
+            "reason": "faithfulness scored 0.55 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
             "provider": "openai"
           },
           {
@@ -3002,6 +3973,14 @@
             "score": 1.0,
             "passed": true,
             "reason": "context_recall scored 1.00 against the provisional, uncalibrated pass threshold of 0.50 (EVALUATION_PLAN.md \u00a718).",
+            "provider": "openai"
+          },
+          {
+            "example_id": "s8",
+            "metric": "fabricated_citation_rate",
+            "score": 0.0,
+            "passed": true,
+            "reason": "All citation markers are well-formed.; Every cited source exists in the retrieved set.; 0% of cited sources are fabricated (target 0%).; Every cited source's chunks were retrieved this turn.",
             "provider": "openai"
           },
           {

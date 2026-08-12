@@ -478,9 +478,12 @@ export interface OfflineExampleListResponse {
 // Engineering benchmarks (chunking/embeddings/retrieval/reranking/
 // generation-provider-comparison) -- read-only, straight off
 // `benchmarks/reports/*/report.json`. No history/trends: just whatever
-// each benchmark's last local run produced. GoldenSetGeneration is
-// deliberately excluded here (see OfflineExampleSummary above) since it
-// already has its own DB-backed, historical view.
+// each benchmark's last local run produced. GoldenSetGeneration/
+// ProductionFailuresRegression are excluded from this endpoint (see
+// OfflineExampleSummary above for their dedicated per-example view) --
+// but `offlineSummary()` below surfaces their *aggregate* metrics
+// (e.g. rubric_adherence) using this same shape, since the per-example
+// view has no place to show that number.
 export interface BenchmarkCandidateResult {
   name: string;
   version: string | null;
@@ -1027,6 +1030,8 @@ export const api = {
     },
     listBenchmarkReports: () =>
       request<BenchmarkReportResult[]>('/api/v1/eval-dashboard/benchmark-reports'),
+    offlineSummary: () =>
+      request<BenchmarkReportResult[]>('/api/v1/eval-dashboard/offline-summary'),
     segmentAnalysisOnline: (params: { metricName: string; fingerprintField: FingerprintField }) => {
       const query = new URLSearchParams({
         metric_name: params.metricName,

@@ -29,7 +29,10 @@ from app.ai.runtime.generation.models import (
     GenerationResult,
     GenerationStatistics,
 )
-from app.ai.runtime.generation.online_scoring.job import OnlineScoringJob
+from app.ai.runtime.generation.online_scoring.job import (
+    _GENERIC_ONLINE_RUBRIC,
+    OnlineScoringJob,
+)
 from app.ai.runtime.generation.online_scoring.sampling import OnlineScoringConfig
 from app.ai.runtime.research.review import ReviewDecision
 from app.models.enums import EvalScoreSource
@@ -571,3 +574,155 @@ async def test_syncs_every_judge_metric_to_langsmith_separately() -> None:
     assert sync_mock.call_count == 2
     synced_metrics = {call.kwargs["metric_name"] for call in sync_mock.call_args_list}
     assert synced_metrics == {"citation_validity", "answer_relevancy"}
+
+
+# ==============================================================
+# E16 follow-up: rubric judge on online-sampled traffic (2026-08-12)
+# ==============================================================
+
+
+@pytest.mark.asyncio
+async def test_rubric_judge_wired_and_sampled_passes_the_generic_rubric() -> None:
+    """When a rubric_judge is configured (Settings.
+    eval_online_rubric_judge_enabled) and the row is sampled for judges,
+    the fixed generic rubric -- not a per-example one, online traffic has
+    no such thing -- must be passed through to score_generation_fn."""
+
+    owner_id = uuid.uuid4()
+    generation_id = uuid.uuid4()
+    row = _make_usage_row(
+        owner_id=owner_id,
+        generation_id=generation_id,
+        guardrail_final_action=GuardrailAction.WARN.value,
+    )
+    artifact = GenerationArtifactBuilder().build(
+        result=_make_artifact_result(owner_id=owner_id, generation_id=generation_id)
+    )
+
+    score_generation_fn = AsyncMock(
+        return_value=MagicMock(
+            checks=[MagicMock(metric="answer_relevancy", score=0.9, passed=True, reason="good")]
+        )
+    )
+    rubric_judge = object()
+    harness = _JobHarness(config=OnlineScoringConfig(baseline_sample_rate=0.0))
+    harness.generation_usage_repository.list_unscored_since = AsyncMock(return_value=[row])
+    harness.artifact_reader.read = AsyncMock(return_value=artifact)
+    harness.job = OnlineScoringJob(
+        generation_usage_repository=harness.generation_usage_repository,
+        eval_score_repository=harness.eval_score_repository,
+        research_run_repository=harness.research_run_repository,
+        artifact_reader=harness.artifact_reader,
+        config=OnlineScoringConfig(baseline_sample_rate=0.0),
+        commit=harness.commit,
+        rollback=harness.rollback,
+        score_generation_fn=score_generation_fn,
+        judge=object(),
+        rubric_judge=rubric_judge,
+        rng=random.Random(0),
+    )
+
+    await harness.job.run_once()
+
+    assert score_generation_fn.await_args is not None
+    call_kwargs = score_generation_fn.await_args.kwargs
+    assert call_kwargs["rubric"] == _GENERIC_ONLINE_RUBRIC
+    assert call_kwargs["rubric_judge"] is rubric_judge
+
+
+@pytest.mark.asyncio
+async def test_rubric_judge_not_configured_passes_no_rubric() -> None:
+    """Default shape (rubric_judge=None, e.g. Settings.
+    eval_online_rubric_judge_enabled is False) -- must not pass a rubric
+    at all, so score_generation() takes its own no-op path rather than
+    this job inventing a rubric with no judge to check it."""
+
+    owner_id = uuid.uuid4()
+    generation_id = uuid.uuid4()
+    row = _make_usage_row(
+        owner_id=owner_id,
+        generation_id=generation_id,
+        guardrail_final_action=GuardrailAction.WARN.value,
+    )
+    artifact = GenerationArtifactBuilder().build(
+        result=_make_artifact_result(owner_id=owner_id, generation_id=generation_id)
+    )
+
+    score_generation_fn = AsyncMock(
+        return_value=MagicMock(
+            checks=[MagicMock(metric="answer_relevancy", score=0.9, passed=True, reason="good")]
+        )
+    )
+    harness = _JobHarness(config=OnlineScoringConfig(baseline_sample_rate=0.0))
+    harness.generation_usage_repository.list_unscored_since = AsyncMock(return_value=[row])
+    harness.artifact_reader.read = AsyncMock(return_value=artifact)
+    harness.job = OnlineScoringJob(
+        generation_usage_repository=harness.generation_usage_repository,
+        eval_score_repository=harness.eval_score_repository,
+        research_run_repository=harness.research_run_repository,
+        artifact_reader=harness.artifact_reader,
+        config=OnlineScoringConfig(baseline_sample_rate=0.0),
+        commit=harness.commit,
+        rollback=harness.rollback,
+        score_generation_fn=score_generation_fn,
+        judge=object(),
+        rng=random.Random(0),
+    )
+
+    await harness.job.run_once()
+
+    assert score_generation_fn.await_args is not None
+    call_kwargs = score_generation_fn.await_args.kwargs
+    assert call_kwargs["rubric"] is None
+    assert call_kwargs["rubric_judge"] is None
+
+
+@pytest.mark.asyncio
+async def test_rubric_adherence_score_is_persisted_and_synced_like_any_other_metric() -> None:
+    owner_id = uuid.uuid4()
+    generation_id = uuid.uuid4()
+    row = _make_usage_row(
+        owner_id=owner_id,
+        generation_id=generation_id,
+        guardrail_final_action=GuardrailAction.WARN.value,
+    )
+    artifact = GenerationArtifactBuilder().build(
+        result=_make_artifact_result(owner_id=owner_id, generation_id=generation_id)
+    )
+
+    score_generation_fn = AsyncMock(
+        return_value=MagicMock(
+            checks=[
+                MagicMock(
+                    metric="rubric_adherence",
+                    score=0.0,
+                    passed=False,
+                    reason="misses the required tone",
+                ),
+            ]
+        )
+    )
+    harness = _JobHarness(config=OnlineScoringConfig(baseline_sample_rate=0.0))
+    harness.generation_usage_repository.list_unscored_since = AsyncMock(return_value=[row])
+    harness.artifact_reader.read = AsyncMock(return_value=artifact)
+    harness.job = OnlineScoringJob(
+        generation_usage_repository=harness.generation_usage_repository,
+        eval_score_repository=harness.eval_score_repository,
+        research_run_repository=harness.research_run_repository,
+        artifact_reader=harness.artifact_reader,
+        config=OnlineScoringConfig(baseline_sample_rate=0.0),
+        commit=harness.commit,
+        rollback=harness.rollback,
+        score_generation_fn=score_generation_fn,
+        judge=object(),
+        rubric_judge=object(),
+        rng=random.Random(0),
+    )
+
+    await harness.job.run_once()
+
+    calls = harness.record_calls()
+    rubric_call = next(c for c in calls if c["metric_name"] == "rubric_adherence")
+    assert rubric_call["passed"] is False
+    assert rubric_call["reason"] == "misses the required tone"
+    assert rubric_call["source"] == EvalScoreSource.ONLINE_SAMPLED.value

@@ -76,6 +76,28 @@ class _ContextRecallLike(Protocol):
     ) -> _MetricResultLike: ...
 
 
+class _RubricResultLike(Protocol):
+    """Structurally matches `rubric_judge.RubricJudgeResult` -- a
+    pass/fail decision plus a written reason, not a bare score (§18's
+    judge-output-format rule)."""
+
+    passed: bool
+    reason: str
+
+
+class RubricJudgeLike(Protocol):
+    """Structural contract for E16's rubric judge -- satisfied by
+    `rubric_judge.RubricJudge` without importing it, same pattern as
+    `GenerationJudge` above. Deliberately a separate, optional Protocol
+    rather than a fifth member on `GenerationJudge`: forcing every
+    existing judge/test-fake to also implement rubric scoring would break
+    every fake judge already written for the four Ragas metrics, for a
+    dimension that only applies to the ~12% of golden examples that
+    actually have a `rubric` set."""
+
+    async def ascore(self, *, question: str, answer: str, rubric: str) -> _RubricResultLike: ...
+
+
 class GenerationJudge(Protocol):
     """
     Structural contract for anything that can score a generation --
@@ -152,6 +174,8 @@ async def score_generation(
     contexts: list[str],
     reference: str | None,
     judge: GenerationJudge,
+    rubric: str | None = None,
+    rubric_judge: RubricJudgeLike | None = None,
 ) -> GenerationScoreReport:
     """
     Score one generation against the full Ragas RAG suite where
@@ -167,6 +191,16 @@ async def score_generation(
       `reference` answer to compare against; skipped when none exists
       (most golden-set examples have one, sampled production traces
       rarely do -- EVALUATION_PLAN.md §7's Mature-tier note).
+    - `rubric_adherence` (E16) only applies to examples that actually
+      have a `rubric` -- most don't (12 of 115 in `rag_answer_gold.json`
+      as of 2026-08-12), and for those this metric is simply not
+      computed, not "skipped" (nothing to skip). For an example that
+      *does* have a `rubric` but no `rubric_judge` was configured (e.g.
+      no OPENAI_API_KEY), it's genuinely skipped -- same convention as
+      the `context_precision`/`context_recall` skip below. Deliberately
+      independent of `contexts`/`reference`: a rubric judges the answer
+      itself, not its groundedness, so it still runs even when
+      faithfulness/precision/recall can't (e.g. a no-context Chat turn).
     """
 
     checks = [
@@ -179,10 +213,32 @@ async def score_generation(
         )
     ]
 
+    rubric_skipped = False
+    if rubric:
+        if rubric_judge is not None:
+            rubric_result = await rubric_judge.ascore(
+                question=question,
+                answer=answer,
+                rubric=rubric,
+            )
+            checks.append(
+                MetricCheckResult(
+                    metric="rubric_adherence",
+                    score=1.0 if rubric_result.passed else 0.0,
+                    passed=rubric_result.passed,
+                    reason=rubric_result.reason,
+                )
+            )
+        else:
+            rubric_skipped = True
+
     if not contexts:
         return GenerationScoreReport(
             checks=checks,
-            skipped_metrics=["faithfulness", "context_precision", "context_recall"],
+            skipped_metrics=(
+                ["faithfulness", "context_precision", "context_recall"]
+                + (["rubric_adherence"] if rubric_skipped else [])
+            ),
             passed=all(check.passed for check in checks),
         )
 
@@ -197,7 +253,7 @@ async def score_generation(
         )
     )
 
-    skipped: list[str] = []
+    skipped: list[str] = ["rubric_adherence"] if rubric_skipped else []
 
     if reference:
         checks.append(
@@ -235,5 +291,6 @@ __all__ = [
     "GenerationJudge",
     "GenerationScoreReport",
     "MetricCheckResult",
+    "RubricJudgeLike",
     "score_generation",
 ]

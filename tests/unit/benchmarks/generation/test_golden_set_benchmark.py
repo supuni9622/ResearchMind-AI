@@ -102,7 +102,10 @@ class _FakeJudge:
 
 
 def _answerable_example(
-    example_id: str, *, workflow: Workflow = Workflow.LINEAR_RESEARCH
+    example_id: str,
+    *,
+    workflow: Workflow = Workflow.LINEAR_RESEARCH,
+    rubric: str | None = None,
 ) -> GoldenExample:
     # Defaults to linear_research, not chat: citations are expected
     # (checked) for linear_research/deep_research examples, not for
@@ -119,6 +122,7 @@ def _answerable_example(
         workflow=workflow,
         expected_behavior=ExpectedBehavior.ANSWER,
         contexts=[f"{example_id} context passage."],
+        rubric=rubric,
     )
 
 
@@ -444,6 +448,76 @@ async def test_examples_run_concurrently_up_to_max_concurrency(tmp_path: Path) -
     await benchmark.run(dataset_dir)
 
     assert 1 < max_in_flight <= 3
+
+
+class _FakeRubricResult:
+    def __init__(self, passed: bool, reason: str) -> None:
+        self.passed = passed
+        self.reason = reason
+
+
+class _FakeRubricJudge:
+    def __init__(self, *, passed: bool = True, reason: str = "satisfies the rubric") -> None:
+        self.passed = passed
+        self.reason = reason
+        self.calls: list[dict[str, object]] = []
+
+    async def ascore(self, *, question: str, answer: str, rubric: str) -> _FakeRubricResult:
+        self.calls.append({"question": question, "answer": answer, "rubric": rubric})
+        return _FakeRubricResult(self.passed, self.reason)
+
+
+@pytest.mark.asyncio
+async def test_rubric_adherence_is_scored_when_example_has_a_rubric_and_judge_is_wired(
+    tmp_path: Path,
+) -> None:
+    dataset_dir = _write_dataset(
+        tmp_path, [_answerable_example("a1", rubric="must mention the six components")]
+    )
+    generation_service = MagicMock()
+    generation_service.generate = AsyncMock(return_value=_fake_result())
+    rubric_judge = _FakeRubricJudge(passed=False, reason="only mentions three of six")
+
+    benchmark = GoldenSetBenchmark(
+        generation_service=generation_service,
+        judge=_FakeJudge(),
+        providers=[GenerationProvider.OPENAI],
+        rubric_judge=rubric_judge,
+    )
+    result = await benchmark.run(dataset_dir)
+
+    per_example = result.candidates[0].notes[PER_EXAMPLE_SCORES_NOTE_KEY]
+    rubric_entry = next(e for e in per_example if e["metric"] == "rubric_adherence")
+    assert rubric_entry["passed"] is False
+    assert rubric_entry["reason"] == "only mentions three of six"
+    assert rubric_judge.calls == [
+        {
+            "question": "What is a1?",
+            "answer": "a generated answer",
+            "rubric": "must mention the six components",
+        }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_rubric_adherence_absent_when_no_rubric_judge_wired(tmp_path: Path) -> None:
+    """Backward-compat default: an example with a rubric but no
+    rubric_judge configured (e.g. GoldenSetBenchmark built without one)
+    must not error or silently fabricate a score."""
+
+    dataset_dir = _write_dataset(tmp_path, [_answerable_example("a1", rubric="must be concise")])
+    generation_service = MagicMock()
+    generation_service.generate = AsyncMock(return_value=_fake_result())
+
+    benchmark = GoldenSetBenchmark(
+        generation_service=generation_service,
+        judge=_FakeJudge(),
+        providers=[GenerationProvider.OPENAI],
+    )
+    result = await benchmark.run(dataset_dir)
+
+    per_example = result.candidates[0].notes[PER_EXAMPLE_SCORES_NOTE_KEY]
+    assert "rubric_adherence" not in {e["metric"] for e in per_example}
 
 
 def test_default_max_concurrency_is_five_when_not_specified() -> None:

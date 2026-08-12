@@ -6,6 +6,18 @@ Pulls recently-completed, answer-producing generations
 check on all of them, and runs the Ragas LLM-judge suite on the subset
 `decide_sampling()` selects. Persists one `eval_scores` row per metric.
 
+**E16 follow-up (2026-08-12):** optionally also runs the rubric-adherence
+judge on that same sampled subset, gated by `Settings.
+eval_online_rubric_judge_enabled` (default off -- a genuinely new,
+ongoing LLM-call cost). Golden-set examples have a curated per-example
+`rubric`; a live production generation has no such thing, so this judges
+against one fixed, generic quality rubric instead
+(`_GENERIC_ONLINE_RUBRIC` below) rather than inventing a per-request
+rubric. Deliberately rides the *existing* sampling decision rather than
+adding a second, separately-tuned rate -- one more check within "LLM
+judges run on the sampled subset" (§14), not a new cost-control knob to
+reason about.
+
 Deliberately does not import anything from repo-root `benchmarks/`: that
 package is offline/CI tooling, one-directional today (`benchmarks/`
 imports `app/`, never the reverse -- confirmed empirically, no existing
@@ -79,7 +91,18 @@ class _GenerationScoreReportLike(Protocol):
 
 ScoreGenerationFn = Callable[..., Awaitable[_GenerationScoreReportLike]]
 """Structurally: `async def(*, question, answer, contexts, reference,
-judge) -> _GenerationScoreReportLike`."""
+judge, rubric=None, rubric_judge=None) -> _GenerationScoreReportLike`."""
+
+_GENERIC_ONLINE_RUBRIC = (
+    "The answer directly addresses the question asked, is appropriately "
+    "complete for its complexity (neither padded nor missing an obvious "
+    "part of the question), and does not hedge or caveat unnecessarily "
+    "when the retrieved evidence actually supports a direct answer."
+)
+"""E16 follow-up -- online generations have no per-example curated
+`rubric` like golden-set examples do, so this is one fixed, generic
+quality rubric applied uniformly instead of inventing a per-request one.
+Only used when `Settings.eval_online_rubric_judge_enabled` is set."""
 
 
 class OnlineScoringJob:
@@ -95,6 +118,7 @@ class OnlineScoringJob:
         rollback: Callable[[], Awaitable[None]],
         score_generation_fn: ScoreGenerationFn | None = None,
         judge: object | None = None,
+        rubric_judge: object | None = None,
         batch_size: int = 25,
         lookback_hours: float = 24.0,
         rng: random.Random | None = None,
@@ -109,6 +133,11 @@ class OnlineScoringJob:
         self._rollback = rollback
         self._score_generation_fn = score_generation_fn
         self._judge = judge
+        self._rubric_judge = rubric_judge
+        """`None` unless `Settings.eval_online_rubric_judge_enabled` was
+        set at composition time (see `apps/worker/eval_scoring_main.py`)
+        -- same opt-in shape as `judge`/`score_generation_fn` above, not
+        a new pattern."""
         self._batch_size = batch_size
         self._lookback_hours = lookback_hours
         self._rng = rng or random.Random()
@@ -199,6 +228,12 @@ class OnlineScoringJob:
             contexts=contexts,
             reference=None,
             judge=self._judge,
+            # E16 follow-up: rubric/rubric_judge default to None on
+            # score_generation()'s own side when self._rubric_judge is
+            # None (not wired at composition time), so this is a no-op
+            # there -- no separate enabled-check needed here.
+            rubric=(_GENERIC_ONLINE_RUBRIC if self._rubric_judge is not None else None),
+            rubric_judge=self._rubric_judge,
         )
         for check in report.checks:
             judge_score = await self._eval_score_repository.record(

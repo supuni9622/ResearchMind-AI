@@ -235,13 +235,20 @@ def create_benchmark_registry() -> BenchmarkRegistry:
     #
     if settings.openai_api_key:
         from benchmarks.generation.ragas_judge import build_openai_ragas_judge
+        from benchmarks.generation.rubric_judge import build_rubric_judge
 
-        # Same fallback chain, same judge instance for both -- building
-        # the judge is a cheap local client-wrapper construction (no
-        # network call), and one real judge identity should score both
-        # datasets for the same run rather than two separately
-        # constructed (but behaviorally identical) instances.
+        # Same fallback chain, same judge instances for both -- building a
+        # judge is a cheap local client-wrapper construction (no network
+        # call), and one real judge identity should score both datasets
+        # for the same run rather than two separately constructed (but
+        # behaviorally identical) instances.
         judge = build_openai_ragas_judge()
+        # E16 -- deliberately its own fixed-cheap-model client, not routed
+        # through `generation_service`/`provider_fallback_chain` below,
+        # which would use whatever OPENAI_MODEL is configured for real
+        # answers (see rubric_judge.py's own module docstring for why
+        # that would be a real cost problem, not just a style choice).
+        rubric_judge = build_rubric_judge()
         provider_fallback_chain = [GenerationProvider.OPENAI, GenerationProvider.CLAUDE]
 
         registry.register(
@@ -256,6 +263,7 @@ def create_benchmark_registry() -> BenchmarkRegistry:
                 # run has already hit mid-pass; see golden_set_benchmark
                 # .py's own module docstring).
                 providers=provider_fallback_chain,
+                rubric_judge=rubric_judge,
             )
         )
 
@@ -266,6 +274,7 @@ def create_benchmark_registry() -> BenchmarkRegistry:
                 ),
                 judge=judge,
                 providers=provider_fallback_chain,
+                rubric_judge=rubric_judge,
             )
         )
 

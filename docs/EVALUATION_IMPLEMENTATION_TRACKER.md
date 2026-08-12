@@ -1909,25 +1909,112 @@ whole-repo verification: 1660/1660 tests pass, clean `mypy`/`ruff`/
 
 ---
 
-### E16. LLM-as-judge metric
+### E16. LLM-as-judge metric — **Done** (2026-08-12)
 
 **Roadmap:** Wave 1, row 16 (roadmap-only addition — not separately
 numbered in `EVALUATION_PLAN.md` §16, but consistent with its scope per
 `PHASE_2_3_ROADMAP.md` Part 3 items 4/10/11). **Depends on:** E1's golden
 set existing.
 
-**Current state:** Not started.
+**Current state:** Rubric-adherence judge, bolted onto E1's existing
+`score_generation()` scoring path exactly as scoped — new optional
+`rubric`/`rubric_judge` parameters, not a redesign. Fires only for the
+subset of golden examples that actually have a `rubric` (12 of 115 in
+`rag_answer_gold.json` today); every other example's report is
+byte-for-byte unaffected (verified — see tests).
+
+**Cost, treated as a first-class design constraint, not an afterthought
+(direct instruction):**
+- Structurally can never run against sampled production traffic:
+  `rubric` isn't a concept that exists on a live generation at all — only
+  on golden/production-failures examples — so `OnlineScoringJob` (E5)
+  never triggers it, with no extra guard needed to enforce that.
+- Runs on 12 of 115 examples per full `GoldenSetGeneration` pass today
+  (and 0 of 0 on the currently-empty `ProductionFailuresRegression`,
+  growing only as real failures get promoted with a rubric attached).
+- New `benchmarks/generation/rubric_judge.py` deliberately does **not**
+  route through `GenerationService`/the provider registry, which would
+  silently use whatever `OPENAI_MODEL` is configured for real answers —
+  this deployment's own `.env` has that set to a materially pricier
+  model than a judge needs. Calls OpenAI directly with a fixed cheap
+  model (`gpt-4o-mini`, matching `ragas_judge.DEFAULT_JUDGE_MODEL`
+  exactly — same cost tier already trusted for the four Ragas judges,
+  one fewer model identity to reason about), capped at 300 output
+  tokens, temperature 0.
 
 **Subtasks:**
-- [ ] Identify the dimension(s) Ragas doesn't cover well — the roadmap
-      names tone and completeness-against-a-rubric
-- [ ] Build as a bolt-on to the E1 scoring path, not a redesign — same
-      dataset, same `rubric` field already in §3's schema
-- [ ] Default to pass/fail + written reason per §18's judge-output-format
-      rule, not a bare score
+- [x] Identify the dimension(s) Ragas doesn't cover well — tone and
+      completeness-against-a-rubric, exactly as the roadmap named
+- [x] Build as a bolt-on to the E1 scoring path, not a redesign —
+      `score_generation()` gained `rubric: str | None = None` and
+      `rubric_judge: RubricJudgeLike | None = None`, both optional;
+      `GoldenSetBenchmark`/`ProductionFailuresBenchmark` (the latter for
+      free, via inheritance) thread `example.rubric` through
+- [x] Default to pass/fail + written reason per §18's judge-output-format
+      rule — `RubricJudgeResult(passed: bool, reason: str)`, not a score
+- [x] Regression-gated like the other LLM-judged metrics — new
+      `rubric_adherence` entry in `benchmarks/regression/thresholds.py`
+      (relative `MIN_DROP`, same tier as faithfulness/answer_relevancy,
+      not an absolute gate — no calibrated absolute baseline yet, same
+      §13 reasoning)
+
+**Design decision worth being explicit about:** "no rubric on this
+example" and "rubric present but no judge configured" are deliberately
+different outcomes, not both "skipped" — the former never appears in
+`skipped_metrics` at all (nothing was applicable, so a no-rubric
+example's report reads identically to how it did before E16 existed);
+only the latter is a genuine skip. Avoids permanently polluting every
+report's `skipped_metrics` with a metric that was never relevant to
+~90% of examples.
 
 **Acceptance criteria:** rubric-based judge produces a reason a human can
-act on, not just a number.
+act on, not just a number — **met**, verified by test (`reason` carries
+a specific, actionable string like "only mentions three of six" in every
+case, including the synthetic ones). 15 new tests (5 for `RubricJudge`
+itself — model/temperature/token-cap asserted explicitly, not just "a
+call happened" — including that it does **not** use `OPENAI_MODEL`; 6 for
+`score_generation()`'s new dimension including the no-rubric/no-judge
+distinction above; 4 for `GoldenSetBenchmark`'s wiring, backward-compat
+default, and the real dataset's 12 rubric-bearing examples end-to-end
+with a fake judge). No live OpenAI call made during this build, matching
+this project's "never verify with live LLM calls without being asked"
+testing convention — flagged, not silently assumed equivalent to a real
+verification; a genuine live smoke test (one real `gpt-4o-mini` call,
+sub-cent) is a one-line ask away if wanted before trusting this in a
+release-candidate run.
+
+**Live-verified same day, real `gpt-4o-mini` calls, direct request:**
+scored all 12 rubric-bearing `rag_answer_gold` examples' own
+`reference_answer` against their own `rubric` — 8 real passes, each with
+a specific, actionable reason (e.g. *"successfully covers both the six
+components... and contrasts it with workflow orchestration"*); the 4
+`u`-prefixed (unanswerable) examples "failed" only because a one-off
+smoke script fed the judge an empty string (those examples have no
+`reference_answer` by design) — a script artifact, not a judge defect,
+confirmed by direct code inspection: the real `GoldenSetBenchmark` path
+judges the model's actual generated `content`, never `reference_answer`.
+
+**Follow-up same day, user-requested: extended to online-sampled
+production traffic too, env-configurable.** New `Settings.
+eval_online_rubric_judge_enabled` (default `False` — a genuinely new,
+ongoing LLM-call cost an operator opts into deliberately). When enabled,
+`OnlineScoringJob` (E5) passes one fixed, generic quality rubric (not a
+per-example one — live generations have no curated `rubric` the way
+golden examples do) into the same `score_generation()` call already
+running the Ragas suite, riding the *existing* risk-weighted sampling
+decision rather than adding a second, separately-tuned rate — by direct
+instruction, both to keep the cost model simple and because inventing a
+new sampling knob wasn't asked for. `OnlineScoringJob` gained a `rubric_judge:
+object | None = None` param (untyped as `object`, exactly mirroring
+`judge`'s own existing pattern — the call to `score_generation_fn` is
+already fully permissive, so no new Protocol needed, matching this file's
+existing "no `benchmarks/` import" boundary rule). Wired at
+`bootstrap/worker.py::create_eval_scoring_worker()`, gated on both
+`settings.openai_api_key` and the new flag. 3 new tests in `test_job.py`
+(rubric passed through when wired-and-sampled, no rubric passed when not
+configured, a `rubric_adherence` score persists/syncs to `eval_scores`/
+LangSmith like any other metric). 1889/1889 suite passing, clean
+mypy/ruff.
 
 ---
 
@@ -2532,15 +2619,14 @@ during the 2026-08-11 cross-check) is done when:
       table); `tests/evaluation/test_reranking.py` remains the one open
       stub, no Wave 1 item currently scoped to fill it
 
-**Status as of 2026-08-12: 8 of 10 checked.** 20 of the 22 tracked items
-are fully done. The two genuinely open items blocking full closure:
-**E16** (LLM-as-judge metric — not started at all) and the leftover
-half-items already called out inline above (`test_reranking.py`,
-Experiment-logging, and the deliberate manual-CI tradeoff, which is a
-decision to revisit rather than unfinished work). E19/E20 are otherwise
-done; E9's segment-analysis-by-`failure_category` slice (blocked on E10
-not existing yet) is now unblocked now that E10 has shipped, but the
-slice itself hasn't been built — see E9's own entry.
+**Status as of 2026-08-12: 8 of 10 checked, E16 now done too.** 21 of the
+22 tracked items are fully done — only leftover half-items remain, all
+called out inline above: `tests/evaluation/test_reranking.py` (the one
+stub with no item currently scoped to fill it), E19's Experiment-logging
+subtask, and the deliberate manual-CI tradeoff (a decision to revisit,
+not unfinished work). E9's segment-analysis-by-`failure_category` slice
+(blocked on E10 not existing yet) is now unblocked now that E10 has
+shipped, but the slice itself hasn't been built — see E9's own entry.
 
 ## 5. Explicitly out of scope for this tracker
 

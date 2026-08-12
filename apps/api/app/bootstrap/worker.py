@@ -225,10 +225,17 @@ def create_eval_scoring_worker(*, session: AsyncSession) -> EvalScoringWorker:
     module docstring). No key configured -> `judge=None`, and the job
     degrades gracefully to citation-only scoring rather than failing to
     start.
+
+    E16 follow-up: the rubric judge (`benchmarks.generation.rubric_judge.
+    build_rubric_judge`) is wired the same way, but additionally gated on
+    `settings.eval_online_rubric_judge_enabled` (default off) -- a real,
+    ongoing LLM-call cost an operator opts into deliberately, not just
+    "OpenAI is configured at all."
     """
 
     storage = create_storage(settings)
     judge: object | None = None
+    rubric_judge: object | None = None
     score_generation_fn: ScoreGenerationFn | None = None
     if settings.openai_api_key:
         from benchmarks.generation.ragas_judge import build_openai_ragas_judge
@@ -236,6 +243,11 @@ def create_eval_scoring_worker(*, session: AsyncSession) -> EvalScoringWorker:
 
         judge = build_openai_ragas_judge()
         score_generation_fn = score_generation
+
+        if settings.eval_online_rubric_judge_enabled:
+            from benchmarks.generation.rubric_judge import build_rubric_judge
+
+            rubric_judge = build_rubric_judge()
 
     job = OnlineScoringJob(
         generation_usage_repository=GenerationUsageRepository(session),
@@ -251,6 +263,7 @@ def create_eval_scoring_worker(*, session: AsyncSession) -> EvalScoringWorker:
         rollback=session.rollback,
         score_generation_fn=score_generation_fn,
         judge=judge,
+        rubric_judge=rubric_judge,
         batch_size=settings.eval_online_batch_size,
         lookback_hours=settings.eval_online_lookback_hours,
     )

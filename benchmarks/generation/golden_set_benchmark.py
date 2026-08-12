@@ -56,7 +56,11 @@ from benchmarks.generation.golden_dataset import (
     Workflow,
     load_golden_dataset,
 )
-from benchmarks.generation.ragas_scoring import GenerationJudge, score_generation
+from benchmarks.generation.ragas_scoring import (
+    GenerationJudge,
+    RubricJudgeLike,
+    score_generation,
+)
 from benchmarks.interfaces.benchmark import Benchmark
 from benchmarks.models.report import (
     BenchmarkCandidate,
@@ -145,6 +149,7 @@ class GoldenSetBenchmark(Benchmark):
         providers: list[GenerationProvider] | None = None,
         max_concurrency: int = DEFAULT_MAX_CONCURRENCY,
         citation_service: CitationService | None = None,
+        rubric_judge: RubricJudgeLike | None = None,
     ) -> None:
         self._generation_service = generation_service
         self._judge = judge
@@ -155,6 +160,14 @@ class GoldenSetBenchmark(Benchmark):
         self._citation_service = (
             citation_service if citation_service is not None else CitationService()
         )
+        self._rubric_judge = rubric_judge
+        """
+        E16 -- optional, `None` skips `rubric_adherence` scoring entirely
+        (same opt-in shape as `citation_service`). Only examples with a
+        `rubric` set actually incur a call even when wired (12 of 115 in
+        `rag_answer_gold.json` as of 2026-08-12) -- see
+        `rubric_judge.py`'s own module docstring for the cost reasoning.
+        """
 
     @property
     def name(self) -> str:
@@ -356,6 +369,8 @@ class GoldenSetBenchmark(Benchmark):
                 contexts=example.contexts,
                 reference=example.reference_answer,
                 judge=self._judge,
+                rubric=example.rubric,
+                rubric_judge=self._rubric_judge,
             )
         except Exception as exc:  # noqa: BLE001
             return (

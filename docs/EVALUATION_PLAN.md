@@ -243,6 +243,24 @@ for a genuine upstream `ragas==0.4.3` packaging bug). Detail:
 `reference_answer` exists (most golden-set examples, rare in sampled
 production), completeness against `required_claims`.
 
+**Rubric-adherence judge (E16) — Done 2026-08-12.** Covers what Ragas's
+fixed metric set doesn't: tone and completeness against the
+example-specific `rubric` field (§3's schema). Bolted onto
+`score_generation()` as an optional dimension — only fires for examples
+that actually have a `rubric` (12 of 115 in `rag_answer_gold` today).
+Deliberately a fixed cheap model (`gpt-4o-mini`, matching
+`ragas_judge.py`'s own judge-model choice), not routed through whatever
+model is configured for real answers — a judge's cost shouldn't silently
+track the answer model's cost. Pass/fail + written reason, per §18's
+judge-output-format rule. Live-verified same day against all 12
+rubric-bearing examples' own reference answers via a real `gpt-4o-mini`
+call each. **Extended same day to online-sampled production traffic
+too** (§14's table), gated behind `Settings.
+eval_online_rubric_judge_enabled` (default off) and judged against one
+fixed generic rubric rather than a per-example one, since live traffic
+has no curated rubric. Detail: `EVALUATION_IMPLEMENTATION_TRACKER.md`
+E16.
+
 ---
 
 ## 8. Citation evaluation (new first-class layer, MVP slice)
@@ -434,6 +452,7 @@ are correct, at different layers — merge them:**
 | Deep Research runs with a non-`PASS` review decision | 100% (always score) | 1b's existing risk-weighted rule — reuse unchanged |
 | Requests under a config-fingerprint canary window | Oversampled | 1b's existing risk-weighted rule — reuse unchanged |
 | Faithfulness / relevancy LLM judges (everything else) | 5-10% flat baseline | 1b's baseline rate — standardized here; `EVALUATION_GAP_ANALYSIS.md`'s addendum independently suggested 10-20%, superseded by this number |
+| Rubric-adherence judge (E16, opt-in) | Same sample as the row above — no separate rate | `Settings.eval_online_rubric_judge_enabled` (default off). Golden examples have a curated per-example rubric; live traffic doesn't, so this judges against one fixed, generic quality rubric instead. Rides the existing sampling decision rather than a new knob — done 2026-08-12 |
 | Deep Research trajectory judge | 5-10% | New, mature tier |
 | Human expert review | Queue-based, not sampled | Feeds from 1c's confirmed-feedback queue |
 

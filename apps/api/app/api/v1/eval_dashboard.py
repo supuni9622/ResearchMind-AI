@@ -32,7 +32,7 @@ from app.schemas.eval_dashboard import (
     OwnerSummary,
     ReviewDecisionDistributionResponse,
 )
-from app.services.benchmark_reports import list_benchmark_reports
+from app.services.benchmark_reports import list_benchmark_reports, list_offline_summaries
 from app.services.segment_analysis import aggregate_offline_by_content_segment
 from benchmarks.models.report import BenchmarkReport
 
@@ -218,6 +218,30 @@ async def benchmark_reports(
     `eval_scores`. This is a read-only view of whatever's on disk from
     each benchmark's last run: no history, no trends, just "what does
     the latest run say right now."
+    """
+
+    return reports
+
+
+@router.get(
+    "/offline-summary",
+    response_model=list[BenchmarkReport],
+    summary="Latest aggregate metrics for GoldenSetGeneration/ProductionFailuresRegression",
+)
+async def offline_summary(
+    _current_user: User = Depends(require_eval_dashboard_access),
+    reports: list[BenchmarkReport] = Depends(list_offline_summaries),
+) -> list[BenchmarkReport]:
+    """
+    The mirror image of `/benchmark-reports` (above): those exclude
+    `GoldenSetGeneration`/`ProductionFailuresRegression` since their
+    per-example detail already has a dedicated, DB-backed view
+    (`/offline-examples` + `/offline-scores`) -- but that view has no
+    place to show the *aggregate* numbers from the latest run (e.g.
+    `rubric_adherence: 0.71` across the whole golden set). `notes`
+    stripped from every candidate here (see `list_offline_summaries`),
+    same "what does the latest run say right now" freshness contract as
+    `/benchmark-reports`.
     """
 
     return reports

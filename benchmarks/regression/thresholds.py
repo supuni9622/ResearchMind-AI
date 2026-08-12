@@ -93,6 +93,11 @@ DEFAULT_METRIC_THRESHOLDS: dict[str, MetricThreshold] = {
     "completeness": _GENERATION_QUALITY_DROP,
     "citation_accuracy": _GENERATION_QUALITY_DROP,
     "hallucination_rate": MetricThreshold(ThresholdDirection.MAX_INCREASE, 0.03),
+    # E16's rubric-adherence judge -- same relative-drop treatment as the
+    # other LLM-judged generation metrics above, not an absolute gate
+    # (no calibrated sense yet of what a good absolute score looks like,
+    # same §13 reasoning).
+    "rubric_adherence": _GENERATION_QUALITY_DROP,
     # Ingestion fidelity (EVALUATION_PLAN.md §4).
     "parse_success_rate": _QUALITY_DROP,
     "heading_preservation_score": _QUALITY_DROP,

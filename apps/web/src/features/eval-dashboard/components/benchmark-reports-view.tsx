@@ -20,7 +20,7 @@ function formatMetric(value: number | string | boolean): string {
   return String(value);
 }
 
-function BenchmarkReportCard({ report }: { report: BenchmarkReportResult }) {
+export function BenchmarkReportCard({ report }: { report: BenchmarkReportResult }) {
   const metricKeys = Array.from(
     new Set(report.candidates.flatMap((candidate) => Object.keys(candidate.metrics)))
   );
@@ -135,8 +135,8 @@ export function BenchmarkReportsView({ onForbidden }: { onForbidden: () => void 
     <div>
       <p className="text-stone-600 text-[12px] mb-5">
         Latest local run of each engineering benchmark — read straight off disk, no history beyond
-        what&apos;s there right now. GoldenSetGeneration isn&apos;t listed here since it already has
-        its own tab.
+        what&apos;s there right now. GoldenSetGeneration/ProductionFailuresRegression aren&apos;t
+        listed here — see their aggregate metrics at the top of the Offline Benchmark tab instead.
       </p>
       {reports.map((report) => (
         <BenchmarkReportCard key={report.benchmark_name} report={report} />

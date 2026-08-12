@@ -22,7 +22,7 @@ from app.dependencies.eval_score import get_eval_score_repository
 from app.dependencies.research import get_research_run_repository
 from app.main import app
 from app.models.user import User
-from app.services.benchmark_reports import list_benchmark_reports
+from app.services.benchmark_reports import list_benchmark_reports, list_offline_summaries
 from fastapi.testclient import TestClient
 
 from benchmarks.models.report import BenchmarkCandidate, BenchmarkDataset, BenchmarkReport
@@ -66,6 +66,16 @@ def _fake_benchmark_report() -> BenchmarkReport:
     )
 
 
+def _fake_offline_summary_report() -> BenchmarkReport:
+    return BenchmarkReport(
+        benchmark_name="GoldenSetGeneration",
+        dataset=BenchmarkDataset(name="golden", document_count=101),
+        candidates=[
+            BenchmarkCandidate(name="openai+claude", metrics={"rubric_adherence": 0.7143}),
+        ],
+    )
+
+
 def _fake_user(*, email: str) -> User:
     return User(
         id=uuid.uuid4(),
@@ -84,6 +94,7 @@ def fake_repositories() -> Iterator[None]:
     app.dependency_overrides[get_eval_score_repository] = lambda: _FakeEvalScoreRepository()
     app.dependency_overrides[get_research_run_repository] = lambda: _FakeResearchRunRepository()
     app.dependency_overrides[list_benchmark_reports] = lambda: [_fake_benchmark_report()]
+    app.dependency_overrides[list_offline_summaries] = lambda: [_fake_offline_summary_report()]
 
     original_admin_emails = settings.eval_dashboard_admin_emails
     settings.eval_dashboard_admin_emails = _ADMIN_EMAIL
@@ -94,6 +105,7 @@ def fake_repositories() -> Iterator[None]:
     app.dependency_overrides.pop(get_eval_score_repository, None)
     app.dependency_overrides.pop(get_research_run_repository, None)
     app.dependency_overrides.pop(list_benchmark_reports, None)
+    app.dependency_overrides.pop(list_offline_summaries, None)
     app.dependency_overrides.pop(get_current_user, None)
 
 
@@ -287,6 +299,32 @@ def test_benchmark_reports_route_allows_an_allowlisted_user(
     assert len(body) == 1
     assert body[0]["benchmark_name"] == "Embeddings"
     assert body[0]["candidates"][0]["metrics"]["throughput_embeddings_per_second"] == 12.5
+
+
+def test_offline_summary_route_rejects_a_non_allowlisted_user(
+    client: TestClient,
+    fake_repositories: None,
+) -> None:
+    _authenticate_as("not-an-admin@example.com")
+
+    response = client.get("/api/v1/eval-dashboard/offline-summary")
+
+    assert response.status_code == 403
+
+
+def test_offline_summary_route_allows_an_allowlisted_user(
+    client: TestClient,
+    fake_repositories: None,
+) -> None:
+    _authenticate_as(_ADMIN_EMAIL)
+
+    response = client.get("/api/v1/eval-dashboard/offline-summary")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert len(body) == 1
+    assert body[0]["benchmark_name"] == "GoldenSetGeneration"
+    assert body[0]["candidates"][0]["metrics"]["rubric_adherence"] == 0.7143
 
 
 def test_segment_analysis_online_route_rejects_a_non_allowlisted_user(

@@ -120,6 +120,26 @@ class _FakeJudge:
         self.context_recall = _FakeContextRecall(context_recall)
 
 
+class _FakeRubricResult:
+    def __init__(self, passed: bool, reason: str) -> None:
+        self.passed = passed
+        self.reason = reason
+
+
+class _FakeRubricJudge:
+    """E16 -- fake for `RubricJudgeLike`, same call-recording shape as the
+    four Ragas fakes above."""
+
+    def __init__(self, *, passed: bool = True, reason: str = "satisfies the rubric") -> None:
+        self.passed = passed
+        self.reason = reason
+        self.calls: list[dict[str, object]] = []
+
+    async def ascore(self, *, question: str, answer: str, rubric: str) -> _FakeRubricResult:
+        self.calls.append({"question": question, "answer": answer, "rubric": rubric})
+        return _FakeRubricResult(self.passed, self.reason)
+
+
 # -- score_generation() contract -----------------------------------------
 
 
@@ -275,6 +295,120 @@ async def test_metrics_are_called_with_the_expected_arguments() -> None:
     }
 
 
+# -- rubric_adherence (E16) -------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_rubric_check_runs_when_both_rubric_and_judge_are_given() -> None:
+    judge = _FakeJudge()
+    rubric_judge = _FakeRubricJudge(passed=True, reason="covers all required points")
+
+    report = await score_generation(
+        question="q",
+        answer="a",
+        contexts=["c"],
+        reference=None,
+        judge=judge,
+        rubric="must cover X and Y",
+        rubric_judge=rubric_judge,
+    )
+
+    rubric_check = next(c for c in report.checks if c.metric == "rubric_adherence")
+    assert rubric_check.passed is True
+    assert rubric_check.score == 1.0
+    assert rubric_check.reason == "covers all required points"
+    assert "rubric_adherence" not in report.skipped_metrics
+    assert rubric_judge.calls == [{"question": "q", "answer": "a", "rubric": "must cover X and Y"}]
+
+
+@pytest.mark.asyncio
+async def test_rubric_check_runs_even_with_no_context() -> None:
+    """Rubric judges the answer itself, not its groundedness -- must still
+    run on a no-context Chat turn, unlike faithfulness/precision/recall."""
+
+    judge = _FakeJudge()
+    rubric_judge = _FakeRubricJudge(passed=True)
+
+    report = await score_generation(
+        question="q",
+        answer="a",
+        contexts=[],
+        reference=None,
+        judge=judge,
+        rubric="must be concise",
+        rubric_judge=rubric_judge,
+    )
+
+    computed = {check.metric for check in report.checks}
+    assert "rubric_adherence" in computed
+    assert rubric_judge.calls
+
+
+@pytest.mark.asyncio
+async def test_rubric_check_is_not_applicable_when_no_rubric_on_this_example() -> None:
+    """No rubric at all (the common case -- most examples don't have one)
+    is "not applicable", not "skipped": it must not appear in either
+    `checks` or `skipped_metrics`, so a full-suite report for a
+    no-rubric example stays exactly as clean as before E16 existed."""
+
+    judge = _FakeJudge()
+    rubric_judge = _FakeRubricJudge()
+
+    report = await score_generation(
+        question="q",
+        answer="a",
+        contexts=["c"],
+        reference=None,
+        judge=judge,
+        rubric=None,
+        rubric_judge=rubric_judge,
+    )
+
+    assert "rubric_adherence" not in report.skipped_metrics
+    assert "rubric_adherence" not in {check.metric for check in report.checks}
+    assert rubric_judge.calls == []
+
+
+@pytest.mark.asyncio
+async def test_rubric_check_skipped_when_no_judge_configured() -> None:
+    """A golden example can have a rubric even when no rubric_judge was
+    wired (e.g. no OPENAI_API_KEY) -- must degrade gracefully, not crash,
+    same convention as every other optional metric here."""
+
+    judge = _FakeJudge()
+
+    report = await score_generation(
+        question="q",
+        answer="a",
+        contexts=["c"],
+        reference=None,
+        judge=judge,
+        rubric="must cover X",
+        rubric_judge=None,
+    )
+
+    assert "rubric_adherence" in report.skipped_metrics
+    assert "rubric_adherence" not in {check.metric for check in report.checks}
+
+
+@pytest.mark.asyncio
+async def test_rubric_failure_counts_against_the_overall_pass() -> None:
+    judge = _FakeJudge()
+    rubric_judge = _FakeRubricJudge(passed=False, reason="misses the required tone")
+
+    report = await score_generation(
+        question="q",
+        answer="a",
+        contexts=["c"],
+        reference=None,
+        judge=judge,
+        rubric="must be formal in tone",
+        rubric_judge=rubric_judge,
+    )
+
+    assert not report.passed
+
+
 # -- rag_answer_gold contract ----------------------------------------------
 
 
@@ -345,7 +479,9 @@ async def test_score_generation_runs_against_every_answerable_golden_example(
     """
 
     judge = _FakeJudge()
+    rubric_judge = _FakeRubricJudge()
 
+    rubric_examples_seen = 0
     for example in golden_dataset.examples:
         if example.expected_behavior != ExpectedBehavior.ANSWER:
             continue
@@ -356,6 +492,16 @@ async def test_score_generation_runs_against_every_answerable_golden_example(
             contexts=example.contexts,
             reference=example.reference_answer,
             judge=judge,
+            rubric=example.rubric,
+            rubric_judge=rubric_judge,
         )
 
         assert report.checks
+        if example.rubric:
+            rubric_examples_seen += 1
+            assert "rubric_adherence" in {check.metric for check in report.checks}
+
+    # Guards against this dataset's rubric-bearing examples silently
+    # disappearing -- if this hits 0, the E16 feature has nothing left to
+    # exercise against the real dataset.
+    assert rubric_examples_seen > 0

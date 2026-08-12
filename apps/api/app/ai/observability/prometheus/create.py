@@ -11,7 +11,7 @@ from __future__ import annotations
 from functools import lru_cache
 
 import structlog
-from prometheus_client import PlatformCollector, ProcessCollector
+from prometheus_client import PlatformCollector, ProcessCollector, start_http_server
 from starlette.types import ASGIApp
 
 from app.ai.observability.prometheus.endpoint import build_metrics_asgi_app
@@ -62,3 +62,27 @@ def get_metrics_asgi_app() -> ASGIApp | None:
         return None
 
     return build_metrics_asgi_app(get_prometheus_metric_registry())
+
+
+def start_worker_metrics_server(port: int) -> None:
+    """E17 follow-up (2026-08-12): exposes *this process's* Prometheus
+    registry over HTTP on `port`, for a worker process that has no ASGI
+    app to mount `/metrics` on (unlike the API, `get_metrics_asgi_app()`
+    above). Each OS process gets its own `PrometheusMetricRegistry`
+    (`get_prometheus_metric_registry()` is `@lru_cache`d *per process*,
+    not shared across the API and its workers) -- confirmed live that a
+    metric recorded inside a worker never reached the API's own
+    `/metrics/`, the only scrape target that existed before this, since
+    the two processes' registries are entirely separate in-memory
+    objects. `start_http_server()` runs a WSGI server on a background
+    daemon thread (`prometheus_client`'s own standard mechanism for
+    exposing metrics from a non-web-framework process) -- non-blocking,
+    safe to call once at worker startup before entering the main
+    asyncio loop. No-ops when Prometheus is disabled, matching
+    `get_metrics_asgi_app()`'s own gate.
+    """
+
+    if not settings.prometheus_enabled:
+        return
+
+    start_http_server(port, registry=get_prometheus_metric_registry().registry)

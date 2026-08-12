@@ -356,6 +356,20 @@ class Settings(BaseSettings):
     prometheus_include_process_metrics: bool = True
     prometheus_include_platform_metrics: bool = True
 
+    research_runtime_worker_metrics_port: int = 8010
+    """E17 follow-up (`EVALUATION_IMPLEMENTATION_TRACKER.md`): unlike the
+    API, `apps/worker/research_runtime_main.py` runs as its own OS
+    process with its own private `PrometheusMetricRegistry` (one
+    `CollectorRegistry` per process, see `registry.py`'s own docstring)
+    -- there's no shared ASGI app to mount `/metrics` on, so it needs its
+    own dedicated exposition port, scraped as a separate Prometheus
+    target. Confirmed live (2026-08-12) that a metric recorded by this
+    worker (a real Deep Research run's duration) never reached the API's
+    own `/metrics/`, which is the only scrape target that existed before
+    this. Port `8001` was the first choice but is already bound by the
+    `research-intelligence-mcp-mcp-1` Docker container on this machine
+    -- confirmed via `lsof` before picking `8010`, not guessed."""
+
     grafana_admin_user: str = "admin"
     grafana_admin_password: str = "admin"
     grafana_port: int = 3001
@@ -371,7 +385,7 @@ class Settings(BaseSettings):
             raise ValueError("prometheus_metrics_path must begin with '/'.")
         return value
 
-    @field_validator("grafana_port", "prometheus_port")
+    @field_validator("grafana_port", "prometheus_port", "research_runtime_worker_metrics_port")
     @classmethod
     def _validate_port_range(cls, value: int) -> int:
         if not (0 < value < 65536):

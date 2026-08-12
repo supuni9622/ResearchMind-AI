@@ -96,6 +96,7 @@ class MultiWaveResearchState(TypedDict):
     web_search_include_domains: list[str]
     web_search_exclude_domains: list[str]
     web_search_count: int
+    web_search_success_count: int
     web_search_suggestion: dict[str, object]
     web_search_decision: str
     web_search_rejection_reason: str | None
@@ -750,6 +751,7 @@ def compile_multi_wave_research_graph(
         goal = state["plan"].get("rewritten_goal") or state["plan"].get("goal")
         query = str(suggestion.get("query") or goal)[:500]
         next_web_count = state.get("web_search_count", 0) + 1
+        previous_web_success_count = state.get("web_search_success_count", 0)
         await emit(ResearchEventType.RESEARCH_WEB_SEARCH_STARTED)
 
         references: list[ResearchEvidenceReference] = []
@@ -792,6 +794,7 @@ def compile_multi_wave_research_graph(
             if references
             else ResearchEventType.RESEARCH_WEB_SEARCH_SKIPPED
         )
+        next_web_success_count = previous_web_success_count + (1 if references else 0)
         logger.info(
             "research_runtime.graph.web_search_gap_completed",
             research_run_id=state["research_run_id"],
@@ -801,6 +804,7 @@ def compile_multi_wave_research_graph(
         return {
             "task_results": {task_id: task_result.model_dump(mode="json")},
             "web_search_count": next_web_count,
+            "web_search_success_count": next_web_success_count,
             "gap_research_count": next_gap_count,
             "plan_version": state.get("plan_version", 1) + 1,
             "plan_versions": [

@@ -75,13 +75,7 @@ groups:
       # every other regression threshold in benchmarks/regression/thresholds.py.
       #
       # Per-surface, not per-pipeline-stage (retrieval/rerank have no
-      # dedicated latency histogram to alert on yet) -- and Deep Research
-      # specifically has no end-to-end duration histogram at all (it runs
-      # in apps/worker/research_runtime_worker.py, which emits no
-      # DURATION_METRICS entry today); only Chat and Linear Research have
-      # a real histogram to alert against. Deep Research latency alerting
-      # needs new instrumentation first, tracked as a known gap, not
-      # silently skipped.
+      # dedicated latency histogram to alert on yet).
       - alert: ResearchMindChatLatencyHigh
         expr: |
           histogram_quantile(
@@ -105,3 +99,29 @@ groups:
           severity: warning
         annotations:
           summary: Linear Research P95 turn latency is above 45s
+
+      # Deep Research (EVALUATION_IMPLEMENTATION_TRACKER.md E17 follow-up)
+      # -- a genuinely different KIND of alert from the two above, not
+      # just a bigger number: `researchmind_deep_research_run_duration_seconds`
+      # measures `completed_at - started_at`, which legitimately includes
+      # human-approval wait time at the plan/report/web-search checkpoints
+      # (real, expected latency this alert can't distinguish from a
+      # stuck/orphaned run). A 1h rate window + 30m `for` (vs. the 10m
+      # above) since Deep Research completions are comparatively rare --
+      # a tighter window would mostly evaluate against too few samples to
+      # mean anything. 2h is a conservative, undercalibrated starting
+      # bound (no real production volume existed to calibrate against
+      # when this was written, same caveat as the two alerts above) --
+      # revisit once real usage data exists to separate "normal human
+      # review latency" from "actually stuck."
+      - alert: ResearchMindDeepResearchRunAbnormallySlow
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum(rate(researchmind_deep_research_run_duration_seconds_bucket[1h])) by (le)
+          ) > 7200
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: Deep Research P95 end-to-end run duration is above 2h

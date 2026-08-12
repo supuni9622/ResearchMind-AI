@@ -53,6 +53,7 @@ from app.ai.runtime.generation.online_scoring.sampling import (
 from app.models.enums import EvalScoreSource
 from app.models.eval_score import EvalScore
 from app.models.generation_usage import GenerationUsage
+from app.models.research_run import ResearchRun
 from app.repositories.eval_score import EvalScoreRepository
 from app.repositories.generation_usage import GenerationUsageRepository
 from app.repositories.research_run import ResearchRunRepository
@@ -188,7 +189,30 @@ class OnlineScoringJob:
     async def _score_one(self, row: GenerationUsage) -> None:
         log = logger.bind(generation_id=str(row.generation_id), surface=row.surface)
 
-        review_decision = await self._review_decision_for(row)
+        research_run = await self._deep_research_run_for(row)
+        if research_run is not None and research_run.completed_at is None:
+            # Found via a real live Deep Research run (2026-08-12): the
+            # run's terminal-transition write (review_decision,
+            # web_search_invoked/success in budget_usage) hasn't
+            # happened yet -- the synthesis generation this row
+            # represents finishes well before the *run* does (report
+            # approval, review, and the related-papers step all come
+            # after). Scoring now would still write citation_validity
+            # unconditionally below, and `list_unscored_since()`'s
+            # anti-join treats *any* `ONLINE_SAMPLED` row as "already
+            # scored" -- so the web-search signal would never get a
+            # second chance to be written once that happens. Wait for
+            # the run to actually finish; this row stays a legitimate
+            # unscored candidate on the next poll (bounded by
+            # `list_unscored_since()`'s lookback window, same as any
+            # other not-yet-ready row).
+            log.debug("online_scoring_job.deep_research_run_not_terminal_yet")
+            return
+
+        budget_usage: dict[str, object] = (
+            (research_run.budget_usage or {}) if research_run is not None else {}
+        )
+        review_decision = self._review_decision_from(budget_usage)
         sampling_decision = decide_sampling(
             guardrail_final_action=row.guardrail_final_action,
             review_decision=review_decision,
@@ -235,6 +259,25 @@ class OnlineScoringJob:
             if metric_name not in artifact.request.metadata:
                 continue
             invoked_or_succeeded = bool(artifact.request.metadata[metric_name])
+            tool_score = await self._eval_score_repository.record(
+                owner_id=row.owner_id,
+                generation_id=row.generation_id,
+                metric_name=metric_name,
+                score=1.0 if invoked_or_succeeded else 0.0,
+                passed=invoked_or_succeeded,
+                reason=None,
+                source=EvalScoreSource.ONLINE_SAMPLED.value,
+                sample_category=sampling_decision.category.value,
+            )
+            self._sync_to_langsmith(langsmith_run_id, tool_score)
+
+        # Deep Research follow-up (E23): same two metric names as the Chat
+        # loop above, sourced from `ResearchRun.budget_usage` instead of
+        # `GenerationRequest.metadata` -- one run's web search spans many
+        # LangGraph node calls, not one generation's metadata dict. Same
+        # `metric_name`s means the dashboard's existing free-text filter
+        # shows both surfaces together, sliceable by `surface`.
+        for metric_name, invoked_or_succeeded in self._web_search_signal_from(budget_usage).items():
             tool_score = await self._eval_score_repository.record(
                 owner_id=row.owner_id,
                 generation_id=row.generation_id,
@@ -303,22 +346,51 @@ class OnlineScoringJob:
             reason=eval_score.reason,
         )
 
-    async def _review_decision_for(self, row: GenerationUsage) -> str | None:
-        """Deep Research's `ResearchReview.decision` lives in `ResearchRun.
-        budget_usage["review_decision"]` (see `execution.py`), keyed by
-        `ResearchRun.id` -- which the synthesis call tags as `session_id`
-        on `GenerationRequest` (see `runtime/research/synthesis/service.py`).
-        `None` for Chat/Linear Research rows, which have no review step."""
+    async def _deep_research_run_for(self, row: GenerationUsage) -> ResearchRun | None:
+        """Single lookup backing the terminal-status gate in `_score_one()`
+        plus `_review_decision_from()`/`_web_search_signal_from()` below --
+        `ResearchRun.id` is tagged as `session_id` on `GenerationRequest`
+        by the synthesis call (see `runtime/research/synthesis/service.py`).
+        `None` for Chat/Linear Research rows, which have no backing run at
+        all. **Follow-up (2026-08-12), consolidated from two separate
+        fetches** (`_review_decision_for`/`_web_search_signal_for`,
+        deliberately kept separate at the time as a lower-risk tradeoff):
+        `_score_one()` now needs `run.completed_at` *before* deciding
+        whether to score at all, so a single shared fetch stopped being
+        optional -- see `_score_one()`'s own comment for why."""
 
         if row.surface != "deep_research" or row.session_id is None:
             return None
 
-        run = await self._research_run_repository.get_by_id_for_owner(
+        return await self._research_run_repository.get_by_id_for_owner(
             run_id=row.session_id,
             owner_id=row.owner_id,
         )
-        if run is None:
-            return None
 
-        decision = (run.budget_usage or {}).get("review_decision")
+    @staticmethod
+    def _review_decision_from(budget_usage: dict[str, object]) -> str | None:
+        """Deep Research's `ResearchReview.decision` lives in `ResearchRun.
+        budget_usage["review_decision"]` (see `execution.py`). Empty dict
+        (from `_score_one()`, for Chat/Linear Research rows or a missing
+        run) correctly yields `None` -- no review step for either."""
+
+        decision = budget_usage.get("review_decision")
         return decision if isinstance(decision, str) else None
+
+    @staticmethod
+    def _web_search_signal_from(budget_usage: dict[str, object]) -> dict[str, bool]:
+        """Deep Research's `web_search_invoked`/`web_search_success` live
+        in the same `budget_usage` dict (see `execution.py`'s
+        `_web_search_signal()`). Empty for Chat/Linear Research rows --
+        Chat sets the same two metric names directly on
+        `GenerationRequest.metadata` instead (see the loop above); Linear
+        Research has no web/paper search wiring at all."""
+
+        signal: dict[str, bool] = {}
+        invoked = budget_usage.get("web_search_invoked")
+        if isinstance(invoked, bool):
+            signal["web_search_invoked"] = invoked
+        success = budget_usage.get("web_search_success")
+        if isinstance(success, bool):
+            signal["web_search_success"] = success
+        return signal

@@ -89,6 +89,7 @@ from app.infrastructure.metrics.mcp import (
 from app.infrastructure.metrics.research import (
     RESEARCH_DURATION,
     RESEARCH_REVIEW_DECISIONS_TOTAL,
+    RESEARCH_RUN_DURATION,
     RESEARCH_RUNS_COMPLETED_TOTAL,
     RESEARCH_RUNS_FAILED_TOTAL,
     RESEARCH_RUNS_TOTAL,
@@ -134,6 +135,25 @@ RUNTIME_BUCKETS: tuple[float, ...] = (
     30.0,
     60.0,
     120.0,
+)
+
+#: Deep Research end-to-end run duration (E17 follow-up) -- minutes-to-hours
+#: scale, since a run's wall-clock time legitimately includes
+#: human-approval wait time at the plan/report/web-search checkpoints, not
+#: just compute time. `RUNTIME_BUCKETS` above tops out at 120s, an order
+#: of magnitude too small to say anything meaningful about this metric.
+DEEP_RESEARCH_RUN_BUCKETS: tuple[float, ...] = (
+    5.0,
+    15.0,
+    30.0,
+    60.0,
+    120.0,
+    300.0,
+    600.0,
+    1800.0,
+    3600.0,
+    7200.0,
+    14400.0,
 )
 
 
@@ -506,6 +526,15 @@ DURATION_METRICS: dict[str, MetricSpec] = {
         "histogram",
         ("source_mode",),
         RUNTIME_BUCKETS,
+    ),
+    RESEARCH_RUN_DURATION: MetricSpec(
+        "researchmind_deep_research_run_duration_seconds",
+        "Deep Research end-to-end run duration, creation to terminal "
+        "status -- includes human-approval wait time, minutes-to-hours "
+        "scale, not directly comparable to researchmind_research_duration_seconds.",
+        "histogram",
+        (),
+        DEEP_RESEARCH_RUN_BUCKETS,
     ),
     REMEMBER_LATENCY: MetricSpec(
         "researchmind_memory_remember_duration_seconds",

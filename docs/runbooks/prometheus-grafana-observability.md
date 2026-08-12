@@ -63,6 +63,9 @@ per-request questions by design.
    - Grafana — <http://localhost:3001> (`admin` / `admin` locally)
    - Prometheus — <http://localhost:9090>
    - Raw API exposition — <http://localhost:8000/metrics>
+   - Raw `research_runtime_main` worker exposition — <http://localhost:8010/metrics>
+     (`Settings.research_runtime_worker_metrics_port` -- only runs when
+     that worker process is up, unlike the API's)
 
 That's it — dashboards, both datasources (Prometheus + Postgres, the
 latter for the Eval Scores dashboard below), and alert rules are all
@@ -153,6 +156,7 @@ Prometheus → Alerts:
 | `ResearchMindUnexpectedMemoryExtractionRate` | Extraction requested/evaluated ratio > 70% for 30m | The extraction policy/threshold changed (intentionally or not) and is now firing on most turns |
 | `ResearchMindChatLatencyHigh` | Chat P95 generation latency > 15s for 10m | A provider is degraded/slow, or a routing change picked a slower model |
 | `ResearchMindLinearResearchLatencyHigh` | Linear Research P95 turn latency > 45s for 10m | Retrieval/reranking or the generation provider is degraded |
+| `ResearchMindDeepResearchRunAbnormallySlow` | Deep Research P95 end-to-end run duration > 2h (1h window, 30m for) | A genuinely different *kind* of alert from the two above, not just a bigger number: `researchmind_deep_research_run_duration_seconds` measures `completed_at - started_at`, which legitimately includes human-approval wait time at the plan/report/web-search checkpoints — this is a stuck-run/anomaly detector, not a performance SLO, since it can't distinguish "slow reviewer" from "actually orphaned" |
 
 These thresholds are **local-development defaults**, not tuned production
 SLOs (PRD §32) — expect to revisit them once there's real traffic to
@@ -160,12 +164,34 @@ calibrate against. Alerts have no notification channel wired up yet
 (no PagerDuty/Opsgenie/Slack) — this milestone stops at "visible in the
 Prometheus UI," per the PRD's explicit non-goals.
 
-**Known gap:** Deep Research has no dedicated end-to-end duration
-histogram yet (it runs in `apps/worker/research_runtime_worker.py`,
-which currently emits no `DURATION_METRICS` entry), so there is no
-latency-SLO alert for it — adding one needs new instrumentation first,
-not just a new alert rule. Tracked in
-`EVALUATION_IMPLEMENTATION_TRACKER.md` E17.
+Deep Research's `researchmind_deep_research_run_duration_seconds` is a
+separate metric from `researchmind_research_duration_seconds` above
+(Chat/Linear Research's single-turn latency) — one Prometheus histogram
+has one fixed bucket set shared across every label value, and Deep
+Research's wall-clock duration is a fundamentally different scale
+(minutes-to-hours) than Chat/Linear's seconds-scale buckets, so it needed
+its own metric name and bucket set (`DEEP_RESEARCH_RUN_BUCKETS`,
+`app/ai/observability/prometheus/names.py`) rather than reusing theirs.
+Recorded at every terminal-transition path
+(`ResearchRuntimeExecutionService._record_run_duration()`, called from
+`_complete_run`/`_mark_terminal`/`_mark_failed`).
+
+**A second, deeper gap, found only by watching a real Deep Research run
+complete end-to-end (2026-08-12), same day:** the metric above is
+recorded from inside `apps/worker/research_runtime_main.py`, which runs
+as its own OS process with its own private Prometheus registry
+(`get_prometheus_metric_registry()` is `@lru_cache`d *per process*) --
+`prometheus.yml` only ever scraped the API's own `:8000/metrics`, so
+every metric this worker records (Deep Research run duration, and also
+planner/synthesis generation duration for that surface) was invisible to
+Prometheus regardless of how correctly it was recorded. Fixed with a new
+`start_worker_metrics_server()` (exposes the worker's own registry via
+`prometheus_client.start_http_server()`, its standard mechanism for a
+non-web-framework process) bound to `Settings.
+research_runtime_worker_metrics_port` (default `8010`) and a second
+scrape target, `researchmind-research-runtime-worker`, in
+`prometheus.yml`. Verified live: `/api/v1/targets` reports both scrape
+jobs `health: up`.
 
 ### Useful ad-hoc queries
 

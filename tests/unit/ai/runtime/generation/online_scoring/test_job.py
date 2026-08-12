@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import random
 import uuid
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -365,6 +366,7 @@ async def test_deep_research_non_pass_review_decision_is_sampled_for_judges() ->
         owner_id=owner_id,
         graph_thread_id=str(uuid.uuid4()),
         status="completed",
+        completed_at=datetime.now(UTC),
         budget_usage={"review_decision": ReviewDecision.REVISE_SYNTHESIS.value},
     )
 
@@ -393,6 +395,9 @@ async def test_deep_research_non_pass_review_decision_is_sampled_for_judges() ->
     await harness.job.run_once()
 
     score_generation_fn.assert_awaited_once()
+    # Fetched once for a deep_research row (`_deep_research_run_for()`),
+    # backing the terminal-status gate, review_decision, and the
+    # web-search signal all together -- see that method's own docstring.
     harness.research_run_repository.get_by_id_for_owner.assert_awaited_once_with(
         run_id=run_id, owner_id=owner_id
     )
@@ -898,3 +903,210 @@ async def test_tool_invocation_metrics_are_synced_to_langsmith() -> None:
     synced_metrics = {call.kwargs["metric_name"] for call in sync_mock.call_args_list}
     assert "web_search_invoked" in synced_metrics
     assert "web_search_success" in synced_metrics
+
+
+# ==============================================================
+# E23 follow-up: Deep Research web-search invocation/success signal
+# ==============================================================
+
+
+def _deep_research_row(
+    *, owner_id: uuid.UUID, generation_id: uuid.UUID, run_id: uuid.UUID
+) -> GenerationUsage:
+    return _make_usage_row(
+        owner_id=owner_id,
+        generation_id=generation_id,
+        surface="deep_research",
+        session_id=run_id,
+    )
+
+
+def _research_run(
+    *,
+    run_id: uuid.UUID,
+    owner_id: uuid.UUID,
+    budget_usage: dict,
+    completed_at: datetime | None = None,
+) -> ResearchRun:
+    return ResearchRun(
+        id=run_id,
+        owner_id=owner_id,
+        graph_thread_id=str(uuid.uuid4()),
+        status="completed",
+        completed_at=completed_at if completed_at is not None else datetime.now(UTC),
+        budget_usage=budget_usage,
+    )
+
+
+@pytest.mark.asyncio
+async def test_deep_research_web_search_signal_is_recorded_from_budget_usage() -> None:
+    owner_id = uuid.uuid4()
+    generation_id = uuid.uuid4()
+    run_id = uuid.uuid4()
+    row = _deep_research_row(owner_id=owner_id, generation_id=generation_id, run_id=run_id)
+    artifact = GenerationArtifactBuilder().build(
+        result=_make_artifact_result(owner_id=owner_id, generation_id=generation_id)
+    )
+    run = _research_run(
+        run_id=run_id,
+        owner_id=owner_id,
+        budget_usage={"web_search_invoked": True, "web_search_success": True},
+    )
+
+    harness = _JobHarness()
+    harness.generation_usage_repository.list_unscored_since = AsyncMock(return_value=[row])
+    harness.artifact_reader.read = AsyncMock(return_value=artifact)
+    harness.research_run_repository.get_by_id_for_owner = AsyncMock(return_value=run)
+
+    await harness.job.run_once()
+
+    calls = {c["metric_name"]: c for c in harness.record_calls()}
+    assert calls["web_search_invoked"]["passed"] is True
+    assert calls["web_search_success"]["passed"] is True
+
+
+@pytest.mark.asyncio
+async def test_deep_research_web_search_signal_omits_success_when_not_invoked() -> None:
+    owner_id = uuid.uuid4()
+    generation_id = uuid.uuid4()
+    run_id = uuid.uuid4()
+    row = _deep_research_row(owner_id=owner_id, generation_id=generation_id, run_id=run_id)
+    artifact = GenerationArtifactBuilder().build(
+        result=_make_artifact_result(owner_id=owner_id, generation_id=generation_id)
+    )
+    run = _research_run(
+        run_id=run_id, owner_id=owner_id, budget_usage={"web_search_invoked": False}
+    )
+
+    harness = _JobHarness()
+    harness.generation_usage_repository.list_unscored_since = AsyncMock(return_value=[row])
+    harness.artifact_reader.read = AsyncMock(return_value=artifact)
+    harness.research_run_repository.get_by_id_for_owner = AsyncMock(return_value=run)
+
+    await harness.job.run_once()
+
+    calls = {c["metric_name"]: c for c in harness.record_calls()}
+    assert calls["web_search_invoked"]["passed"] is False
+    assert "web_search_success" not in calls
+
+
+@pytest.mark.asyncio
+async def test_deep_research_web_search_signal_absent_from_budget_usage_records_nothing() -> None:
+    """No web search key at all (run predates this feature, or web search
+    was disabled for the run) -- must not fabricate a False row."""
+
+    owner_id = uuid.uuid4()
+    generation_id = uuid.uuid4()
+    run_id = uuid.uuid4()
+    row = _deep_research_row(owner_id=owner_id, generation_id=generation_id, run_id=run_id)
+    artifact = GenerationArtifactBuilder().build(
+        result=_make_artifact_result(owner_id=owner_id, generation_id=generation_id)
+    )
+    run = _research_run(run_id=run_id, owner_id=owner_id, budget_usage={"review_decision": "pass"})
+
+    harness = _JobHarness()
+    harness.generation_usage_repository.list_unscored_since = AsyncMock(return_value=[row])
+    harness.artifact_reader.read = AsyncMock(return_value=artifact)
+    harness.research_run_repository.get_by_id_for_owner = AsyncMock(return_value=run)
+
+    await harness.job.run_once()
+
+    metric_names = {c["metric_name"] for c in harness.record_calls()}
+    assert metric_names.isdisjoint({"web_search_invoked", "web_search_success"})
+
+
+@pytest.mark.asyncio
+async def test_chat_row_never_looks_up_deep_research_web_search_signal() -> None:
+    owner_id = uuid.uuid4()
+    row = _make_usage_row(owner_id=owner_id, surface="chat")
+    artifact = GenerationArtifactBuilder().build(
+        result=_make_artifact_result(owner_id=owner_id, generation_id=row.generation_id)
+    )
+
+    harness = _JobHarness()
+    harness.generation_usage_repository.list_unscored_since = AsyncMock(return_value=[row])
+    harness.artifact_reader.read = AsyncMock(return_value=artifact)
+
+    await harness.job.run_once()
+
+    harness.research_run_repository.get_by_id_for_owner.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_deep_research_row_is_skipped_entirely_while_the_run_is_not_yet_terminal() -> None:
+    """Regression test for a real bug found on a live Deep Research run
+    (2026-08-12): the synthesis generation finishes well before the run
+    itself reaches a terminal status (report approval, review, and the
+    related-papers step all come after). Scoring the row early would
+    still write `citation_validity` unconditionally, and
+    `list_unscored_since()`'s anti-join treats *any* `ONLINE_SAMPLED` row
+    as "already scored" forever -- so `web_search_invoked`/`_success`
+    would never get a second chance once that happened. Confirmed live:
+    `citation_validity` landed at 13:57:38 while the run didn't reach
+    `completed_at` until 13:59:37, and the web-search signal was never
+    written. The fix: skip the row entirely (write nothing) until the
+    run is terminal, so it stays a legitimate candidate on the next
+    poll."""
+
+    owner_id = uuid.uuid4()
+    generation_id = uuid.uuid4()
+    run_id = uuid.uuid4()
+    row = _deep_research_row(owner_id=owner_id, generation_id=generation_id, run_id=run_id)
+    artifact = GenerationArtifactBuilder().build(
+        result=_make_artifact_result(owner_id=owner_id, generation_id=generation_id)
+    )
+    in_progress_run = ResearchRun(
+        id=run_id,
+        owner_id=owner_id,
+        graph_thread_id=str(uuid.uuid4()),
+        status="researching",
+        completed_at=None,
+        budget_usage={},
+    )
+
+    harness = _JobHarness()
+    harness.generation_usage_repository.list_unscored_since = AsyncMock(return_value=[row])
+    harness.artifact_reader.read = AsyncMock(return_value=artifact)
+    harness.research_run_repository.get_by_id_for_owner = AsyncMock(return_value=in_progress_run)
+
+    processed = await harness.job.run_once()
+
+    assert processed == 1
+    harness.eval_score_repository.record.assert_not_awaited()
+    # Never even reads the artifact -- the terminal-status gate is
+    # checked first, before anything else.
+    harness.artifact_reader.read.assert_not_awaited()
+    harness.commit.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_deep_research_row_is_scored_once_the_run_becomes_terminal() -> None:
+    """The other half of the regression above -- once the run genuinely
+    finishes, the row is no longer skipped and everything (citation
+    check + web-search signal) is written together, atomically, in one
+    pass."""
+
+    owner_id = uuid.uuid4()
+    generation_id = uuid.uuid4()
+    run_id = uuid.uuid4()
+    row = _deep_research_row(owner_id=owner_id, generation_id=generation_id, run_id=run_id)
+    artifact = GenerationArtifactBuilder().build(
+        result=_make_artifact_result(owner_id=owner_id, generation_id=generation_id)
+    )
+    run = _research_run(
+        run_id=run_id,
+        owner_id=owner_id,
+        budget_usage={"web_search_invoked": True, "web_search_success": True},
+    )
+
+    harness = _JobHarness()
+    harness.generation_usage_repository.list_unscored_since = AsyncMock(return_value=[row])
+    harness.artifact_reader.read = AsyncMock(return_value=artifact)
+    harness.research_run_repository.get_by_id_for_owner = AsyncMock(return_value=run)
+
+    await harness.job.run_once()
+
+    calls = {c["metric_name"]: c for c in harness.record_calls()}
+    assert "citation_validity" in calls
+    assert calls["web_search_invoked"]["passed"] is True
+    assert calls["web_search_success"]["passed"] is True

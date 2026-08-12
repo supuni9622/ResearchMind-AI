@@ -61,6 +61,7 @@ from app.ai.tools.web_search.service import WebSearchService
 from app.core.settings import settings
 from app.infrastructure.metrics.interfaces import MetricsRecorder
 from app.infrastructure.metrics.noop import NoOpMetricsRecorder
+from app.infrastructure.metrics.research import RESEARCH_RUN_DURATION
 from app.infrastructure.storage.interfaces import DocumentStorage
 from app.models.research_run import ResearchRun
 from app.repositories.generation_usage import GenerationUsageRepository
@@ -445,6 +446,7 @@ class ResearchRuntimeExecutionService:
             transition_run(run, target=ResearchRunStatus.REVIEWING, phase="compatibility_review")
             transition_run(run, target=ResearchRunStatus.SYNTHESIZING, phase="persisted_answer")
             transition_run(run, target=ResearchRunStatus.COMPLETED, phase="complete")
+        self._record_run_duration(run)
         await self._session.commit()
 
     async def _execute_compatibility_bridge(
@@ -905,6 +907,7 @@ class ResearchRuntimeExecutionService:
             "gap_research_count": result.get("gap_research_count", 0),
             "plan_version": result.get("plan_version", 1),
             "review_artifact_refs": result.get("review_artifact_refs", []),
+            **self._web_search_signal(result),
         }
         transition_run(run, target=ResearchRunStatus.REVIEWING, phase="deterministic_review")
         transition_run(run, target=ResearchRunStatus.SYNTHESIZING, phase="persist_runtime_report")
@@ -1057,12 +1060,54 @@ class ResearchRuntimeExecutionService:
             duration_ms=duration_ms,
         )
 
+    @staticmethod
+    def _web_search_signal(result: dict[str, Any]) -> dict[str, object]:
+        """E23 follow-up (`EVALUATION_PLAN.md` §10): mirrors Chat's
+        `web_search_invoked`/`web_search_success` semantics exactly --
+        only written at all when web search was genuinely eligible for
+        this run (`WebSearchMode` not `DISABLED`), and `web_search_success`
+        only set when `web_search_invoked` is `True` (success is
+        meaningless for a run that never searched). Folded into
+        `run.budget_usage` here so `OnlineScoringJob` can read it back
+        with the exact same single-row lookup already used for
+        `review_decision` -- no new event-aggregation query needed."""
+
+        mode = result.get("web_search_mode") or WebSearchMode.DISABLED.value
+        if mode == WebSearchMode.DISABLED.value:
+            return {}
+        invoked = result.get("web_search_count", 0) > 0
+        signal: dict[str, object] = {"web_search_invoked": invoked}
+        if invoked:
+            signal["web_search_success"] = result.get("web_search_success_count", 0) > 0
+        return signal
+
+    def _record_run_duration(self, run: ResearchRun) -> None:
+        """E17 follow-up: end-to-end run duration, `completed_at -
+        started_at` -- includes human-approval wait time by design (that's
+        a real part of "how long did this run take," not noise to strip
+        out), so this uses its own metric/bucket set
+        (`RESEARCH_RUN_DURATION`/`DEEP_RESEARCH_RUN_BUCKETS`), not
+        `RESEARCH_DURATION` (Chat/Linear Research's single-turn, seconds-
+        scale latency). Called from every terminal-transition path
+        (`_complete_run`, `_mark_terminal`, `_mark_failed`) right after
+        `transition_run()` sets `run.completed_at` -- best-effort, a
+        metrics failure must never break run completion itself."""
+
+        if run.started_at is None or run.completed_at is None:
+            return
+        try:
+            duration_ms = (run.completed_at - run.started_at).total_seconds() * 1000
+            self._metrics.record_duration(operation=RESEARCH_RUN_DURATION, duration_ms=duration_ms)
+        except Exception:
+            logger.exception("research_runtime.duration_metric_failed", run_id=str(run.id))
+
     async def _mark_terminal(
         self, run: ResearchRun, status: ResearchRunStatus, reason: str
     ) -> None:
         try:
             transition_run(run, target=status, phase="terminal")
             run.terminal_reason = reason
+            self._record_run_duration(run)
             await self._session.commit()
         except Exception:
             await self._session.rollback()
@@ -1083,6 +1128,7 @@ class ResearchRuntimeExecutionService:
                 "message": str(exc)[:500],
                 "recorded_at": datetime.now(UTC).isoformat(),
             }
+            self._record_run_duration(run)
             await self._session.commit()
         except Exception:
             await self._session.rollback()

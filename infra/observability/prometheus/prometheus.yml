@@ -18,3 +18,19 @@ scrape_configs:
       # to the `prometheus` service in docker-compose.yml.
       - targets:
           - host.docker.internal:8000
+
+  # E17 follow-up (2026-08-12): apps/worker/research_runtime_main.py runs
+  # as its own OS process, with its own private Prometheus registry --
+  # confirmed live that a metric it records (Deep Research run duration)
+  # never reached the API's own /metrics above, since the two processes'
+  # registries are entirely separate in-memory objects. Same
+  # host.docker.internal reasoning as the API target -- this worker also
+  # runs on the host, not in Compose. Port matches
+  # Settings.research_runtime_worker_metrics_port's default (8010, not
+  # 8001 -- that port is already bound by the research-intelligence-mcp
+  # Docker container on this machine, confirmed via lsof).
+  - job_name: researchmind-research-runtime-worker
+    metrics_path: /metrics
+    static_configs:
+      - targets:
+          - host.docker.internal:8010

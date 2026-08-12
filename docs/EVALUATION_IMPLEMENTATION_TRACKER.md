@@ -179,9 +179,9 @@ a live user-observed gap beats the planned order.
 
 | ID | Item | Status | Value | Ease | Depends on |
 |---|---|---|---|---|---|
-| [E1](#e1-golden-dataset--ragas-scoring-function) | Golden dataset + Ragas scoring function | **Done** (115/50-150 examples, grown 2026-08-11; LangSmith registration not done) | Very High | Med | — |
+| [E1](#e1-golden-dataset--ragas-scoring-function) | Golden dataset + Ragas scoring function | **Done** (115/50-150 examples, grown 2026-08-11; registered in LangSmith, see E19) | Very High | Med | — |
 | [E2](#e2-wire-benchmarksregression-into-ci) | Wire `benchmarks/regression/` into CI | **Done** (smoke tier — retrieval/generation live-service triggers deliberately scoped to E20 instead, done there) | Very High | Med | E4 (for absolute gates) |
-| [E3](#e3-post-feedback--thumbsupdown) | `POST /feedback` + thumbs up/down | **Done, backend** (frontend affordance not built) | Very High | Med | — |
+| [E3](#e3-post-feedback--thumbsupdown) | `POST /feedback` + thumbs up/down | **Done** (backend + frontend affordance, see E21) | Very High | Med | — |
 | [E4](#e4-citation-validator-cross-surface-release-blocking) | Citation validator, cross-surface, release-blocking | **Done** (checker built; CI/online-gate wiring is E2/E5) | Very High | High | — |
 | [E5](#e5-online-risk-weighted-scoring-job) | Online risk-weighted scoring job | **Done** | High | Med | E4 (reuses as free signal) |
 | [E6](#e6-feedback--trace-attachment--eval_scores-table) | Feedback → trace attachment + `eval_scores` table | **Done** | High | Med | E3, E5 |
@@ -195,13 +195,13 @@ a live user-observed gap beats the planned order.
 | [E14](#e14-retrieval-metric-completeness) | Retrieval metric completeness | **Done** | Med | High | — |
 | [E15](#e15-adversarial-dataset) | Adversarial dataset (10-20 cases) | **Done** | Med | Med | — |
 | [E16](#e16-llm-as-judge-metric) | LLM-as-judge metric | **Done** | Med | Med | E1 |
-| [E17](#e17-latency-slo-alerts--eval_scores-grafana-panel) | Latency-SLO alerts + `eval_scores` Grafana panel | **Alert-rules half done** (Chat + Linear Research; Deep Research has no duration metric yet; panel half now unblocked by E6, not yet built) | Med | High | ~~E6~~ done (for the panel half) |
+| [E17](#e17-latency-slo-alerts--eval_scores-grafana-panel) | Latency-SLO alerts + `eval_scores` Grafana panel | **Done** (alert rules for all 3 surfaces — Deep Research's is a stuck-run anomaly detector, not a tight SLO, see own entry; Grafana panel built and verified live 2026-08-12) | Med | High | ~~E6~~ done |
 | [E18](#e18-cost-forecast) | Cost forecast (rolling-average) | **Done** (CLI report; dashboard-panel half deferred to E7, no admin auth exists yet) | Low-Med | High | — |
 | [E19](#e19-register-golden-dataset-in-langsmith) | Register golden dataset in LangSmith | **Done** (dataset live in LangSmith, confirmed; Experiment-logging subtask closed 2026-08-12) | Med | High | E1 |
 | [E20](#e20-ci-live-service-benchmark-triggers--citation-metric-wiring) | CI live-service benchmark triggers + citation-metric wiring | **Done** (all 3 absolute gates populated) | High | Low-Med | E1, E2, E4 |
 | [E21](#e21-frontend-thumbs-updown-affordance) | Frontend thumbs up/down affordance | **Done** (backend `generation_id` exposure + frontend UI; real browser click confirmed by user 2026-08-11, produced a correctly-linked `feedback` row) | High | Med-High | E3 |
 | [E22](#e22-langsmith-create_feedback-wiring) | Mirror `POST /feedback` into LangSmith's own `create_feedback()` | **Done** (2026-08-11) | Med-High | Med | E21 |
-| [E23](#e23-tool-invocation-rate--success-rate-metric-done-chat-only-2026-08-12) | Tool-invocation rate & success rate metric (`EVALUATION_PLAN.md` §10, MVP-labeled) | **Done, Chat only** — found and shipped 2026-08-12; Deep Research/Linear Research explicitly excluded, see own entry | Med | High | — |
+| [E23](#e23-tool-invocation-rate--success-rate-metric) | Tool-invocation rate & success rate metric (`EVALUATION_PLAN.md` §10, MVP-labeled) | **Done, Chat + Deep Research web search** — found and shipped 2026-08-12; Deep Research paper search + Linear Research explicitly excluded, see own entry | Med | High | — |
 
 E19-E22 are gap-closure follow-ups to already-"Done" items, surfaced by
 the 2026-08-11 cross-check pass — see [§0](#0-corrections-found-during-this-pass).
@@ -458,14 +458,15 @@ whole repository (1224 source files).
 
 ---
 
-### E3. `POST /feedback` + thumbs up/down — **Done, backend** (2026-08-11)
+### E3. `POST /feedback` + thumbs up/down — **Done** (backend 2026-08-11, frontend via E21 2026-08-11)
 
 **Roadmap:** Wave 1, row 3. **Eval Plan:** §16 phase 3 (first half), §12 (1c).
 
 **Current state:** Was full green-field — `apps/api/app/api/v1/feedback.py`
 was a 0-byte file, not imported by the v1 router, no `Feedback` model/table.
-Backend now fully live; frontend affordance intentionally not built this
-pass (see below).
+Backend now fully live; frontend affordance was intentionally deferred out
+of this item's own scope (see below), then built same day as its own
+tracked item — see [E21](#e21-frontend-thumbs-updown-affordance).
 
 **Subtasks:**
 - [x] `Feedback` SQLAlchemy model (`app/models/feedback.py`): `id`,
@@ -2058,9 +2059,10 @@ Part 3 item 5). **Eval Plan:** §11 (operational, "already sufficient").
 **Current state:** Prometheus/Grafana measurement infrastructure is real
 and live (Phase 9). Two P95 latency-SLO alert rules now added to
 `infra/observability/prometheus/alerts.yml` and confirmed loaded into a
-real running Prometheus instance (not just YAML syntax review) — the
-panel half's blocker (E6, `eval_scores` not existing yet) is now cleared
-(E6 done 2026-08-11), but the panel itself still isn't built.
+real running Prometheus instance (not just YAML syntax review). The
+panel half's blocker (E6, `eval_scores` not existing yet) is cleared
+(E6 done 2026-08-11), and the panel itself is now built too — see the
+subtasks below for the full account.
 
 **Real scoping finding, not silently defaulted:** the tracker's own
 framing ("per surface — Chat/Linear/Deep Research") turned out to only be
@@ -2089,15 +2091,56 @@ flagged as needing recalibration once real production volume exists,
 same caveat this project already applies to every regression threshold
 in `benchmarks/regression/thresholds.py`.
 
+**Follow-up (2026-08-12, same day): Deep Research gap closed.** The
+missing piece was genuinely just instrumentation, not a design question
+— `run.started_at`/`run.completed_at` (`lifecycle.py`'s `transition_run()`)
+already span a run's full lifecycle correctly, including cross-dispatch
+human-approval wait time (confirmed: `execution.py`'s existing
+`_replay_completed()` path already computes `(completed_at -
+started_at)` for a different purpose, proving the timestamps were always
+there). New `ResearchRuntimeExecutionService._record_run_duration()`
+computes and records this via a **new** metric,
+`researchmind_deep_research_run_duration_seconds` (`RESEARCH_RUN_DURATION`,
+`app/infrastructure/metrics/research.py`) — deliberately not reusing
+`RESEARCH_DURATION`/`researchmind_research_duration_seconds` (Chat/Linear
+Research's own histogram), since a Prometheus histogram has one fixed
+bucket set shared across every label value, and Deep Research's
+wall-clock duration is a fundamentally different scale (minutes-to-hours,
+since it legitimately includes human-approval wait time) than Chat/Linear's
+seconds-scale `RUNTIME_BUCKETS`. New `DEEP_RESEARCH_RUN_BUCKETS`
+(5s-4h) in `names.py`. Called from all three terminal-transition paths
+(`_complete_run`, `_mark_terminal`, `_mark_failed`) — best-effort, a
+metrics failure never breaks run completion itself.
+
+New alert, `ResearchMindDeepResearchRunAbnormallySlow` — deliberately a
+different *kind* of alert from the Chat/Linear Research ones above, not
+just a bigger threshold: since wall-clock duration includes legitimate
+human review time, this can't distinguish "slow reviewer" from "actually
+stuck," so it's framed as a conservative anomaly/stuck-run detector (P95
+> 2h, `1h` rate window + `30m for`, both wider than Chat/Linear's `10m`
+since Deep Research completions are comparatively rare and a tight
+window would evaluate against too few samples) rather than a tight SLO.
+Same "not yet calibrated against real production volume" caveat as the
+two original rules. Verified live: real `docker restart
+researchmind-prometheus` + `/api/v1/rules` shows `health: ok`, no
+`lastError`, `state: inactive` against real (empty) data — same
+verification discipline as the original two rules. Also smoke-tested the
+histogram itself directly against a real `PrometheusMetricsRecorder` +
+`PrometheusMetricRegistry` (not just YAML review): recording a
+5,400,000ms observation into the new bucket set succeeds without error.
+
 **Subtasks:**
 - [x] Define P95 latency SLO thresholds per surface — Chat (15s) and
-      Linear Research (45s) defined; Deep Research not possible against
-      existing metrics (see above)
+      Linear Research (45s) defined at the time; Deep Research's own P95
+      *anomaly* threshold (2h, a different kind of bound, see follow-up
+      above) added same day once the instrumentation gap closed
 - [x] Add Prometheus alert rules against the existing latency histograms
-      (`ResearchMindChatLatencyHigh`, `ResearchMindLinearResearchLatencyHigh`)
+      (`ResearchMindChatLatencyHigh`, `ResearchMindLinearResearchLatencyHigh`,
+      `ResearchMindDeepResearchRunAbnormallySlow`)
       — verified via a real Prometheus container restart + `/api/v1/rules`:
-      both rules parse (`health: ok`, no `lastError`) and correctly report
-      `state: inactive` against real (empty) data, not a syntax-only check
+      all three rules parse (`health: ok`, no `lastError`) and correctly
+      report `state: inactive` against real (empty) data, not a
+      syntax-only check
 - [x] Add a Grafana panel visualizing `eval_scores` (E6) trends — **Done
       2026-08-12.** `eval_scores` lives in Postgres, not Prometheus, so
       this needed a new datasource, not just a new panel: added a native
@@ -2128,9 +2171,14 @@ in `benchmarks/regression/thresholds.py`.
 existed to force one; verified instead that the rules load correctly
 against real metric/label names and report the correct baseline
 `inactive` state — the honest level of verification available given no
-production volume yet). The panel exists — **Met (2026-08-12)**, and
-verified live, not just via JSON review: restarted the real `grafana`
-container, confirmed via its own HTTP API that the datasource loaded
+production volume yet). All three surfaces have a real histogram and a
+real, loaded alert rule (Deep Research closed same day, see follow-up
+above) — **but see the second follow-up below**: the Deep Research rule
+could not actually have fired at all until a separate, deeper gap got
+fixed, found only by watching a real run end-to-end. The panel exists —
+**Met (2026-08-12)**, and verified live, not just via JSON review:
+restarted the real `grafana` container, confirmed via its own HTTP API
+that the datasource loaded
 (`provisioning.datasources: inserting datasource ... uid=researchmind-postgres`
 in its logs), that `POST /api/datasources/uid/researchmind-postgres/health`
 returns `"Database Connection OK"`, and that all 4 panel queries executed
@@ -2138,6 +2186,48 @@ against real `eval_scores` rows via `POST /api/ds/query` returned `status:
 200` with real data — e.g. the online-avg-score panel returned genuine
 `answer_relevancy`/`citation_validity` series from the live scoring
 worker's actual output, not a fixture.
+
+**Follow-up (2026-08-12, same day): the Deep Research metric never
+reached Prometheus at all — a real, pre-existing infrastructure gap
+found by watching a live run, not something the earlier "Done" claim
+above should have made.** After the real Deep Research run (same one
+E23's follow-up describes) completed, `curl http://localhost:8000/metrics/`
+showed **zero** `deep_research_run_duration` series — and, tellingly,
+zero of *any* metric this run's worker-side calls should have produced
+(planner/synthesis generation duration included), confirming this
+wasn't specific to the new histogram. Root cause:
+`apps/worker/research_runtime_main.py` runs as its own OS process, and
+`get_prometheus_metric_registry()` is `@lru_cache`d *per process* — the
+worker has its own private, in-memory `CollectorRegistry`, entirely
+separate from the API's. `prometheus.yml` only ever had one scrape
+target, the API's `:8000/metrics` — workers never exposed their own
+`/metrics` HTTP endpoint at all. The code recording the metric was
+correct; it just had no way to leave the process.
+
+**Fix:** new `start_worker_metrics_server(port)`
+(`app/ai/observability/prometheus/create.py`) wraps
+`prometheus_client.start_http_server()` (its own standard mechanism for
+exposing metrics from a non-web-framework process — a background daemon
+thread, non-blocking), pointed at the worker's own registry. Called once
+at the top of `research_runtime_main.py::main()`, gated on
+`Settings.prometheus_enabled` like every other metrics call site. New
+setting `research_runtime_worker_metrics_port` (default `8010` — `8001`
+was the first choice but is already bound by the
+`research-intelligence-mcp` Docker container on this machine, confirmed
+via `lsof` before picking a different one, not guessed). New
+`prometheus.yml` scrape target, `researchmind-research-runtime-worker`.
+
+**Verified live, full loop:** restarted the worker, confirmed via `lsof`
+it bound the configured port, confirmed `curl :8010/metrics` returns
+real Prometheus text (`python_info`, `researchmind_mcp_server_health`,
+...), restarted the real Prometheus container, and confirmed via
+`/api/v1/targets` that **both** scrape targets report `health: up` —
+`researchmind-api` and the new `researchmind-research-runtime-worker`.
+2 new tests (`start_worker_metrics_server`'s disabled/enabled paths,
+`main()` wires the configured port through) plus 2 pre-existing
+`test_research_runtime_main.py` tests fixed (they called the real
+`main()`, which now tries to bind a real socket — now stub the new
+collaborator, same as every other one those tests already stub).
 
 ---
 
@@ -2658,7 +2748,7 @@ live.
 
 ---
 
-### E23. Tool-invocation rate & success rate metric — **Done, Chat only** (2026-08-12)
+### E23. Tool-invocation rate & success rate metric — **Done, Chat + Deep Research** (2026-08-12)
 
 **Roadmap:** Wave 1. **Eval Plan:** §10. Found (not requested) during the
 2026-08-12 cross-doc-alignment pass — see [§5](#5-explicitly-out-of-scope-for-this-tracker)'s
@@ -2710,31 +2800,27 @@ Linear Research has no web/paper search wiring anywhere.
   invisible in a free-text input unless a user already knows to type
   them.
 
-**Deep Research — investigated, explicitly excluded, not force-fit.**
-`research_run_events` durably records `RESEARCH_WEB_SEARCH_STARTED/
+**Deep Research — initially excluded, then closed same day (follow-up
+below).** `research_run_events` durably records `RESEARCH_WEB_SEARCH_STARTED/
 COMPLETED/SKIPPED` (`multi_wave_research.py`'s `search_web_gap`), so a
-*success rate* (COMPLETED vs. COMPLETED+SKIPPED) is technically
+*success rate* (COMPLETED vs. COMPLETED+SKIPPED) was technically
 computable from what's already persisted. But the *decision* not to
-search — `evaluate_web_search_need`'s "no" branches — emits no durable
+search — `evaluate_web_search_need`'s "no" branches — emitted no durable
 event at all (only a `logger.info` call), so a true *invocation rate*
 (searched vs. eligible-but-declined, the same semantic `web_search_invoked`
-carries for Chat) isn't computable without adding a new event at that
-decision point — a change to live LangGraph node behavior, a materially
-different risk profile than the Chat-side change above (interrupt/replay
-semantics to reason about, not just a metadata dict). Not attempted this
-pass rather than rushed in; a genuine follow-up if wanted. Deep Research
-paper search has no event type at all — same conclusion, not investigated
-further given the above. Linear Research: no web/paper search wiring
-found anywhere in the codebase, confirmed by search, not assumed absent.
+carries for Chat) wasn't computable without new state. Linear Research:
+no web/paper search wiring found anywhere in the codebase, confirmed by
+search, not assumed absent — still excluded, no gap to close.
 
 **Subtasks:**
 - [x] Thread invocation/success facts through to a persisted, per-generation
-      location (Chat only — see above for why DR/Linear aren't covered)
+      location (Chat: `GenerationRequest.metadata`; Deep Research:
+      `ResearchRun.budget_usage`, see follow-up below)
 - [x] Emit as `eval_scores` rows, 100%-sampled free signal
 - [x] Sync to LangSmith (automatic, reused existing wiring)
 - [x] Surface in the dashboard (reused existing free-text metric_name
       view; added a discoverability hint)
-- [x] Document Deep Research/Linear Research exclusion explicitly
+- [x] Document Linear Research exclusion explicitly
 
 **Verification:** 6 new dedicated `OnlineScoringJob` tests (absent
 metadata → nothing recorded; invoked+succeeded; invoked+failed;
@@ -2747,11 +2833,84 @@ necessity failure, declined, success, empty-result, search-exception).
 `tsc --noEmit`/`eslint` clean on the frontend change. Full repo suite
 1943/1943 passing, `mypy .`/`ruff check .` clean.
 
+**Follow-up (2026-08-12, same day): Deep Research closed too, without
+touching LangGraph node/interrupt behavior.** Rather than adding a new
+durable event at the decision point (the change flagged above as needing
+its own risk review), reused data the graph already tracks: `search_web_gap`
+already increments `web_search_count` on every actual invocation
+(success or not) — a new `web_search_success_count` sibling field
+(`MultiWaveResearchState`) increments alongside it only when the search
+returned usable references. At the run's terminal transition
+(`execution.py::_finalize_or_pause`, where `run.budget_usage` already
+gets `review_decision` etc. written), a new `_web_search_signal()` static
+method folds in `web_search_invoked`/`web_search_success` — but **only**
+when `web_search_mode != DISABLED`, mirroring Chat's exact "not a
+meaningful question when the tool wasn't eligible" semantics, and
+`web_search_success` only when `web_search_invoked` was `True`.
+`OnlineScoringJob` gained a new `_web_search_signal_for()` lookup
+(deliberately a separate `ResearchRun` fetch from the existing
+`_review_decision_for()`, not a shared one — this job runs as an
+infrequent background batch, so one extra cheap indexed-PK query is a
+smaller risk than restructuring an already-tested method) that emits
+the **same two metric names** Chat uses, so the dashboard's existing
+free-text `metric_name` filter shows both surfaces together, sliceable
+by `surface` — zero new dashboard code, same as the original Chat build.
+Deep Research paper search still has no equivalent (no event/state
+tracking exists for it at all) — left as a real, smaller, disclosed gap
+rather than fabricated. 10 new tests (`_web_search_signal` unit tests
+covering disabled/missing-mode/invoked+success/invoked+no-success/
+never-invoked; `OnlineScoringJob` Deep Research signal tests mirroring
+the Chat ones). Full suite 1959/1959, `mypy .`/`ruff check .` clean.
+
 **Acceptance criteria:** a count of invocation rate and non-empty/success
-rate for web/paper search, per §10's original framing — **met for Chat**,
-the surface carrying real web/paper search traffic today via the toggle
-mechanism; **not met for Deep Research/Linear Research**, per the
-architectural reasons documented above, not silently skipped.
+rate for web/paper search, per §10's original framing — **met for Chat
+and Deep Research web search**; **not met for Deep Research paper search
+or Linear Research** (either surface), per the reasons documented above,
+not silently skipped.
+
+**Follow-up (2026-08-12, same day): a real race condition found by
+watching a live Deep Research run end-to-end, then fixed.** The user
+sent a real Deep Research query with web search required and approved it
+through to completion — `ResearchRun.budget_usage` correctly showed
+`web_search_invoked: true, web_search_success: true` at the run's
+terminal transition, confirming the Deep Research half of this item
+works. But `eval_scores` for that generation only ever got
+`citation_validity` — the web-search signal was **permanently missing**,
+not just delayed. Root cause: `OnlineScoringJob.list_unscored_since()`'s
+anti-join treats a generation as "already scored" the moment it has
+*any* `ONLINE_SAMPLED` row, and `citation_validity` is written
+unconditionally as soon as the synthesis generation completes — which
+happens **minutes before** the run itself reaches a terminal status
+(report approval, review, and the related-papers step all come after
+synthesis). Confirmed on the real run: `citation_validity` landed at
+13:57:38, `completed_at` wasn't set until 13:59:37 — by the time the
+web-search signal existed in `budget_usage`, the generation had already
+been marked "done" and would never be reconsidered.
+
+**Fix:** `_score_one()` now fetches the backing `ResearchRun` first (via
+a new, single, consolidated `_deep_research_run_for()` — replacing the
+two separate fetches `_review_decision_for()`/`_web_search_signal_for()`
+used until this fix, no longer needed once one fetch has to happen
+before the artifact read anyway) and, for Deep Research rows whose run
+hasn't reached a terminal status yet (`run.completed_at is None`), skips
+scoring **entirely** — writes nothing at all, leaving the row a
+legitimate unscored candidate for the next poll. Once the run finishes,
+everything (citation check + web-search signal) is written together,
+atomically, in one pass. `_review_decision_for`/`_web_search_signal_for`
+were split into a shared async fetch (`_deep_research_run_for`) plus two
+pure sync extractors (`_review_decision_from`/`_web_search_signal_from`)
+taking the already-fetched `budget_usage` dict.
+
+**Verified against the real stuck run, not just new unit tests:**
+deleted the one blocking `citation_validity` row for that generation
+(`c957ee34-...`), restarted `eval_scoring_main` with the fix, and
+watched it get correctly re-scored on the very next poll —
+`citation_validity`/`web_search_invoked`/`web_search_success` all
+present, all `passed: true`, and all three visible as LangSmith feedback
+on the real trace. 3 new regression tests (skip-while-not-terminal,
+score-once-terminal, plus the existing "fetched twice" assertion
+corrected to "fetched once"). Full suite 1964/1964, `mypy .`/`ruff
+check .` clean repo-wide.
 
 ---
 
@@ -2763,9 +2922,9 @@ during the 2026-08-11 cross-check) is done when:
 
 - [x] `rag_answer_gold` exists with ≥50 examples, full schema, and is
       registered in LangSmith (E1, E19) — 115 examples, live and browsable
-      in LangSmith. (E19's separate Experiment-logging subtask — successive
-      runs comparable over time in-UI — isn't required by this box's
-      wording and remains its own open item, see below)
+      in LangSmith. E19's separate Experiment-logging subtask (successive
+      runs comparable over time in-UI) wasn't required by this box's
+      wording, but is also closed now — see E19's own entry
 - [ ] CI blocks merges on regression-gate failures, both relative and
       absolute, across retrieval/generation/ingestion benchmarks (E2, E4,
       E20) — **deliberately not fully met, by direct instruction, not an
@@ -2806,7 +2965,7 @@ work — see E20's follow-up note).
 
 **Real gap found by this same day's cross-doc-alignment audit, then
 closed same day — see §5's correction above and
-[E23](#e23-tool-invocation-rate--success-rate-metric-done-chat-only-2026-08-12)'s
+[E23](#e23-tool-invocation-rate--success-rate-metric)'s
 own entry:** `EVALUATION_PLAN.md` §10's "tool-invocation rate & success
 rate" metric (explicitly labeled MVP, not Mature) had no E-numbered item,
 was never built, and this tracker's own §5 previously mislabeled it as
@@ -2815,8 +2974,10 @@ out-of-scope. Distinct from `unnecessary_tool_use` (E10's infeasible
 tool-call-*correctness* (genuinely Mature) — this one is a cheap
 aggregate count over data (`WebSearchNecessityDecision`, paper-search
 extraction) that's already computed on every turn. Built for Chat the
-same day it was found; Deep Research/Linear Research explicitly excluded
-and documented, not silently skipped.
+same day it was found, then extended to Deep Research web search the
+same day too (`ResearchRun.budget_usage`, no LangGraph node/interrupt
+changes needed); Deep Research paper search and Linear Research remain
+explicitly excluded and documented, not silently skipped.
 
 Everything else called out as outstanding in earlier passes is now
 closed: `tests/evaluation/test_reranking.py`
@@ -2864,7 +3025,7 @@ aggregated this metric anywhere**, and no E-numbered item in this
 tracker ever covered it — it fell through the cracks between §10's table
 and this tracker's own item list, then got mislabeled as out-of-scope
 rather than flagged as a genuine miss. Given its own tracker item,
-[E23](#e23-tool-invocation-rate--success-rate-metric-done-chat-only-2026-08-12),
+[E23](#e23-tool-invocation-rate--success-rate-metric),
 same day — built for Chat, explicitly documented (not silently skipped)
 as excluded for Deep Research/Linear Research.
 

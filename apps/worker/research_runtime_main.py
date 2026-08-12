@@ -17,6 +17,7 @@ import signal
 from contextlib import AsyncExitStack
 
 import structlog
+from app.ai.observability.prometheus.create import start_worker_metrics_server
 from app.bootstrap.worker import create_research_runtime_worker
 from app.core.settings import settings
 from app.db.session import SessionFactory
@@ -25,6 +26,14 @@ logger = structlog.get_logger()
 
 
 async def main() -> None:
+    # E17 follow-up (2026-08-12): this process has its own private
+    # Prometheus registry, separate from the API's -- without this, every
+    # metric this worker records (Deep Research run duration, generation
+    # duration for planner/synthesis calls, ...) is invisible to
+    # Prometheus, confirmed live. See `start_worker_metrics_server()`'s
+    # own docstring.
+    start_worker_metrics_server(settings.research_runtime_worker_metrics_port)
+
     concurrency = max(1, settings.research_runtime_worker_concurrency)
     logger.info("research_runtime_worker.initializing", concurrency=concurrency)
 

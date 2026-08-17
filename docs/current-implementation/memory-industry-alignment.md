@@ -1,5 +1,12 @@
 # Memory Architecture — Current Implementation Evaluation
 
+> Reconciled 2026-08-17: memory hardening M0-M5 foundation is implemented. The M3
+> lifecycle worker remains dry-run by default pending production rollout. A
+> personal-only M12/M13 management slice is live with owner-scoped listing,
+> search/source filtering, pagination, editing, and confirmed deletion. M5's
+> storage and authorization isolation is live; Project/workspace runtime and
+> UI activation remain.
+
 ## 1. Purpose and scope
 
 This document evaluates ResearchMind AI's memory implementation against the architecture, components, and criteria shown in the supplied memory reference images.
@@ -51,16 +58,22 @@ The current implementation includes:
 - memory-context injection before Chat, Linear Research, Deep Research planning, and research execution;
 - explicit remember, search, context, recall, update, and forget APIs;
 - memory artifacts, logs, latency metrics, hit/miss metrics, extraction metrics, and context metrics;
-- a callable stale-memory deletion service.
+- a recurring, singleton-locked stale-memory worker with per-type policies,
+  dry-run safety, bounded batches, row isolation, and Prometheus metrics;
+- coordinated memory prompt budgeting with whole-entry truncation and
+  omission reporting.
 
 The largest differences from the reference architecture are:
 
 1. autonomous agents are not given `SaveMemory` and `SearchMemory` tools;
-2. persisted `USER` preferences are not included in the normal `MemoryContext` injected into each turn;
+2. persisted `USER` preferences are injected into the normal `MemoryContext`,
+   with current-turn instructions taking precedence;
 3. episodic history exists as conversations, research runs, events, and artifacts, but not as a dedicated searchable episode model;
 4. automatic extraction only creates `USER` and `RESEARCH` memories, not general `SEMANTIC` facts;
-5. exact duplicate handling exists, but contradiction, supersession, and temporal fact versioning are intentionally deferred;
-6. the stale-memory sweep is callable but unscheduled, and there is no hot/warm/cold/archive lifecycle;
+5. exact duplicate handling and USER-preference supersession exist, while
+   broader contradiction and temporal fact versioning remain deferred;
+6. the stale-memory sweep is scheduled by a dedicated worker but defaults to
+   dry-run; there is still no hot/warm/cold/archive lifecycle;
 7. session memory is TTL-bound and fail-open, while canonical conversation history is separately durable;
 8. durable research-runtime checkpointing exists as a construction path but is disabled by default and not wired to startup;
 9. memory quality evaluation and user-visible memory controls are less mature than the storage and retrieval architecture.
@@ -72,12 +85,12 @@ The largest differences from the reference architecture are:
 | Sensory/current-input memory | **Aligned** | Current prompt, retrieved evidence, memory context, and runtime state are assembled per request. |
 | In-context/short-term memory | **Strongly aligned** | Recent turns, bounded summaries, persisted history, and distilled session state are active. |
 | Vector/semantic long-term memory | **Strongly aligned** | PostgreSQL source of truth plus Qdrant similarity index and memory injection are active. |
-| User/profile memory | **Partially aligned** | Persistent preferences are extracted and stored but are not automatically injected by `get_context()`. |
+| User/profile memory | **Strongly aligned** | Persistent preferences are extracted, owner-scoped, superseded when appropriate, and automatically injected by `get_context()`. |
 | Episodic memory | **Partially aligned** | Durable, timestamped conversations and research execution records exist, but episode-specific semantic retrieval is absent. |
 | External/tool memory | **Gap for autonomous tool use** | Memory HTTP/service APIs exist, but agents do not autonomously select save/search memory tools. |
 | Memory-augmented RAG | **Strongly aligned** | Memory retrieval precedes generation and is combined with document/web/paper context. |
 | Memory writing and extraction | **Strongly aligned** | Post-turn policy, structured extraction, importance filtering, idempotency, and deduplication are integrated. |
-| Memory lifecycle and governance | **Partially aligned** | CRUD, forgetting, TTL, owner isolation, and stale deletion exist; scheduling, archival, consent, and temporal correction need work. |
+| Memory lifecycle and governance | **Partially aligned** | CRUD, forgetting, TTL, owner isolation, and scheduled dry-run stale evaluation exist; production deletion rollout, archival, consent, and temporal correction need work. |
 | Observability and evaluation | **Partially aligned** | Detailed operational metrics and artifacts exist; memory quality benchmarks and user outcome evaluation are limited. |
 
 ---
@@ -285,7 +298,7 @@ Conversation history and memory are injected for response generation, but normal
 | Idempotent processing | **Aligned** | A Redis key prevents repeated extraction of the same turn and policy version. | If Redis is unavailable, extraction continues without the idempotency guarantee. |
 | Exact duplicate update | **Aligned** | Exact matches update provenance and retain maximum importance. | Normalization in the SQL expression may not be identical to Python whitespace normalization for all inputs. |
 | Provenance metadata | **Aligned** | Source turn, policy version, and optional research ID are attached. | Model/provider version, source citations, and extraction confidence are not consistently first-class fields. |
-| User correction | **Partially aligned** | Memory CRUD APIs allow explicit update and delete. | There is no automatic detection that a new statement corrects or invalidates an older memory. |
+| User correction | **Aligned for preferences** | Memory CRUD supports explicit correction, and the USER supersession policy can update a matching preference in place. | General contradiction handling and temporal versioning for semantic/research facts remain deferred. |
 | Memory confidence | **Partially aligned** | Importance is stored. | Importance is not the same as extraction confidence or truth confidence; those dimensions are not separated. |
 
 ---
@@ -300,8 +313,8 @@ Conversation history and memory are injected for response generation, but normal
 | Parallel category search | **Aligned** | Semantic and research branches run concurrently by default. | Partial branch failures quietly reduce context. |
 | Fuse search result lists | **Aligned for explicit search** | Reciprocal-rank fusion preserves each backend's ranking and deduplicates by memory ID. | Per-turn `get_context()` keeps categories separate rather than fusing globally. |
 | Deduplicate memory and transcript | **Aligned** | Redundant raw session entries are removed when canonical transcript already contains them. | Durable semantic/research memories can still paraphrase each other. |
-| Bound injected items | **Aligned** | Separate maximum item counts and per-item character limits exist for session, semantic, and research sections. | Character limits can cut facts mid-sentence and are not token-aware. |
-| Label memory categories | **Strongly aligned** | Prompt formatting distinguishes active session state, knowledge about the user, and prior research findings. | The “what we know about this user” label currently applies to `SEMANTIC`, while stored `USER` memories are absent. |
+| Bound injected items | **Strongly aligned** | One coordinated token budget, per-type shares, whole-entry inclusion, evidence/output reserves, and omission counts bound session, user, semantic, and research context. | Token estimation remains approximate rather than provider-tokenizer-specific. |
+| Label memory categories | **Strongly aligned** | Prompt formatting distinguishes active session state, durable user preferences, semantic knowledge, and prior research findings. | The coordinated budget can omit lower-priority entries and reports those omissions. |
 | Separate memory from evidence | **Strongly aligned** | Memory modifies prompt text without changing document chunks or citation records. | Old research memory can influence an answer without itself being directly citable unless the linked research artifact is resolved. |
 | Retrieval observability | **Aligned operationally** | Context latency, durable availability, skips, search latency, parallel searches, hits/misses, result counts, and artifacts are recorded. | No measured precision/recall or usefulness label for recalled memories. |
 
@@ -318,11 +331,11 @@ Conversation history and memory are injected for response generation, but normal
 | User update | **Aligned** | Owner-scoped update supports content, metadata, and importance changes. | Content updates reindex vector-backed memories, but profile semantics and contradiction handling remain manual. |
 | User forgetting | **Strongly aligned** | Owner-scoped deletion removes the database row and vector point where applicable. | Session-index lists retain deleted IDs until expiry, though missing records are ignored. |
 | Cascade on user deletion | **Aligned for PostgreSQL** | Memory rows use an owner foreign key with cascade deletion. | External indexes/caches require coordinated cleanup beyond the database cascade. |
-| Importance-based retention | **Partially aligned** | Low-importance writes are skipped; stale low-importance durable memories can be deleted. | Stale sweep is not scheduled. |
+| Importance-based retention | **Aligned, rollout pending** | Low-importance writes are skipped; a recurring worker evaluates per-type age and importance policies. | Production deletion remains disabled until operators review dry-run candidates. |
 | Hot/warm/cold/archive lifecycle | **Gap by design** | The lifecycle module explicitly postpones tiering until real usage data exists. | No archive state or retrieval-aware decay. |
 | Time decay | **Gap** | Created/updated timestamps exist. | Retrieval ranking does not combine semantic relevance with recency decay. |
 | Consolidation | **Gap** | Exact duplicates are merged. | No background process consolidates clusters of related memories into a canonical fact. |
-| Scheduled cleanup | **Gap** | `sweep_stale()` is callable. | Nothing in the repository schedules it. |
+| Scheduled cleanup | **Aligned, rollout pending** | A dedicated recurring worker invokes `sweep_stale()` under a Valkey singleton lock and exports metrics. | It intentionally defaults to dry-run; production must explicitly enable deletion. |
 
 ---
 
@@ -367,7 +380,7 @@ Conversation history and memory are injected for response generation, but normal
 | Artifacts | **Aligned** | Search and context artifacts persist inputs and results for debugging. | Retention and PII controls for these artifacts need explicit governance. |
 | Memory usefulness | **Gap** | Operational telemetry exists. | The system does not measure whether recalled memory was actually used, relevant, or harmful. |
 | Extraction accuracy | **Gap** | Structured output and policy improve reliability. | No labeled evaluation set for correct memory selection, type, importance, and factual content was found. |
-| Personalization quality | **Gap** | User memories are stored. | Because they are not automatically injected, there is no closed-loop personalization evaluation. |
+| Personalization quality | **Partially aligned** | User memories are stored, superseded when applicable, and automatically injected. | A closed-loop benchmark proving that recalled preferences improve outcomes is still missing. |
 | Contradiction/staleness rate | **Gap** | Exact duplicate counts are measured. | Contradictory or obsolete memories are not detected or reported. |
 | User trust controls | **Partial** | CRUD APIs provide control. | No metrics for memory corrections, deletions, opt-outs, or complaints were found. |
 
@@ -412,13 +425,13 @@ Conversation history and memory are injected for response generation, but normal
 
 | Area | Current behavior | Reference/industry expectation | Consequence |
 |---|---|---|---|
-| User preference consumption | User memories are persisted but excluded from normal context assembly. | Stable preferences personalize future sessions. | The platform may remember a preference without applying it. |
+| User preference consumption | User memories are persisted and included in normal context assembly under a coordinated budget. | Stable preferences personalize future sessions. | Quality evaluation and product-level preference controls still need hardening. |
 | Episodic retrieval | Sessions and runs are replayable by known identifiers. | Relevant prior episodes can be searched by meaning, time, tags, and outcome. | Cross-session workflow reuse depends on extracted findings rather than whole episodes. |
 | Agent tool memory | Orchestrator controls reads/writes. | Agent can choose save/search memory tools during long tasks. | Mid-run memory lookup is unavailable, but safety and determinism are better. |
 | Semantic memory creation | Explicit API can store semantic memory; automatic extraction creates only user/research types. | General durable facts can enter semantic memory automatically. | Semantic context may remain empty unless another caller writes it. |
 | Contradiction handling | Exact duplicates merge; differing facts coexist. | Newer corrections supersede or version older facts. | Conflicting preferences/findings can both be recalled. |
 | Temporal validity | Created/updated timestamps only. | Facts have validity windows, subjects, versions, and confidence. | Old facts may remain semantically relevant after becoming false. |
-| Lifecycle automation | TTL exists; stale sweep is callable. | Scheduled decay, consolidation, archive, and deletion policies. | Durable stores can grow and stale facts can persist. |
+| Lifecycle automation | TTL exists; a recurring singleton worker evaluates configurable per-type stale policies and defaults to dry-run. | Production deletion rollout, decay, consolidation, and archive policies. | Durable stores continue growing until operators approve and enable live deletion. |
 | Privacy consent | Automatic extraction enabled globally. | User/category-level consent and sensitive-memory policies. | Users may not know durable facts are being extracted. |
 | Memory-specific security | Owner isolation and background framing exist. | Stored-memory sanitization and prompt-injection defenses. | Malicious remembered text could influence later prompts. |
 | Quality evaluation | Detailed operational metrics. | Labeled extraction/recall/usefulness and harm evaluation. | High hit rates can conceal irrelevant or harmful memories. |
@@ -443,11 +456,11 @@ Conversation history and memory are injected for response generation, but normal
 
 | Priority | Improvement | Reason | Suggested acceptance evidence |
 |---|---|---|---|
-| **P0** | Include applicable `USER` preferences in runtime memory context | Closes the clearest mismatch between what the platform stores and what it uses. | Tests showing owner-scoped preferences influence later sessions, with per-item relevance/allow-list rules and bounded tokens. |
-| **P0** | Add contradiction and correction semantics | Prevents old and new preferences/findings from coexisting without a clear winner. | Subject/key, confidence, `valid_from`, superseded record ID, and correction tests. |
-| **P0** | Add memory privacy controls | Durable automatic extraction needs opt-out, sensitive-category restrictions, and a visible memory-management experience. | User-level enable/disable setting, “do not remember this” path, inspect/edit/delete UI/API behavior, and PII tests. |
+| **Done (M0)** | Include applicable `USER` preferences in runtime memory context | The stored profile now affects later turns within a bounded coordinated prompt budget. | Owner-scoped injection and precedence tests are in place. |
+| **Done (M1)** | Add USER preference correction semantics | New applicable USER preferences can supersede an existing row instead of accumulating contradictions. | Supersession tests are in place; general temporal fact versioning remains future work. |
+| **P0, partial** | Complete memory privacy controls | The visible Personal Memory inventory now supports owner-scoped inspection, filtering, editing, and confirmed deletion. Opt-out, sensitive-category restrictions, project-scoped controls, and PII hardening remain. | User/project enable-disable settings, “do not remember this” path, Project Memory authorization tests, and PII tests. |
 | **P0** | Build a memory evaluation dataset and regression suite | Operational metrics cannot prove memory correctness or usefulness. | Labeled extraction, type, importance, recall relevance, contradiction, and forget-completeness tests in CI. |
-| **P1** | Schedule stale-memory lifecycle jobs | The cleanup service exists but never runs automatically. | Operator-configurable schedule, dry-run report, deletion metrics, audit log, and Qdrant consistency checks. |
+| **Rollout (M3)** | Enable stale-memory lifecycle deletion after dry-run review | The recurring worker, policies, locking, metrics, and report-only default are implemented. | Reviewed candidate counts, alerting, explicit `DRY_RUN=false`, and PostgreSQL/Qdrant consistency checks. |
 | **P1** | Add memory-specific input sanitization before prompt injection | Stored memory is untrusted historical text. | Adversarial memories cannot override system instructions or trigger unintended behavior. |
 | **P1** | Preserve richer provenance | Enables trust, correction, and traceability. | Source quote/message ID, extraction model/prompt version, research citation IDs, confidence, and timestamps. |
 | **P1** | Add lexical or hybrid memory retrieval for exact terms | Semantic-only recall can miss identifiers, names, acronyms, and exact citations. | Benchmark showing Recall@K lift on exact-term memory queries without unrelated recall. |

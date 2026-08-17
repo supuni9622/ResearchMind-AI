@@ -3,7 +3,9 @@ from __future__ import annotations
 from enum import StrEnum
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
+
+from app.ai.memory.enums import MemoryScopeType
 
 
 class MemoryExtractionAction(StrEnum):
@@ -14,6 +16,8 @@ class MemoryExtractionAction(StrEnum):
 
 class MemoryTurnEvent(BaseModel):
     owner_id: UUID
+    scope_type: MemoryScopeType = MemoryScopeType.PERSONAL
+    project_id: UUID | None = None
     session_id: UUID
     runtime: str
     user_message: str
@@ -39,3 +43,27 @@ class MemoryExtractionOutcome(BaseModel):
     duplicate_count: int = 0
     skipped_count: int = 0
     failed: bool = False
+
+
+class PreferenceSupersessionDecision(BaseModel):
+    """
+    Structured output of `PreferenceSupersessionService`'s cheap
+    classification call: does a new USER preference statement replace one
+    of the owner's existing ones?
+
+    `superseded_index` is a required plain `int` (0 meaning "none"), not
+    `int | None`, deliberately mirroring `_ExtractedMemoryLLM`'s docstring
+    precedent -- an optional field with a default is absent from
+    `required`, which OpenAI's strict structured-output mode rejects.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    superseded_index: int = Field(
+        description=(
+            "1-indexed position of the existing preference this replaces "
+            "in the numbered list, or 0 if it does not supersede any of "
+            "them."
+        ),
+    )
+    reason: str = Field(min_length=1, max_length=500)

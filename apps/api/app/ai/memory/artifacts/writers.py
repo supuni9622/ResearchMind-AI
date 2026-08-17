@@ -27,8 +27,9 @@ class MemoryArtifactWriter:
         self,
         artifact: MemorySearchArtifact,
     ) -> None:
+        scope = self._scope_path(artifact.scope_type.value, artifact.project_id)
         await self._write_json(
-            key=f"memory/{artifact.owner_id}/{artifact.artifact_id}/memory_search.json",
+            key=f"memory/{artifact.owner_id}/{scope}/{artifact.artifact_id}/memory_search.json",
             payload=artifact,
         )
 
@@ -36,8 +37,9 @@ class MemoryArtifactWriter:
         self,
         artifact: MemoryContextArtifact,
     ) -> None:
+        scope = self._scope_path(artifact.scope_type.value, artifact.project_id)
         await self._write_json(
-            key=f"memory/{artifact.owner_id}/{artifact.artifact_id}/memory_context.json",
+            key=f"memory/{artifact.owner_id}/{scope}/{artifact.artifact_id}/memory_context.json",
             payload=artifact,
         )
 
@@ -57,3 +59,7 @@ class MemoryArtifactWriter:
             ),
             content_type="application/json",
         )
+
+    @staticmethod
+    def _scope_path(scope_type: str, project_id: object | None) -> str:
+        return "personal" if scope_type == "personal" else f"project/{project_id}"

@@ -703,6 +703,15 @@ offline results rather than building a separate one).
       entrypoint (`python -m apps.worker.eval_scoring_main`), matching
       `research_runtime_main.py`'s signal-handling/session-lifecycle
       pattern
+- [x] **Operational fix, 2026-08-17:** row identifiers used by failure
+      logging are snapshotted before scoring begins. A failed transaction can
+      expire SQLAlchemy ORM instances; the previous exception handler read
+      `row.generation_id` afterward, attempted implicit async database I/O,
+      and replaced the useful row error with `MissingGreenlet`. The handler
+      now logs from the primitive snapshot, rolls the row back, and preserves
+      the original exception. A regression test explicitly expires the ORM
+      attribute before raising. The complete online-scoring job suite passes
+      (30 tests).
 - [x] Config: six new `Settings` fields
       (`eval_online_baseline_sample_rate` default 0.075 — §14's 5-10%
       midpoint, `eval_online_canary_oversample_rate`,

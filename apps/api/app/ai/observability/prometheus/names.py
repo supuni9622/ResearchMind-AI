@@ -23,9 +23,13 @@ from typing import Literal
 from app.ai.memory.observability.metrics import (
     CONTEXT_DURABLE_AVAILABLE,
     CONTEXT_DURABLE_EMPTY,
+    CONTEXT_ITEMS_OMITTED,
     CONTEXT_LATENCY,
     CONTEXT_REQUESTS,
     CONTEXT_RETRIEVAL_SKIPPED,
+    CONTEXT_TOKEN_SHARE,
+    CONTEXT_TOKENS_DROPPED,
+    CONTEXT_TOKENS_SELECTED,
     DURABLE_SEARCH_LATENCY,
     EMBEDDING_LATENCY,
     EXTRACTION_EMPTY,
@@ -35,6 +39,12 @@ from app.ai.memory.observability.metrics import (
     EXTRACTION_REQUESTED,
     EXTRACTION_SKIPPED,
     EXTRACTION_SUCCEEDED,
+    LIFECYCLE_DELETED,
+    LIFECYCLE_DURATION,
+    LIFECYCLE_EXAMINED,
+    LIFECYCLE_FAILED,
+    LIFECYCLE_LAST_SUCCESS,
+    LIFECYCLE_OLDEST_CANDIDATE_AGE,
     MEMORY_COUNT,
     MEMORY_CREATED,
     MEMORY_DUPLICATE,
@@ -136,6 +146,8 @@ RUNTIME_BUCKETS: tuple[float, ...] = (
     60.0,
     120.0,
 )
+
+TOKEN_BUCKETS: tuple[float, ...] = (10, 25, 50, 100, 250, 500, 1_000, 2_000, 4_000)
 
 #: Deep Research end-to-end run duration (E17 follow-up) -- minutes-to-hours
 #: scale, since a run's wall-clock time legitimately includes
@@ -488,6 +500,27 @@ COUNTER_METRICS: dict[str, MetricSpec] = {
     MEMORY_DUPLICATE: MetricSpec(
         "researchmind_memory_duplicates_total", "Total duplicate memories detected.", "counter"
     ),
+    LIFECYCLE_EXAMINED: MetricSpec(
+        "researchmind_memory_lifecycle_examined_total",
+        "Total durable-memory rows examined by lifecycle sweeps.",
+        "counter",
+    ),
+    LIFECYCLE_DELETED: MetricSpec(
+        "researchmind_memory_lifecycle_deleted_total",
+        "Total durable-memory rows deleted by lifecycle sweeps.",
+        "counter",
+    ),
+    LIFECYCLE_FAILED: MetricSpec(
+        "researchmind_memory_lifecycle_failed_total",
+        "Total durable-memory rows whose lifecycle deletion failed.",
+        "counter",
+    ),
+    CONTEXT_ITEMS_OMITTED: MetricSpec(
+        "researchmind_memory_context_items_omitted_total",
+        "Total memory entries omitted by the coordinated token budget.",
+        "counter",
+        ("type",),
+    ),
 }
 
 #: Populated by `record_duration()` calls (`operation=` is the lookup key).
@@ -578,6 +611,13 @@ DURATION_METRICS: dict[str, MetricSpec] = {
         (),
         RUNTIME_BUCKETS,
     ),
+    LIFECYCLE_DURATION: MetricSpec(
+        "researchmind_memory_lifecycle_duration_seconds",
+        "Memory lifecycle sweep duration.",
+        "histogram",
+        (),
+        RUNTIME_BUCKETS,
+    ),
 }
 
 #: Populated by `set_gauge()` calls.
@@ -588,9 +628,41 @@ GAUGE_METRICS: dict[str, MetricSpec] = {
         "gauge",
         ("server",),
     ),
+    LIFECYCLE_LAST_SUCCESS: MetricSpec(
+        "researchmind_memory_lifecycle_last_success_timestamp_seconds",
+        "Unix timestamp of the last successful lifecycle sweep.",
+        "gauge",
+    ),
+    LIFECYCLE_OLDEST_CANDIDATE_AGE: MetricSpec(
+        "researchmind_memory_lifecycle_oldest_candidate_age_seconds",
+        "Age of the oldest lifecycle candidate in seconds.",
+        "gauge",
+    ),
 }
 
 #: Populated by `observe()` calls (non-duration histogram values). Empty
 #: until a caller needs one -- PRD §39 rule 19: don't fabricate metrics
 #: ahead of real behavior.
-OBSERVE_METRICS: dict[str, MetricSpec] = {}
+OBSERVE_METRICS: dict[str, MetricSpec] = {
+    CONTEXT_TOKENS_SELECTED: MetricSpec(
+        "researchmind_memory_context_tokens_selected",
+        "Estimated tokens selected for a rendered memory block.",
+        "histogram",
+        (),
+        TOKEN_BUCKETS,
+    ),
+    CONTEXT_TOKENS_DROPPED: MetricSpec(
+        "researchmind_memory_context_tokens_dropped",
+        "Estimated candidate tokens dropped from a memory block.",
+        "histogram",
+        (),
+        TOKEN_BUCKETS,
+    ),
+    CONTEXT_TOKEN_SHARE: MetricSpec(
+        "researchmind_memory_context_budget_utilization_ratio",
+        "Fraction of the resolved memory token budget used.",
+        "histogram",
+        (),
+        (0.1, 0.25, 0.5, 0.75, 0.9, 1.0),
+    ),
+}

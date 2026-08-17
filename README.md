@@ -291,6 +291,16 @@ Online evaluation scoring worker (EVALUATION_PLAN.md §14):
 python -m apps.worker.eval_scoring_main
 ```
 
+Durable-memory lifecycle worker (report-only by default):
+
+```bash
+uv run python -m apps.worker.memory_lifecycle_main
+```
+
+Run one replica per environment. It wakes daily by default, uses a Valkey
+singleton lock, and applies bounded type-specific retention policies. Inspect
+dry-run metrics/logs before setting `MEMORY_LIFECYCLE_DRY_RUN=false`.
+
 Polls for recently-completed Chat/Linear Research/Deep Research generations, runs the free citation-validity check on all of them, and runs the Ragas LLM-judge suite on a risk-weighted sample (guardrail-flagged and non-`PASS`-reviewed requests always, a configurable flat baseline otherwise — see the `eval_online_*` settings). Requires `OPENAI_API_KEY` to score judge metrics; without it, the worker still runs and scores citation validity only.
 
 **From now on: whenever you change a model, run `uv run alembic revision --autogenerate -m "..."`, read the generated file, then `./scripts/dev.sh` as usual.**

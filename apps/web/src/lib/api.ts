@@ -91,6 +91,35 @@ export interface GenerationUsageSummary {
   memory_extraction_cost_per_100_turns: number;
 }
 
+export type MemoryType = 'session' | 'user' | 'semantic' | 'research';
+
+export interface MemoryRecord {
+  id: string;
+  owner_id: string;
+  scope_type: 'personal' | 'project';
+  project_id: string | null;
+  type: MemoryType;
+  content: string;
+  metadata: Record<string, unknown>;
+  importance_score: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface MemoryListResponse {
+  memories: MemoryRecord[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+export interface MemoryListParams {
+  search?: string;
+  source?: string;
+  limit?: number;
+  offset?: number;
+}
+
 export type InfrastructureServiceStatus = 'healthy' | 'unhealthy';
 
 export interface HealthStatus {
@@ -800,6 +829,23 @@ export const api = {
   },
   usage: {
     summary: () => request<GenerationUsageSummary>('/api/v1/usage/summary'),
+  },
+  memory: {
+    list: (params: MemoryListParams = {}) => {
+      const query = new URLSearchParams();
+      if (params.search) query.set('search', params.search);
+      if (params.source) query.set('source', params.source);
+      query.set('limit', String(params.limit ?? 10));
+      query.set('offset', String(params.offset ?? 0));
+      return request<MemoryListResponse>(`/api/v1/memory?${query.toString()}`);
+    },
+    update: (memoryId: string, content: string) =>
+      request<MemoryRecord>(`/api/v1/memory/${memoryId}`, {
+        method: 'PUT',
+        body: JSON.stringify({ type: 'user', content }),
+      }),
+    delete: (memoryId: string) =>
+      request<void>(`/api/v1/memory/${memoryId}`, { method: 'DELETE' }),
   },
   chat: {
     stream: streamChat,

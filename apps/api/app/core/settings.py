@@ -217,9 +217,53 @@ class Settings(BaseSettings):
     memory_session_state_storage_enabled: bool = True
     memory_context_deduplication_enabled: bool = True
     memory_context_session_max_items: int = 5
+    memory_context_user_max_items: int = 5
     memory_context_semantic_max_items: int = 5
     memory_context_research_max_items: int = 5
-    memory_context_item_max_characters: int = 500
+    # One coordinated budget for the complete rendered memory block. The
+    # evidence/output reserves are applied when a caller supplies the selected
+    # model's context window; otherwise the explicit memory cap still bounds
+    # every runtime deterministically.
+    memory_context_total_token_budget: int = 1_200
+    memory_context_reserved_evidence_tokens: int = 4_000
+    memory_context_reserved_output_tokens: int = 2_000
+    memory_context_session_token_share: int = 300
+    memory_context_user_token_share: int = 300
+    memory_context_semantic_token_share: int = 300
+    memory_context_research_token_share: int = 300
+    # Staleness/supersession fix (Wave 2 follow-up): before persisting a new
+    # inferred USER preference, check whether it replaces an existing one on
+    # the same topic (e.g. "prefers detailed answers" replacing "prefers
+    # concise answers") rather than piling up as a second, contradictory row.
+    memory_preference_supersession_enabled: bool = True
+    # Public memory mutations use separate owner-scoped buckets so read/search
+    # traffic and background extraction never consume the user's API budget.
+    memory_write_rate_limit_requests: int = 30
+    memory_write_rate_limit_window_seconds: int = 60
+    memory_delete_rate_limit_requests: int = 10
+    memory_delete_rate_limit_window_seconds: int = 60
+    # Background extraction is the provider-cost circuit breaker. It is
+    # deliberately hourly and fail-open: a Valkey outage must not break the
+    # answer flow, while a confirmed over-quota owner skips the LLM call.
+    memory_extraction_rate_limit_requests: int = 60
+    memory_extraction_rate_limit_window_seconds: int = 60 * 60
+    memory_extraction_max_memories_per_turn: int = 5
+    memory_api_content_max_characters: int = 10_000
+    memory_api_metadata_max_bytes: int = 16_384
+    memory_api_metadata_max_depth: int = 6
+    # Durable-memory lifecycle worker. It starts report-only so operators can
+    # inspect real distributions before enabling deletion.
+    memory_lifecycle_enabled: bool = True
+    memory_lifecycle_dry_run: bool = True
+    memory_lifecycle_interval_seconds: int = 60 * 60 * 24
+    memory_lifecycle_lock_ttl_seconds: int = 60 * 30
+    memory_lifecycle_batch_size: int = 500
+    memory_lifecycle_user_stale_after_days: int = 365
+    memory_lifecycle_user_max_importance: float = 0.1
+    memory_lifecycle_semantic_stale_after_days: int = 90
+    memory_lifecycle_semantic_max_importance: float = 0.3
+    memory_lifecycle_research_stale_after_days: int = 180
+    memory_lifecycle_research_max_importance: float = 0.2
 
     # Chat history is paginated for replay. Model context receives recent turns
     # verbatim and a deterministic, persisted summary of older turns; this
@@ -369,6 +413,7 @@ class Settings(BaseSettings):
     this. Port `8001` was the first choice but is already bound by the
     `research-intelligence-mcp-mcp-1` Docker container on this machine
     -- confirmed via `lsof` before picking `8010`, not guessed."""
+    memory_lifecycle_worker_metrics_port: int = 8011
 
     grafana_admin_user: str = "admin"
     grafana_admin_password: str = "admin"
@@ -385,7 +430,12 @@ class Settings(BaseSettings):
             raise ValueError("prometheus_metrics_path must begin with '/'.")
         return value
 
-    @field_validator("grafana_port", "prometheus_port", "research_runtime_worker_metrics_port")
+    @field_validator(
+        "grafana_port",
+        "prometheus_port",
+        "research_runtime_worker_metrics_port",
+        "memory_lifecycle_worker_metrics_port",
+    )
     @classmethod
     def _validate_port_range(cls, value: int) -> int:
         if not (0 < value < 65536):

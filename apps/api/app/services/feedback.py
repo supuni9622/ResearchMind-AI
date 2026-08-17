@@ -4,17 +4,22 @@ from __future__ import annotations
 
 from uuid import UUID
 
+import structlog
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.ai.memory.importance import score_importance
 from app.ai.observability.providers.langsmith.user_feedback import sync_user_feedback
 from app.ai.runtime.generation.comment_classification.service import (
     CommentClassificationService,
 )
-from app.models.enums import EvalScoreSource, FeedbackRating, FeedbackSurface
+from app.models.enums import CommentClassification, EvalScoreSource, FeedbackRating, FeedbackSurface
 from app.models.feedback import Feedback
 from app.repositories.eval_score import EvalScoreRepository
 from app.repositories.feedback import FeedbackRepository
 from app.repositories.generation_usage import GenerationUsageRepository
+from app.services.preference_memory import PreferenceMemoryWriterProtocol
+
+logger = structlog.get_logger()
 
 USER_RATING_METRIC = "user_rating"
 """
@@ -34,12 +39,14 @@ class FeedbackService:
         generation_usage_repository: GenerationUsageRepository,
         eval_score_repository: EvalScoreRepository,
         comment_classification_service: CommentClassificationService,
+        preference_memory_writer: PreferenceMemoryWriterProtocol,
     ) -> None:
         self._session = session
         self._repository = repository
         self._generation_usage_repository = generation_usage_repository
         self._eval_score_repository = eval_score_repository
         self._comment_classification_service = comment_classification_service
+        self._preference_memory_writer = preference_memory_writer
 
     async def submit(
         self,
@@ -95,6 +102,19 @@ class FeedbackService:
         )
         await self._session.commit()
 
+        # Feedback and its eval-score mirror are canonical. Preference memory
+        # is deliberately attempted only after that transaction commits, via a
+        # separately owned session, so memory failure cannot poison or undo the
+        # user's feedback. Objective comments and rating-only submissions do
+        # not pay this extra database/LLM latency.
+        if comment and comment_classification == CommentClassification.PREFERENCE.value:
+            await self._remember_preference(
+                owner_id=owner_id,
+                generation_id=generation_id,
+                surface=surface,
+                comment=comment,
+            )
+
         run_id = await self._generation_usage_repository.get_langsmith_run_id(generation_id)
         if run_id is not None:
             sync_user_feedback(
@@ -105,3 +125,38 @@ class FeedbackService:
             )
 
         return feedback
+
+    async def _remember_preference(
+        self,
+        *,
+        owner_id: UUID,
+        generation_id: UUID,
+        surface: FeedbackSurface,
+        comment: str,
+    ) -> None:
+        """
+        Feedback -> USER memory write path (Wave 2). Only ever called for
+        comments E11's classifier already judged `preference` (stylistic --
+        "too formal") rather than `objective` (a factual quality issue --
+        "cited the wrong paper") -- objective comments are about the
+        answer's correctness, not the user, and don't belong in a durable
+        user-preference profile. Best-effort: a memory-write failure must
+        never fail feedback submission itself.
+        """
+
+        try:
+            await self._preference_memory_writer.remember_feedback_preference(
+                owner_id=owner_id,
+                generation_id=generation_id,
+                surface=surface,
+                content=comment,
+                importance_score=score_importance(comment),
+            )
+        except Exception as exc:
+            logger.warning(
+                "feedback.preference_memory_failed",
+                owner_id=str(owner_id),
+                generation_id=str(generation_id),
+                error_type=type(exc).__name__,
+                error=str(exc),
+            )

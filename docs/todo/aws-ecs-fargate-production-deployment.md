@@ -33,18 +33,22 @@ a lift-and-shift.
 - Already-live AWS dependencies to carry over as-is, not rebuild: Cognito
   (auth), S3 (documents, processing/chunking/embedding/observability
   artifacts), SQS (processing queue).
-- Two long-running worker processes exist today
-  (`apps/worker/processing_worker.py`'s consumer,
-  `apps/worker/research_runtime_worker.py`) — both need an always-on
-  compute target, not a request/response one.
+- Four long-running worker processes exist today: document processing,
+  Research Runtime, online evaluation scoring, and the memory lifecycle
+  worker. Each needs an independently supervised compute target rather than a
+  request/response one. The lifecycle worker command, configuration, and
+  report-only rollout procedure are documented in
+  [`docs/deployment/production.md`](../deployment/production.md#memory-lifecycle-worker).
 
 ## Target shape (sketch, not finalized)
 
 - **One VPC**, public subnets for the ALB only, private subnets for
   everything else (ECS tasks, RDS, ElastiCache, self-hosted Qdrant).
-- **ECS Fargate**: one service for the API (behind an ALB), one service (or
-  two — processing worker and research-runtime worker may want independent
-  scaling/restart policies) for the workers.
+- **ECS Fargate**: one service for the API behind an ALB and independently
+  supervised services/task definitions for document processing, Research
+  Runtime, evaluation scoring, and memory lifecycle. The memory lifecycle
+  service should use one replica; its Valkey lock protects deployment overlap,
+  not horizontal scaling.
 - **ECR** for API/worker/web images; a build step needs to exist to produce
   them (none does today).
 - **RDS Postgres** replacing the Compose `postgres` service.

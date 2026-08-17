@@ -173,14 +173,21 @@ class OnlineScoringJob:
             limit=self._batch_size,
         )
 
-        for row in candidates:
+        # Keep error-reporting identifiers outside the transaction lifecycle.
+        # A failed flush/commit or rollback expires ORM instances; touching an
+        # expired attribute from this synchronous logging expression makes
+        # SQLAlchemy attempt implicit async I/O and masks the real failure with
+        # MissingGreenlet.
+        generation_ids = [str(row.generation_id) for row in candidates]
+
+        for row, generation_id in zip(candidates, generation_ids, strict=True):
             try:
                 await self._score_one(row)
                 await self._commit()
             except Exception:
                 logger.exception(
                     "online_scoring_job.row_failed",
-                    generation_id=str(row.generation_id),
+                    generation_id=generation_id,
                 )
                 await self._rollback()
 

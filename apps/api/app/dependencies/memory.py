@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.memory.artifacts.writers import MemoryArtifactWriter
 from app.ai.memory.create import (
+    build_preference_supersession_service,
     create_memory_artifact_writer,
     create_memory_availability_client,
     create_memory_query_embedding_service,
@@ -18,6 +19,7 @@ from app.ai.memory.create import (
 )
 from app.ai.memory.extraction.service import MemoryExtractionService
 from app.ai.memory.lifecycle.service import MemoryLifecycleService
+from app.ai.memory.policy.supersession import PreferenceSupersessionService
 from app.ai.memory.profile.service import UserMemoryService
 from app.ai.memory.research.service import ResearchMemoryService
 from app.ai.memory.retrieval.availability import DurableMemoryAvailabilityService
@@ -119,6 +121,10 @@ def get_session_state_updater_service(
     )
 
 
+def get_preference_supersession_service() -> PreferenceSupersessionService:
+    return build_preference_supersession_service()
+
+
 def get_memory_lifecycle_service(
     session: AsyncSession = Depends(get_db),
     vector_index: MemoryVectorIndex = Depends(create_memory_vector_index),
@@ -140,6 +146,9 @@ def get_memory_service(
     research_memory: ResearchMemoryService = Depends(get_research_memory_service),
     artifact_writer: MemoryArtifactWriter = Depends(get_memory_artifact_writer),
     metrics: MetricsRecorder = Depends(get_memory_metrics),
+    supersession_service: PreferenceSupersessionService = Depends(
+        get_preference_supersession_service
+    ),
 ) -> MemoryService:
     """
     Request-scoped `MemoryService` (carries a request-scoped
@@ -160,4 +169,5 @@ def get_memory_service(
             create_memory_availability_client(),
             metrics,
         ),
+        supersession_service=supersession_service,
     )

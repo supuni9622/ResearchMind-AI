@@ -14,6 +14,17 @@ tracking:** [`EVALUATION_IMPLEMENTATION_TRACKER.md`](EVALUATION_IMPLEMENTATION_T
 breaks Wave 1 below into task/subtask detail with verified current code
 state — check it before starting any Wave 1 item.
 
+**Memory execution tracking:**
+[`MEMORY_PLATFORM_PRIORITIZED_TASKS.md`](MEMORY_PLATFORM_PRIORITIZED_TASKS.md)
+is authoritative for memory task IDs and acceptance criteria, with
+[`MEMORY_MANAGEMENT_SUMMARY.md`](MEMORY_MANAGEMENT_SUMMARY.md) as the living
+orientation. Reconciled 2026-08-17: M0-M2 are complete, M3 is implemented with
+operational rollout pending, M4 is complete, and a personal-only M12/M13 slice
+(owner-scoped listing, search/source filtering, pagination, edit, and confirmed
+delete) shipped early. M5's isolation foundation is complete. Wave 3 must now
+provide the full Project model and authorized runtime context before it sends
+Project-scoped traffic or activates the Project Memory UI.
+
 ## How this is ordered
 
 Every item is scored on two axes, then placed into a **Wave** (an execution
@@ -70,12 +81,12 @@ instruction, not derived:
 | 1 | ✅ Frontend thumbs up/down affordance — Done, all 3 surfaces (real browser click confirmed 2026-08-11) | High | Med-High | Gap-closure follow-up to E3 — backend is live but nothing in the product calls it yet |
 | 1 | ✅ Mirror `POST /feedback` into LangSmith's own `create_feedback()` — Done | Med-High | Med | Gap-closure follow-up to E21, requested directly after the user noticed LangSmith's Feedback column stayed empty on a real click — correlates user feedback to its trace inside LangSmith's own UI |
 | 1 | ✅ Tool-invocation rate & success rate metric (E23) — Done for Chat + Deep Research web search, found and shipped 2026-08-12 | Med | High | `EVALUATION_PLAN.md` §10 labels this MVP (distinct from the Mature-tier tool-call-correctness judge); never had its own tracker item and was mislabeled as out-of-scope until this pass's cross-doc audit — `WebSearchNecessityDecision`/paper-search extraction are already computed, this is just a count over them. Deep Research web search closed same day via `ResearchRun.budget_usage`, no LangGraph changes needed; Deep Research paper search + Linear Research remain explicitly excluded (see E23) |
-| 2 | User-profile memory read-side wiring | High | Med | Turns "captured but inert" into real personalization |
+| 2 | ✅ User-profile memory read-side wiring — Done, 2026-08-12 (prompt-content injection only; routing/behavior injection deliberately left open, see doc) | High | Med | Turns "captured but inert" into real personalization |
 | 2 | **Socratic Challenger node (pulled forward — see note below)** | High | High | Reuses `interrupt()`, proven 3x already — too cheap to defer |
-| 2 | Preference feedback → `USER` memory write path | Med | Med | Depends on the read-side fix above |
+| 2 | ✅ Preference feedback → `USER` memory write path — Done, 2026-08-12 | Med | Med | Depends on the read-side fix above |
 | 2 | **Reject-with-revise, i.e. "edit interruption capability"** (plan/report approval) | Med-High | Med | Reuses `REVISE_SYNTHESIS` path; see expanded detail below — this is more than one line captures |
 | 2 | Live cost/token visibility in Deep Research events | Med | High | Reuses an existing cost-lookup query pattern |
-| 2 | HITL confirmation on memory deletion + gated document-delete endpoint design | Med-High | Med | Readiness P0/P1 item — reuses the same `interrupt()` mechanism this wave already uses twice, doesn't need to wait for Wave 7 |
+| 2 | Memory production hardening + Projects isolation — M0-M2/M4/M5 foundation complete; M3 rollout pending | High | Med | M3's recurring bounded worker is implemented report-only; staging/production rollout evidence remains. M4's coordinated total token budget and M5's scope/authorization foundation are complete; M6-M16 remain sequenced in [`MEMORY_PLATFORM_PRIORITIZED_TASKS.md`](MEMORY_PLATFORM_PRIORITIZED_TASKS.md) |
 | 2 | Proposal-level rejection/expiry (before a run exists) | Med | Med | One stage earlier than reject-with-revise above, same approval-checkpoint family; triaged in from `AI_ENGINEERING_AUDIT.md` §5 P4#24's still-open half, 2026-08-12 |
 | 2 | Deep Research rate limiting: per-owner fair-share, not just total-queue-depth | Med | Med | Today one owner's burst can fill the global queue cap and get other owners' approvals shed; reuses the existing `ValkeyRateLimiter`/`deep_research_max_queued_runs` infra, just needs fair-share accounting on top; triaged in from `REMAINING_WORK.md` item 3, 2026-08-12 |
 | 2 | Cross-conversation Deep Research run-history browser | Med | Med | Today's browsing path is "pick a conversation, see its runs" — this adds "see every run a user has ever started" independent of conversation; `GET /research/{id}` already exists, needs a new list endpoint + UI; triaged in from `REMAINING_WORK.md` item 5, 2026-08-12 |
@@ -173,10 +184,12 @@ research-memory note** first, not a full typed `HumanInsight`, and upgrade
 it once Wave 3's domain model exists. This is a deliberate, disclosed
 deviation from `NORTH_STAR.md`'s original sequencing, not an oversight.
 
-The rest of this wave closes real gaps on already-shipped Deep Research
-features: user-profile memory (fully diagnosed already, just needs the
-read-side wired), and live cost/token events (reuses an existing query
-pattern).
+USER prompt injection and the preference-feedback write path are now complete.
+M3 is implemented with operational rollout pending; M4 is complete; a
+personal-only M12/M13 management slice is live; and M5's isolation foundation
+is complete. Use the memory backlog
+rather than this section's older rationale to determine implementation status.
+The other items here close real gaps on already-shipped Deep Research features.
 
 **"Edit interruption capability" — reject-with-revise, in full,** since
 compressing this to one line loses real decisions already made:
@@ -261,6 +274,12 @@ belong together:
    documents inline within a project, explicitly named alongside the
    Project item in `PHASE_2_3_ROADMAP.md` V2 #3, sitting on top of the same
    grouping as (1) and (2).
+
+Memory task M5 now establishes first-class personal/project scope, membership
+authorization, storage filters, and legacy backfill. Before these Project
+surfaces persist or retrieve memory, the Project build must supply that
+boundary with a server-authorized runtime context. This is a dependency of the
+Project build, not a competing or narrower Project schema.
 
 **Correction, 2026-08-12 (`IMPLEMENTATION_GAP_CROSSCHECK_2026-08-12.md`
 Table D):** earlier drafts of this section described the typed

@@ -31,7 +31,7 @@ import structlog
 
 from app.ai.memory.artifacts.builders import MemoryArtifactBuilder
 from app.ai.memory.artifacts.writers import MemoryArtifactWriter
-from app.ai.memory.enums import MemoryType
+from app.ai.memory.enums import MemoryScopeType, MemoryType
 from app.ai.memory.exceptions import MemoryValidationError
 from app.ai.memory.importance import score_importance
 from app.ai.memory.models import (
@@ -52,6 +52,7 @@ from app.ai.memory.observability.metrics import (
     MEMORY_DUPLICATE,
     MEMORY_HITS,
     MEMORY_MISSES,
+    MEMORY_SUPERSEDED,
     MEMORY_UPDATED,
     PARALLEL_SEARCH,
     REMEMBER_LATENCY,
@@ -61,6 +62,7 @@ from app.ai.memory.observability.metrics import (
     SESSION_DUPLICATES_REMOVED,
     SESSION_ITEMS_LOADED,
 )
+from app.ai.memory.policy.supersession import PreferenceSupersessionService
 from app.ai.memory.profile.service import UserMemoryService
 from app.ai.memory.research.service import ResearchMemoryService
 from app.ai.memory.retrieval.availability import DurableMemoryAvailabilityService
@@ -90,6 +92,8 @@ class _MemoryBackend(Protocol):
         *,
         owner_id: UUID,
         memory_id: UUID,
+        scope_type: MemoryScopeType = MemoryScopeType.PERSONAL,
+        project_id: UUID | None = None,
     ) -> MemoryRecord | None: ...
 
     async def forget(
@@ -97,6 +101,8 @@ class _MemoryBackend(Protocol):
         *,
         owner_id: UUID,
         memory_id: UUID,
+        scope_type: MemoryScopeType = MemoryScopeType.PERSONAL,
+        project_id: UUID | None = None,
     ) -> bool: ...
 
     async def update(
@@ -104,6 +110,8 @@ class _MemoryBackend(Protocol):
         *,
         owner_id: UUID,
         memory_id: UUID,
+        scope_type: MemoryScopeType = MemoryScopeType.PERSONAL,
+        project_id: UUID | None = None,
         content: str | None = None,
         metadata: dict[str, Any] | None = None,
         importance_score: float | None = None,
@@ -123,6 +131,8 @@ class _RememberableBackend(Protocol):
         self,
         *,
         owner_id: UUID,
+        scope_type: MemoryScopeType = MemoryScopeType.PERSONAL,
+        project_id: UUID | None = None,
         content: str,
         importance_score: float,
         metadata: dict[str, Any] | None = None,
@@ -141,6 +151,7 @@ class MemoryService:
         metrics: MetricsRecorder | None = None,
         importance_threshold: float = _DEFAULT_IMPORTANCE_THRESHOLD,
         availability_service: DurableMemoryAvailabilityService | None = None,
+        supersession_service: PreferenceSupersessionService | None = None,
     ) -> None:
         self._session = session_memory
         self._user = user_memory
@@ -164,6 +175,33 @@ class MemoryService:
         self._metrics = metrics or NoOpMetricsRecorder()
         self._importance_threshold = importance_threshold
         self._availability = availability_service
+        self._supersession = supersession_service
+
+    async def list_user_memories(
+        self,
+        *,
+        owner_id: UUID,
+        scope_type: MemoryScopeType = MemoryScopeType.PERSONAL,
+        project_id: UUID | None = None,
+        search: str | None = None,
+        source: str | None = None,
+        limit: int = 20,
+        offset: int = 0,
+    ) -> tuple[list[MemoryRecord], int]:
+        """List the authenticated owner's durable profile memories.
+
+        This deliberately exposes USER memory only within one resolved scope.
+        """
+
+        return await self._user.list_preferences_page(
+            owner_id=owner_id,
+            scope_type=scope_type,
+            project_id=project_id,
+            search=search,
+            source=source,
+            limit=limit,
+            offset=offset,
+        )
 
     # ==========================================================
     # Remember
@@ -175,6 +213,8 @@ class MemoryService:
         owner_id: UUID,
         type: MemoryType,
         content: str,
+        scope_type: MemoryScopeType = MemoryScopeType.PERSONAL,
+        project_id: UUID | None = None,
         session_id: UUID | None = None,
         metadata: dict[str, Any] | None = None,
         importance_score: float | None = None,
@@ -205,6 +245,8 @@ class MemoryService:
             record = await self._session.remember(
                 owner_id=owner_id,
                 session_id=session_id,
+                scope_type=scope_type,
+                project_id=project_id,
                 content=content,
                 importance_score=score,
                 metadata=metadata,
@@ -212,6 +254,8 @@ class MemoryService:
         else:
             record = await self._rememberable[type].remember(
                 owner_id=owner_id,
+                scope_type=scope_type,
+                project_id=project_id,
                 content=content,
                 importance_score=score,
                 metadata=metadata,
@@ -224,7 +268,9 @@ class MemoryService:
         self._metrics.increment(metric=MEMORY_COUNT)
 
         if type in {MemoryType.SEMANTIC, MemoryType.RESEARCH} and self._availability is not None:
-            await self._availability.invalidate(owner_id=owner_id)
+            await self._availability.invalidate(
+                owner_id=owner_id, scope_type=scope_type, project_id=project_id
+            )
 
         return record
 
@@ -236,32 +282,76 @@ class MemoryService:
         content: str,
         importance_score: float,
         metadata: dict[str, Any],
+        scope_type: MemoryScopeType = MemoryScopeType.PERSONAL,
+        project_id: UUID | None = None,
     ) -> tuple[MemoryRecord | None, str]:
         """Persist an extracted durable memory without duplicating facts.
 
         Exact normalized duplicates are updated only with provenance (rather
-        than creating another row). Broader semantic supersession is deferred
-        until extracted memories have an explicit subject/version contract.
+        than creating another row). For USER preferences specifically, a
+        second tier catches near-duplicates exact matching misses: a cheap
+        LLM call (`PreferenceSupersessionService`) checks whether the new
+        statement replaces an existing preference on the same topic (e.g.
+        "prefers detailed answers" replacing "prefers concise answers") and,
+        if so, updates that row in place instead of creating a second,
+        contradictory one. RESEARCH findings are additive facts, not
+        preferences that flip -- this tier is USER-only.
         """
 
         if type not in {MemoryType.USER, MemoryType.RESEARCH}:
             raise MemoryValidationError("Only USER and RESEARCH extracted memories are allowed.")
         service = self._user if type == MemoryType.USER else self._research
-        existing = await service.find_exact_content(owner_id=owner_id, content=content)
+        existing = await service.find_exact_content(
+            owner_id=owner_id,
+            content=content,
+            scope_type=scope_type,
+            project_id=project_id,
+        )
         if existing is not None:
             updated = await service.update(
                 owner_id=owner_id,
                 memory_id=existing.id,
+                scope_type=scope_type,
+                project_id=project_id,
                 metadata=metadata,
                 importance_score=max(existing.importance_score, importance_score),
             )
             self._metrics.increment(metric=MEMORY_DUPLICATE)
             self._metrics.increment(metric=MEMORY_UPDATED)
             return updated, "duplicate"
+
+        if (
+            type == MemoryType.USER
+            and self._supersession is not None
+            and settings.memory_preference_supersession_enabled
+        ):
+            superseded = await self._find_superseded_preference(
+                owner_id=owner_id,
+                content=content,
+                scope_type=scope_type,
+                project_id=project_id,
+            )
+            if superseded is not None:
+                updated = await self._user.update(
+                    owner_id=owner_id,
+                    memory_id=superseded.id,
+                    scope_type=scope_type,
+                    project_id=project_id,
+                    content=content,
+                    metadata=metadata,
+                    importance_score=importance_score,
+                )
+                if updated is not None:
+                    self._metrics.increment(metric=MEMORY_SUPERSEDED)
+                    self._metrics.increment(metric=MEMORY_UPDATED)
+                    return updated, "superseded"
+
         record = await self.remember(
             owner_id=owner_id,
             type=type,
             content=content,
+            scope_type=scope_type,
+            project_id=project_id,
             importance_score=importance_score,
             metadata=metadata,
         )
@@ -269,6 +359,36 @@ class MemoryService:
             return None, "skipped"
         self._metrics.increment(metric=MEMORY_CREATED)
         return record, "created"
+
+    async def _find_superseded_preference(
+        self,
+        *,
+        owner_id: UUID,
+        content: str,
+        scope_type: MemoryScopeType = MemoryScopeType.PERSONAL,
+        project_id: UUID | None = None,
+    ) -> MemoryRecord | None:
+        if self._supersession is None:
+            return None
+        try:
+            candidates = await self._user.list_preferences(
+                owner_id=owner_id,
+                scope_type=scope_type,
+                project_id=project_id,
+            )
+            return await self._supersession.find_superseded(
+                owner_id=owner_id,
+                new_content=content,
+                existing=candidates,
+            )
+        except Exception as exc:
+            logger.warning(
+                "memory.supersession.check_failed",
+                owner_id=str(owner_id),
+                error_type=type(exc).__name__,
+                error=str(exc),
+            )
+            return None
 
     # ==========================================================
     # Recall / Forget / Update
@@ -280,12 +400,24 @@ class MemoryService:
         owner_id: UUID,
         memory_id: UUID,
         type: MemoryType | None = None,
+        scope_type: MemoryScopeType = MemoryScopeType.PERSONAL,
+        project_id: UUID | None = None,
     ) -> MemoryRecord | None:
         if type is not None:
-            return await self._registry[type].recall(owner_id=owner_id, memory_id=memory_id)
+            return await self._registry[type].recall(
+                owner_id=owner_id,
+                memory_id=memory_id,
+                scope_type=scope_type,
+                project_id=project_id,
+            )
 
         for service in self._registry.values():
-            record = await service.recall(owner_id=owner_id, memory_id=memory_id)
+            record = await service.recall(
+                owner_id=owner_id,
+                memory_id=memory_id,
+                scope_type=scope_type,
+                project_id=project_id,
+            )
 
             if record is not None:
                 return record
@@ -298,21 +430,37 @@ class MemoryService:
         owner_id: UUID,
         memory_id: UUID,
         type: MemoryType | None = None,
+        scope_type: MemoryScopeType = MemoryScopeType.PERSONAL,
+        project_id: UUID | None = None,
     ) -> bool:
         if type is not None:
-            deleted = await self._registry[type].forget(owner_id=owner_id, memory_id=memory_id)
+            deleted = await self._registry[type].forget(
+                owner_id=owner_id,
+                memory_id=memory_id,
+                scope_type=scope_type,
+                project_id=project_id,
+            )
             if (
                 deleted
                 and type in {MemoryType.SEMANTIC, MemoryType.RESEARCH}
                 and self._availability
             ):
-                await self._availability.invalidate(owner_id=owner_id)
+                await self._availability.invalidate(
+                    owner_id=owner_id, scope_type=scope_type, project_id=project_id
+                )
             return deleted
 
         for memory_type, service in self._registry.items():
-            if await service.forget(owner_id=owner_id, memory_id=memory_id):
+            if await service.forget(
+                owner_id=owner_id,
+                memory_id=memory_id,
+                scope_type=scope_type,
+                project_id=project_id,
+            ):
                 if memory_type in {MemoryType.SEMANTIC, MemoryType.RESEARCH} and self._availability:
-                    await self._availability.invalidate(owner_id=owner_id)
+                    await self._availability.invalidate(
+                        owner_id=owner_id, scope_type=scope_type, project_id=project_id
+                    )
                 return True
 
         return False
@@ -323,6 +471,8 @@ class MemoryService:
         owner_id: UUID,
         memory_id: UUID,
         type: MemoryType | None = None,
+        scope_type: MemoryScopeType = MemoryScopeType.PERSONAL,
+        project_id: UUID | None = None,
         content: str | None = None,
         metadata: dict[str, Any] | None = None,
         importance_score: float | None = None,
@@ -333,6 +483,8 @@ class MemoryService:
             updated = await service.update(
                 owner_id=owner_id,
                 memory_id=memory_id,
+                scope_type=scope_type,
+                project_id=project_id,
                 content=content,
                 metadata=metadata,
                 importance_score=importance_score,
@@ -368,6 +520,8 @@ class MemoryService:
                 result_lists.append(
                     await self._user.list_preferences(
                         owner_id=request.owner_id,
+                        scope_type=request.scope_type,
+                        project_id=request.project_id,
                         limit=request.top_k,
                     )
                 )
@@ -376,6 +530,8 @@ class MemoryService:
             result_lists.append(
                 await vector_backed_services[memory_type].search(
                     owner_id=request.owner_id,
+                    scope_type=request.scope_type,
+                    project_id=request.project_id,
                     query=request.query,
                     top_k=request.top_k,
                 )
@@ -411,6 +567,9 @@ class MemoryService:
         *,
         owner_id: UUID,
         session_id: UUID,
+        scope_type: MemoryScopeType = MemoryScopeType.PERSONAL,
+        project_id: UUID | None = None,
+        inherit_personal_user_memory: bool = True,
         semantic_query: str | None = None,
         top_k: int = 10,
         transcript: str | None = None,
@@ -426,17 +585,45 @@ class MemoryService:
         session_memories = await self._session.get_context(
             owner_id=owner_id,
             session_id=session_id,
+            scope_type=scope_type,
+            project_id=project_id,
             limit=top_k,
         )
         for _ in session_memories:
             self._metrics.increment(metric=SESSION_ITEMS_LOADED)
+
+        if scope_type == MemoryScopeType.PROJECT and inherit_personal_user_memory:
+            personal_user, project_user = await asyncio.gather(
+                self._user.list_preferences(
+                    owner_id=owner_id,
+                    scope_type=MemoryScopeType.PERSONAL,
+                    project_id=None,
+                    limit=top_k,
+                ),
+                self._user.list_preferences(
+                    owner_id=owner_id,
+                    scope_type=scope_type,
+                    project_id=project_id,
+                    limit=top_k,
+                ),
+            )
+            user_memories = (personal_user + project_user)[:top_k]
+        else:
+            user_memories = await self._user.list_preferences(
+                owner_id=owner_id,
+                scope_type=scope_type,
+                project_id=project_id,
+                limit=top_k,
+            )
 
         semantic_memories: list[MemoryRecord] = []
         research_memories: list[MemoryRecord] = []
 
         if semantic_query and settings.memory_durable_retrieval_enabled:
             has_durable_memory = (
-                await self._availability.has_durable_memory(owner_id=owner_id)
+                await self._availability.has_durable_memory(
+                    owner_id=owner_id, scope_type=scope_type, project_id=project_id
+                )
                 if self._availability is not None
                 else True
             )
@@ -449,10 +636,18 @@ class MemoryService:
                         self._metrics.increment(metric=PARALLEL_SEARCH)
                         results = await asyncio.gather(
                             self._semantic.search_with_embedding(
-                                owner_id=owner_id, embedding=embedding, top_k=top_k
+                                owner_id=owner_id,
+                                scope_type=scope_type,
+                                project_id=project_id,
+                                embedding=embedding,
+                                top_k=top_k,
                             ),
                             self._research.search_with_embedding(
-                                owner_id=owner_id, embedding=embedding, top_k=top_k
+                                owner_id=owner_id,
+                                scope_type=scope_type,
+                                project_id=project_id,
+                                embedding=embedding,
+                                top_k=top_k,
                             ),
                             return_exceptions=True,
                         )
@@ -469,14 +664,22 @@ class MemoryService:
                     else:
                         try:
                             semantic_memories = await self._semantic.search_with_embedding(
-                                owner_id=owner_id, embedding=embedding, top_k=top_k
+                                owner_id=owner_id,
+                                scope_type=scope_type,
+                                project_id=project_id,
+                                embedding=embedding,
+                                top_k=top_k,
                             )
                             self._metrics.increment(metric=SEMANTIC_SEARCH)
                         except Exception as exc:
                             self._log_search_failure("semantic", owner_id, exc)
                         try:
                             research_memories = await self._research.search_with_embedding(
-                                owner_id=owner_id, embedding=embedding, top_k=top_k
+                                owner_id=owner_id,
+                                scope_type=scope_type,
+                                project_id=project_id,
+                                embedding=embedding,
+                                top_k=top_k,
                             )
                             self._metrics.increment(metric=RESEARCH_SEARCH)
                         except Exception as exc:
@@ -507,6 +710,7 @@ class MemoryService:
             self._metrics.increment(metric=SESSION_DUPLICATES_REMOVED)
         context = MemoryContext(
             session_memories=deduplicated_session,
+            user_memories=user_memories,
             semantic_memories=semantic_memories,
             research_memories=research_memories,
         )
@@ -514,6 +718,8 @@ class MemoryService:
         await self._persist_context_artifact(
             owner_id=owner_id,
             session_id=session_id,
+            scope_type=scope_type,
+            project_id=project_id,
             context=context,
         )
 
@@ -524,6 +730,7 @@ class MemoryService:
             owner_id=str(owner_id),
             session_id=str(session_id),
             session_result_count=len(context.session_memories),
+            user_result_count=len(context.user_memories),
             semantic_result_count=len(context.semantic_memories),
             research_result_count=len(context.research_memories),
             latency_ms=latency_ms,
@@ -536,6 +743,8 @@ class MemoryService:
         owner_id: UUID,
         session_id: UUID,
         kind: str,
+        scope_type: MemoryScopeType = MemoryScopeType.PERSONAL,
+        project_id: UUID | None = None,
         limit: int = 50,
     ) -> MemoryRecord | None:
         """The most recent SESSION record tagged `metadata["kind"] == kind`
@@ -548,7 +757,11 @@ class MemoryService:
         last match in the list is the most recent."""
 
         records = await self._session.get_context(
-            owner_id=owner_id, session_id=session_id, limit=limit
+            owner_id=owner_id,
+            session_id=session_id,
+            scope_type=scope_type,
+            project_id=project_id,
+            limit=limit,
         )
         matches = [record for record in records if record.metadata.get("kind") == kind]
         return matches[-1] if matches else None
@@ -604,6 +817,8 @@ class MemoryService:
         try:
             artifact = MemoryArtifactBuilder().build_search(
                 owner_id=request.owner_id,
+                scope_type=request.scope_type,
+                project_id=request.project_id,
                 query=request.query,
                 memory_types=request.memory_types,
                 result=result,
@@ -623,6 +838,8 @@ class MemoryService:
         *,
         owner_id: UUID,
         session_id: UUID,
+        scope_type: MemoryScopeType,
+        project_id: UUID | None,
         context: MemoryContext,
     ) -> None:
         if self._artifact_writer is None:
@@ -632,6 +849,8 @@ class MemoryService:
             artifact = MemoryArtifactBuilder().build_context(
                 owner_id=owner_id,
                 session_id=session_id,
+                scope_type=scope_type,
+                project_id=project_id,
                 context=context,
             )
 

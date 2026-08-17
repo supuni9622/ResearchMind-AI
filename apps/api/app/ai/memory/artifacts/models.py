@@ -11,7 +11,7 @@ from uuid import UUID, uuid4
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.ai.memory.enums import MemoryType
+from app.ai.memory.enums import MemoryScopeType, MemoryType
 from app.ai.memory.models import MemoryContext, MemorySearchResult
 
 
@@ -25,6 +25,10 @@ class MemorySearchArtifact(BaseModel):
     generated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
     owner_id: UUID
+
+    scope_type: MemoryScopeType = MemoryScopeType.PERSONAL
+
+    project_id: UUID | None = None
 
     query: str
 
@@ -43,6 +47,10 @@ class MemoryContextArtifact(BaseModel):
     generated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
     owner_id: UUID
+
+    scope_type: MemoryScopeType = MemoryScopeType.PERSONAL
+
+    project_id: UUID | None = None
 
     session_id: UUID | None = None
 

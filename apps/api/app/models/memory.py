@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import uuid
 
-from sqlalchemy import Float, ForeignKey, Text
+from sqlalchemy import CheckConstraint, Float, ForeignKey, Index, Text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -43,6 +43,19 @@ class Memory(TimestampMixin, Base):
         index=True,
     )
 
+    scope_type: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+        default="personal",
+        server_default="personal",
+    )
+
+    project_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("projects.id", ondelete="CASCADE"),
+        nullable=True,
+    )
+
     type: Mapped[str] = mapped_column(
         Text,
         nullable=False,
@@ -64,4 +77,19 @@ class Memory(TimestampMixin, Base):
         Float,
         nullable=False,
         default=0.0,
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            "(scope_type = 'personal' AND project_id IS NULL) OR "
+            "(scope_type = 'project' AND project_id IS NOT NULL)",
+            name="ck_memories_scope_project",
+        ),
+        Index(
+            "ix_memories_owner_scope_project_type",
+            "owner_id",
+            "scope_type",
+            "project_id",
+            "type",
+        ),
     )

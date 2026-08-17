@@ -11,6 +11,7 @@ from app.models.eval_score import EvalScore
 from app.models.feedback import Feedback
 from app.models.generation_usage import GenerationUsage
 from app.models.memory import Memory
+from app.models.project import Project, ProjectMembership
 from app.models.promotion_review import PromotionReview
 from app.models.research import ResearchSession
 from app.models.research_proposal import ResearchProposal
@@ -34,4 +35,6 @@ __all__ = [
     "Feedback",
     "EvalScore",
     "PromotionReview",
+    "Project",
+    "ProjectMembership",
 ]

@@ -446,6 +446,28 @@ async def test_a_failing_row_is_rolled_back_and_does_not_stop_the_batch() -> Non
     assert len(calls) == 1
 
 
+@pytest.mark.asyncio
+async def test_failure_logging_does_not_read_an_expired_generation_id() -> None:
+    """A failed transaction may expire ORM attributes before the handler logs."""
+
+    row = _make_usage_row(owner_id=uuid.uuid4())
+    generation_id = row.generation_id
+    harness = _JobHarness()
+    harness.generation_usage_repository.list_unscored_since = AsyncMock(return_value=[row])
+
+    async def fail_after_expiring_row(_: GenerationUsage) -> None:
+        row.__dict__.pop("generation_id", None)
+        raise RuntimeError("original scoring failure")
+
+    harness.job._score_one = fail_after_expiring_row  # type: ignore[assignment]
+
+    processed = await harness.job.run_once()
+
+    assert processed == 1
+    assert generation_id is not None
+    harness.rollback.assert_awaited_once()
+
+
 def _fake_eval_score(*, metric_name: str, score: float, reason: str) -> EvalScore:
     return EvalScore(
         id=uuid.uuid4(),

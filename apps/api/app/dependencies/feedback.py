@@ -9,13 +9,14 @@ from app.ai.runtime.generation.comment_classification.create import (
 from app.ai.runtime.generation.comment_classification.service import (
     CommentClassificationService,
 )
-from app.db.session import get_db
+from app.db.session import SessionFactory, get_db
 from app.dependencies.eval_score import get_eval_score_repository
 from app.dependencies.generation_usage import get_generation_usage_repository
 from app.repositories.eval_score import EvalScoreRepository
 from app.repositories.feedback import FeedbackRepository
 from app.repositories.generation_usage import GenerationUsageRepository
 from app.services.feedback import FeedbackService
+from app.services.preference_memory import PreferenceMemoryWriter
 
 
 def get_comment_classification_service() -> CommentClassificationService:
@@ -28,6 +29,12 @@ def get_feedback_repository(
     return FeedbackRepository(session)
 
 
+def get_preference_memory_writer() -> PreferenceMemoryWriter:
+    """Return a writer that owns a session separate from the request."""
+
+    return PreferenceMemoryWriter(session_factory=SessionFactory)
+
+
 def get_feedback_service(
     session: AsyncSession = Depends(get_db),
     repository: FeedbackRepository = Depends(get_feedback_repository),
@@ -38,6 +45,7 @@ def get_feedback_service(
     comment_classification_service: CommentClassificationService = Depends(
         get_comment_classification_service
     ),
+    preference_memory_writer: PreferenceMemoryWriter = Depends(get_preference_memory_writer),
 ) -> FeedbackService:
     return FeedbackService(
         session=session,
@@ -45,4 +53,5 @@ def get_feedback_service(
         generation_usage_repository=generation_usage_repository,
         eval_score_repository=eval_score_repository,
         comment_classification_service=comment_classification_service,
+        preference_memory_writer=preference_memory_writer,
     )

@@ -61,6 +61,16 @@ const NAV_ITEMS = [
       </svg>
     ),
   },
+  {
+    href: '/memory',
+    label: 'Memory',
+    title: 'Review and manage what ResearchMind remembers about you',
+    icon: (
+      <svg width="15" height="15" viewBox="0 0 15 15" fill="none" aria-hidden="true">
+        <path d="M7.5 1.5a3 3 0 0 0-3 3v.2A2.75 2.75 0 0 0 3 9.75c0 1.52 1.23 2.75 2.75 2.75H7.5v-11zM7.5 3.25h1.75a2.25 2.25 0 0 1 1.58 3.85A2.75 2.75 0 0 1 10 12.5H7.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    ),
+  },
 ] as const;
 
 // Not part of NAV_ITEMS: only shown when the authenticated user's email

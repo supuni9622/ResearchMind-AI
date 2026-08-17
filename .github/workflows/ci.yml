@@ -110,6 +110,16 @@ jobs:
           --output benchmarks/reports
           --check-regression
 
+      - name: Memory benchmark contract and safety gate
+        env:
+          DEBUG: "false"
+          ENVIRONMENT: test
+        run: >
+          uv run python -m benchmarks.memory.runner
+          --dataset benchmarks/datasets/memory/v1/dataset.json
+          --results benchmarks/datasets/memory/v1/reference-results.json
+          --output benchmarks/reports/memory-reference
+
   retrieval-regression:
     # E20: retrieval-config-change trigger, currently manual-dispatch-only
     # (see the `workflow_dispatch` comment above). Needs a live Qdrant

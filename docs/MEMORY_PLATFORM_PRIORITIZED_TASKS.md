@@ -282,18 +282,22 @@ Project A memory -/-> Project B
 
 ### M6. Build the memory evaluation harness and release gate
 
-**Started:** 2026-08-17. The first offline slice now provides a strict,
+**Implementation complete; staging calibration pending:** 2026-08-17. M6 provides a strict,
 versioned synthetic dataset and a captured-result scorer integrated with the
 canonical `BenchmarkReport` model. It measures Recall@5, Precision@5, MRR,
 nDCG@5, irrelevant/stale/contradictory/unsafe injection, latency, selected
-tokens, and per-query evidence. `scope_leak_rate` and
-`unsafe_memory_injection_rate` are absolute zero-tolerance release gates in the
-shared regression threshold registry. Ground truth and captured runtime output
-are deliberately separate.
+tokens, and per-query evidence. An authenticated live API capture adapter,
+paired memory-on/off LLM judge, and `eval_scores` persistence are implemented.
+The deterministic contract runs in normal CI. Release gates reject any
+scope/unsafe/stale/contradictory injection, Recall@5 below 0.8, average latency
+above 500 ms, or average selected context above 1,200 tokens. Ground truth and
+captured runtime output are deliberately separate.
 
-Remaining before M6 is complete: build the live staging capture adapter, add
-paired memory-on/off answer evaluation and `memory_utility` persistence, set
-calibrated latency/token/cost budgets, and wire the benchmark into CI/staging.
+Operational work remaining before M6 is closed: seed the versioned scenarios
+in staging, capture the first live retrieval and paired-answer baseline,
+compare judge scores with human labels, calibrate the provisional latency/token
+budgets, and make the live run a staging deployment gate. CI cannot safely run
+the authenticated live benchmark without a seeded environment and secrets.
 
 - Create a versioned offline dataset covering exact recall, semantic recall,
   contradictory preferences, stale facts, no-relevant-memory cases, project

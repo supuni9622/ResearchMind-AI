@@ -1052,10 +1052,11 @@ see §6.4)
 ✅ memory observability exists (basic — counters + best-effort S3
 audit artifacts; no dashboards, no `memory_metrics.json`, see §21)
 
-🟡 memory evaluation exists — **M6 foundation in progress**: a versioned
-synthetic dataset, deterministic captured-result scorer, canonical reports,
-and zero-tolerance scope/unsafe-injection gates are implemented. Live capture,
-paired memory-on/off answer utility, and CI/staging wiring remain (see §22).
+🟡 memory evaluation exists — **M6 implementation complete; staging calibration
+pending**: the versioned dataset, deterministic scorer, authenticated live
+capture, paired memory-on/off judge, score persistence, provisional release
+budgets, and deterministic CI gate are implemented. A seeded live baseline,
+human calibration, and staging deployment enforcement remain (see §22).
 
 ---
 

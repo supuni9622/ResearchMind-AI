@@ -71,10 +71,11 @@ def score_memory_candidate(
         mrr = reciprocal_rank(retrieved, relevant)
         ndcg = ndcg_at_k(retrieved, relevant, TOP_K)
 
-        recalls.append(recall)
-        precisions.append(precision)
-        reciprocal_ranks.append(mrr)
-        ndcgs.append(ndcg)
+        if relevant:
+            recalls.append(recall)
+            precisions.append(precision)
+            reciprocal_ranks.append(mrr)
+            ndcgs.append(ndcg)
         irrelevant_rates.append(selection_rate(selected, irrelevant))
         stale_rates.append(selection_rate(selected, set(query.stale_memory_ids)))
         contradictory_rates.append(selection_rate(selected, set(query.contradictory_memory_ids)))

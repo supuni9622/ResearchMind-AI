@@ -273,3 +273,48 @@ Inspect the JSON and verify `scope_leak_rate` and
 copy the result file outside the repository, add an ID not present in a query's
 `allowed_memory_ids`, rerun the command, and confirm it exits non-zero. The
 reference result validates the scorer only; it does not certify live retrieval.
+
+## M6 authenticated staging capture
+
+1. Seed one staging account/project/session with the logical scenarios and
+   memories from `benchmarks/datasets/memory/v1/dataset.json`.
+2. Copy `benchmarks/datasets/memory/v1/capture-config.example.json` to a secure
+   location outside the repository. Replace every token and UUID with the
+   corresponding staging value. Do not commit this file.
+3. Capture and score the real API behavior:
+
+```bash
+uv run python -m benchmarks.memory.capture \
+  --dataset benchmarks/datasets/memory/v1/dataset.json \
+  --config /secure/path/memory-capture-config.json \
+  --base-url https://your-staging-api \
+  --output /tmp/memory-live-results.json
+
+uv run python -m benchmarks.memory.runner \
+  --dataset benchmarks/datasets/memory/v1/dataset.json \
+  --results /tmp/memory-live-results.json \
+  --output /tmp/memory-live-report
+```
+
+The second command must exit zero. Any unmapped returned UUID is deliberately
+reported as a scope leak. Review `/tmp/memory-live-report/report.json`, even on
+success, and preserve it as deployment evidence with the tested commit SHA and
+policy version.
+
+For answer utility, execute every dataset prompt through the same staging
+generation path twice: once with memory injection disabled and once enabled.
+Create `/tmp/memory-answer-pairs.json` with top-level `candidate`, `version`,
+`dataset_version`, and a `pairs` array containing `query_id`,
+`answer_without_memory`, and `answer_with_memory` for every query. Then run:
+
+```bash
+OPENAI_API_KEY=... uv run python -m benchmarks.memory.answer_utility \
+  --dataset benchmarks/datasets/memory/v1/dataset.json \
+  --pairs /tmp/memory-answer-pairs.json \
+  --output /tmp/memory-answer-utility
+```
+
+Human-review a sample before treating judge results as a release signal. To
+store the per-query retrieval or answer-utility metrics in `eval_scores`, run
+`uv run python -m benchmarks.memory.persist_scores --report <report.json>`
+against the intended environment database.

@@ -138,4 +138,6 @@ DEFAULT_METRIC_THRESHOLDS: dict[str, MetricThreshold] = {
     "irrelevant_injection_rate": MetricThreshold(ThresholdDirection.MAX_INCREASE, 0.02),
     "stale_injection_rate": MetricThreshold(ThresholdDirection.MAX_INCREASE, 0.0),
     "contradictory_injection_rate": MetricThreshold(ThresholdDirection.MAX_INCREASE, 0.0),
+    "memory_utility": MetricThreshold(ThresholdDirection.MIN_DROP, 0.05),
+    "irrelevant_memory_harm": MetricThreshold(ThresholdDirection.MAX_INCREASE, 0.02),
 }

@@ -1,0 +1,29 @@
+{
+  "candidate": "staging-memory-policy",
+  "version": "replace-with-git-sha-or-policy-version",
+  "credentials": {
+    "default": "replace-with-owner-a-bearer-token",
+    "owner-a": "replace-with-owner-a-bearer-token"
+  },
+  "projects": {
+    "project-a": "00000000-0000-0000-0000-000000000001"
+  },
+  "sessions": {
+    "default": "00000000-0000-0000-0000-000000000010",
+    "project-a": "00000000-0000-0000-0000-000000000011"
+  },
+  "memory_ids": {
+    "personal-response-length": "00000000-0000-0000-0000-000000000101",
+    "personal-citation-style": "00000000-0000-0000-0000-000000000102",
+    "personal-rag-interest": "00000000-0000-0000-0000-000000000103",
+    "personal-agent-interest": "00000000-0000-0000-0000-000000000104",
+    "personal-response-length-new": "00000000-0000-0000-0000-000000000105",
+    "personal-response-length-old": "00000000-0000-0000-0000-000000000106",
+    "project-a-vector-db-current": "00000000-0000-0000-0000-000000000107",
+    "project-a-vector-db-old": "00000000-0000-0000-0000-000000000108",
+    "project-a-finding": "00000000-0000-0000-0000-000000000109",
+    "owner-a-style": "00000000-0000-0000-0000-000000000110",
+    "project-a-safe-note": "00000000-0000-0000-0000-000000000111",
+    "project-a-injection-note": "00000000-0000-0000-0000-000000000112"
+  }
+}

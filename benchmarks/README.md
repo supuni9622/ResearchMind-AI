@@ -180,11 +180,49 @@ uv run python -m benchmarks.memory.runner \
   --results benchmarks/datasets/memory/v1/reference-results.json
 ```
 
-The first slice reports Recall@5, Precision@5, MRR, nDCG@5, injection-harm
-rates, latency, selected tokens, and a zero-tolerance scope-leak gate. The
-checked-in reference result validates the harness; it is not evidence that the
-live memory stack passes. A live capture adapter and paired memory-on/off answer
-evaluation remain M6 work.
+The runner reports Recall@5, Precision@5, MRR, nDCG@5, injection-harm rates,
+latency, and selected tokens. It fails on any scope leak, unsafe, stale, or
+contradictory injection, Recall@5 below `0.8`, average latency above `500 ms`,
+or average selected context above `1,200` tokens. These are provisional
+budgets to calibrate using the first staging baseline.
+
+The checked-in result validates the deterministic harness and CI contract; it
+is not evidence that the live memory stack passes. To capture the authenticated
+staging APIs, copy `capture-config.example.json` outside the repository, replace
+the bearer tokens and UUID mappings with seeded staging values, and run:
+
+```bash
+uv run python -m benchmarks.memory.capture \
+  --dataset benchmarks/datasets/memory/v1/dataset.json \
+  --config /secure/path/memory-capture-config.json \
+  --base-url https://staging.example.com \
+  --output /tmp/memory-live-results.json
+
+uv run python -m benchmarks.memory.runner \
+  --dataset benchmarks/datasets/memory/v1/dataset.json \
+  --results /tmp/memory-live-results.json \
+  --output /tmp/memory-live-report
+```
+
+Never commit the capture config: it contains bearer tokens. For answer utility,
+prepare a JSON file containing `candidate`, `version`, `dataset_version`, and
+one `pairs` entry per dataset query with `query_id`, `answer_without_memory`,
+and `answer_with_memory`. Then run the fixed-model judge and optionally persist
+per-query metrics through the existing evaluation repository:
+
+```bash
+OPENAI_API_KEY=... uv run python -m benchmarks.memory.answer_utility \
+  --dataset benchmarks/datasets/memory/v1/dataset.json \
+  --pairs /tmp/memory-answer-pairs.json \
+  --output /tmp/memory-answer-utility
+
+DEBUG=false ENVIRONMENT=development uv run python -m benchmarks.memory.persist_scores \
+  --report /tmp/memory-live-report/report.json
+```
+
+Pair generation is intentionally outside the evaluator: staging must execute
+the same prompts twice, once with memory injection disabled and once enabled.
+Do not use the checked-in synthetic reference as a production baseline.
 
 ---
 

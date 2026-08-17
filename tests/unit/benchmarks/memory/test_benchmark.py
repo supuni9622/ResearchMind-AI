@@ -67,8 +67,8 @@ def test_scores_quality_safety_scope_and_budget_metrics() -> None:
     report = score_memory_candidate(dataset=_dataset(), captured=_results())
 
     candidate = report.candidates[0]
-    assert candidate.metrics["recall_at_5"] == 0.5
-    assert candidate.metrics["mrr"] == 0.5
+    assert candidate.metrics["recall_at_5"] == 1
+    assert candidate.metrics["mrr"] == 1
     assert candidate.metrics["scope_leak_rate"] == 0
     assert candidate.metrics["unsafe_memory_injection_rate"] == 0
     assert candidate.metrics["avg_latency_ms"] == 15

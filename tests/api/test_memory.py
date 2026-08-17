@@ -64,9 +64,23 @@ class _FakeMemoryService:
             research_memories=[],
         )
 
-    async def list_user_memories(self, **kwargs: object) -> tuple[list[MemoryRecord], int]:
+    async def list_memories(self, **kwargs: object) -> tuple[list[MemoryRecord], int]:
         self.list_kwargs = kwargs
         return [_record(MemoryType.USER, "prefers concise answers")], 1
+
+    async def get_scope_settings(self, **_: object) -> tuple[bool, bool, bool]:
+        return True, True, True
+
+    async def update_scope_settings(self, **kwargs: object) -> tuple[bool, bool, bool]:
+        return (
+            bool(kwargs["capture_enabled"]),
+            bool(kwargs["retrieval_enabled"]),
+            bool(kwargs["inherit_personal_memory"]),
+        )
+
+    async def move_memory(self, **kwargs: object) -> MemoryRecord:
+        self.mutation_calls.append("move")
+        return _record(MemoryType.USER, "prefers concise answers")
 
     async def remember(self, **kwargs: object) -> MemoryRecord:
         self.mutation_calls.append("create")
@@ -102,6 +116,9 @@ class _FakeProjectAuthorization:
         self.calls.append(kwargs)
         if not self.allowed:
             raise ForbiddenException(message="Project memory access is not permitted.")
+
+    async def list_accessible_projects(self, **_: object) -> list[tuple[object, str]]:
+        return []
 
 
 def _fake_user() -> User:
@@ -173,13 +190,24 @@ def test_list_response_contains_only_owner_scoped_user_memories(
     }
     assert fake_memory_service.list_kwargs == {
         "owner_id": _OWNER_ID,
+        "memory_types": None,
         "scope_type": MemoryScopeType.PERSONAL,
         "project_id": None,
         "search": "concise",
         "source": "feedback",
+        "created_from": None,
+        "created_to": None,
+        "updated_from": None,
+        "updated_to": None,
+        "origin": None,
         "limit": 10,
         "offset": 20,
     }
+    listed = response.json()["memories"][0]
+    assert "owner_id" not in listed
+    assert "metadata" not in listed
+    assert listed["editable"] is True
+    assert listed["origin"] == "inferred"
 
 
 def test_create_and_update_share_write_bucket_but_delete_is_separate(
@@ -273,6 +301,120 @@ def test_project_authorization_precedes_memory_listing(
             "project_id": project_id,
         }
     ]
+
+
+def test_list_forwards_scope_type_date_and_origin_filters(
+    client: TestClient,
+    fake_memory_service: _FakeMemoryService,
+) -> None:
+    project_id = uuid.uuid4()
+    response = client.get(
+        "/api/v1/memory",
+        params=[
+            ("scope_type", "project"),
+            ("project_id", str(project_id)),
+            ("type", "semantic"),
+            ("type", "research"),
+            ("created_from", "2026-01-01T00:00:00Z"),
+            ("updated_to", "2026-12-31T00:00:00Z"),
+            ("origin", "explicit"),
+        ],
+    )
+
+    assert response.status_code == 200
+    assert fake_memory_service.list_kwargs["memory_types"] == [
+        MemoryType.SEMANTIC,
+        MemoryType.RESEARCH,
+    ]
+    assert fake_memory_service.list_kwargs["scope_type"] == MemoryScopeType.PROJECT
+    assert fake_memory_service.list_kwargs["project_id"] == project_id
+    assert fake_memory_service.list_kwargs["origin"] == "explicit"
+
+
+def test_move_authorizes_source_and_destination_before_mutation(
+    client: TestClient,
+    fake_memory_service: _FakeMemoryService,
+) -> None:
+    memory_id = uuid.uuid4()
+    project_id = uuid.uuid4()
+    response = client.post(
+        f"/api/v1/memory/{memory_id}/move",
+        json={
+            "source_scope_type": "personal",
+            "source_project_id": None,
+            "scope_type": "project",
+            "project_id": str(project_id),
+            "confirmed": True,
+        },
+    )
+
+    assert response.status_code == 200
+    authorization = fake_memory_service.project_authorization  # type: ignore[attr-defined]
+    assert authorization.calls[-2:] == [
+        {
+            "user_id": _OWNER_ID,
+            "scope_type": MemoryScopeType.PERSONAL,
+            "project_id": None,
+        },
+        {
+            "user_id": _OWNER_ID,
+            "scope_type": MemoryScopeType.PROJECT,
+            "project_id": project_id,
+        },
+    ]
+    assert fake_memory_service.mutation_calls[-1] == "move"
+
+
+def test_move_requires_confirmation_before_authorization_or_storage(
+    client: TestClient,
+    fake_memory_service: _FakeMemoryService,
+) -> None:
+    response = client.post(
+        f"/api/v1/memory/{uuid.uuid4()}/move",
+        json={
+            "source_scope_type": "personal",
+            "scope_type": "project",
+            "project_id": str(uuid.uuid4()),
+            "confirmed": False,
+        },
+    )
+
+    assert response.status_code == 400
+    assert "move" not in fake_memory_service.mutation_calls
+
+
+def test_scope_settings_state_retention_is_explicit(
+    client: TestClient,
+    fake_memory_service: _FakeMemoryService,
+) -> None:
+    update = client.put(
+        "/api/v1/memory/settings",
+        json={
+            "scope_type": "personal",
+            "project_id": None,
+            "capture_enabled": False,
+            "retrieval_enabled": False,
+        },
+    )
+
+    assert update.status_code == 200
+    assert update.json() == {
+        "scope_type": "personal",
+        "project_id": None,
+        "capture_enabled": False,
+        "retrieval_enabled": False,
+        "inherit_personal_memory": True,
+        "retention_enabled": True,
+    }
+
+
+def test_memory_projects_are_listed_from_authorized_boundary(
+    client: TestClient, fake_memory_service: _FakeMemoryService
+) -> None:
+    response = client.get("/api/v1/memory/projects")
+
+    assert response.status_code == 200
+    assert response.json() == []
 
 
 @pytest.mark.parametrize(

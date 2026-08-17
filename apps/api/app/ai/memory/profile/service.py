@@ -8,6 +8,7 @@ preferences are looked up by owner, not searched semantically.
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any
 from uuid import UUID
 
@@ -92,6 +93,41 @@ class UserMemoryService:
             project_id=project_id,
             search=search,
             source=source,
+            limit=limit,
+            offset=offset,
+        )
+
+    async def list_management_page(
+        self,
+        *,
+        owner_id: UUID,
+        memory_types: list[MemoryType] | None,
+        scope_type: MemoryScopeType,
+        project_id: UUID | None,
+        search: str | None = None,
+        source: str | None = None,
+        created_from: datetime | None = None,
+        created_to: datetime | None = None,
+        updated_from: datetime | None = None,
+        updated_to: datetime | None = None,
+        origin: str | None = None,
+        limit: int = 20,
+        offset: int = 0,
+    ) -> tuple[list[MemoryRecord], int]:
+        """Management read path for every canonical durable memory type."""
+
+        return await self._store.list_page(
+            owner_id=owner_id,
+            memory_types=memory_types,
+            scope_type=scope_type,
+            project_id=project_id,
+            search=search,
+            source=source,
+            created_from=created_from,
+            created_to=created_to,
+            updated_from=updated_from,
+            updated_to=updated_to,
+            origin=origin,
             limit=limit,
             offset=offset,
         )

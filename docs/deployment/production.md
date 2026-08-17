@@ -41,10 +41,11 @@ Before deploying the M5 scope-aware API or workers, apply the database migration
 uv run alembic upgrade head
 ```
 
-The migration creates the minimal `projects` and `project_memberships`
-authorization foundation, adds scope columns and indexes to memory, and
-backfills existing memories as personal. M5 adds no required environment
-variables. Deploy migrated database -> API -> workers; do not activate
+The migrations create the minimal `projects` and `project_memberships`
+authorization foundation, add scope columns/indexes to memory, backfill
+existing memories as personal, and create `memory_scope_settings` for M12's
+independent capture/retrieval controls. No new environment variables are
+required. Deploy migrated database -> API -> workers; do not activate
 Project-scoped traffic until all components run the scope-aware version.
 
 Run memory retention as a separate, long-lived process alongside the API and

@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+from contextlib import suppress
 from datetime import datetime
+from enum import StrEnum
 from typing import Any
 from uuid import UUID
 
@@ -115,6 +117,40 @@ class MemoryUpdateRequest(BaseModel):
     importance_score: float | None = Field(default=None, ge=0.0, le=1.0)
 
 
+class MemoryOrigin(StrEnum):
+    EXPLICIT = "explicit"
+    INFERRED = "inferred"
+
+
+class MemoryMoveRequest(_MemoryScopeFields):
+    model_config = ConfigDict(extra="forbid")
+
+    source_scope_type: MemoryScopeType = MemoryScopeType.PERSONAL
+    source_project_id: UUID | None = None
+    confirmed: bool
+
+    @model_validator(mode="after")
+    def validate_source_and_destination(self) -> MemoryMoveRequest:
+        if self.source_scope_type == MemoryScopeType.PROJECT and self.source_project_id is None:
+            raise ValueError("source_project_id is required for project memory")
+        if (
+            self.source_scope_type == MemoryScopeType.PERSONAL
+            and self.source_project_id is not None
+        ):
+            raise ValueError("source_project_id must be empty for personal memory")
+        if (self.source_scope_type, self.source_project_id) == (self.scope_type, self.project_id):
+            raise ValueError("destination scope must differ from source scope")
+        return self
+
+
+class MemoryScopeSettingsUpdate(_MemoryScopeFields):
+    model_config = ConfigDict(extra="forbid")
+
+    capture_enabled: bool
+    retrieval_enabled: bool
+    inherit_personal_memory: bool = True
+
+
 # ==========================================================
 # Responses
 # ==========================================================
@@ -125,8 +161,6 @@ class MemoryRecordResponse(BaseModel):
 
     id: UUID
 
-    owner_id: UUID
-
     scope_type: MemoryScopeType
 
     project_id: UUID | None
@@ -135,13 +169,53 @@ class MemoryRecordResponse(BaseModel):
 
     content: str
 
-    metadata: dict[str, Any]
-
-    importance_score: float
+    source: str | None = None
+    confidence: float | None = None
+    origin: MemoryOrigin
+    last_used_at: datetime | None = None
+    editable: bool
 
     created_at: datetime
 
     updated_at: datetime
+
+    @classmethod
+    def from_record(cls, record: Any) -> MemoryRecordResponse:
+        metadata = record.metadata if isinstance(record.metadata, dict) else {}
+        preference = metadata.get("preference")
+        preference = preference if isinstance(preference, dict) else {}
+        raw_confidence = preference.get("confidence", metadata.get("confidence"))
+        confidence = (
+            float(raw_confidence)
+            if isinstance(raw_confidence, int | float) and not isinstance(raw_confidence, bool)
+            else None
+        )
+        explicit = preference.get("explicit")
+        source = preference.get("source") or metadata.get("source")
+        origin = (
+            MemoryOrigin.EXPLICIT
+            if explicit is True or metadata.get("origin") == "explicit" or source == "manual"
+            else MemoryOrigin.INFERRED
+        )
+        last_used_at = None
+        raw_last_used = metadata.get("last_used_at")
+        if isinstance(raw_last_used, str):
+            with suppress(ValueError):
+                last_used_at = datetime.fromisoformat(raw_last_used)
+        return cls(
+            id=record.id,
+            scope_type=record.scope_type,
+            project_id=record.project_id,
+            type=record.type,
+            content=record.content,
+            source=str(source) if source is not None else None,
+            confidence=confidence,
+            origin=origin,
+            last_used_at=last_used_at,
+            editable=record.type != MemoryType.SESSION,
+            created_at=record.created_at,
+            updated_at=record.updated_at,
+        )
 
 
 class MemorySearchResponse(BaseModel):
@@ -171,3 +245,22 @@ class MemoryContextResponse(BaseModel):
     semantic_memories: list[MemoryRecordResponse]
 
     research_memories: list[MemoryRecordResponse]
+
+
+class MemoryScopeSettingsResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    scope_type: MemoryScopeType
+    project_id: UUID | None
+    capture_enabled: bool
+    retrieval_enabled: bool
+    inherit_personal_memory: bool
+    retention_enabled: bool = True
+
+
+class MemoryProjectResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: UUID
+    name: str
+    role: str

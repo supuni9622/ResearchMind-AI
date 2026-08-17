@@ -41,6 +41,7 @@ from app.core.settings import settings
 from app.infrastructure.metrics.composite import CompositeMetricsRecorder
 from app.infrastructure.metrics.interfaces import MetricsRecorder
 from app.infrastructure.storage import create_storage
+from app.repositories.memory_settings import MemoryScopeSettingsRepository
 
 
 @lru_cache
@@ -156,6 +157,7 @@ def build_memory_service(
             metrics,
         ),
         supersession_service=build_preference_supersession_service(),
+        scope_settings=MemoryScopeSettingsRepository(session),
     )
 
 

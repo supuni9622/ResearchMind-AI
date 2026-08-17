@@ -253,6 +253,38 @@ an authenticated database fixture or SQL console. Then use the normal
 7. Inspect a Project A SEMANTIC/RESEARCH vector in Qdrant and confirm its
    payload has `scope_type=project` and the exact Project A ID. Confirm Project
    A search cannot retrieve a Project B point.
+
+# M12 scope-aware management API manual test
+
+Apply the latest migration first:
+
+```bash
+uv run alembic upgrade head
+```
+
+1. Call `GET /api/v1/memory` with repeated `type=user&type=semantic`, then
+   exercise `source`, `created_from`/`created_to`, `updated_from`/`updated_to`,
+   and `origin=explicit|inferred`. Confirm totals match the filtered rows.
+2. Confirm each response contains only ID, content, type, scope/project,
+   source, confidence, origin, created/updated/last-used, and `editable`.
+   `owner_id`, raw metadata, prompts, and diagnostics must be absent.
+3. Edit a SEMANTIC memory. Confirm its response says `origin=explicit`, its
+   Qdrant point contains the new embedding, and the scope/project did not move.
+   Attempt an exact duplicate edit and expect a validation error.
+4. Move a disposable personal memory to Project A with
+   `POST /memory/{id}/move`, both source and destination scopes, and
+   `confirmed=true`. Confirm the source is gone and the destination exists.
+   Repeat with `confirmed=false`, an unauthorized project, and a destination
+   duplicate; all must fail without changing either scope.
+5. Set Personal `capture_enabled=false` through `PUT /memory/settings`. A Chat
+   turn may still answer normally, but automatic extraction must create no new
+   row. Existing rows remain visible because retention is independent.
+6. Set `retrieval_enabled=false`. Existing rows remain manageable, but Chat and
+   Research must receive no memory from that scope. Re-enable retrieval and
+   confirm injection resumes.
+7. Repeat list/edit/delete/move/settings as two users across two projects.
+   Unauthorized project access must return `403` before repository access and
+   no owner/project leakage may occur.
 8. Inspect Valkey after project SESSION/extraction activity and confirm keys
    include the project scope/ID, distinct from personal and Project B keys.
 

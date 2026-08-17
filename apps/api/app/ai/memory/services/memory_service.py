@@ -77,6 +77,7 @@ from app.ai.memory.session.service import SessionMemoryService
 from app.core.settings import settings
 from app.infrastructure.metrics.interfaces import MetricsRecorder
 from app.infrastructure.metrics.noop import NoOpMetricsRecorder
+from app.repositories.memory_settings import MemoryScopeSettingsRepository
 
 logger = structlog.get_logger()
 
@@ -157,6 +158,7 @@ class MemoryService:
         importance_threshold: float = _DEFAULT_IMPORTANCE_THRESHOLD,
         availability_service: DurableMemoryAvailabilityService | None = None,
         supersession_service: PreferenceSupersessionService | None = None,
+        scope_settings: MemoryScopeSettingsRepository | None = None,
     ) -> None:
         self._session = session_memory
         self._user = user_memory
@@ -181,32 +183,57 @@ class MemoryService:
         self._importance_threshold = importance_threshold
         self._availability = availability_service
         self._supersession = supersession_service
+        self._scope_settings = scope_settings
 
-    async def list_user_memories(
+    async def list_memories(
         self,
         *,
         owner_id: UUID,
+        memory_types: list[MemoryType] | None = None,
         scope_type: MemoryScopeType = MemoryScopeType.PERSONAL,
         project_id: UUID | None = None,
         search: str | None = None,
         source: str | None = None,
+        created_from: datetime | None = None,
+        created_to: datetime | None = None,
+        updated_from: datetime | None = None,
+        updated_to: datetime | None = None,
+        origin: str | None = None,
         limit: int = 20,
         offset: int = 0,
     ) -> tuple[list[MemoryRecord], int]:
-        """List the authenticated owner's durable profile memories.
+        """List the authenticated owner's canonical durable memories.
 
-        This deliberately exposes USER memory only within one resolved scope.
+        SESSION data remains session-bound in Valkey and is not enumerable.
         """
 
-        return await self._user.list_preferences_page(
+        selected_types = memory_types or [
+            MemoryType.USER,
+            MemoryType.SEMANTIC,
+            MemoryType.RESEARCH,
+        ]
+        if MemoryType.SESSION in selected_types:
+            raise MemoryValidationError("SESSION memory cannot be listed outside a session.")
+        return await self._user.list_management_page(
             owner_id=owner_id,
+            memory_types=selected_types,
             scope_type=scope_type,
             project_id=project_id,
             search=search,
             source=source,
+            created_from=created_from,
+            created_to=created_to,
+            updated_from=updated_from,
+            updated_to=updated_to,
+            origin=origin,
             limit=limit,
             offset=offset,
         )
+
+    async def list_user_memories(self, **kwargs: Any) -> tuple[list[MemoryRecord], int]:
+        """Backward-compatible USER-only management listing."""
+
+        return await self.list_memories(memory_types=[MemoryType.USER], **kwargs)
 
     # ==========================================================
     # Remember
@@ -303,6 +330,9 @@ class MemoryService:
         preferences that flip -- this tier is USER-only.
         """
 
+        if not await self._capture_enabled(owner_id, scope_type, project_id):
+            logger.info("memory.capture.disabled", owner_id=str(owner_id), scope=scope_type.value)
+            return None, "capture_disabled"
         if type not in {MemoryType.USER, MemoryType.RESEARCH}:
             raise MemoryValidationError("Only USER and RESEARCH extracted memories are allowed.")
         service = self._user if type == MemoryType.USER else self._research
@@ -570,7 +600,48 @@ class MemoryService:
         metadata: dict[str, Any] | None = None,
         importance_score: float | None = None,
     ) -> MemoryRecord | None:
-        services = [self._registry[type]] if type is not None else list(self._registry.values())
+        existing = await self.recall(
+            owner_id=owner_id,
+            memory_id=memory_id,
+            type=type,
+            scope_type=scope_type,
+            project_id=project_id,
+        )
+        if existing is None:
+            return None
+        if (
+            content is not None
+            and content != existing.content
+            and existing.type != MemoryType.SESSION
+        ):
+            duplicate = await self._find_exact_in_type(
+                memory_type=existing.type,
+                owner_id=owner_id,
+                content=content,
+                scope_type=scope_type,
+                project_id=project_id,
+            )
+            if duplicate is not None and duplicate.id != memory_id:
+                raise MemoryValidationError("An identical memory already exists in this scope.")
+
+        edit_metadata = {**existing.metadata, **(metadata or {})}
+        history = edit_metadata.get("_user_edit_history")
+        history = list(history) if isinstance(history, list) else []
+        history.append(
+            {
+                "edited_at": datetime.now(UTC).isoformat(),
+                "previous_updated_at": existing.updated_at.isoformat(),
+            }
+        )
+        edit_metadata.update(
+            {
+                "source": "manual",
+                "origin": "explicit",
+                "_user_edit_history": history[-10:],
+            }
+        )
+
+        services = [self._registry[existing.type]]
 
         for service in services:
             updated = await service.update(
@@ -579,14 +650,179 @@ class MemoryService:
                 scope_type=scope_type,
                 project_id=project_id,
                 content=content,
-                metadata=metadata,
+                metadata=edit_metadata,
                 importance_score=importance_score,
             )
 
             if updated is not None:
+                if (
+                    existing.type in {MemoryType.SEMANTIC, MemoryType.RESEARCH}
+                    and self._availability
+                ):
+                    await self._availability.invalidate(
+                        owner_id=owner_id, scope_type=scope_type, project_id=project_id
+                    )
                 return updated
 
         return None
+
+    async def move_memory(
+        self,
+        *,
+        owner_id: UUID,
+        memory_id: UUID,
+        source_scope_type: MemoryScopeType,
+        source_project_id: UUID | None,
+        destination_scope_type: MemoryScopeType,
+        destination_project_id: UUID | None,
+    ) -> MemoryRecord | None:
+        existing = await self.recall(
+            owner_id=owner_id,
+            memory_id=memory_id,
+            scope_type=source_scope_type,
+            project_id=source_project_id,
+        )
+        if existing is None:
+            return None
+        if existing.type == MemoryType.SESSION:
+            raise MemoryValidationError("SESSION memory cannot be moved between scopes.")
+        duplicate = await self._find_exact_in_type(
+            memory_type=existing.type,
+            owner_id=owner_id,
+            content=existing.content,
+            scope_type=destination_scope_type,
+            project_id=destination_project_id,
+        )
+        if duplicate is not None:
+            raise MemoryValidationError("An identical memory already exists in the destination.")
+
+        moved_metadata = {
+            **existing.metadata,
+            "_scope_move": {
+                "source_scope": source_scope_type.value,
+                "source_project_id": str(source_project_id) if source_project_id else None,
+                "moved_at": datetime.now(UTC).isoformat(),
+                "confirmed": True,
+            },
+        }
+        created = await self.remember(
+            owner_id=owner_id,
+            type=existing.type,
+            content=existing.content,
+            scope_type=destination_scope_type,
+            project_id=destination_project_id,
+            importance_score=existing.importance_score,
+            metadata=moved_metadata,
+        )
+        if created is None:
+            raise MemoryValidationError("Memory did not pass destination validation.")
+        deleted = await self.forget(
+            owner_id=owner_id,
+            memory_id=existing.id,
+            type=existing.type,
+            scope_type=source_scope_type,
+            project_id=source_project_id,
+        )
+        if not deleted:
+            await self.forget(
+                owner_id=owner_id,
+                memory_id=created.id,
+                type=created.type,
+                scope_type=destination_scope_type,
+                project_id=destination_project_id,
+            )
+            raise MemoryValidationError("Memory move could not remove the source record.")
+        return created
+
+    async def get_scope_settings(
+        self,
+        *,
+        owner_id: UUID,
+        scope_type: MemoryScopeType,
+        project_id: UUID | None,
+    ) -> tuple[bool, bool, bool]:
+        if self._scope_settings is None:
+            return True, True, True
+        row = await self._scope_settings.get(
+            owner_id=owner_id, scope_type=scope_type, project_id=project_id
+        )
+        return (
+            (
+                row.capture_enabled,
+                row.retrieval_enabled,
+                getattr(row, "inherit_personal_memory", True),
+            )
+            if row
+            else (True, True, True)
+        )
+
+    async def update_scope_settings(
+        self,
+        *,
+        owner_id: UUID,
+        scope_type: MemoryScopeType,
+        project_id: UUID | None,
+        capture_enabled: bool,
+        retrieval_enabled: bool,
+        inherit_personal_memory: bool = True,
+    ) -> tuple[bool, bool, bool]:
+        if self._scope_settings is None:
+            raise MemoryValidationError("Memory scope settings are unavailable.")
+        row = await self._scope_settings.upsert(
+            owner_id=owner_id,
+            scope_type=scope_type,
+            project_id=project_id,
+            capture_enabled=capture_enabled,
+            retrieval_enabled=retrieval_enabled,
+            inherit_personal_memory=inherit_personal_memory,
+        )
+        return row.capture_enabled, row.retrieval_enabled, row.inherit_personal_memory
+
+    async def _capture_enabled(
+        self, owner_id: UUID, scope_type: MemoryScopeType, project_id: UUID | None
+    ) -> bool:
+        capture_enabled, _, _ = await self.get_scope_settings(
+            owner_id=owner_id, scope_type=scope_type, project_id=project_id
+        )
+        return capture_enabled
+
+    async def _retrieval_enabled(
+        self, owner_id: UUID, scope_type: MemoryScopeType, project_id: UUID | None
+    ) -> bool:
+        _, retrieval_enabled, _ = await self.get_scope_settings(
+            owner_id=owner_id, scope_type=scope_type, project_id=project_id
+        )
+        return retrieval_enabled
+
+    async def _find_exact_in_type(
+        self,
+        *,
+        memory_type: MemoryType,
+        owner_id: UUID,
+        content: str,
+        scope_type: MemoryScopeType,
+        project_id: UUID | None,
+    ) -> MemoryRecord | None:
+        if memory_type == MemoryType.USER:
+            return await self._user.find_exact_content(
+                owner_id=owner_id,
+                content=content,
+                scope_type=scope_type,
+                project_id=project_id,
+            )
+        elif memory_type == MemoryType.SEMANTIC:
+            return await self._semantic.find_exact_content(
+                owner_id=owner_id,
+                content=content,
+                scope_type=scope_type,
+                project_id=project_id,
+            )
+        return await self._research.find_exact_content(
+            owner_id=owner_id,
+            content=content,
+            scope_type=scope_type,
+            project_id=project_id,
+        )
 
     # ==========================================================
     # Search
@@ -597,6 +833,12 @@ class MemoryService:
         request: MemorySearchRequest,
     ) -> MemorySearchResult:
         started = perf_counter()
+        if not await self._retrieval_enabled(
+            request.owner_id, request.scope_type, request.project_id
+        ):
+            result = MemorySearchResult(memories=[], latency_ms=(perf_counter() - started) * 1000)
+            self._metrics.increment(metric=MEMORY_MISSES)
+            return result
 
         vector_backed_services = {
             MemoryType.SEMANTIC: self._semantic,
@@ -675,6 +917,9 @@ class MemoryService:
             session_id=str(session_id),
             query_length=len(semantic_query or ""),
         )
+        if not await self._retrieval_enabled(owner_id, scope_type, project_id):
+            self._metrics.increment(metric=CONTEXT_RETRIEVAL_SKIPPED)
+            return MemoryContext()
         session_memories = await self._session.get_context(
             owner_id=owner_id,
             session_id=session_id,
@@ -685,7 +930,16 @@ class MemoryService:
         for _ in session_memories:
             self._metrics.increment(metric=SESSION_ITEMS_LOADED)
 
-        if scope_type == MemoryScopeType.PROJECT and inherit_personal_user_memory:
+        _, _, configured_personal_inheritance = await self.get_scope_settings(
+            owner_id=owner_id, scope_type=scope_type, project_id=project_id
+        )
+        inherit_personal = (
+            scope_type == MemoryScopeType.PROJECT
+            and inherit_personal_user_memory
+            and configured_personal_inheritance
+            and await self._retrieval_enabled(owner_id, MemoryScopeType.PERSONAL, None)
+        )
+        if inherit_personal:
             personal_user, project_user = await asyncio.gather(
                 self._user.list_preferences(
                     owner_id=owner_id,

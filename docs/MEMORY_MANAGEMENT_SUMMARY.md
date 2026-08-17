@@ -2,9 +2,8 @@
 
 **Status:** Living architecture and delivery summary  
 **Last reconciled:** 2026-08-17  
-**Implementation progress:** M0-M2 and M4-M11 complete; M3 rollout pending;
-M6-M10 retain staging calibration/rollout gates where noted; personal-only
-slices of M12-M13 shipped early
+**Implementation progress:** M0-M2 and M4-M13 complete; M3 rollout pending;
+M6-M10 retain staging calibration/rollout gates where noted
 
 This document explains the existing and planned ResearchMind memory platform in
 one place. It is an orientation document, not a replacement for the accepted
@@ -49,7 +48,7 @@ memory, agent memory, and memory-driven request routing are explicitly deferred.
 | Retrieval | Four product surfaces share one coordinated token budget; scope-safe services are implemented | Activate authorized project context in Project-aware runtimes |
 | Write safety | Public mutation limits and payload bounds; internal circuit breaker; throttle metrics and alerts | Per-plan quotas and load tests |
 | Feedback safety | Canonical feedback commits before isolated memory write | Durable outbox only if delivery guarantees justify it |
-| User controls | Paginated Personal USER-memory inventory, search/source filters, inline editing, and confirmed deletion | Project UI, broader controls, export, and bulk erasure |
+| User controls | Scope-aware M12 API plus complete M13 Personal/Project UI with filters, provenance, settings, edit review, scoped JSON export, and selected deletion | Durable cross-store export and bulk erasure jobs |
 | Lifecycle | Recurring, batched, locked worker implemented; report-only by default | Validate staging dry runs, enable conservative deletion, and monitor production cadence |
 | Quality | M6 offline benchmark plus M7 generation correlation, explicit feedback, and opt-in sampled utility/harm scoring | Staging calibration and enforced deployment gates |
 | Observability | M11 dashboard/alerts for absolute size, growth, drift, lifecycle, tokens, throttles, consolidation, and utility | Production threshold calibration and notification routing |
@@ -428,7 +427,8 @@ memory content must not become metric labels.
 | 9 | M8 evidence-driven consolidation | Implemented; rollout/evaluation gate pending | Bounded vector nomination, typed decisions, reversible lineage, and fail-safe re-indexing |
 | 10 | M9-M10 preference quality | Implemented; rollout calibration pending | Complete-history topical lookup plus additive typed values and deterministic safe-key supersession |
 | 11 | M11 observability | Complete | Scheduled bounded inventory plus size, growth, lifecycle, drift, budget, consolidation, and utility panels/alerts |
-| 12 | M12-M13 management API and UI | Partial personal slice shipped | Owner-scoped USER listing, search/source filter, pagination, editing, and confirmed deletion are live; Project Memory and broader controls remain |
+| 12 | M12 management API | Complete | Scope-safe durable enumeration/mutations, safe responses, explicit edits, confirmed moves, independent settings, and two-user/two-project tests |
+| 13 | M13 management UI | Complete | Personal and authorized Project views expose boundaries, filters, provenance, capture/inheritance controls, edit review, export, and selected deletion |
 | 13 | M14-M15 export, erasure, confirmation | Planned | Governance and safe destructive actions |
 | 14 | M16 hardening | Ongoing/planned | Load, failure-mode, prompt-safety, and capacity confidence |
 

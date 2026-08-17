@@ -36,6 +36,7 @@ from app.db.session import get_db
 from app.dependencies.generation import get_generation_runtime
 from app.infrastructure.metrics.interfaces import MetricsRecorder
 from app.repositories.memory import MemoryRepository
+from app.repositories.memory_settings import MemoryScopeSettingsRepository
 
 
 def get_session_memory_service() -> SessionMemoryService:
@@ -139,6 +140,7 @@ def get_memory_lifecycle_service(
 
 
 def get_memory_service(
+    session: AsyncSession = Depends(get_db),
     store: PostgresMemoryStore = Depends(get_postgres_memory_store),
     session_memory: SessionMemoryService = Depends(get_session_memory_service),
     user_memory: UserMemoryService = Depends(get_user_memory_service),
@@ -170,4 +172,5 @@ def get_memory_service(
             metrics,
         ),
         supersession_service=supersession_service,
+        scope_settings=MemoryScopeSettingsRepository(session),
     )

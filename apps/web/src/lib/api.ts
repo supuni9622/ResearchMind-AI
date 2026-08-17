@@ -95,13 +95,15 @@ export type MemoryType = 'session' | 'user' | 'semantic' | 'research';
 
 export interface MemoryRecord {
   id: string;
-  owner_id: string;
   scope_type: 'personal' | 'project';
   project_id: string | null;
   type: MemoryType;
   content: string;
-  metadata: Record<string, unknown>;
-  importance_score: number;
+  source: string | null;
+  confidence: number | null;
+  origin: 'explicit' | 'inferred';
+  last_used_at: string | null;
+  editable: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -116,8 +118,31 @@ export interface MemoryListResponse {
 export interface MemoryListParams {
   search?: string;
   source?: string;
+  type?: MemoryType[];
+  scope_type?: 'personal' | 'project';
+  project_id?: string;
+  created_from?: string;
+  created_to?: string;
+  updated_from?: string;
+  updated_to?: string;
+  origin?: 'explicit' | 'inferred';
   limit?: number;
   offset?: number;
+}
+
+export interface MemoryScopeSettings {
+  scope_type: 'personal' | 'project';
+  project_id: string | null;
+  capture_enabled: boolean;
+  retrieval_enabled: boolean;
+  inherit_personal_memory: boolean;
+  retention_enabled: boolean;
+}
+
+export interface MemoryProject {
+  id: string;
+  name: string;
+  role: string;
 }
 
 export type InfrastructureServiceStatus = 'healthy' | 'unhealthy';
@@ -835,21 +860,63 @@ export const api = {
     summary: () => request<GenerationUsageSummary>('/api/v1/usage/summary'),
   },
   memory: {
+    projects: () => request<MemoryProject[]>('/api/v1/memory/projects'),
     list: (params: MemoryListParams = {}) => {
       const query = new URLSearchParams();
       if (params.search) query.set('search', params.search);
       if (params.source) query.set('source', params.source);
+      params.type?.forEach((memoryType) => query.append('type', memoryType));
+      if (params.scope_type) query.set('scope_type', params.scope_type);
+      if (params.project_id) query.set('project_id', params.project_id);
+      if (params.created_from) query.set('created_from', params.created_from);
+      if (params.created_to) query.set('created_to', params.created_to);
+      if (params.updated_from) query.set('updated_from', params.updated_from);
+      if (params.updated_to) query.set('updated_to', params.updated_to);
+      if (params.origin) query.set('origin', params.origin);
       query.set('limit', String(params.limit ?? 10));
       query.set('offset', String(params.offset ?? 0));
       return request<MemoryListResponse>(`/api/v1/memory?${query.toString()}`);
     },
-    update: (memoryId: string, content: string) =>
-      request<MemoryRecord>(`/api/v1/memory/${memoryId}`, {
+    update: (memory: MemoryRecord, content: string) => {
+      const query = new URLSearchParams({ scope_type: memory.scope_type });
+      if (memory.project_id) query.set('project_id', memory.project_id);
+      return request<MemoryRecord>(`/api/v1/memory/${memory.id}?${query.toString()}`, {
         method: 'PUT',
-        body: JSON.stringify({ type: 'user', content }),
+        body: JSON.stringify({ type: memory.type, content }),
+      });
+    },
+    delete: (memory: MemoryRecord) => {
+      const query = new URLSearchParams({ scope_type: memory.scope_type });
+      if (memory.project_id) query.set('project_id', memory.project_id);
+      return request<void>(`/api/v1/memory/${memory.id}?${query.toString()}`, {
+        method: 'DELETE',
+      });
+    },
+    getSettings: (scopeType: 'personal' | 'project', projectId?: string) => {
+      const query = new URLSearchParams({ scope_type: scopeType });
+      if (projectId) query.set('project_id', projectId);
+      return request<MemoryScopeSettings>(`/api/v1/memory/settings?${query.toString()}`);
+    },
+    updateSettings: (settings: Omit<MemoryScopeSettings, 'retention_enabled'>) =>
+      request<MemoryScopeSettings>('/api/v1/memory/settings', {
+        method: 'PUT',
+        body: JSON.stringify(settings),
       }),
-    delete: (memoryId: string) =>
-      request<void>(`/api/v1/memory/${memoryId}`, { method: 'DELETE' }),
+    move: (
+      memoryId: string,
+      source: { scope_type: 'personal' | 'project'; project_id: string | null },
+      destination: { scope_type: 'personal' | 'project'; project_id: string | null }
+    ) =>
+      request<MemoryRecord>(`/api/v1/memory/${memoryId}/move`, {
+        method: 'POST',
+        body: JSON.stringify({
+          source_scope_type: source.scope_type,
+          source_project_id: source.project_id,
+          scope_type: destination.scope_type,
+          project_id: destination.project_id,
+          confirmed: true,
+        }),
+      }),
   },
   chat: {
     stream: streamChat,

@@ -128,6 +128,11 @@ class MemoryRepository:
         types: list[str] | None = None,
         search: str | None = None,
         source: str | None = None,
+        created_from: datetime | None = None,
+        created_to: datetime | None = None,
+        updated_from: datetime | None = None,
+        updated_to: datetime | None = None,
+        origin: str | None = None,
         limit: int = 20,
         offset: int = 0,
     ) -> tuple[list[Memory], int]:
@@ -145,6 +150,30 @@ class MemoryRepository:
             filters.append(Memory.content.ilike(f"%{search}%"))
         if source:
             filters.append(Memory.memory_metadata["source"].astext == source)
+        if created_from:
+            filters.append(Memory.created_at >= created_from)
+        if created_to:
+            filters.append(Memory.created_at <= created_to)
+        if updated_from:
+            filters.append(Memory.updated_at >= updated_from)
+        if updated_to:
+            filters.append(Memory.updated_at <= updated_to)
+        if origin == "explicit":
+            filters.append(
+                or_(
+                    Memory.memory_metadata["origin"].astext == "explicit",
+                    Memory.memory_metadata["preference"]["explicit"].astext == "true",
+                    Memory.memory_metadata["source"].astext == "manual",
+                )
+            )
+        elif origin == "inferred":
+            filters.append(
+                or_(
+                    Memory.memory_metadata["origin"].astext == "inferred",
+                    Memory.memory_metadata["preference"]["explicit"].astext == "false",
+                    Memory.memory_metadata["source"].astext == "extraction",
+                )
+            )
 
         rows_statement = (
             select(Memory)

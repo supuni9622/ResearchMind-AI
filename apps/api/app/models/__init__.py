@@ -10,7 +10,7 @@ from app.models.document import Document
 from app.models.eval_score import EvalScore
 from app.models.feedback import Feedback
 from app.models.generation_usage import GenerationUsage
-from app.models.memory import Memory
+from app.models.memory import Memory, MemoryScopeSetting
 from app.models.memory_feedback import MemoryFeedback
 from app.models.project import Project, ProjectMembership
 from app.models.promotion_review import PromotionReview
@@ -32,6 +32,7 @@ __all__ = [
     "ResearchRunDispatch",
     "ResearchRunEvent",
     "Memory",
+    "MemoryScopeSetting",
     "MemoryFeedback",
     "GenerationUsage",
     "Feedback",

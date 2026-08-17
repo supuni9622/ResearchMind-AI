@@ -1,12 +1,12 @@
 # Memory Architecture — Current Implementation Evaluation
 
-> Reconciled 2026-08-17: memory hardening M0-M2 and M4-M11 is implemented. The M3
+> Reconciled 2026-08-17: memory hardening M0-M2 and M4-M13 is implemented. The M3
 > lifecycle worker remains dry-run by default pending production rollout;
-> M6-M10 retain their documented staging calibration/rollout gates. A
-> personal-only M12/M13 management slice is live with owner-scoped listing,
-> search/source filtering, pagination, editing, and confirmed deletion. M5's
-> storage and authorization isolation is live; Project/workspace runtime and
-> UI activation remain.
+> M6-M10 retain their documented staging calibration/rollout gates. M12's
+> scope-aware management API and M13's Personal/Project Memory UI are
+> live with listing, filtering, pagination, editing, and confirmed deletion. M5's
+> storage and authorization isolation is live; broader Project/workspace runtime
+> activation remains.
 
 ## 1. Purpose and scope
 
@@ -459,7 +459,7 @@ Conversation history and memory are injected for response generation, but normal
 |---|---|---|---|
 | **Done (M0)** | Include applicable `USER` preferences in runtime memory context | The stored profile now affects later turns within a bounded coordinated prompt budget. | Owner-scoped injection and precedence tests are in place. |
 | **Done (M1)** | Add USER preference correction semantics | New applicable USER preferences can supersede an existing row instead of accumulating contradictions. | Supersession tests are in place; general temporal fact versioning remains future work. |
-| **P0, partial** | Complete memory privacy controls | The visible Personal Memory inventory now supports owner-scoped inspection, filtering, editing, and confirmed deletion. Opt-out, sensitive-category restrictions, project-scoped controls, and PII hardening remain. | User/project enable-disable settings, “do not remember this” path, Project Memory authorization tests, and PII tests. |
+| **P0, partial** | Complete memory privacy controls | M12 provides scope-aware safe enumeration/mutations, independent capture/retrieval settings, confirmed moves, and two-user/two-project tests; the visible Personal UI supports inspection, filtering, editing, and confirmed deletion. | Expose the M12 controls in Project UI, then add export/erasure, sensitive-category restrictions, and PII tests. |
 | **P0, operational rollout (M6)** | Complete the memory evaluation dataset and regression suite | The versioned dataset, scorer, live capture adapter, paired answer judge, persistence, provisional budgets, and deterministic CI gate are implemented. | Seed and capture staging, human-calibrate answer judgments and budgets, then enforce the live staging gate. |
 | **Rollout (M3)** | Enable stale-memory lifecycle deletion after dry-run review | The recurring worker, policies, locking, metrics, and report-only default are implemented. | Reviewed candidate counts, alerting, explicit `DRY_RUN=false`, and PostgreSQL/Qdrant consistency checks. |
 | **P1** | Add memory-specific input sanitization before prompt injection | Stored memory is untrusted historical text. | Adversarial memories cannot override system instructions or trigger unintended behavior. |

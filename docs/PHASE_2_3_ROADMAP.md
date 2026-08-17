@@ -24,9 +24,9 @@ order."
 For memory status, task IDs, and acceptance criteria, use
 [`MEMORY_PLATFORM_PRIORITIZED_TASKS.md`](MEMORY_PLATFORM_PRIORITIZED_TASKS.md),
 with [`MEMORY_MANAGEMENT_SUMMARY.md`](MEMORY_MANAGEMENT_SUMMARY.md) as the
-orientation. M0-M2 and M4-M11 are implemented; M3 has rollout pending, M6-M10
+orientation. M0-M2 and M4-M13 are implemented; M3 has rollout pending, M6-M10
 still have the staging calibration/rollout gates recorded in the memory
-backlog, and a personal-only M12/M13 Memory management slice is live. M5's
+backlog, and M13's Personal/Project Memory management UI is live. M5's
 scope and authorization foundation is complete; Project-aware runtime
 activation still must precede any Project-scoped product write or retrieval.
 
@@ -563,7 +563,7 @@ before anything else in this document.
 
 | # (notes) | Item | Current state | Plan |
 |---|---|---|---|
-| 2 | User-profile memory — "fill complex gaps found in V1" | **Prompt-content read side complete, 2026-08-12; personal management slice and M5 isolation foundation live, 2026-08-17.** USER memory is written, deduplicated/superseded, injected into Chat and Research, and visible in an owner-scoped paginated/searchable Memory view with edit and confirmed deletion. | Continue production hardening through M3-M16 in [`MEMORY_PLATFORM_PRIORITIZED_TASKS.md`](MEMORY_PLATFORM_PRIORITIZED_TASKS.md): M3 rollout is pending; M4, M5, and the personal-only M12/M13 slice are implemented. Do not expand USER memory into the separate `HumanInsight` domain model. |
+| 2 | User-profile memory — "fill complex gaps found in V1" | **Prompt-content read side and M12 management API complete; personal M13 UI and M5 isolation foundation live, 2026-08-17.** USER memory is written, deduplicated/superseded, injected into Chat and Research, manageable through a safe scope-aware API, and visible in a paginated/searchable Personal Memory view with edit and confirmed deletion. | Continue production hardening through M3-M16 in [`MEMORY_PLATFORM_PRIORITIZED_TASKS.md`](MEMORY_PLATFORM_PRIORITIZED_TASKS.md): M3 rollout and M13 Project UI remain. Do not expand USER memory into the separate `HumanInsight` domain model. |
 | 3 | Project-based workspace — project memory, project document set, doc mentioning | **Foundation only.** M5 adds minimal Project/membership models and first-class memory isolation; the full Project product, typed objects, routing, and UI remain net-new. | **Decided (2026-08-17, consistent with [`NORTH_STAR.md`](NORTH_STAR.md) §7):** design Project as the anchor for typed research objects and Research Paths. Activate the completed M5 scope boundary only after the Project runtime resolves membership server-side. `@document` remains a frontend affordance on the same grouping. |
 | 4 | Human feedback loop | Same item as [1c](#1c-human-feedback-the-loop-that-makes-this-self-learning) above — not separate work. | See Part 1. |
 | 5 | Interruption capability, traceable rebuilds, full token/cost visibility | **Interruption**: Deep Research already has three real `interrupt()` checkpoints (plan/report/web-search approval) — but confirmed (2026-08-10) that rejection at the plan/report checkpoints is a dead end today: the `reason` a user types is stored for audit only and never read again by any node. **Traceability**: ✅ Done — LangSmith traces now carry `owner_id` alongside `provider`/`model`/`runtime` (readiness item 8's trace-tag gap; cost-on-the-trace itself remains open, still cross-referenced from the `GenerationUsage` ledger). **Tokens & cost**: `GenerationUsage` ledger tracks this per-request, but nothing surfaces it live to the user during a run. | **Expanded (2026-08-10) — see the dedicated subsection right after this table.** Two concrete additions, both reusing existing mechanisms rather than new plumbing: (a) let a plan/report rejection carry revision instructions that route back into the *already-built* `REVISE_SYNTHESIS` repair path instead of just terminating; (b) surface running cost live in Deep Research's existing SSE event log. |

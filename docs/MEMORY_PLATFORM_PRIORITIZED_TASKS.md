@@ -2,7 +2,7 @@
 
 **Status:** Active backlog  
 **Last reviewed:** 2026-08-17
-**Next implementation task:** complete M12's scope-aware management API; M3
+**Next implementation task:** M14 export and bulk erasure; M3
 and M6-M10 retain their separate operational rollout/calibration work.
 **Scope:** `app/ai/memory/`, `/memory` APIs, runtime injection, storage,
 evaluation, observability, lifecycle, governance, and upcoming Projects
@@ -30,11 +30,10 @@ from the owner's complete scope-safe history rather than only the 20 most
 recent rows. The bounded, fail-open LLM judge remains overwrite authority.
 
 M3's code path was implemented on 2026-08-17; staging/production rollout
-evidence remains open. A personal-only slice of M12-M13 was also pulled forward:
-owner-scoped USER listing, server-side search/source filtering, pagination,
-inline editing, and confirmed deletion are implemented. M5's memory-platform
-foundation was implemented on 2026-08-17; Project creation, workspace routing,
-and Project Memory UI activation remain product-wave work. The following are
+evidence remains open. M12-M13 now provide a scope-aware management API and
+complete Personal/Project Memory UI. M5's memory-platform foundation was
+implemented on 2026-08-17; broader Project creation and workspace routing
+remain product-wave work. The following are
 ordered by dependency and operational risk.
 "P0" means complete before characterizing the memory platform as production
 scale. Tasks inside a phase are in recommended implementation order.
@@ -458,18 +457,16 @@ from historical aspirational names.
 
 ## P2 — User control and governance
 
-### M12. Build the scope-aware memory-management API
+### M12. ✅ Build the scope-aware memory-management API
 
-**Partial personal-memory slice shipped 2026-08-17:** authenticated
-`GET /memory` now provides owner-scoped USER-memory pagination, text search,
-source filtering, and an accurate filtered total for the first Memory UI.
-Existing owner-scoped `PUT` and `DELETE` operations back edit and forget
-actions. Project scope/authorization, broader date/type/provenance filters,
-settings, and move/promote behavior remain in M12 after M5.
-
-The initial personal read model now lists an owner's USER memories with bounded
-pagination and basic search/source filtering. Complete the scope-aware read and
-mutation model below after M5.
+**Completed 2026-08-17:** the management API enumerates every canonical durable
+type with personal/project, project, type, source, date, and origin filters.
+Responses expose a safe management projection rather than owner IDs/raw
+metadata. All mutations authorize scope first; edits record explicit bounded
+provenance, deduplicate, re-index vector memory, and invalidate caches. A
+confirmed move endpoint validates both scopes and destination duplicates.
+Per-scope capture/retrieval settings are independent from retention, and real
+PostgreSQL tests cover two users/two projects and project membership.
 
 - Add paginated `GET /memory` with filters for personal/project scope, project,
   type, source, created/updated dates, and inferred/explicit origin.
@@ -494,15 +491,18 @@ mutation model below after M5.
 and deliberately move memories within one resolved scope without accessing
 another user's or project's records.
 
-### M13. Complete the Personal Memory and Project Memory UI
+### M13. ✅ Complete the Personal Memory and Project Memory UI
 
-**Partial personal-memory slice shipped 2026-08-17:** `/memory` is now a
+**Completed 2026-08-17:** `/memory` is now a
 first-class navigation destination. It lists durable USER preferences and
 supports debounced server-side search, feedback-source filtering, pagination,
 validated inline editing, a product-native confirmed deletion dialog, refresh,
 and loading/error/empty states. A clearly disabled Project Memory section
-states its M5 dependency. Broader provenance/date/type filters, capture
-controls, export/bulk deletion, and the authorized Project Memory view remain.
+states its M5 dependency. M13 replaces that placeholder with authorized project
+selection, an explicit isolation boundary, persisted personal-inheritance and
+capture switches, durable-type/origin/source/date filters, provenance and usage
+metadata, review-before-edit, scoped JSON export, and selected-memory deletion.
+M14 remains responsible for durable cross-store export/erasure jobs.
 
 Add a first-class **Memory** area rather than hiding these controls inside chat.
 

@@ -122,6 +122,26 @@ class PostgresMemoryStore:
         )
         return [self._to_record(row) for row in rows], total
 
+    async def list_user_preference_candidates(
+        self,
+        *,
+        owner_id: UUID,
+        scope_type: MemoryScopeType,
+        project_id: UUID | None,
+        preference_key: str,
+        search_terms: list[str],
+        limit: int,
+    ) -> list[MemoryRecord]:
+        rows = await self._repository.list_user_preference_candidates(
+            owner_id=owner_id,
+            scope_type=scope_type.value,
+            project_id=project_id,
+            preference_key=preference_key,
+            search_terms=search_terms,
+            limit=limit,
+        )
+        return [self._to_record(row) for row in rows]
+
     async def exists_for_owner(
         self,
         *,

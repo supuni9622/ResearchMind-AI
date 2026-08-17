@@ -102,7 +102,7 @@ def test_seed_dataset_is_valid_and_versioned() -> None:
     root = Path(__file__).resolve().parents[4]
     dataset = load_memory_evaluation_dataset(root / "benchmarks/datasets/memory/v1/dataset.json")
 
-    assert dataset.version == "1.0.0"
+    assert dataset.version == "1.1.0"
     assert {query.category for query in dataset.queries} >= {
         "exact_recall",
         "semantic_recall",

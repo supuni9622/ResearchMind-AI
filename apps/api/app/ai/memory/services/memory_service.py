@@ -23,6 +23,7 @@ branch is a recency listing, not a ranked query match.
 from __future__ import annotations
 
 import asyncio
+from datetime import UTC, datetime
 from time import perf_counter
 from typing import Any, Protocol
 from uuid import UUID
@@ -62,7 +63,10 @@ from app.ai.memory.observability.metrics import (
     SESSION_DUPLICATES_REMOVED,
     SESSION_ITEMS_LOADED,
 )
-from app.ai.memory.policy.supersession import PreferenceSupersessionService
+from app.ai.memory.policy.supersession import (
+    PreferenceSupersessionMatch,
+    PreferenceSupersessionService,
+)
 from app.ai.memory.profile.service import UserMemoryService
 from app.ai.memory.research.service import ResearchMemoryService
 from app.ai.memory.retrieval.availability import DurableMemoryAvailabilityService
@@ -325,13 +329,24 @@ class MemoryService:
             and self._supersession is not None
             and settings.memory_preference_supersession_enabled
         ):
-            superseded = await self._find_superseded_preference(
+            supersession_match, preference_key = await self._find_superseded_preference(
                 owner_id=owner_id,
                 content=content,
                 scope_type=scope_type,
                 project_id=project_id,
             )
-            if superseded is not None:
+            if preference_key:
+                metadata = {**metadata, "preference_key": preference_key}
+            if supersession_match is not None:
+                superseded = supersession_match.record
+                metadata = {
+                    **metadata,
+                    "_supersession": {
+                        "replaced_memory_id": str(superseded.id),
+                        "reason": supersession_match.reason,
+                        "decided_at": datetime.now(UTC).isoformat(),
+                    },
+                }
                 updated = await self._user.update(
                     owner_id=owner_id,
                     memory_id=superseded.id,
@@ -367,20 +382,39 @@ class MemoryService:
         content: str,
         scope_type: MemoryScopeType = MemoryScopeType.PERSONAL,
         project_id: UUID | None = None,
-    ) -> MemoryRecord | None:
+    ) -> tuple[PreferenceSupersessionMatch | None, str | None]:
         if self._supersession is None:
-            return None
+            return None, None
         try:
-            candidates = await self._user.list_preferences(
+            topic = await self._supersession.classify_topic(
                 owner_id=owner_id,
-                scope_type=scope_type,
-                project_id=project_id,
+                new_content=content,
             )
-            return await self._supersession.find_superseded(
+            if topic is not None:
+                candidates = await self._user.find_preference_candidates(
+                    owner_id=owner_id,
+                    scope_type=scope_type,
+                    project_id=project_id,
+                    preference_key=topic.preference_key,
+                    search_terms=topic.search_terms,
+                    limit=settings.memory_preference_candidate_limit,
+                )
+            else:
+                # Provider failure must not block memory creation. Preserve a
+                # small version of the old recency behavior as a fail-open
+                # fallback without restoring the recent-20 blind spot.
+                candidates = await self._user.list_preferences(
+                    owner_id=owner_id,
+                    scope_type=scope_type,
+                    project_id=project_id,
+                    limit=settings.memory_preference_recent_fallback_limit,
+                )
+            match = await self._supersession.find_superseded(
                 owner_id=owner_id,
                 new_content=content,
                 existing=candidates,
             )
+            return match, topic.preference_key if topic else None
         except Exception as exc:
             logger.warning(
                 "memory.supersession.check_failed",
@@ -388,7 +422,7 @@ class MemoryService:
                 error_type=type(exc).__name__,
                 error=str(exc),
             )
-            return None
+            return None, None
 
     # ==========================================================
     # Recall / Forget / Update

@@ -380,3 +380,22 @@ Postgres with `_consolidated_into`, and the canonical row must contain its ID
 in `_merged_from`. Contradictory and unrelated rows must remain independently
 retrievable. Simulate a Qdrant failure and confirm neither Postgres row is
 archived. Return the feature to dry-run or disabled after the staging check.
+
+## M9 dormant preference supersession
+
+1. Create a USER preference such as “Prefer concise answers,” then create at
+   least 20 newer preferences on unrelated topics so the original is outside
+   the former recency window.
+2. Submit “Prefer detailed answers.” Confirm the old row is updated in place,
+   not duplicated, and its metadata contains `preference_key` plus
+   `_supersession.replaced_memory_id`, `reason`, and `decided_at`.
+3. Create two related but distinct preferences, such as “Use concise answers”
+   and “Use APA citations.” Confirm both remain present; topic nomination must
+   never be treated as overwrite authority.
+4. Repeat with project scope and confirm only the selected project's memories
+   are candidates. Repeat as another owner and confirm no cross-owner update.
+5. Temporarily make the topic classifier unavailable. The new preference must
+   still be created; logs may report classification failure, but the user flow
+   must not fail.
+6. Run the M6 v1.1 benchmark and require the existing Recall@5 and isolation
+   gates to remain green.

@@ -67,3 +67,16 @@ class PreferenceSupersessionDecision(BaseModel):
         ),
     )
     reason: str = Field(min_length=1, max_length=500)
+
+
+class PreferenceTopicClassification(BaseModel):
+    """Bounded lookup hints; never sufficient by themselves to overwrite memory."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    preference_key: str = Field(min_length=1, max_length=100)
+    search_terms: list[str] = Field(
+        min_length=1,
+        max_length=5,
+        description="Short topical nouns or noun phrases used only to nominate candidates.",
+    )

@@ -1,6 +1,6 @@
 {
   "name": "memory-evaluation-v1",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "notes": "M6 seed set. IDs are synthetic and contain no user data.",
   "queries": [
     {
@@ -92,6 +92,26 @@
       "stale_memory_ids": [],
       "contradictory_memory_ids": [],
       "unsafe_memory_ids": ["project-a-injection-note"]
+    },
+    {
+      "query_id": "dormant-old-preference",
+      "query": "What is my current preferred response length?",
+      "category": "dormant_old_preference_supersession",
+      "relevant_memory_ids": ["personal-response-length-new"],
+      "allowed_memory_ids": ["personal-response-length-new", "personal-response-length-old"],
+      "stale_memory_ids": [],
+      "contradictory_memory_ids": ["personal-response-length-old"],
+      "unsafe_memory_ids": []
+    },
+    {
+      "query_id": "similar-distinct-preferences",
+      "query": "How should you format and cite my answers?",
+      "category": "supersession_false_positive",
+      "relevant_memory_ids": ["personal-response-length", "personal-citation-style"],
+      "allowed_memory_ids": ["personal-response-length", "personal-citation-style"],
+      "stale_memory_ids": [],
+      "contradictory_memory_ids": [],
+      "unsafe_memory_ids": []
     }
   ]
 }

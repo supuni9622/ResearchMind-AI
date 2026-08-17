@@ -8,7 +8,10 @@ from uuid import uuid4
 import pytest
 from app.ai.memory.enums import MemoryType
 from app.ai.memory.models import MemoryRecord
-from app.ai.memory.policy.models import PreferenceSupersessionDecision
+from app.ai.memory.policy.models import (
+    PreferenceSupersessionDecision,
+    PreferenceTopicClassification,
+)
 from app.ai.memory.policy.supersession import PreferenceSupersessionService
 from app.ai.runtime.generation.enums import GenerationProvider
 
@@ -56,7 +59,9 @@ async def test_matched_index_returns_the_superseded_record() -> None:
         owner_id=uuid4(), new_content="prefers detailed answers", existing=existing
     )
 
-    assert result is existing[1]
+    assert result is not None
+    assert result.record is existing[1]
+    assert result.reason == "same topic"
 
 
 @pytest.mark.asyncio
@@ -128,7 +133,8 @@ async def test_falls_back_to_the_fallback_provider_on_primary_failure() -> None:
         owner_id=uuid4(), new_content="prefers detailed answers", existing=existing
     )
 
-    assert result is existing[0]
+    assert result is not None
+    assert result.record is existing[0]
     assert runtime.execute.await_count == 2
 
 
@@ -162,4 +168,34 @@ async def test_dict_parsed_output_is_coerced_into_the_model() -> None:
         owner_id=uuid4(), new_content="prefers detailed answers", existing=existing
     )
 
-    assert result is existing[0]
+    assert result is not None
+    assert result.record is existing[0]
+
+
+@pytest.mark.asyncio
+async def test_classifies_stable_topic_for_dormant_preference_lookup() -> None:
+    runtime = AsyncMock()
+    runtime.execute.return_value = SimpleNamespace(
+        parsed_output=PreferenceTopicClassification(
+            preference_key="Response Length",
+            search_terms=[" Answers ", "response length"],
+        )
+    )
+    service = PreferenceSupersessionService(runtime, provider=GenerationProvider.OPENAI)
+
+    topic = await service.classify_topic(
+        owner_id=uuid4(), new_content="I now prefer detailed answers"
+    )
+
+    assert topic is not None
+    assert topic.preference_key == "response_length"
+    assert topic.search_terms == ["answers", "response length"]
+
+
+@pytest.mark.asyncio
+async def test_topic_classification_failure_fails_open() -> None:
+    runtime = AsyncMock()
+    runtime.execute.side_effect = RuntimeError("provider unavailable")
+    service = PreferenceSupersessionService(runtime, provider=GenerationProvider.OPENAI)
+
+    assert await service.classify_topic(owner_id=uuid4(), new_content="prefers dark mode") is None

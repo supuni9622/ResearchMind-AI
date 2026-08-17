@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from typing import cast
 
-from sqlalchemy import func, select
+from sqlalchemy import case, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.elements import ColumnElement
 
@@ -151,6 +151,42 @@ class MemoryRepository:
         rows = list((await self.session.execute(rows_statement)).scalars().all())
         total = int((await self.session.execute(count_statement)).scalar_one())
         return rows, total
+
+    async def list_user_preference_candidates(
+        self,
+        *,
+        owner_id: uuid.UUID,
+        scope_type: str,
+        project_id: uuid.UUID | None,
+        preference_key: str,
+        search_terms: list[str],
+        limit: int,
+    ) -> list[Memory]:
+        """Nominate historical USER preferences by topic, not recency.
+
+        This query remains strictly tenant/scope bounded. Matching only
+        nominates rows; the structured supersession judge remains the authority
+        that can approve an update-in-place.
+        """
+
+        key_match = Memory.memory_metadata["preference_key"].astext == preference_key
+        topical_matches = [Memory.content.ilike(f"%{term}%") for term in search_terms]
+        statement = (
+            select(Memory)
+            .where(
+                Memory.owner_id == owner_id,
+                Memory.scope_type == scope_type,
+                Memory.project_id.is_(None)
+                if project_id is None
+                else Memory.project_id == project_id,
+                Memory.type == "user",
+                self._active_filter(),
+                or_(key_match, *topical_matches),
+            )
+            .order_by(case((key_match, 0), else_=1), Memory.updated_at.desc())
+            .limit(limit)
+        )
+        return list((await self.session.execute(statement)).scalars().all())
 
     async def list_stale(
         self,

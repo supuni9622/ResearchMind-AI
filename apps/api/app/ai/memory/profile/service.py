@@ -96,6 +96,25 @@ class UserMemoryService:
             offset=offset,
         )
 
+    async def find_preference_candidates(
+        self,
+        *,
+        owner_id: UUID,
+        scope_type: MemoryScopeType,
+        project_id: UUID | None,
+        preference_key: str,
+        search_terms: list[str],
+        limit: int,
+    ) -> list[MemoryRecord]:
+        return await self._store.list_user_preference_candidates(
+            owner_id=owner_id,
+            scope_type=scope_type,
+            project_id=project_id,
+            preference_key=preference_key,
+            search_terms=search_terms,
+            limit=limit,
+        )
+
     async def find_exact_content(
         self,
         *,

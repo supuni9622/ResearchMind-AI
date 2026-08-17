@@ -236,6 +236,8 @@ class Settings(BaseSettings):
     # the same topic (e.g. "prefers detailed answers" replacing "prefers
     # concise answers") rather than piling up as a second, contradictory row.
     memory_preference_supersession_enabled: bool = True
+    memory_preference_candidate_limit: int = 20
+    memory_preference_recent_fallback_limit: int = 5
     # Public memory mutations use separate owner-scoped buckets so read/search
     # traffic and background extraction never consume the user's API budget.
     memory_write_rate_limit_requests: int = 30

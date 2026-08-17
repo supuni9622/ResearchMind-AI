@@ -384,11 +384,27 @@ Recall@K, losing provenance, or merging contradictory findings.
 
 The current comparison examines only the 20 most-recently-updated preferences.
 
+**Implemented; rollout calibration pending:** 2026-08-17. New USER
+preferences now receive a cheap structured topic classification containing a
+stable `preference_key` and bounded search terms. PostgreSQL uses those hints
+to nominate up to 20 matching preferences across the owner's complete history,
+within the exact personal/project boundary; recency no longer determines
+eligibility. The existing conservative supersession judge remains the only
+component allowed to approve update-in-place. Its reason, replaced memory ID,
+and decision timestamp are retained in metadata. Topic-classification or query
+failure falls open to a five-item recent scan and never blocks memory creation.
+M6 v1.1 adds dormant-old-preference and similar-but-distinct false-positive
+scenarios.
+
 - Give USER preferences a stable topic/key or embedding-assisted candidate
   lookup so old preferences on the same subject remain discoverable.
 - Retrieve a bounded topically relevant set, not an unbounded owner profile.
 - Keep fail-open behavior and audit the decision/replaced ID.
 - Add dormant-old-preference and false-positive regression cases to M6.
+
+**Done when:** a staging sample demonstrates that dormant same-topic
+preferences are found while related-but-distinct preferences are retained,
+with no owner/project leakage and no M6 retrieval regression.
 
 ### M10. Introduce typed preference attributes gradually
 

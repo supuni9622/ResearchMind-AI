@@ -420,7 +420,7 @@ memory content must not become metric labels.
 | 7 | M6 memory evaluation | Implementation complete; staging calibration pending | Seed staging, capture live retrieval and paired answers, human-calibrate the judge/budgets, and enforce the live deployment gate |
 | 8 | M7 online quality signals | Implemented; rollout/calibration pending | Generation correlation, explicit memory feedback, and opt-in sampled utility/harm scoring |
 | 9 | M8 evidence-driven consolidation | Implemented; rollout/evaluation gate pending | Bounded vector nomination, typed decisions, reversible lineage, and fail-safe re-indexing |
-| 10 | M9-M10 preference quality | Planned | Remove supersession misses and gradually type common preferences |
+| 10 | M9-M10 preference quality | M9 implemented; M10 planned | Topical historical supersession lookup now closes the recency blind spot; typed preference expansion remains |
 | 11 | M11 observability | Partially present; expansion planned | Make size, health, drift, and utility visible |
 | 12 | M12-M13 management API and UI | Partial personal slice shipped | Owner-scoped USER listing, search/source filter, pagination, editing, and confirmed deletion are live; Project Memory and broader controls remain |
 | 13 | M14-M15 export, erasure, confirmation | Planned | Governance and safe destructive actions |

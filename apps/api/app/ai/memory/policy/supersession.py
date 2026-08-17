@@ -20,13 +20,17 @@ owners.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from uuid import UUID
 
 import structlog
 
 from app.ai.knowledge.context.models import PromptContext
 from app.ai.memory.models import MemoryRecord
-from app.ai.memory.policy.models import PreferenceSupersessionDecision
+from app.ai.memory.policy.models import (
+    PreferenceSupersessionDecision,
+    PreferenceTopicClassification,
+)
 from app.ai.runtime.generation.enums import GenerationProvider, ResponseFormat
 from app.ai.runtime.generation.models import GenerationRequest
 from app.ai.runtime.generation.orchestration.interfaces import GenerationRuntimeInterface
@@ -34,6 +38,14 @@ from app.ai.runtime.generation.orchestration.interfaces import GenerationRuntime
 logger = structlog.get_logger()
 
 _MAX_CANDIDATES = 20
+_TOPIC_SYSTEM_PROMPT = (
+    "Extract a stable lookup topic for one user preference. preference_key must "
+    "be a short lowercase snake_case category such as response_length, citation_style, "
+    "color_theme, preferred_model, or research_topic. search_terms must contain one to "
+    "five short nouns or noun phrases likely to occur in an older preference on the same "
+    "topic, including common synonyms where useful. These values only retrieve candidates; "
+    "they never authorize overwriting. Return only the requested structured JSON."
+)
 _SYSTEM_PROMPT = (
     "You compare a NEW user-preference statement against a numbered list "
     "of a user's EXISTING stored preferences. Decide whether the new "
@@ -48,6 +60,12 @@ _SYSTEM_PROMPT = (
     "object matching the requested schema -- no markdown code fences, no "
     "prose before or after it."
 )
+
+
+@dataclass(frozen=True)
+class PreferenceSupersessionMatch:
+    record: MemoryRecord
+    reason: str
 
 
 class PreferenceSupersessionService:
@@ -68,7 +86,7 @@ class PreferenceSupersessionService:
         owner_id: UUID,
         new_content: str,
         existing: list[MemoryRecord],
-    ) -> MemoryRecord | None:
+    ) -> PreferenceSupersessionMatch | None:
         if not existing:
             return None
 
@@ -91,7 +109,61 @@ class PreferenceSupersessionService:
             )
             return None
 
-        return candidates[index]
+        return PreferenceSupersessionMatch(record=candidates[index], reason=decision.reason)
+
+    async def classify_topic(
+        self,
+        *,
+        owner_id: UUID,
+        new_content: str,
+    ) -> PreferenceTopicClassification | None:
+        request = GenerationRequest(
+            prompt_context=PromptContext(context="", chunks=[]),
+            system_prompt=_TOPIC_SYSTEM_PROMPT,
+            user_prompt=f"Preference: {new_content.strip()}",
+            response_format=ResponseFormat.STRUCTURED,
+            output_model=PreferenceTopicClassification,
+            max_tokens=250,
+            max_regeneration_attempts=2,
+            temperature=0.0,
+            owner_id=owner_id,
+            metadata={"usage_category": "preference_topic_classification"},
+        )
+        topic = await self._classify_topic(request, self._provider)
+        if topic is None and self._fallback_provider is not None:
+            topic = await self._classify_topic(request, self._fallback_provider)
+        return topic
+
+    async def _classify_topic(
+        self,
+        request: GenerationRequest,
+        provider: GenerationProvider | None,
+    ) -> PreferenceTopicClassification | None:
+        try:
+            result = await self._generation_runtime.execute(request, provider=provider)
+            topic = result.parsed_output
+            if isinstance(topic, dict):
+                topic = PreferenceTopicClassification.model_validate(topic)
+            if not isinstance(topic, PreferenceTopicClassification):
+                return None
+            cleaned_terms = [
+                " ".join(term.lower().split())[:100] for term in topic.search_terms if term.strip()
+            ]
+            if not cleaned_terms:
+                return None
+            return topic.model_copy(
+                update={
+                    "preference_key": topic.preference_key.strip().lower().replace(" ", "_")[:100],
+                    "search_terms": cleaned_terms[:5],
+                }
+            )
+        except Exception as exc:
+            logger.warning(
+                "memory.supersession.topic_classification_failed",
+                provider=provider.value if provider else None,
+                error_type=type(exc).__name__,
+            )
+            return None
 
     async def _decide(
         self,

@@ -14,6 +14,7 @@ from app.ai.memory.consolidation.service import MemoryConsolidationService
 from app.ai.memory.enums import MemoryType
 from app.ai.memory.lifecycle.service import MemoryLifecycleService
 from app.ai.memory.observability import metrics as memory_metrics
+from app.ai.memory.observability.inventory import MemoryInventoryMetricsService
 from app.core.settings import Settings
 from app.infrastructure.metrics.interfaces import MetricsRecorder
 from redis.asyncio import Redis
@@ -38,12 +39,14 @@ class MemoryLifecycleWorker:
         settings: Settings,
         metrics: MetricsRecorder,
         consolidation_service: MemoryConsolidationService | None = None,
+        inventory_metrics_service: MemoryInventoryMetricsService | None = None,
     ) -> None:
         self._service = service
         self._redis = redis
         self._settings = settings
         self._metrics = metrics
         self._consolidation_service = consolidation_service
+        self._inventory_metrics_service = inventory_metrics_service
         self._stopping = False
         self._stop_event = asyncio.Event()
 
@@ -105,6 +108,14 @@ class MemoryLifecycleWorker:
                     operation=memory_metrics.CONSOLIDATION_DURATION,
                     duration_ms=(time.perf_counter() - consolidation_started) * 1000,
                 )
+            if self._inventory_metrics_service is not None:
+                try:
+                    await self._inventory_metrics_service.collect()
+                except Exception as exc:
+                    logger.exception(
+                        "memory.inventory.collection_failed",
+                        error_type=type(exc).__name__,
+                    )
             self._metrics.set_gauge(
                 metric=memory_metrics.LIFECYCLE_LAST_SUCCESS,
                 value=time.time(),

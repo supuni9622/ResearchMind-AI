@@ -2,13 +2,20 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from typing import cast
+from typing import TypedDict, cast
 
-from sqlalchemy import case, func, or_, select
+from sqlalchemy import case, func, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.elements import ColumnElement
 
 from app.models.memory import Memory
+
+
+class MemoryObservabilitySnapshot(TypedDict):
+    counts: dict[tuple[str, str], int]
+    oldest_age_seconds: dict[str, float]
+    sizes: dict[str, int]
+    distributions: dict[tuple[str, str], float]
 
 
 class MemoryRepository:
@@ -187,6 +194,85 @@ class MemoryRepository:
             .limit(limit)
         )
         return list((await self.session.execute(statement)).scalars().all())
+
+    async def list_vector_memory_ids(self) -> set[uuid.UUID]:
+        """Canonical IDs that must have a Qdrant point (admin inventory path)."""
+
+        statement = select(Memory.id).where(
+            Memory.type.in_(("semantic", "research")),
+            self._active_filter(),
+        )
+        return set((await self.session.execute(statement)).scalars().all())
+
+    async def memory_observability_snapshot(self) -> MemoryObservabilitySnapshot:
+        """Bounded aggregate storage facts; never returns tenant identifiers."""
+
+        counts = {
+            (str(memory_type), str(scope_type)): int(count)
+            for memory_type, scope_type, count in (
+                await self.session.execute(
+                    select(Memory.type, Memory.scope_type, func.count(Memory.id)).group_by(
+                        Memory.type, Memory.scope_type
+                    )
+                )
+            ).all()
+        }
+        oldest_age_seconds = {
+            str(memory_type): float(age or 0.0)
+            for memory_type, age in (
+                await self.session.execute(
+                    select(
+                        Memory.type,
+                        func.extract("epoch", func.now() - func.min(Memory.created_at)),
+                    ).group_by(Memory.type)
+                )
+            ).all()
+        }
+        sizes = (
+            await self.session.execute(
+                text(
+                    "SELECT pg_relation_size('memories') AS table_bytes, "
+                    "pg_indexes_size('memories') AS index_bytes, "
+                    "pg_total_relation_size('memories') AS total_bytes"
+                )
+            )
+        ).one()
+        distribution_rows = (
+            await self.session.execute(
+                text(
+                    "WITH owner_counts AS ("
+                    " SELECT owner_id, count(*)::double precision AS n FROM memories "
+                    " GROUP BY owner_id"
+                    "), project_counts AS ("
+                    " SELECT project_id, count(*)::double precision AS n FROM memories "
+                    " WHERE project_id IS NOT NULL GROUP BY project_id"
+                    ") "
+                    "SELECT 'owner' AS dimension, "
+                    " coalesce(percentile_cont(0.5) WITHIN GROUP (ORDER BY n), 0) AS p50, "
+                    " coalesce(percentile_cont(0.95) WITHIN GROUP (ORDER BY n), 0) AS p95, "
+                    " coalesce(max(n), 0) AS maximum FROM owner_counts "
+                    "UNION ALL SELECT 'project', "
+                    " coalesce(percentile_cont(0.5) WITHIN GROUP (ORDER BY n), 0), "
+                    " coalesce(percentile_cont(0.95) WITHIN GROUP (ORDER BY n), 0), "
+                    " coalesce(max(n), 0) FROM project_counts"
+                )
+            )
+        ).all()
+        distributions = {
+            (str(dimension), quantile): float(value)
+            for dimension, p50, p95, maximum in distribution_rows
+            for quantile, value in (("p50", p50), ("p95", p95), ("max", maximum))
+        }
+        return {
+            "counts": counts,
+            "oldest_age_seconds": oldest_age_seconds,
+            "sizes": {
+                "table": int(sizes.table_bytes),
+                "index": int(sizes.index_bytes),
+                "total": int(sizes.total_bytes),
+            },
+            "distributions": distributions,
+        }
 
     async def list_stale(
         self,

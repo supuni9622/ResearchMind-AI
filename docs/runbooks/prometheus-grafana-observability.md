@@ -66,6 +66,8 @@ per-request questions by design.
    - Raw `research_runtime_main` worker exposition — <http://localhost:8010/metrics>
      (`Settings.research_runtime_worker_metrics_port` -- only runs when
      that worker process is up, unlike the API's)
+   - Raw `memory_lifecycle_main` worker exposition — <http://localhost:8011/metrics>
+     (inventory and lifecycle gauges exist only while this worker is running)
 
 That's it — dashboards, both datasources (Prometheus + Postgres, the
 latter for the Eval Scores dashboard below), and alert rules are all
@@ -115,10 +117,14 @@ cycle). Useful when a research run feels slow, a research answer is thin
 on evidence, or reports are routinely finalizing with limitations rather
 than passing cleanly.
 
-**4. Memory Runtime** — Memory platform internals: context-build rate,
-durable-retrieval skip rate, semantic/research search rates, extraction
-evaluated/skipped/succeeded/failed, and created/updated/duplicate memory
-counts. Useful for "is memory extraction running too often" or "why is
+**4. Memory Runtime** — Memory platform internals: context-build and search,
+created/updated/superseded writes, absolute PostgreSQL rows and bytes, Qdrant
+points and drift, oldest-row age, bounded owner/project distributions,
+lifecycle freshness/outcomes, context tokens and omissions, mutation
+throttles, consolidation outcomes, and memory utility/feedback trends. The
+scheduled inventory comes from `memory_lifecycle_main`; no owner or project ID
+is exported as a metric label. Useful for "is memory extraction running too
+often," "is cleanup healthy," or "why is
 memory context empty for this user type" questions (in aggregate — not
 per-user, see below).
 
@@ -154,6 +160,10 @@ Prometheus → Alerts:
 | `ResearchMindHighWebSearchFailureRate` | Web-search failure rate > 20% for 15m | Tavily outage/rate-limit, or an expired/invalid API key |
 | `ResearchMindHighMcpFailureRate` | MCP tool failure rate > 15% for 15m | The Research Intelligence MCP server is down or unreachable |
 | `ResearchMindUnexpectedMemoryExtractionRate` | Extraction requested/evaluated ratio > 70% for 30m | The extraction policy/threshold changed (intentionally or not) and is now firing on most turns |
+| `ResearchMindMemoryLifecycleStale` | No successful lifecycle cycle for 30h | The lifecycle worker is stopped, its lock/dependencies are unhealthy, or the cycle is failing |
+| `ResearchMindMemoryLifecycleFailures` | Any row-level lifecycle failure in 1h | A canonical delete, vector cleanup, or per-row dependency failed |
+| `ResearchMindMemoryVectorDrift` | Any canonical/vector ID mismatch for 15m | Qdrant indexing/deletion failed or an out-of-band change created an orphan |
+| `ResearchMindMemoryInventoryStale` | No successful inventory collection for 30h | The lifecycle worker is stopped or aggregate PostgreSQL/Qdrant collection failed |
 | `ResearchMindChatLatencyHigh` | Chat P95 generation latency > 15s for 10m | A provider is degraded/slow, or a routing change picked a slower model |
 | `ResearchMindLinearResearchLatencyHigh` | Linear Research P95 turn latency > 45s for 10m | Retrieval/reranking or the generation provider is degraded |
 | `ResearchMindDeepResearchRunAbnormallySlow` | Deep Research P95 end-to-end run duration > 2h (1h window, 30m for) | A genuinely different *kind* of alert from the two above, not just a bigger number: `researchmind_deep_research_run_duration_seconds` measures `completed_at - started_at`, which legitimately includes human-approval wait time at the plan/report/web-search checkpoints — this is a stuck-run/anomaly detector, not a performance SLO, since it can't distinguish "slow reviewer" from "actually orphaned" |

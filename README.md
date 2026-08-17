@@ -51,7 +51,7 @@ ResearchMind lets you upload documents, chat with them, and escalate any questio
 
 ## Project Status
 
-Active development. The backend (`apps/api`) is well past scaffolding — retrieval, generation, Deep Research, memory, guardrails, and observability are all implemented and covered by a real test suite (~1,160+ tests). See `docs/project/01-current-state.md` and `docs/adrs/` for the detailed, up-to-date build log.
+Active development. The backend (`apps/api`) is well past scaffolding — retrieval, generation, Deep Research, memory, guardrails, and observability are all implemented and covered by a real test suite (1,700+ unit tests). See `docs/project/01-current-state.md` and `docs/adrs/` for the detailed, up-to-date build log.
 
 ---
 
@@ -66,7 +66,7 @@ Active development. The backend (`apps/api`) is well past scaffolding — retrie
 | **Generation runtime** | Multi-provider (Groq, others) with routing strategies, 3-tier semantic caching, schema/hallucination/runtime validation, and a guardrails layer (input/retrieval/generation/runtime stages) that can warn, block, escalate, or trigger regeneration |
 | **Memory** | Session, user, semantic, and research memory (Valkey + PostgreSQL + Qdrant), injected into prompts and extracted from completed turns |
 | **Web search & MCP** | Tavily web search (shared by Chat and Deep Research, approval-gated in Deep Research); MCP client to the [Research Intelligence MCP server](https://github.com/supuni9622/research-intelligence-mcp) (paper search) — run it locally, see below |
-| **Observability** | Structured logs (`structlog`, request-id correlated), LangSmith tracing per generation, Prometheus + Grafana (4 dashboards, 5 alert rules) — see `docs/monitoring/` |
+| **Observability** | Structured logs (`structlog`, request-id correlated), LangSmith tracing per generation, Prometheus + Grafana (5 dashboards, 12 alert rules) — see `docs/monitoring/` |
 | **Evaluation & benchmarking** | Deterministic groundedness/hallucination detection live in production; offline engineering benchmarks for chunking/embeddings/retrieval/reranking/generation with regression detection — see `docs/evaluation/` |
 | **Auth** | AWS Cognito Hosted UI, JWT-validated on every protected request |
 
@@ -299,7 +299,9 @@ uv run python -m apps.worker.memory_lifecycle_main
 
 Run one replica per environment. It wakes daily by default, uses a Valkey
 singleton lock, and applies bounded type-specific retention policies. Inspect
-dry-run metrics/logs before setting `MEMORY_LIFECYCLE_DRY_RUN=false`.
+dry-run metrics/logs before setting `MEMORY_LIFECYCLE_DRY_RUN=false`. It also
+publishes bounded PostgreSQL/Qdrant inventory and drift gauges at
+`http://localhost:8011/metrics` for the Memory Runtime dashboard and alerts.
 
 Polls for recently-completed Chat/Linear Research/Deep Research generations, runs the free citation-validity check on all of them, and runs the Ragas LLM-judge suite on a risk-weighted sample (guardrail-flagged and non-`PASS`-reviewed requests always, a configurable flat baseline otherwise — see the `eval_online_*` settings). Requires `OPENAI_API_KEY` to score judge metrics; without it, the worker still runs and scores citation validity only.
 

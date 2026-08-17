@@ -44,7 +44,15 @@ Dashboards, datasources, and alert rules are all provisioned from files under `i
 - Memory-context request rate / durable-retrieval skip rate / durable memory available vs. empty
 - Semantic/research search rate / context & durable-search P95 latency
 - Extraction evaluated vs. skipped / request ratio / success-failure rate / empty extraction rate
-- Memories created vs. updated / duplicate-memory rate / extraction P95 latency
+- Memories created, updated, and superseded / duplicate-memory rate / extraction P95 latency
+- Absolute PostgreSQL rows by type/scope and table/index/total bytes
+- Qdrant point count, missing/orphan drift, oldest-row age, and bounded owner/project p50/p95/max distributions
+- Lifecycle and inventory freshness / examined, deleted, and failed outcomes
+- Selected/dropped context tokens, omitted items, mutation throttles, consolidation outcomes, and utility/feedback trends
+
+Storage inventory and lifecycle series are emitted by the separately running
+`apps.worker.memory_lifecycle_main` process on port `8011`. Prometheus labels
+contain only bounded aggregate dimensions; owner and project IDs are never labels.
 
 ### Eval Scores (E17)
 

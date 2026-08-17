@@ -13,7 +13,11 @@ from uuid import uuid4
 import pytest
 from app.ai.memory.enums import MemoryScopeType, MemoryType
 from app.ai.memory.models import MemoryRecord
-from app.ai.memory.policy.models import PreferenceTopicClassification
+from app.ai.memory.policy.models import (
+    PreferenceKind,
+    PreferenceTopicClassification,
+    PreferenceValueType,
+)
 from app.ai.memory.policy.supersession import PreferenceSupersessionMatch
 from app.ai.memory.services.memory_service import MemoryService
 from app.core.settings import settings
@@ -44,6 +48,24 @@ def _service(
         research_memory=AsyncMock(),
         supersession_service=supersession,
     )
+
+
+def test_typed_preference_metadata_coerces_boolean_values() -> None:
+    metadata = MemoryService._with_typed_preference_metadata(
+        {"source": "feedback"},
+        PreferenceTopicClassification(
+            preference_key="preferred_tool",
+            preference_kind=PreferenceKind.PREFERRED_TOOL,
+            normalized_value="enabled",
+            value_type=PreferenceValueType.BOOLEAN,
+            confidence=0.91,
+            explicit=True,
+            search_terms=["tool"],
+        ),
+    )
+
+    assert metadata["preference"]["value"] is True
+    assert metadata["preference"]["value_type"] == "boolean"
 
 
 @pytest.mark.asyncio
@@ -81,7 +103,13 @@ async def test_supersedes_an_existing_preference_on_the_same_topic() -> None:
     supersession = AsyncMock()
     supersession.classify_topic = AsyncMock(
         return_value=PreferenceTopicClassification(
-            preference_key="response_length", search_terms=["answers"]
+            preference_key="response_length",
+            preference_kind=PreferenceKind.RESPONSE_LENGTH,
+            normalized_value="detailed",
+            value_type=PreferenceValueType.STRING,
+            confidence=0.96,
+            explicit=True,
+            search_terms=["answers"],
         )
     )
     supersession.find_superseded = AsyncMock(
@@ -117,6 +145,18 @@ async def test_supersedes_an_existing_preference_on_the_same_topic() -> None:
         metadata={
             "source": "feedback",
             "preference_key": "response_length",
+            "preference": {
+                "schema_version": "v1",
+                "kind": "response_length",
+                "key": "response_length",
+                "value": "detailed",
+                "value_type": "string",
+                "confidence": 0.96,
+                "explicit": True,
+                "source": "feedback",
+                "effective_at": ANY,
+                "provenance": {},
+            },
             "_supersession": {
                 "replaced_memory_id": str(old.id),
                 "reason": "same topic",
@@ -124,6 +164,57 @@ async def test_supersedes_an_existing_preference_on_the_same_topic() -> None:
             },
         },
         importance_score=0.7,
+    )
+
+
+@pytest.mark.asyncio
+async def test_typed_controlled_preference_supersedes_without_second_judge_call() -> None:
+    owner_id = uuid4()
+    old = _record("prefers concise answers").model_copy(
+        update={
+            "metadata": {
+                "preference_key": "response_length",
+                "preference": {
+                    "schema_version": "v1",
+                    "key": "response_length",
+                    "value": "concise",
+                },
+            }
+        }
+    )
+    user = AsyncMock()
+    user.find_exact_content = AsyncMock(return_value=None)
+    user.find_preference_candidates = AsyncMock(return_value=[old])
+    user.update = AsyncMock(return_value=old)
+    supersession = AsyncMock()
+    supersession.classify_topic = AsyncMock(
+        return_value=PreferenceTopicClassification(
+            preference_key="response_length",
+            preference_kind=PreferenceKind.RESPONSE_LENGTH,
+            normalized_value="detailed",
+            value_type=PreferenceValueType.STRING,
+            confidence=0.97,
+            explicit=True,
+            search_terms=["answers"],
+        )
+    )
+    service = _service(user=user, supersession=supersession)
+
+    _, status = await service.remember_extracted(
+        owner_id=owner_id,
+        type=MemoryType.USER,
+        content="prefer detailed answers",
+        importance_score=0.8,
+        metadata={"source": "extraction", "conversation_id": "conversation-1"},
+    )
+
+    assert status == "superseded"
+    supersession.find_superseded.assert_not_awaited()
+    update_metadata = user.update.await_args.kwargs["metadata"]
+    assert update_metadata["preference"]["value"] == "detailed"
+    assert update_metadata["preference"]["provenance"] == {"conversation_id": "conversation-1"}
+    assert update_metadata["_supersession"]["reason"] == (
+        "deterministic_typed_preference_key_match"
     )
 
 
@@ -138,7 +229,13 @@ async def test_no_supersession_match_falls_through_to_plain_create() -> None:
     supersession.classify_topic = AsyncMock(return_value=None)
     supersession.classify_topic = AsyncMock(
         return_value=PreferenceTopicClassification(
-            preference_key="research_topic", search_terms=["graph databases"]
+            preference_key="research_topic",
+            preference_kind=PreferenceKind.CUSTOM,
+            normalized_value="graph databases",
+            value_type=PreferenceValueType.STRING,
+            confidence=0.8,
+            explicit=False,
+            search_terms=["graph databases"],
         )
     )
     supersession.find_superseded = AsyncMock(return_value=None)
@@ -154,6 +251,20 @@ async def test_no_supersession_match_falls_through_to_plain_create() -> None:
 
     assert status == "created"
     assert record is created
+    remembered_metadata = user.remember.await_args.kwargs["metadata"]
+    assert remembered_metadata["preference_key"] == "research_topic"
+    assert remembered_metadata["preference"] == {
+        "schema_version": "v1",
+        "kind": "custom",
+        "key": "research_topic",
+        "value": "graph databases",
+        "value_type": "string",
+        "confidence": 0.8,
+        "explicit": False,
+        "source": "extraction",
+        "effective_at": ANY,
+        "provenance": {},
+    }
 
 
 @pytest.mark.asyncio
@@ -168,7 +279,13 @@ async def test_dormant_project_preference_is_nominated_without_recent_list_scan(
     supersession = AsyncMock()
     supersession.classify_topic = AsyncMock(
         return_value=PreferenceTopicClassification(
-            preference_key="response_length", search_terms=["project reports"]
+            preference_key="response_length",
+            preference_kind=PreferenceKind.RESPONSE_LENGTH,
+            normalized_value="detailed",
+            value_type=PreferenceValueType.STRING,
+            confidence=0.96,
+            explicit=True,
+            search_terms=["project reports"],
         )
     )
     supersession.find_superseded = AsyncMock(

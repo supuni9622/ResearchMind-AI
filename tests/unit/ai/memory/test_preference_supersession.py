@@ -9,8 +9,10 @@ import pytest
 from app.ai.memory.enums import MemoryType
 from app.ai.memory.models import MemoryRecord
 from app.ai.memory.policy.models import (
+    PreferenceKind,
     PreferenceSupersessionDecision,
     PreferenceTopicClassification,
+    PreferenceValueType,
 )
 from app.ai.memory.policy.supersession import PreferenceSupersessionService
 from app.ai.runtime.generation.enums import GenerationProvider
@@ -178,6 +180,11 @@ async def test_classifies_stable_topic_for_dormant_preference_lookup() -> None:
     runtime.execute.return_value = SimpleNamespace(
         parsed_output=PreferenceTopicClassification(
             preference_key="Response Length",
+            preference_kind=PreferenceKind.RESPONSE_LENGTH,
+            normalized_value=" Detailed ",
+            value_type=PreferenceValueType.STRING,
+            confidence=0.96,
+            explicit=True,
             search_terms=[" Answers ", "response length"],
         )
     )
@@ -189,7 +196,76 @@ async def test_classifies_stable_topic_for_dormant_preference_lookup() -> None:
 
     assert topic is not None
     assert topic.preference_key == "response_length"
+    assert topic.normalized_value == "Detailed"
     assert topic.search_terms == ["answers", "response length"]
+
+
+def test_deterministic_match_requires_one_high_confidence_explicit_controlled_key() -> None:
+    existing = _record("prefers concise answers").model_copy(
+        update={
+            "metadata": {
+                "preference": {
+                    "schema_version": "v1",
+                    "key": "response_length",
+                }
+            }
+        }
+    )
+    classification = PreferenceTopicClassification(
+        preference_key="response_length",
+        preference_kind=PreferenceKind.RESPONSE_LENGTH,
+        normalized_value="detailed",
+        value_type=PreferenceValueType.STRING,
+        confidence=0.95,
+        explicit=True,
+        search_terms=["answers"],
+    )
+
+    match = PreferenceSupersessionService.find_deterministic_superseded(
+        classification=classification,
+        existing=[existing],
+        confidence_threshold=0.85,
+    )
+
+    assert match is not None
+    assert match.record is existing
+    assert match.reason == "deterministic_typed_preference_key_match"
+
+
+@pytest.mark.parametrize(
+    ("kind", "confidence", "explicit"),
+    [
+        (PreferenceKind.CUSTOM, 0.99, True),
+        (PreferenceKind.RESPONSE_LENGTH, 0.5, True),
+        (PreferenceKind.RESPONSE_LENGTH, 0.99, False),
+    ],
+)
+def test_deterministic_match_rejects_custom_uncertain_or_inferred_preferences(
+    kind: PreferenceKind,
+    confidence: float,
+    explicit: bool,
+) -> None:
+    existing = _record("prefers concise answers").model_copy(
+        update={"metadata": {"preference": {"schema_version": "v1", "key": "response_length"}}}
+    )
+    classification = PreferenceTopicClassification(
+        preference_key="response_length",
+        preference_kind=kind,
+        normalized_value="detailed",
+        value_type=PreferenceValueType.STRING,
+        confidence=confidence,
+        explicit=explicit,
+        search_terms=["answers"],
+    )
+
+    assert (
+        PreferenceSupersessionService.find_deterministic_superseded(
+            classification=classification,
+            existing=[existing],
+            confidence_threshold=0.85,
+        )
+        is None
+    )
 
 
 @pytest.mark.asyncio

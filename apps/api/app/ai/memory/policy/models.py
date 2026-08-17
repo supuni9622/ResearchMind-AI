@@ -69,12 +69,32 @@ class PreferenceSupersessionDecision(BaseModel):
     reason: str = Field(min_length=1, max_length=500)
 
 
+class PreferenceKind(StrEnum):
+    RESPONSE_LENGTH = "response_length"
+    TONE = "tone"
+    CITATION_STYLE = "citation_style"
+    PREFERRED_MODEL = "preferred_model"
+    PREFERRED_TOOL = "preferred_tool"
+    CUSTOM = "custom"
+
+
+class PreferenceValueType(StrEnum):
+    STRING = "string"
+    INTEGER = "integer"
+    BOOLEAN = "boolean"
+
+
 class PreferenceTopicClassification(BaseModel):
-    """Bounded lookup hints; never sufficient by themselves to overwrite memory."""
+    """M9 lookup hints plus M10's additive typed preference attributes."""
 
     model_config = ConfigDict(extra="forbid")
 
     preference_key: str = Field(min_length=1, max_length=100)
+    preference_kind: PreferenceKind
+    normalized_value: str = Field(min_length=1, max_length=200)
+    value_type: PreferenceValueType
+    confidence: float = Field(ge=0.0, le=1.0)
+    explicit: bool = Field(description="True only when the user directly stated this preference.")
     search_terms: list[str] = Field(
         min_length=1,
         max_length=5,

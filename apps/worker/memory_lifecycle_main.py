@@ -20,6 +20,7 @@ from app.ai.memory.create import (
     get_memory_metrics,
 )
 from app.ai.memory.lifecycle.service import MemoryLifecycleService
+from app.ai.memory.observability.inventory import MemoryInventoryMetricsService
 from app.ai.observability.prometheus.create import start_worker_metrics_server
 from app.ai.runtime.generation.orchestration.create import create_generation_runtime
 from app.core.settings import settings
@@ -58,6 +59,11 @@ async def main() -> None:
                     fallback_provider=fallback_provider,
                 ),
                 metrics=get_memory_metrics(),
+            ),
+            inventory_metrics_service=MemoryInventoryMetricsService(
+                repository,
+                vector_index,
+                get_memory_metrics(),
             ),
         )
 

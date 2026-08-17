@@ -11,13 +11,17 @@
 |---|---|
 | Prometheus UI | http://localhost:9090 |
 | Raw API exposition | http://localhost:8000/metrics |
+| Research worker exposition | http://localhost:8010/metrics |
+| Memory worker exposition | http://localhost:8011/metrics |
 | Start | `docker compose up -d prometheus grafana` |
 | Kill switch | `PROMETHEUS_ENABLED=false` — every metrics call site, the `/metrics` endpoint, and the HTTP metrics middleware all no-op |
 
 ## Scrape config — `infra/observability/prometheus/prometheus.yml`
 
 - `scrape_interval` / `evaluation_interval`: 15s
-- Target: `host.docker.internal:8000` — the API runs on the host via `uvicorn`, not as a Compose service, so Prometheus reaches it through Docker Desktop's host gateway
+- Targets: `host.docker.internal:8000` (API), `:8010` (Research Runtime
+  worker), and `:8011` (memory lifecycle/inventory worker). These processes run
+  on the host, so Prometheus reaches them through Docker Desktop's host gateway.
 
 ## Metric registry — `app/ai/observability/prometheus/names.py`
 
@@ -34,6 +38,13 @@ Never appears as a metric value or label: prompts, queries, full URLs, `request_
 | `ResearchMindHighWebSearchFailureRate` | Web-search failure rate > 20% | 15m |
 | `ResearchMindHighMcpFailureRate` | MCP tool failure rate > 15% | 15m |
 | `ResearchMindUnexpectedMemoryExtractionRate` | Extraction-requested/evaluated ratio > 70% | 30m |
+| `ResearchMindMemoryLifecycleStale` | Last successful lifecycle cycle is older than 30h or absent | 15m |
+| `ResearchMindMemoryLifecycleFailures` | Any lifecycle row failure in the last hour | 5m |
+| `ResearchMindMemoryVectorDrift` | PostgreSQL/Qdrant missing or orphan count is non-zero | 15m |
+| `ResearchMindMemoryInventoryStale` | Last successful inventory is older than 30h or absent | 15m |
+| `ResearchMindChatLatencyHigh` | Chat generation P95 > 15s | 10m |
+| `ResearchMindLinearResearchLatencyHigh` | Linear Research turn P95 > 45s | 10m |
+| `ResearchMindDeepResearchRunAbnormallySlow` | Deep Research end-to-end P95 > 2h | 30m |
 
 These are local-development defaults, not tuned production SLOs. No notification channel (PagerDuty/Slack) is wired up — alerts are visible in the Prometheus UI only.
 

@@ -63,6 +63,7 @@ from app.ai.memory.observability.metrics import (
     SESSION_DUPLICATES_REMOVED,
     SESSION_ITEMS_LOADED,
 )
+from app.ai.memory.policy.models import PreferenceTopicClassification, PreferenceValueType
 from app.ai.memory.policy.supersession import (
     PreferenceSupersessionMatch,
     PreferenceSupersessionService,
@@ -329,14 +330,14 @@ class MemoryService:
             and self._supersession is not None
             and settings.memory_preference_supersession_enabled
         ):
-            supersession_match, preference_key = await self._find_superseded_preference(
+            supersession_match, classification = await self._find_superseded_preference(
                 owner_id=owner_id,
                 content=content,
                 scope_type=scope_type,
                 project_id=project_id,
             )
-            if preference_key:
-                metadata = {**metadata, "preference_key": preference_key}
+            if classification is not None:
+                metadata = self._with_typed_preference_metadata(metadata, classification)
             if supersession_match is not None:
                 superseded = supersession_match.record
                 metadata = {
@@ -382,7 +383,7 @@ class MemoryService:
         content: str,
         scope_type: MemoryScopeType = MemoryScopeType.PERSONAL,
         project_id: UUID | None = None,
-    ) -> tuple[PreferenceSupersessionMatch | None, str | None]:
+    ) -> tuple[PreferenceSupersessionMatch | None, PreferenceTopicClassification | None]:
         if self._supersession is None:
             return None, None
         try:
@@ -409,12 +410,20 @@ class MemoryService:
                     project_id=project_id,
                     limit=settings.memory_preference_recent_fallback_limit,
                 )
-            match = await self._supersession.find_superseded(
-                owner_id=owner_id,
-                new_content=content,
-                existing=candidates,
-            )
-            return match, topic.preference_key if topic else None
+            match = None
+            if topic is not None:
+                match = PreferenceSupersessionService.find_deterministic_superseded(
+                    classification=topic,
+                    existing=candidates,
+                    confidence_threshold=settings.memory_preference_typed_confidence_threshold,
+                )
+            if match is None:
+                match = await self._supersession.find_superseded(
+                    owner_id=owner_id,
+                    new_content=content,
+                    existing=candidates,
+                )
+            return match, topic
         except Exception as exc:
             logger.warning(
                 "memory.supersession.check_failed",
@@ -423,6 +432,56 @@ class MemoryService:
                 error=str(exc),
             )
             return None, None
+
+    @staticmethod
+    def _with_typed_preference_metadata(
+        metadata: dict[str, Any],
+        classification: PreferenceTopicClassification,
+    ) -> dict[str, Any]:
+        """Add M10 attributes without replacing the prompt-friendly content."""
+
+        provenance_keys = (
+            "feedback_id",
+            "generation_id",
+            "conversation_id",
+            "research_id",
+            "turn_id",
+        )
+        provenance = {
+            key: str(metadata[key]) for key in provenance_keys if metadata.get(key) is not None
+        }
+        value: str | int | bool = classification.normalized_value
+        value_type = classification.value_type
+        if value_type == PreferenceValueType.INTEGER:
+            try:
+                value = int(classification.normalized_value)
+            except ValueError:
+                value_type = PreferenceValueType.STRING
+        elif value_type == PreferenceValueType.BOOLEAN:
+            normalized = classification.normalized_value.lower()
+            if normalized in {"true", "yes", "on", "enabled"}:
+                value = True
+            elif normalized in {"false", "no", "off", "disabled"}:
+                value = False
+            else:
+                value_type = PreferenceValueType.STRING
+        return {
+            **metadata,
+            # Preserve M9's indexed lookup field for old/new row compatibility.
+            "preference_key": classification.preference_key,
+            "preference": {
+                "schema_version": "v1",
+                "kind": classification.preference_kind.value,
+                "key": classification.preference_key,
+                "value": value,
+                "value_type": value_type.value,
+                "confidence": classification.confidence,
+                "explicit": classification.explicit,
+                "source": str(metadata.get("source") or "extraction"),
+                "effective_at": datetime.now(UTC).isoformat(),
+                "provenance": provenance,
+            },
+        }
 
     # ==========================================================
     # Recall / Forget / Update

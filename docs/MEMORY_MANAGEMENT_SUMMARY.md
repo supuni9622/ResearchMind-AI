@@ -2,9 +2,9 @@
 
 **Status:** Living architecture and delivery summary  
 **Last reconciled:** 2026-08-17  
-**Implementation progress:** M0-M2 and M4-M5 complete; M3 rollout pending;
-M6-M9 implemented with staging calibration/rollout still pending where noted;
-personal-only slices of M12-M13 shipped early
+**Implementation progress:** M0-M2 and M4-M11 complete; M3 rollout pending;
+M6-M10 retain staging calibration/rollout gates where noted; personal-only
+slices of M12-M13 shipped early
 
 This document explains the existing and planned ResearchMind memory platform in
 one place. It is an orientation document, not a replacement for the accepted
@@ -44,15 +44,15 @@ memory, agent memory, and memory-driven request routing are explicitly deferred.
 |---|---|---|
 | Memory types | SESSION, USER, SEMANTIC, RESEARCH with explicit personal/project scope | Activate project scope from Project-aware runtimes |
 | Session state | Scope-safe Valkey keys, seven-day TTL, compact state by default | Capacity telemetry and tested expiry behavior |
-| Durable storage | PostgreSQL canonical rows; Qdrant for vector retrieval | Lifecycle scheduling, reconciliation, quotas, consolidation |
-| Capture | Post-turn extraction, repeated-interest promotion, feedback preferences, complete-history topical USER supersession | Calibrate extraction/supersession and add optional typed preferences |
+| Durable storage | PostgreSQL canonical rows; Qdrant vector index; recurring lifecycle worker; reversible consolidation; scheduled drift inventory | Enable deletion after rollout evidence; add quotas and reconciliation repair tooling |
+| Capture | Post-turn extraction, repeated-interest promotion, feedback preferences, complete-history topical supersession, and versioned typed preferences | Calibrate extraction/supersession thresholds |
 | Retrieval | Four product surfaces share one coordinated token budget; scope-safe services are implemented | Activate authorized project context in Project-aware runtimes |
-| Write safety | Public mutation limits and payload bounds; internal circuit breaker | Per-plan quotas, load tests, operational alerts |
+| Write safety | Public mutation limits and payload bounds; internal circuit breaker; throttle metrics and alerts | Per-plan quotas and load tests |
 | Feedback safety | Canonical feedback commits before isolated memory write | Durable outbox only if delivery guarantees justify it |
-| User controls | Single-record create/read/update/delete | Paginated inventory, Personal/Project UI, export, bulk erasure, confirmations |
+| User controls | Paginated Personal USER-memory inventory, search/source filters, inline editing, and confirmed deletion | Project UI, broader controls, export, and bulk erasure |
 | Lifecycle | Recurring, batched, locked worker implemented; report-only by default | Validate staging dry runs, enable conservative deletion, and monitor production cadence |
 | Quality | M6 offline benchmark plus M7 generation correlation, explicit feedback, and opt-in sampled utility/harm scoring | Staging calibration and enforced deployment gates |
-| Observability | Operation counters/timers and rate-limit metrics | Absolute size, drift, lifecycle, token, utility, and alert dashboards |
+| Observability | M11 dashboard/alerts for absolute size, growth, drift, lifecycle, tokens, throttles, consolidation, and utility | Production threshold calibration and notification routing |
 
 ## 3. Memory model
 
@@ -207,10 +207,11 @@ allowed to displace newer state merely because presentation order is ascending.
 
 ## 7. Existing APIs and user-control gap
 
-Existing endpoints support creating memory, searching, assembling context, and
-single-record read/update/delete. They do not provide a paginated inventory,
-bulk export, bulk erasure, or a Personal/Project memory management experience.
-Deletion also has no product-level confirmation flow today.
+Existing endpoints support creating memory, searching, assembling context,
+single-record read/update/delete, and a bounded paginated personal USER-memory
+inventory with search/source filters. The frontend provides Personal Memory
+listing, inline editing, and confirmed deletion. Project Memory, broader
+scope/type/date/provenance controls, bulk export, and bulk erasure remain.
 
 Owner checks must be enforced server-side on every read and mutation. Client
 metadata is never a trusted authorization boundary.
@@ -230,15 +231,14 @@ is the remaining M3 acceptance criterion.
 
 ```mermaid
 flowchart LR
-    A[Current: callable sweep service] -. no scheduler .-> N[No automatic execution]
-    N --> G[Unbounded durable growth]
-
-    S[Planned recurring runner] --> L[Distributed lock]
+    S[Recurring lifecycle worker] --> L[Distributed lock]
     L --> D[Dry-run candidate report]
     D --> B[Batched policy sweep]
     B --> P[Delete PostgreSQL canonical rows]
     P --> Q[Delete/reconcile Qdrant points]
-    Q --> M[Metrics, alerts, and audit record]
+    Q --> M[Lifecycle metrics and alerts]
+    B --> I[Scheduled aggregate inventory]
+    I --> R[Rows, bytes, age, distributions, vector drift]
 ```
 
 ## 9. Project isolation foundation (M5)
@@ -312,7 +312,7 @@ correct inaccurate content and disable categories or inference where supported.
 Bulk erasure must include canonical rows, vectors, caches, and derived artifacts
 with an auditable completion result.
 
-## 11. Planned bounded lifecycle and consolidation (M3, M8-M10)
+## 11. Bounded lifecycle and consolidation (M3, M8)
 
 M3 adds recurring execution, type-specific policies, dry-run/report-only mode,
 batching, distributed locking, bounded retries, metrics, alerts, and PostgreSQL ↔
@@ -338,8 +338,11 @@ flowchart TD
 
 Consolidation must preserve provenance and reversibility. Similar embeddings
 alone are not sufficient evidence to merge facts. M9 improves USER preference
-supersession with topic-aware candidates; M10 gradually adds optional typed
-preference fields while retaining readable text for prompting and migration.
+supersession with topic-aware candidates. M10 now adds a versioned typed
+preference object while retaining readable text for prompting and migration.
+Controlled, explicit, high-confidence preferences can supersede one unique
+typed key deterministically; custom/inferred/ambiguous cases retain the
+conservative M9 judge path and never become hard routing constraints.
 
 ## 12. Total prompt budget (M4 complete)
 
@@ -379,10 +382,9 @@ tests must show whether injected memory improves the final response without
 hurting grounding or current-instruction adherence. Online scoring is sampled,
 bounded, redacted, and must never block the user response.
 
-## 14. Observability target (M11)
+## 14. Observability (M11 complete)
 
-Current operation metrics are useful but incomplete. Production dashboards and
-alerts will add:
+The Memory Runtime dashboard and alert rules now include:
 
 - Canonical row count and storage bytes by type and scope.
 - Qdrant point count, indexing failures, and PostgreSQL/Qdrant drift.
@@ -424,8 +426,8 @@ memory content must not become metric labels.
 | 7 | M6 memory evaluation | Implementation complete; staging calibration pending | Seed staging, capture live retrieval and paired answers, human-calibrate the judge/budgets, and enforce the live deployment gate |
 | 8 | M7 online quality signals | Implemented; rollout/calibration pending | Generation correlation, explicit memory feedback, and opt-in sampled utility/harm scoring |
 | 9 | M8 evidence-driven consolidation | Implemented; rollout/evaluation gate pending | Bounded vector nomination, typed decisions, reversible lineage, and fail-safe re-indexing |
-| 10 | M9-M10 preference quality | M9 implemented; M10 planned | Topical historical supersession lookup now closes the recency blind spot; typed preference expansion remains |
-| 11 | M11 observability | Partially present; expansion planned | Make size, health, drift, and utility visible |
+| 10 | M9-M10 preference quality | Implemented; rollout calibration pending | Complete-history topical lookup plus additive typed values and deterministic safe-key supersession |
+| 11 | M11 observability | Complete | Scheduled bounded inventory plus size, growth, lifecycle, drift, budget, consolidation, and utility panels/alerts |
 | 12 | M12-M13 management API and UI | Partial personal slice shipped | Owner-scoped USER listing, search/source filter, pagination, editing, and confirmed deletion are live; Project Memory and broader controls remain |
 | 13 | M14-M15 export, erasure, confirmation | Planned | Governance and safe destructive actions |
 | 14 | M16 hardening | Ongoing/planned | Load, failure-mode, prompt-safety, and capacity confidence |

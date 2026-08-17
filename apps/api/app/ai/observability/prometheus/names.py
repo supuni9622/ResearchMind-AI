@@ -40,9 +40,11 @@ from app.ai.memory.observability.metrics import (
     EXTRACTION_EVALUATED,
     EXTRACTION_FAILED,
     EXTRACTION_LATENCY,
+    EXTRACTION_RATE_LIMITED,
     EXTRACTION_REQUESTED,
     EXTRACTION_SKIPPED,
     EXTRACTION_SUCCEEDED,
+    INVENTORY_LAST_SUCCESS,
     LIFECYCLE_DELETED,
     LIFECYCLE_DURATION,
     LIFECYCLE_EXAMINED,
@@ -54,6 +56,10 @@ from app.ai.memory.observability.metrics import (
     MEMORY_DUPLICATE,
     MEMORY_HITS,
     MEMORY_MISSES,
+    MEMORY_MUTATION_ACCEPTED,
+    MEMORY_MUTATION_FAILED,
+    MEMORY_MUTATION_REJECTED,
+    MEMORY_SUPERSEDED,
     MEMORY_UPDATED,
     PARALLEL_SEARCH,
     REMEMBER_LATENCY,
@@ -62,6 +68,12 @@ from app.ai.memory.observability.metrics import (
     SEMANTIC_SEARCH,
     SESSION_DUPLICATES_REMOVED,
     SESSION_ITEMS_LOADED,
+    STORAGE_BYTES,
+    STORAGE_DISTRIBUTION,
+    STORAGE_OLDEST_AGE,
+    STORAGE_ROWS,
+    VECTOR_DRIFT,
+    VECTOR_POINTS,
 )
 from app.infrastructure.metrics.cache import (
     CACHE_COST_SAVED_USD_TOTAL,
@@ -504,6 +516,32 @@ COUNTER_METRICS: dict[str, MetricSpec] = {
     MEMORY_DUPLICATE: MetricSpec(
         "researchmind_memory_duplicates_total", "Total duplicate memories detected.", "counter"
     ),
+    MEMORY_SUPERSEDED: MetricSpec(
+        "researchmind_memory_superseded_total", "Total USER preferences superseded.", "counter"
+    ),
+    MEMORY_MUTATION_ACCEPTED: MetricSpec(
+        "researchmind_memory_mutation_accepted_total",
+        "Accepted public memory mutations.",
+        "counter",
+        ("operation",),
+    ),
+    MEMORY_MUTATION_REJECTED: MetricSpec(
+        "researchmind_memory_mutation_rejected_total",
+        "Rate-limited public memory mutations.",
+        "counter",
+        ("operation",),
+    ),
+    MEMORY_MUTATION_FAILED: MetricSpec(
+        "researchmind_memory_mutation_failed_total",
+        "Failed public memory mutations.",
+        "counter",
+        ("operation",),
+    ),
+    EXTRACTION_RATE_LIMITED: MetricSpec(
+        "researchmind_memory_extraction_rate_limited_total",
+        "Internal memory extraction attempts skipped by the cost circuit breaker.",
+        "counter",
+    ),
     LIFECYCLE_EXAMINED: MetricSpec(
         "researchmind_memory_lifecycle_examined_total",
         "Total durable-memory rows examined by lifecycle sweeps.",
@@ -663,6 +701,46 @@ GAUGE_METRICS: dict[str, MetricSpec] = {
     LIFECYCLE_OLDEST_CANDIDATE_AGE: MetricSpec(
         "researchmind_memory_lifecycle_oldest_candidate_age_seconds",
         "Age of the oldest lifecycle candidate in seconds.",
+        "gauge",
+    ),
+    STORAGE_ROWS: MetricSpec(
+        "researchmind_memory_storage_rows",
+        "Absolute PostgreSQL memory rows by bounded type and scope.",
+        "gauge",
+        ("type", "scope"),
+    ),
+    STORAGE_BYTES: MetricSpec(
+        "researchmind_memory_storage_bytes",
+        "PostgreSQL memory relation bytes by bounded storage kind.",
+        "gauge",
+        ("kind",),
+    ),
+    STORAGE_OLDEST_AGE: MetricSpec(
+        "researchmind_memory_storage_oldest_age_seconds",
+        "Age of the oldest PostgreSQL memory row by type.",
+        "gauge",
+        ("type",),
+    ),
+    STORAGE_DISTRIBUTION: MetricSpec(
+        "researchmind_memory_storage_distribution",
+        "Memory rows per owner/project at bounded distribution quantiles.",
+        "gauge",
+        ("dimension", "quantile"),
+    ),
+    VECTOR_POINTS: MetricSpec(
+        "researchmind_memory_vector_points",
+        "Absolute Qdrant memory point count.",
+        "gauge",
+    ),
+    VECTOR_DRIFT: MetricSpec(
+        "researchmind_memory_vector_drift",
+        "PostgreSQL/Qdrant drift count by bounded kind.",
+        "gauge",
+        ("kind",),
+    ),
+    INVENTORY_LAST_SUCCESS: MetricSpec(
+        "researchmind_memory_inventory_last_success_timestamp_seconds",
+        "Unix timestamp of the last successful storage inventory collection.",
         "gauge",
     ),
 }

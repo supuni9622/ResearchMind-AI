@@ -20,7 +20,9 @@ This doc describes the target design; the sections below have drifted from what 
 - **§14 Memory Consolidation** — not implemented at all (no code exists under any name).
 - **§16 Memory Extraction** — the example's `"type": "USER_PREFERENCE"` isn't a real `MemoryType` value (the enum is `session`/`user`/`research`/`semantic`); corrected to `"user"`. Extraction is not hypothetical — it's wired live into both Chat and Research.
 - **§20 Integration Points** — only the Chat integration is actually live. Research memory is wired directly into today's linear `ResearchService`, not into a "Planner" stage — no Research Runtime/Planner exists yet. Agent Runtime and Workspace Runtime don't exist.
-- **§21 Observability** — `memory_metrics.json` is not written anywhere; only `memory_context.json`/`memory_search.json` are real.
+- **§21 Observability** — `memory_metrics.json` is not written anywhere; operation
+  metrics are exported to Prometheus and M11 adds a scheduled aggregate inventory
+  for canonical rows/bytes, vector drift, age, and owner/project distributions.
 - **§22 Evaluation / §25 Exit Criteria** — no evaluation harness (Recall@K/Precision@K/etc.) exists; the exit-criteria checkmark for it was wrong.
 
 ---
@@ -90,11 +92,13 @@ The M3 and M4 hardening tasks are implemented:
   coordinated total budget (default 1,200 tokens), per-type shares, and
   evidence/output reserves. It keeps whole entries, reports omissions, and
   allows unused capacity to flow to other memory types.
-- **Current sequence** — M0-M2 and M4-M9 are implemented; M3 operational
-  rollout and M6-M9 staging calibration/rollout gates remain. M9 uses a cheap
+- **Current sequence** — M0-M2 and M4-M11 are implemented; M3 operational
+  rollout and M6-M10 staging calibration/rollout gates remain. M9 uses a cheap
   structured topic classifier to nominate scope-safe historical USER
   preferences, while a conservative judge remains the only overwrite
-  authority. The Project/workspace product must supply an authorized project
+  authority. M10 adds versioned typed attributes and permits deterministic
+  replacement only for one unique, explicit, high-confidence controlled key;
+  custom/inferred/ambiguous cases retain the judge. The Project/workspace product must supply an authorized project
   context before project traffic is activated.
 - **Personal Memory management (partial M12/M13)** — `/memory` now provides an
   owner-scoped USER-memory inventory with server-side pagination, content
@@ -935,26 +939,43 @@ point is aspirational.
 
 # 21. Observability
 
-Metrics:
+Metrics are emitted through `MetricsRecorder` and registered with the Prometheus
+adapter. The names below describe the implemented families (the exporter adds
+the `researchmind_` prefix and Prometheus counter/histogram suffixes):
 
 ```text
-memory_hits
-memory_misses
-memory_count
-memory_size
-remember_latency
-search_latency
-embedding_latency
+memory.context.* / memory.search.* / memory.extract.*
+memory.created / memory.updated / memory.superseded / memory.duplicate
+memory.public_mutation.* / memory.extraction.rate_limited
+memory.context_tokens / memory.context_items_omitted
+memory.consolidation.* / memory.utility.* / memory.feedback
+memory.lifecycle.*
+memory.storage_rows{type,scope}
+memory.storage_bytes{kind}
+memory.storage_oldest_age_seconds{type}
+memory.storage_distribution{dimension,quantile}
+memory.vector_points / memory.vector_drift{kind}
+memory.inventory_last_success_timestamp
 ```
+
+The last seven families are low-frequency scheduled gauges collected by the
+memory lifecycle worker. Owner and project identifiers are reduced to
+p50/p95/max distributions and never exported as labels. PostgreSQL remains
+canonical; Qdrant orphan and missing-point gauges expose reconciliation drift.
+
+The old aspirational names `memory_size` and `memory_count` are **not emitted**.
+Absolute count and size are implemented accurately as `memory.storage_rows`
+and `memory.storage_bytes`. The historical logical metric key `memory_count`
+is only an internal profile-write counter mapping and must not be interpreted
+as the current number of rows.
 
 Artifacts:
 
 ```text
 memory_context.json    ✅ real — MemoryArtifactWriter.write_context(), best-effort, S3
 memory_search.json     ✅ real — MemoryArtifactWriter.write_search(), best-effort, S3
-memory_metrics.json    ❌ not implemented — no write_metrics() method exists;
-                          only counter/duration metric names are recorded
-                          via MetricsRecorder, no S3 snapshot
+memory_metrics.json    ❌ not implemented — metrics are exposed to Prometheus;
+                          there is no S3 metrics snapshot
 ```
 
 ---
@@ -1051,8 +1072,10 @@ Memory Platform is complete when:
 search — not full reports, which are a separate platform's concern;
 see §6.4)
 
-✅ memory observability exists (basic — counters + best-effort S3
-audit artifacts; no dashboards, no `memory_metrics.json`, see §21)
+✅ memory observability exists — operation metrics, bounded scheduled
+PostgreSQL/Qdrant inventory, lifecycle and drift alerts, the Memory Runtime
+dashboard, utility trends, and best-effort S3 audit artifacts are live. There
+is intentionally no `memory_metrics.json`; Prometheus is the metrics store.
 
 🟡 memory evaluation exists — **M6 implementation complete; staging calibration
 pending**: the versioned dataset, deterministic scorer, authenticated live

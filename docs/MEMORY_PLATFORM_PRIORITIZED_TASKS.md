@@ -2,8 +2,8 @@
 
 **Status:** Active backlog  
 **Last reviewed:** 2026-08-17
-**Next implementation task:** M10 typed preference attributes; M3 and M6-M9
-retain their separate operational rollout/calibration work.
+**Next implementation task:** complete M12's scope-aware management API; M3
+and M6-M10 retain their separate operational rollout/calibration work.
 **Scope:** `app/ai/memory/`, `/memory` APIs, runtime injection, storage,
 evaluation, observability, lifecycle, governance, and upcoming Projects
 integration.
@@ -406,7 +406,18 @@ scenarios.
 preferences are found while related-but-distinct preferences are retained,
 with no owner/project leakage and no M6 retrieval regression.
 
-### M10. Introduce typed preference attributes gradually
+### M10. ✅ Introduce typed preference attributes gradually
+
+**Implemented; rollout calibration pending:** 2026-08-17. The M9 classifier
+now emits a controlled kind (`response_length`, `tone`, `citation_style`,
+`preferred_model`, `preferred_tool`, or `custom`), normalized typed value,
+confidence, and explicit/inferred signal. USER metadata retains readable
+content while adding a versioned `preference` object with source, effective
+time, and bounded provenance. One uniquely matching, already-typed controlled
+preference can be superseded deterministically when the new statement is
+explicit and clears the confidence threshold. Custom, inferred, uncertain,
+ambiguous, and legacy rows continue through M9's conservative judge. No typed
+preference is used as a hard model/tool routing constraint.
 
 Keep natural-language content for prompting, while adding optional normalized
 fields such as `preference_key`, typed `value`, confidence, source, effective
@@ -416,10 +427,12 @@ else. Do not turn inferred interests into hard routing constraints.
 
 **Done when:** common preferences can be deterministically superseded and
 queried without breaking free-text memories or overclaiming uncertain inference.
+Implementation satisfies this contract; staging calibration of the controlled
+namespace and confidence threshold remains part of rollout.
 
 ## P1 — Operational visibility
 
-### M11. Bring the dashboard and alerts up to date
+### M11. ✅ Bring the dashboard and alerts up to date
 
 - Add the staged `memory.superseded` signal to `memory-runtime.json`.
 - Add absolute Postgres row counts by type/scope, estimated table/index bytes,
@@ -434,6 +447,14 @@ queried without breaking free-text memories or overclaiming uncertain inference.
 
 **Done when:** operators can answer "how large is memory, is it growing safely,
 is cleanup running, and is memory helping?" without manual database queries.
+
+Implemented 2026-08-17. The lifecycle worker now publishes a low-frequency,
+bounded-cardinality inventory covering PostgreSQL rows/bytes/age/distribution,
+Qdrant points and drift, plus collection freshness. The Memory Runtime
+dashboard includes supersession, lifecycle, prompt-budget, throttle,
+consolidation, and utility panels; stale lifecycle/inventory, lifecycle
+failures, and vector drift have alerts. §21 now distinguishes emitted metrics
+from historical aspirational names.
 
 ## P2 — User control and governance
 
@@ -576,4 +597,4 @@ evaluation demonstrates a concrete need:
    Project product activates M5's scope boundary, complete the Project Memory
    behavior, then M14–M15
    export/erasure before broad external rollout.
-7. **Ongoing hardening:** remaining M11 and M16 work.
+7. **Ongoing hardening:** M16 load, failure-mode, prompt-safety, and capacity work.

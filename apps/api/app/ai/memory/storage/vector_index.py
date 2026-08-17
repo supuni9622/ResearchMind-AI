@@ -188,3 +188,23 @@ class MemoryVectorIndex:
                 memory_id=str(memory_id),
             )
             return False
+
+    async def list_point_ids(self, *, batch_size: int = 1000) -> set[UUID]:
+        """List all index IDs for low-frequency drift reconciliation."""
+
+        if not await self._client.collection_exists(self._collection_name):
+            return set()
+
+        point_ids: set[UUID] = set()
+        offset = None
+        while True:
+            points, offset = await self._client.scroll(
+                collection_name=self._collection_name,
+                limit=batch_size,
+                offset=offset,
+                with_payload=False,
+                with_vectors=False,
+            )
+            point_ids.update(UUID(str(point.id)) for point in points)
+            if offset is None:
+                return point_ids

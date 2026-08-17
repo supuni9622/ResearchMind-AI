@@ -28,6 +28,7 @@ import structlog
 from app.ai.knowledge.context.models import PromptContext
 from app.ai.memory.models import MemoryRecord
 from app.ai.memory.policy.models import (
+    PreferenceKind,
     PreferenceSupersessionDecision,
     PreferenceTopicClassification,
 )
@@ -39,9 +40,14 @@ logger = structlog.get_logger()
 
 _MAX_CANDIDATES = 20
 _TOPIC_SYSTEM_PROMPT = (
-    "Extract a stable lookup topic for one user preference. preference_key must "
-    "be a short lowercase snake_case category such as response_length, citation_style, "
-    "color_theme, preferred_model, or research_topic. search_terms must contain one to "
+    "Extract lookup hints and typed attributes for one user preference. Use a controlled "
+    "preference_kind when it is response_length, tone, citation_style, preferred_model, "
+    "or preferred_tool; otherwise use custom. For controlled kinds preference_key must "
+    "equal preference_kind. For custom use a short lowercase snake_case topic key. "
+    "normalized_value must contain only the preferred value, not a sentence. Choose the "
+    "value_type describing that value. confidence estimates classification confidence, "
+    "and explicit is true only when the user directly stated the preference rather than "
+    "it being inferred from behavior or interests. search_terms must contain one to "
     "five short nouns or noun phrases likely to occur in an older preference on the same "
     "topic, including common synonyms where useful. These values only retrieve candidates; "
     "they never authorize overwriting. Return only the requested structured JSON."
@@ -123,7 +129,7 @@ class PreferenceSupersessionService:
             user_prompt=f"Preference: {new_content.strip()}",
             response_format=ResponseFormat.STRUCTURED,
             output_model=PreferenceTopicClassification,
-            max_tokens=250,
+            max_tokens=400,
             max_regeneration_attempts=2,
             temperature=0.0,
             owner_id=owner_id,
@@ -133,6 +139,40 @@ class PreferenceSupersessionService:
         if topic is None and self._fallback_provider is not None:
             topic = await self._classify_topic(request, self._fallback_provider)
         return topic
+
+    @staticmethod
+    def find_deterministic_superseded(
+        *,
+        classification: PreferenceTopicClassification,
+        existing: list[MemoryRecord],
+        confidence_threshold: float,
+    ) -> PreferenceSupersessionMatch | None:
+        """Match one already-typed controlled preference without another LLM call.
+
+        Custom or inferred preferences remain on the conservative judge path.
+        Multiple typed rows indicate legacy ambiguity and also defer to the judge.
+        """
+
+        if (
+            classification.preference_kind == PreferenceKind.CUSTOM
+            or not classification.explicit
+            or classification.confidence < confidence_threshold
+        ):
+            return None
+
+        matches = [
+            record
+            for record in existing
+            if isinstance(record.metadata.get("preference"), dict)
+            and record.metadata["preference"].get("schema_version") == "v1"
+            and record.metadata["preference"].get("key") == classification.preference_key
+        ]
+        if len(matches) != 1:
+            return None
+        return PreferenceSupersessionMatch(
+            record=matches[0],
+            reason="deterministic_typed_preference_key_match",
+        )
 
     async def _classify_topic(
         self,
@@ -151,9 +191,22 @@ class PreferenceSupersessionService:
             ]
             if not cleaned_terms:
                 return None
+            cleaned_key = "_".join(
+                part
+                for part in "".join(
+                    char if char.isalnum() else "_" for char in topic.preference_key.lower()
+                ).split("_")
+                if part
+            )[:100]
+            if topic.preference_kind != PreferenceKind.CUSTOM:
+                cleaned_key = topic.preference_kind.value
+            cleaned_value = " ".join(topic.normalized_value.strip().split())[:200]
+            if not cleaned_key or not cleaned_value:
+                return None
             return topic.model_copy(
                 update={
-                    "preference_key": topic.preference_key.strip().lower().replace(" ", "_")[:100],
+                    "preference_key": cleaned_key,
+                    "normalized_value": cleaned_value,
                     "search_terms": cleaned_terms[:5],
                 }
             )

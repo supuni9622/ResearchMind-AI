@@ -64,6 +64,44 @@ groups:
         annotations:
           summary: Memory extraction runs for more than 70% of evaluated turns
 
+      - alert: ResearchMindMemoryLifecycleStale
+        expr: |
+          (time() - researchmind_memory_lifecycle_last_success_timestamp_seconds > 108000)
+          or absent(researchmind_memory_lifecycle_last_success_timestamp_seconds)
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: Memory lifecycle has not completed successfully for 30h
+
+      - alert: ResearchMindMemoryLifecycleFailures
+        expr: |
+          sum(increase(researchmind_memory_lifecycle_failed_total[1h])) > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Memory lifecycle row failures occurred during the last hour
+
+      - alert: ResearchMindMemoryVectorDrift
+        expr: |
+          sum(researchmind_memory_vector_drift) > 0
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: PostgreSQL and Qdrant memory IDs have drifted
+
+      - alert: ResearchMindMemoryInventoryStale
+        expr: |
+          (time() - researchmind_memory_inventory_last_success_timestamp_seconds > 108000)
+          or absent(researchmind_memory_inventory_last_success_timestamp_seconds)
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: Memory storage inventory has not completed successfully for 30h
+
       # Latency-SLO alerts (EVALUATION_IMPLEMENTATION_TRACKER.md E17,
       # PRODUCTION_READINESS_EVALUATION.md item 2). Thresholds are
       # documented starting points, not calibrated against real production

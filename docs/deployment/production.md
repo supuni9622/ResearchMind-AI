@@ -87,12 +87,15 @@ Rollout procedure:
 2. Observe candidate counts over several scheduled runs.
 3. Review the selected records and retention thresholds.
 4. Confirm the registered lifecycle Prometheus metrics are exposed on port
-   `8011`, scraped, and covered by alerts. A
+   `8011`, including the scheduled storage/inventory gauges for PostgreSQL
+   rows/bytes/age/distribution and Qdrant points/drift. Confirm the lifecycle,
+   inventory-freshness, failure, and vector-drift alerts are loaded. A
    `prometheus.metric.unregistered` lifecycle message is not expected after
    the current metric registration changes.
 5. Set `MEMORY_LIFECYCLE_DRY_RUN=false` and restart the worker.
 6. Monitor examined, deleted, and failed counts, run duration, last-success
-   time, and PostgreSQL/Qdrant consistency.
+   time, absolute storage growth, oldest-row age, distribution percentiles,
+   and PostgreSQL/Qdrant consistency in the Memory Runtime dashboard.
 
 For ECS/Fargate, give this process its own service/task definition and restart
 policy. The target process topology is:

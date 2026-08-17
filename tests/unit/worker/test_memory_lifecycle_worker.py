@@ -85,3 +85,22 @@ async def test_lock_is_released_when_sweep_fails() -> None:
         await worker.run_once()
 
     redis.eval.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_inventory_failure_does_not_fail_a_successful_lifecycle_run() -> None:
+    redis = MagicMock(set=AsyncMock(return_value=True), eval=AsyncMock())
+    service = MagicMock(sweep_stale=AsyncMock(return_value=0))
+    inventory = MagicMock(collect=AsyncMock(side_effect=RuntimeError("qdrant down")))
+    metrics = MagicMock()
+    worker = MemoryLifecycleWorker(
+        service=service,
+        redis=redis,
+        settings=_settings(),
+        metrics=metrics,
+        inventory_metrics_service=inventory,
+    )
+
+    assert await worker.run_once() is True
+    inventory.collect.assert_awaited_once()
+    metrics.set_gauge.assert_called_once()

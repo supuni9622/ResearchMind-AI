@@ -399,3 +399,53 @@ archived. Return the feature to dry-run or disabled after the staging check.
    must not fail.
 6. Run the M6 v1.1 benchmark and require the existing Recall@5 and isolation
    gates to remain green.
+
+## M10 typed preference attributes
+
+1. In Chat, explicitly state a controlled preference such as “I prefer concise
+   answers.” Open the Memory view and confirm the readable sentence remains
+   unchanged. Inspect the API response or PostgreSQL metadata and confirm
+   `preference.schema_version=v1`, `kind/key=response_length`, a normalized
+   value, `value_type`, confidence, `explicit=true`, source, effective time,
+   and bounded provenance are present.
+2. State “I now prefer detailed answers.” Confirm the existing typed row is
+   updated in place and `_supersession.reason` is
+   `deterministic_typed_preference_key_match`. This path should require topic
+   classification but no second supersession-judge call.
+3. Store two different controlled preferences, for example concise answers and
+   APA citations. Confirm both remain; equal confidence does not permit
+   cross-key replacement.
+4. Test a custom preference such as a color theme, an inferred interest, and a
+   deliberately low-confidence classification. Confirm each remains on M9's
+   conservative judge path rather than deterministic replacement.
+5. Repeat in two projects and with another owner. Confirm typed-key matching
+   never crosses the authorized owner/scope/project boundary.
+6. Temporarily make classification fail. Confirm the preference is still
+   created as free text through the fail-open fallback; typed metadata is
+   additive and must never become a write-availability requirement.
+7. Verify typed model/tool preferences remain prompt context only and do not
+   silently change request routing or tool authorization.
+
+## M11 operational dashboard and alerts
+
+1. Start the API, Prometheus/Grafana, and lifecycle worker:
+
+   ```bash
+   uv run python -m apps.worker.memory_lifecycle_main
+   ```
+
+2. Open <http://localhost:8011/metrics> and confirm the inventory exposes
+   `researchmind_memory_storage_rows`, `storage_bytes`, `vector_points`,
+   `vector_drift`, `storage_oldest_age_seconds`, `storage_distribution`, and
+   `inventory_last_success_timestamp`. Labels must contain no owner/project ID.
+3. Open Grafana's **Memory Runtime** dashboard. Confirm the storage, lifecycle,
+   prompt-budget, throttling, consolidation, and utility panels have data (a
+   zero is valid for events that have not occurred).
+4. Create and supersede a USER preference, then refresh the dashboard and
+   confirm created/updated/superseded rates appear.
+5. In staging, stop the worker long enough to cross the configured freshness
+   threshold and confirm the lifecycle/inventory stale alert fires. Restart it
+   and confirm the alert resolves. Do not perform this failure test in production.
+6. Introduce a disposable staging-only Qdrant orphan or missing point, run one
+   worker cycle, and confirm `MemoryVectorDrift` fires; restore consistency and
+   confirm it resolves.

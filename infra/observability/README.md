@@ -11,8 +11,8 @@ structured logs, or the PostgreSQL usage ledger (PRD §6).
 ```text
 infra/observability/
 ├── prometheus/
-│   ├── prometheus.yml   # scrape config (targets the host-run API)
-│   └── alerts.yml       # 5 initial alert rules
+│   ├── prometheus.yml   # scrape config (targets the host-run API and workers)
+│   └── alerts.yml       # API/runtime plus memory lifecycle/drift alert rules
 ├── grafana/
 │   ├── provisioning/
 │   │   ├── datasources/prometheus.yml
@@ -21,7 +21,8 @@ infra/observability/
 │       ├── researchmind-overview.json
 │       ├── generation-runtime.json
 │       ├── research-tools.json
-│       └── memory-runtime.json
+│       ├── memory-runtime.json
+│       └── eval-scores.json
 └── README.md
 ```
 
@@ -57,6 +58,7 @@ service, switch the scrape target to `api:8000` and add
 
    ```bash
    curl http://localhost:8000/metrics        # API's own exposition
+   curl http://localhost:8011/metrics        # memory lifecycle/inventory worker
    curl http://localhost:9090/-/healthy      # Prometheus is up
    ```
 
@@ -77,14 +79,15 @@ GET /metrics -> 200, includes researchmind_http_requests_total and
 
 **Prometheus** (`http://localhost:9090`)
 
-- Status -> Targets: `researchmind-api` is `UP`
+- Status -> Targets: `researchmind-api` is `UP`; when their workers are
+  running, the research-runtime and memory-lifecycle worker targets are also `UP`
 - Graph: `researchmind_http_requests_total` returns data after hitting
   any API endpoint
 
 **Grafana** (`http://localhost:3001`)
 
 - Connections -> Data sources: `Prometheus` is healthy
-- Dashboards: a `ResearchMind` folder exists with 4 dashboards, and
+- Dashboards: a `ResearchMind` folder exists with 5 dashboards, and
   panels populate after a few real requests
 
 **Runtime** -- perform one of each and confirm the corresponding metric

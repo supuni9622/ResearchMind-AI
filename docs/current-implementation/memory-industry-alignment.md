@@ -1,8 +1,8 @@
 # Memory Architecture — Current Implementation Evaluation
 
-> Reconciled 2026-08-17: memory hardening M0-M2 and M4-M9 is implemented. The M3
+> Reconciled 2026-08-17: memory hardening M0-M2 and M4-M11 is implemented. The M3
 > lifecycle worker remains dry-run by default pending production rollout;
-> M6-M9 retain their documented staging calibration/rollout gates. A
+> M6-M10 retain their documented staging calibration/rollout gates. A
 > personal-only M12/M13 management slice is live with owner-scoped listing,
 > search/source filtering, pagination, editing, and confirmed deletion. M5's
 > storage and authorization isolation is live; Project/workspace runtime and
@@ -92,7 +92,7 @@ The largest differences from the reference architecture are:
 | Memory-augmented RAG | **Strongly aligned** | Memory retrieval precedes generation and is combined with document/web/paper context. |
 | Memory writing and extraction | **Strongly aligned** | Post-turn policy, structured extraction, importance filtering, idempotency, and deduplication are integrated. |
 | Memory lifecycle and governance | **Partially aligned** | CRUD, forgetting, TTL, owner isolation, and scheduled dry-run stale evaluation exist; production deletion rollout, archival, consent, and temporal correction need work. |
-| Observability and evaluation | **Partially aligned** | Detailed operational metrics and artifacts exist; memory quality benchmarks and user outcome evaluation are limited. |
+| Observability and evaluation | **Aligned foundation** | M11 exposes aggregate storage, drift, lifecycle, budget, consolidation, and utility signals; M6/M7 provide offline and sampled online quality evaluation, with staging calibration still required. |
 
 ---
 
@@ -374,16 +374,16 @@ Conversation history and memory are injected for response generation, but normal
 | Criterion | Status | Current alignment | Gap or limitation |
 |---|---|---|---|
 | Remember latency | **Aligned** | Dedicated duration metric exists. | None material. |
-| Search/context latency | **Aligned** | Search, context, durable search, and embedding latencies are measured. | Percentile dashboards/alerts must be configured operationally. |
+| Search/context latency | **Aligned** | Search, context, durable search, and embedding latencies are measured and visualized. | Alert thresholds still require production calibration. |
 | Hit/miss counts | **Aligned** | Memory hit and miss metrics exist. | A hit is not proof that the memory helped the answer. |
 | Retrieval-path metrics | **Strongly aligned** | Durable availability, empty/skip state, parallel search, semantic/research searches, and loaded session items are tracked. M6 includes Recall@5/Precision@5/MRR/nDCG scoring, authenticated API capture, paired answer utility, and release budgets. | The first live staging baseline, human calibration, and final budget calibration remain. |
-| Extraction metrics | **Strongly aligned** | Evaluated, skipped, requested, success, failure, empty, created, updated, and duplicate metrics are represented. | No human correctness labels for extracted facts. |
+| Extraction metrics | **Strongly aligned** | Evaluated, skipped, requested, rate-limited, success, failure, empty, created, updated, superseded, and duplicate metrics are registered and visualized. | No broad human-labeled extraction corpus yet. |
 | Artifacts | **Aligned** | Search and context artifacts persist inputs and results for debugging. | Retention and PII controls for these artifacts need explicit governance. |
-| Memory usefulness | **Gap** | Operational telemetry exists. | The system does not measure whether recalled memory was actually used, relevant, or harmful. |
-| Extraction accuracy | **Gap** | Structured output and policy improve reliability. | No labeled evaluation set for correct memory selection, type, importance, and factual content was found. |
-| Personalization quality | **Partially aligned** | User memories are stored, superseded when applicable, and automatically injected. | A closed-loop benchmark proving that recalled preferences improve outcomes is still missing. |
-| Contradiction/staleness rate | **Gap** | Exact duplicate counts are measured. | Contradictory or obsolete memories are not detected or reported. |
-| User trust controls | **Partial** | CRUD APIs provide control. | No metrics for memory corrections, deletions, opt-outs, or complaints were found. |
+| Memory usefulness | **Aligned foundation** | M7 correlates recalled memory to generation traces, accepts explicit feedback, and records sampled utility/harm scores; M11 visualizes their trends. | Sampling and thresholds require staging/production calibration. |
+| Extraction accuracy | **Partially aligned** | Structured output, typed preference tests, M6 fixtures, and explicit feedback provide measurable signals. | The labeled extraction corpus remains narrow. |
+| Personalization quality | **Aligned foundation** | USER memory is automatically injected and M6 paired memory-on/off evaluation measures downstream answer impact. | Human calibration and live deployment gates remain. |
+| Contradiction/staleness rate | **Partially aligned** | M8 classifies consolidation relationships with reversible lineage; lifecycle age/failure and consolidation outcomes are visible. | Generic cross-fact contradiction detection is not implemented. |
+| User trust controls | **Partially aligned** | Personal USER memory has paginated listing, search, edit, confirmed deletion, and explicit utility feedback. | Project controls, bulk export/erasure, and opt-out settings remain. |
 
 ### Recommended memory-specific evaluation metrics
 

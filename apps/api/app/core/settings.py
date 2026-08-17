@@ -241,6 +241,7 @@ class Settings(BaseSettings):
     memory_preference_supersession_enabled: bool = True
     memory_preference_candidate_limit: int = 20
     memory_preference_recent_fallback_limit: int = 5
+    memory_preference_typed_confidence_threshold: float = Field(default=0.85, ge=0.0, le=1.0)
     # Public memory mutations use separate owner-scoped buckets so read/search
     # traffic and background extraction never consume the user's API budget.
     memory_write_rate_limit_requests: int = 30

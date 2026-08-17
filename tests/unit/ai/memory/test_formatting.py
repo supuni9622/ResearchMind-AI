@@ -3,7 +3,7 @@ from uuid import uuid4
 
 from app.ai.memory.enums import MemoryType
 from app.ai.memory.models import MemoryContext, MemoryRecord
-from app.ai.memory.services.formatting import format_memory_context
+from app.ai.memory.services.formatting import format_memory_context, format_memory_context_with_ids
 from app.ai.runtime.generation.validation.input.token_budget import TokenBudgetValidator
 from app.core.settings import settings
 
@@ -117,6 +117,22 @@ def test_total_budget_selects_whole_entries_and_exposes_omissions() -> None:
     assert "Omitted by memory token budget" in rendered
     assert "research=" in rendered
     assert not rendered.rstrip().endswith("supporting")
+
+
+def test_formatting_with_ids_reports_only_post_budget_injections() -> None:
+    memories = [
+        _memory(MemoryType.RESEARCH, f"complete finding {index} with supporting detail")
+        for index in range(1, 6)
+    ]
+
+    result = format_memory_context_with_ids(
+        MemoryContext(research_memories=memories), total_token_budget=110
+    )
+
+    assert result.text is not None
+    assert 0 < len(result.memory_ids) < len(memories)
+    for memory in memories:
+        assert (memory.id in result.memory_ids) == (f"- {memory.content}" in result.text)
 
 
 def test_model_window_reserves_evidence_and_output_space(monkeypatch) -> None:

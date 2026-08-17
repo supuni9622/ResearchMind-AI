@@ -178,6 +178,8 @@ export interface ResearchSessionResponse {
   answer: string;
   citations: Citation[];
   sources: ResearchSource[];
+  generation_id: string | null;
+  memory_used: boolean;
   created_at: string;
 }
 
@@ -221,6 +223,7 @@ export interface ResearchReportDownloadResponse {
   /** E21: read from the persisted final-report.json artifact; null for
    * reports persisted before this field existed. */
   generation_id: string | null;
+  memory_used: boolean;
 }
 
 // Matches `app/ai/runtime/research/planner/models.py::ResearchComplexity`.
@@ -436,6 +439,7 @@ export type ResearchStreamEvent = RuntimeStreamEvent;
 // EVALUATION_PLAN.md §16 phase 3).
 export type FeedbackRating = 'up' | 'down';
 export type FeedbackSurface = 'chat' | 'linear_research' | 'deep_research';
+export type MemoryFeedbackSignal = 'helped' | 'wrong';
 
 export interface FeedbackResponse {
   id: string;
@@ -1017,6 +1021,15 @@ export const api = {
           rating,
           comment: comment ?? null,
         }),
+      }),
+    submitMemory: (
+      generationId: string,
+      surface: FeedbackSurface,
+      signal: MemoryFeedbackSignal
+    ) =>
+      request('/api/v1/feedback/memory', {
+        method: 'POST',
+        body: JSON.stringify({ generation_id: generationId, surface, signal }),
       }),
   },
 

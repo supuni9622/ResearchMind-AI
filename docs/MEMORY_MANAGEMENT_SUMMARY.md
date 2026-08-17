@@ -418,12 +418,13 @@ memory content must not become metric labels.
 | 5 | M4 total token budget | Complete | Bound prompt cost and context crowding |
 | 6 | M5 project scope | Foundation complete; Project runtime activation pending | Prevent cross-project memory leakage |
 | 7 | M6 memory evaluation | Implementation complete; staging calibration pending | Seed staging, capture live retrieval and paired answers, human-calibrate the judge/budgets, and enforce the live deployment gate |
-| 8 | M7 online quality signals | Planned | Detect production benefit or harm safely |
-| 9 | M8-M10 consolidation and preference quality | Planned | Reduce duplication, drift, and supersession misses |
-| 10 | M11 observability | Partially present; expansion planned | Make size, health, drift, and utility visible |
-| 11 | M12-M13 management API and UI | Partial personal slice shipped | Owner-scoped USER listing, search/source filter, pagination, editing, and confirmed deletion are live; Project Memory and broader controls remain |
-| 12 | M14-M15 export, erasure, confirmation | Planned | Governance and safe destructive actions |
-| 13 | M16 hardening | Ongoing/planned | Load, failure-mode, prompt-safety, and capacity confidence |
+| 8 | M7 online quality signals | Implemented; rollout/calibration pending | Generation correlation, explicit memory feedback, and opt-in sampled utility/harm scoring |
+| 9 | M8 evidence-driven consolidation | Implemented; rollout/evaluation gate pending | Bounded vector nomination, typed decisions, reversible lineage, and fail-safe re-indexing |
+| 10 | M9-M10 preference quality | Planned | Remove supersession misses and gradually type common preferences |
+| 11 | M11 observability | Partially present; expansion planned | Make size, health, drift, and utility visible |
+| 12 | M12-M13 management API and UI | Partial personal slice shipped | Owner-scoped USER listing, search/source filter, pagination, editing, and confirmed deletion are live; Project Memory and broader controls remain |
+| 13 | M14-M15 export, erasure, confirmation | Planned | Governance and safe destructive actions |
+| 14 | M16 hardening | Ongoing/planned | Load, failure-mode, prompt-safety, and capacity confidence |
 
 The authoritative acceptance criteria and dependencies for every item remain in
 [MEMORY_PLATFORM_PRIORITIZED_TASKS.md](MEMORY_PLATFORM_PRIORITIZED_TASKS.md).

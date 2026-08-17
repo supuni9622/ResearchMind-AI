@@ -69,6 +69,10 @@ class GenerationUsageRepository:
                 guardrail_final_action=(
                     result.guardrails.final_action.value if result.guardrails is not None else None
                 ),
+                injected_memory_ids=[
+                    UUID(str(memory_id))
+                    for memory_id in result.request.metadata.get("injected_memory_ids", [])
+                ],
             )
             .on_conflict_do_nothing(index_elements=[GenerationUsage.request_id])
         )
@@ -85,6 +89,15 @@ class GenerationUsageRepository:
 
         statement = select(GenerationUsage.langsmith_run_id).where(
             GenerationUsage.generation_id == generation_id
+        )
+        return (await self._session.execute(statement)).scalars().first()
+
+    async def get_owned_generation(
+        self, *, owner_id: UUID, generation_id: UUID
+    ) -> GenerationUsage | None:
+        statement = select(GenerationUsage).where(
+            GenerationUsage.owner_id == owner_id,
+            GenerationUsage.generation_id == generation_id,
         )
         return (await self._session.execute(statement)).scalars().first()
 

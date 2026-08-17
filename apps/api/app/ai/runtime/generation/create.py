@@ -35,7 +35,7 @@ from app.ai.runtime.generation.catalog.models import (
     GEMINI_2_5_FLASH,
     GEMMA_4_12B,
     GPT_5_MINI,
-    LLAMA_3_3_70B,
+    GROQ_GPT_OSS_120B,
 )
 from app.ai.runtime.generation.config import (
     ClaudeGenerationConfig,
@@ -118,11 +118,11 @@ def create_generation_registry() -> GenerationRegistry:
                         getattr(
                             settings,
                             "groq_model",
-                            LLAMA_3_3_70B.model_name,
+                            GROQ_GPT_OSS_120B.model_name,
                         )
                     ),
-                    cost_per_input_1m=LLAMA_3_3_70B.cost_per_input_1m,
-                    cost_per_output_1m=LLAMA_3_3_70B.cost_per_output_1m,
+                    cost_per_input_1m=GROQ_GPT_OSS_120B.cost_per_input_1m,
+                    cost_per_output_1m=GROQ_GPT_OSS_120B.cost_per_output_1m,
                 ),
             )
         )

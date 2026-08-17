@@ -232,6 +232,7 @@ class ResearchReportDownloadResponse(BaseModel):
             "(best-effort: never fails the download itself)."
         ),
     )
+    memory_used: bool = False
 
 
 class ResearchDraftFindingResponse(BaseModel):
@@ -409,6 +410,10 @@ class ResearchSessionResponse(BaseModel):
     citations: list[Citation]
 
     sources: list[ResearchSource]
+
+    generation_id: UUID | None = None
+
+    memory_used: bool = False
 
     created_at: datetime
 

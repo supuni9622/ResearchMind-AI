@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from uuid import UUID
 
 from app.ai.knowledge.context.models import PromptContext
 from app.ai.memory.enums import MemoryType
@@ -29,6 +30,14 @@ class _MemorySection:
     records: list[MemoryRecord]
     candidate_count: int
     token_share: int
+
+
+@dataclass(frozen=True)
+class FormattedMemoryContext:
+    """Rendered prompt block plus the exact logical memories it contains."""
+
+    text: str | None
+    memory_ids: tuple[UUID, ...]
 
 
 def _estimate_tokens(text: str) -> int:
@@ -249,6 +258,38 @@ def format_memory_context(
     return rendered
 
 
+def format_memory_context_with_ids(
+    context: MemoryContext,
+    *,
+    total_token_budget: int | None = None,
+    context_window_tokens: int | None = None,
+    metrics: MetricsRecorder | None = None,
+) -> FormattedMemoryContext:
+    """Format memory and retain only IDs whose complete entry was injected.
+
+    The prompt formatter always emits a selected memory as one exact bullet.
+    Matching that complete bullet keeps trace correlation aligned with the
+    post-budget prompt, rather than incorrectly recording every candidate.
+    """
+
+    rendered = format_memory_context(
+        context,
+        total_token_budget=total_token_budget,
+        context_window_tokens=context_window_tokens,
+        metrics=metrics,
+    )
+    if rendered is None:
+        return FormattedMemoryContext(text=None, memory_ids=())
+    records = (
+        *context.session_memories,
+        *context.user_memories,
+        *context.semantic_memories,
+        *context.research_memories,
+    )
+    selected_ids = tuple(record.id for record in records if _entry_text(record) in rendered)
+    return FormattedMemoryContext(text=rendered, memory_ids=selected_ids)
+
+
 def with_memory_context(
     prompt_context: PromptContext,
     memory_context_text: str | None,
@@ -258,3 +299,14 @@ def with_memory_context(
     return prompt_context.model_copy(
         update={"context": f"{memory_context_text}\n\n{prompt_context.context}".strip()},
     )
+
+
+def extract_memory_context_text(prompt_context: str) -> str | None:
+    """Extract the formatter-owned memory block from a persisted prompt."""
+
+    if not prompt_context.startswith(_PREAMBLE):
+        return None
+    footer_end = prompt_context.find(_FOOTER) + len(_FOOTER)
+    if footer_end < len(_FOOTER):
+        return None
+    return prompt_context[:footer_end]

@@ -135,10 +135,11 @@ async def test_proposal_folds_retrieved_memory_context_into_the_plan_request() -
     owner_id = uuid4()
     now = datetime.now(UTC)
     memory = AsyncMock()
+    memory_id = uuid4()
     memory.get_context.return_value = MemoryContext(
         research_memories=[
             MemoryRecord(
-                id=uuid4(),
+                id=memory_id,
                 owner_id=owner_id,
                 type=MemoryType.RESEARCH,
                 content="Prior research covered LoRA fine-tuning trade-offs.",
@@ -149,7 +150,7 @@ async def test_proposal_folds_retrieved_memory_context_into_the_plan_request() -
         ]
     )
 
-    await ResearchProposalService(
+    proposal = await ResearchProposalService(
         session=session,
         generation_runtime=runtime,
         memory_service=memory,
@@ -166,6 +167,8 @@ async def test_proposal_folds_retrieved_memory_context_into_the_plan_request() -
     memory.get_context.assert_awaited_once()
     request = runtime.execute.await_args.args[0]
     assert "Prior research covered LoRA fine-tuning trade-offs." in request.user_prompt
+    assert request.metadata["injected_memory_ids"] == [str(memory_id)]
+    assert proposal.request["injected_memory_ids"] == [str(memory_id)]
 
 
 @pytest.mark.asyncio

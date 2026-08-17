@@ -5,10 +5,16 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, status
 
 from app.auth.dependencies import get_current_user
-from app.dependencies.feedback import get_feedback_service
+from app.dependencies.feedback import get_feedback_service, get_memory_feedback_service
 from app.models.user import User
-from app.schemas.feedback import FeedbackCreateRequest, FeedbackResponse
+from app.schemas.feedback import (
+    FeedbackCreateRequest,
+    FeedbackResponse,
+    MemoryFeedbackCreateRequest,
+    MemoryFeedbackResponse,
+)
 from app.services.feedback import FeedbackService
+from app.services.memory_feedback import MemoryFeedbackService
 
 router = APIRouter(prefix="/feedback", tags=["Feedback"])
 
@@ -42,3 +48,23 @@ async def submit_feedback(
     )
 
     return FeedbackResponse.model_validate(feedback)
+
+
+@router.post(
+    "/memory",
+    response_model=MemoryFeedbackResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Report whether injected memory helped or was wrong",
+)
+async def submit_memory_feedback(
+    payload: MemoryFeedbackCreateRequest,
+    current_user: User = Depends(get_current_user),
+    feedback_service: MemoryFeedbackService = Depends(get_memory_feedback_service),
+) -> MemoryFeedbackResponse:
+    feedback = await feedback_service.submit(
+        owner_id=current_user.id,
+        generation_id=payload.generation_id,
+        surface=payload.surface,
+        signal=payload.signal,
+    )
+    return MemoryFeedbackResponse.model_validate(feedback)

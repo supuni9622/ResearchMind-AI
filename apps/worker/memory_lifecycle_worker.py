@@ -10,6 +10,7 @@ from typing import cast
 from uuid import uuid4
 
 import structlog
+from app.ai.memory.consolidation.service import MemoryConsolidationService
 from app.ai.memory.enums import MemoryType
 from app.ai.memory.lifecycle.service import MemoryLifecycleService
 from app.ai.memory.observability import metrics as memory_metrics
@@ -36,11 +37,13 @@ class MemoryLifecycleWorker:
         redis: Redis,
         settings: Settings,
         metrics: MetricsRecorder,
+        consolidation_service: MemoryConsolidationService | None = None,
     ) -> None:
         self._service = service
         self._redis = redis
         self._settings = settings
         self._metrics = metrics
+        self._consolidation_service = consolidation_service
         self._stopping = False
         self._stop_event = asyncio.Event()
 
@@ -86,6 +89,21 @@ class MemoryLifecycleWorker:
                     memory_types=(memory_type,),
                     batch_size=self._settings.memory_lifecycle_batch_size,
                     dry_run=self._settings.memory_lifecycle_dry_run,
+                )
+            if (
+                self._consolidation_service is not None
+                and self._settings.memory_consolidation_enabled
+            ):
+                consolidation_started = time.perf_counter()
+                await self._consolidation_service.run_batch(
+                    batch_size=self._settings.memory_consolidation_batch_size,
+                    candidate_limit=self._settings.memory_consolidation_candidate_limit,
+                    similarity_threshold=(self._settings.memory_consolidation_similarity_threshold),
+                    dry_run=self._settings.memory_consolidation_dry_run,
+                )
+                self._metrics.record_duration(
+                    operation=memory_metrics.CONSOLIDATION_DURATION,
+                    duration_ms=(time.perf_counter() - consolidation_started) * 1000,
                 )
             self._metrics.set_gauge(
                 metric=memory_metrics.LIFECYCLE_LAST_SUCCESS,

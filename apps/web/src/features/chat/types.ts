@@ -50,6 +50,7 @@ export interface ChatMessage {
    * Absent for messages loaded from conversation history (the backend
    * doesn't return it on GET /chat/{id} yet), not just mid-stream. */
   generationId?: string;
+  memoryUsed?: boolean;
 }
 
 export interface ChatConversation {

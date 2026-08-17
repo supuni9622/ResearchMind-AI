@@ -141,6 +141,9 @@ export function useChat({
               patchMessage(prev, assistantId, { generationId: resolvedGenerationId! })
             );
           }
+          if (event.metadata?.memory_used === true) {
+            setMessages((prev) => patchMessage(prev, assistantId, { memoryUsed: true }));
+          }
 
           if (event.type === 'chat_web_search_started') {
             const query = event.metadata?.query;
@@ -218,13 +221,18 @@ export function useChat({
           }
         }
 
-        setMessages((prev) => {
-          const finished = patchMessage(prev, assistantId, { stage: 'done' });
-          if (resolvedConversationId) {
-            void refreshConversations();
+        setMessages((prev) => patchMessage(prev, assistantId, { stage: 'done' }));
+        if (resolvedConversationId) {
+          // Title generation is awaited by the stream's persistence tail, so
+          // refresh only after the iterator closes. Keep this side effect out
+          // of the React state updater, which may run more than once in dev.
+          try {
+            await refreshConversations();
+          } catch {
+            // The answer is already complete; a sidebar refresh failure must
+            // not turn the successful assistant message into an error.
           }
-          return finished;
-        });
+        }
       } catch (err) {
         setMessages((prev) =>
           patchMessage(prev, assistantId, {

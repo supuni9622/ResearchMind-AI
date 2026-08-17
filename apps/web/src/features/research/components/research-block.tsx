@@ -104,7 +104,7 @@ export function ResearchBlock({
                 <span className="font-mono text-[10px]">{turn.chunkCount} passages searched</span>
               </span>
             )}
-            <FeedbackControl generationId={turn.generationId} surface="linear_research" />
+            <FeedbackControl generationId={turn.generationId} surface="linear_research" memoryUsed={turn.memoryUsed} />
             <button
               disabled
               title="Report generation is coming soon"

@@ -128,6 +128,7 @@ export function useDeepResearch(onConversationLearned?: (conversationId: string)
         patchTurn(prev, localId, {
           reportDownloadUrl: download.download_url,
           generationId: download.generation_id ?? undefined,
+          memoryUsed: download.memory_used,
         })
       );
     } catch {
@@ -190,6 +191,8 @@ export function useDeepResearch(onConversationLearned?: (conversationId: string)
       setTurns((prev) =>
         patchTurn(prev, localId, {
           linearAnswer: { answer: session.answer, citations: session.citations },
+          generationId: session.generation_id ?? undefined,
+          memoryUsed: session.memory_used,
         })
       );
     } catch {

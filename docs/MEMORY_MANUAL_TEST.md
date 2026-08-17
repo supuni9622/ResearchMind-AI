@@ -318,3 +318,65 @@ Human-review a sample before treating judge results as a release signal. To
 store the per-query retrieval or answer-utility metrics in `eval_scores`, run
 `uv run python -m benchmarks.memory.persist_scores --report <report.json>`
 against the intended environment database.
+
+## M7 trace correlation and explicit feedback
+
+1. Apply the latest database migration and run the API, web app, and evaluation
+   worker:
+
+```bash
+uv run alembic upgrade head
+uv run python -m apps.worker.eval_scoring_main
+```
+
+2. Ensure the signed-in user has a relevant durable memory, then ask a new Chat,
+   Linear Research, or Deep Research question that retrieves it. For Deep
+   Research, approve the plan and complete the report flow. Once the answer completes,
+   verify “Memory helped” and “Memory was wrong” appear below the normal answer
+   feedback. They must not appear for an answer that injected no memory.
+   Deep Research receives this boolean from the owner-authorized final-report
+   lookup for approved PDF reports, or from the owner-scoped session replay for
+   a report rejected and published as a plain answer. Test both approval choices.
+   The API never exposes the underlying memory UUIDs to the browser.
+3. Click “Memory helped,” refresh, then inspect PostgreSQL. The generation's
+   `generation_usage.injected_memory_ids` must be non-empty; `memory_feedback`
+   must contain an owner-scoped `helped` row; and `eval_scores` must contain
+   `metric_name=memory_user_signal`, `source=human_feedback`, `score=1`.
+4. Change the signal to “Memory was wrong.” Confirm the same row is updated,
+   not duplicated, and the mirrored score becomes `0`. Attempt the endpoint as
+   another owner and confirm it returns `404` without revealing whether the
+   generation exists.
+5. To test sampled scoring, set the following in the evaluation-worker
+   environment and restart it:
+
+```bash
+MEMORY_ONLINE_UTILITY_JUDGE_ENABLED=true
+EVAL_ONLINE_BASELINE_SAMPLE_RATE=1.0
+```
+
+Use `1.0` only for a short staging test. Confirm sampled memory-backed
+generations receive `memory_utility` and `irrelevant_memory_harm` rows. Their
+reasons must remain categorical and must not contain raw memory content. Return
+the sample rate to its normal value after the test.
+
+## M8 semantic/research consolidation
+
+M8 runs inside the existing memory lifecycle worker and is off by default.
+First create two similar SEMANTIC or RESEARCH memories for the same owner and
+scope, plus a deliberately contradictory pair. Start in report-only mode:
+
+```bash
+MEMORY_CONSOLIDATION_ENABLED=true \
+MEMORY_CONSOLIDATION_DRY_RUN=true \
+uv run python -m apps.worker.memory_lifecycle_main
+```
+
+Confirm `memory.consolidation.dry_run_decision` logs contain only IDs and a
+typed action, never memory content. Review a representative sample and run the
+M6 retrieval benchmark. Only after the decisions are acceptable, temporarily
+set `MEMORY_CONSOLIDATION_DRY_RUN=false` in staging. Duplicate/mergeable pairs
+must leave one active canonical result; the source row must still exist in
+Postgres with `_consolidated_into`, and the canonical row must contain its ID
+in `_merged_from`. Contradictory and unrelated rows must remain independently
+retrievable. Simulate a Qdrant failure and confirm neither Postgres row is
+archived. Return the feature to dry-run or disabled after the staging check.

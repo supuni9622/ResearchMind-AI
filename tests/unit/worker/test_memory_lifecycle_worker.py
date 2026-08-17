@@ -24,6 +24,11 @@ def _settings() -> Settings:
             memory_lifecycle_semantic_max_importance=0.3,
             memory_lifecycle_research_stale_after_days=180,
             memory_lifecycle_research_max_importance=0.2,
+            memory_consolidation_enabled=True,
+            memory_consolidation_dry_run=True,
+            memory_consolidation_batch_size=10,
+            memory_consolidation_candidate_limit=3,
+            memory_consolidation_similarity_threshold=0.9,
         ),
     )
 
@@ -46,13 +51,24 @@ async def test_run_once_applies_each_type_policy_and_releases_lock() -> None:
     redis = MagicMock(set=AsyncMock(return_value=True), eval=AsyncMock())
     service = MagicMock(sweep_stale=AsyncMock(return_value=0))
     metrics = MagicMock()
+    consolidation = MagicMock(run_batch=AsyncMock())
     worker = MemoryLifecycleWorker(
-        service=service, redis=redis, settings=_settings(), metrics=metrics
+        service=service,
+        redis=redis,
+        settings=_settings(),
+        metrics=metrics,
+        consolidation_service=consolidation,
     )
 
     assert await worker.run_once() is True
     assert service.sweep_stale.await_count == 3
     assert all(call.kwargs["dry_run"] is True for call in service.sweep_stale.await_args_list)
+    consolidation.run_batch.assert_awaited_once_with(
+        batch_size=10,
+        candidate_limit=3,
+        similarity_threshold=0.9,
+        dry_run=True,
+    )
     redis.eval.assert_awaited_once()
     metrics.set_gauge.assert_called_once()
 

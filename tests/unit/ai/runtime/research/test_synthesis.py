@@ -84,6 +84,29 @@ async def test_synthesis_tags_the_request_for_the_research_artifact_policy() -> 
 
 
 @pytest.mark.asyncio
+async def test_synthesis_correlates_planner_memory_with_the_final_generation() -> None:
+    runtime = AsyncMock()
+    runtime.execute.return_value = SimpleNamespace(
+        parsed_output=_draft(citation_ids=["c1"]), generation_id=uuid4()
+    )
+    memory_id = uuid4()
+
+    await ResearchSynthesisService(runtime).synthesize(
+        goal="q",
+        evidence=_evidence(),
+        owner_id=uuid4(),
+        research_run_id=uuid4(),
+        injected_memory_ids=[str(memory_id)],
+        memory_context="Background memory from prior turns:\n- Prefers comparison tables",
+    )
+
+    request = runtime.execute.await_args.args[0]
+    assert request.metadata["injected_memory_ids"] == [str(memory_id)]
+    assert request.prompt_context.context.startswith("Background memory from prior turns")
+    assert "[c1] a.pdf: e" in request.prompt_context.context
+
+
+@pytest.mark.asyncio
 async def test_synthesis_rejects_invented_citation_ids() -> None:
     runtime = AsyncMock()
     runtime.execute.return_value = SimpleNamespace(

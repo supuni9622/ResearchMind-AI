@@ -10,6 +10,7 @@ import structlog
 
 from app.ai.runtime.research.report_artifact import ResearchFinalReportArtifact
 from app.infrastructure.storage.interfaces import DocumentStorage
+from app.repositories.generation_usage import GenerationUsageRepository
 from app.repositories.research_run import ResearchRunRepository
 
 logger = structlog.get_logger()
@@ -19,6 +20,7 @@ logger = structlog.get_logger()
 class ResearchReportDownload:
     download_url: str
     generation_id: UUID | None
+    memory_used: bool = False
 
 
 class ResearchReportDownloadService:
@@ -26,8 +28,15 @@ class ResearchReportDownloadService:
 
     EXPIRES_IN_SECONDS = 30 * 24 * 60 * 60  # 30 days
 
-    def __init__(self, *, runs: ResearchRunRepository, storage: DocumentStorage) -> None:
+    def __init__(
+        self,
+        *,
+        runs: ResearchRunRepository,
+        generation_usage: GenerationUsageRepository | None = None,
+        storage: DocumentStorage,
+    ) -> None:
         self._runs = runs
+        self._generation_usage = generation_usage
         self._storage = storage
 
     async def get_download_url(
@@ -43,9 +52,18 @@ class ResearchReportDownloadService:
             key=key,
             expires_in=self.EXPIRES_IN_SECONDS,
         )
+        generation_id = await self._read_generation_id(research_run_id)
+        generation = (
+            await self._generation_usage.get_owned_generation(
+                owner_id=owner_id, generation_id=generation_id
+            )
+            if generation_id is not None and self._generation_usage is not None
+            else None
+        )
         return ResearchReportDownload(
             download_url=download_url,
-            generation_id=await self._read_generation_id(research_run_id),
+            generation_id=generation_id,
+            memory_used=bool(generation and generation.injected_memory_ids),
         )
 
     async def _read_generation_id(self, research_run_id: UUID) -> UUID | None:

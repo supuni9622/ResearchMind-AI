@@ -47,6 +47,7 @@ class ResearchPlanner:
         routing_strategy: RoutingStrategy | None = None,
         memory_context: str | None = None,
         transcript: str | None = None,
+        injected_memory_ids: list[str] | None = None,
     ) -> ResearchPlan:
         result = await self._generation_runtime.execute(
             GenerationRequest(
@@ -75,6 +76,7 @@ class ResearchPlanner:
                 metadata={
                     "prompt_version": PLANNER_PROMPT_VERSION,
                     "research_run_id": str(research_run_id),
+                    "injected_memory_ids": injected_memory_ids or [],
                 },
             ),
             provider=provider,

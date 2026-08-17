@@ -21,12 +21,14 @@ from datetime import UTC, datetime
 
 import pytest
 from app.auth.dependencies import get_current_user
-from app.dependencies.feedback import get_feedback_service
+from app.dependencies.feedback import get_feedback_service, get_memory_feedback_service
 from app.main import app
-from app.models.enums import FeedbackRating, FeedbackSurface
+from app.models.enums import FeedbackRating, FeedbackSurface, MemoryFeedbackSignal
 from app.models.feedback import Feedback
+from app.models.memory_feedback import MemoryFeedback
 from app.models.user import User
 from app.services.feedback import FeedbackService
+from app.services.memory_feedback import MemoryFeedbackService
 from fastapi.testclient import TestClient
 
 _OWNER_1_ID = str(uuid.uuid4())
@@ -113,6 +115,60 @@ def _payload(**overrides: object) -> dict[str, object]:
         "comment": "cited the wrong paper",
         **overrides,
     }
+
+
+class _FakeMemoryFeedbackService(MemoryFeedbackService):
+    def __init__(self) -> None:
+        self.received_calls: list[dict[str, object]] = []
+
+    async def submit(
+        self,
+        *,
+        owner_id: uuid.UUID,
+        generation_id: uuid.UUID,
+        surface: FeedbackSurface,
+        signal: MemoryFeedbackSignal,
+    ) -> MemoryFeedback:
+        self.received_calls.append(
+            {
+                "owner_id": owner_id,
+                "generation_id": generation_id,
+                "surface": surface,
+                "signal": signal,
+            }
+        )
+        now = datetime.now(UTC)
+        return MemoryFeedback(
+            id=uuid.uuid4(),
+            owner_id=owner_id,
+            generation_id=generation_id,
+            surface=surface.value,
+            signal=signal.value,
+            created_at=now,
+            updated_at=now,
+        )
+
+
+def test_memory_feedback_is_scoped_to_authenticated_owner(client: TestClient) -> None:
+    service = _FakeMemoryFeedbackService()
+    app.dependency_overrides[get_memory_feedback_service] = lambda: service
+    _authenticate_as(_OWNER_1_ID)
+    try:
+        response = client.post(
+            "/api/v1/feedback/memory",
+            json={
+                "generation_id": _GENERATION_ID,
+                "surface": "chat",
+                "signal": "helped",
+            },
+        )
+    finally:
+        app.dependency_overrides.pop(get_memory_feedback_service, None)
+        app.dependency_overrides.pop(get_current_user, None)
+
+    assert response.status_code == 201
+    assert response.json()["signal"] == "helped"
+    assert service.received_calls[0]["owner_id"] == uuid.UUID(_OWNER_1_ID)
 
 
 def test_missing_authentication_returns_401(

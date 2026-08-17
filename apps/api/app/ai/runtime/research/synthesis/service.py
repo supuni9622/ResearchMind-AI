@@ -8,6 +8,7 @@ import structlog
 
 from app.ai.artifacts.enums import ArtifactRuntime
 from app.ai.knowledge.context.models import PromptContext
+from app.ai.memory.services.formatting import with_memory_context
 from app.ai.runtime.generation.caching.enums import CacheRuntime
 from app.ai.runtime.generation.config_fingerprint import config_fingerprint_kwargs
 from app.ai.runtime.generation.enums import GenerationProvider, ResponseFormat
@@ -39,6 +40,8 @@ class ResearchSynthesisService:
         provider: GenerationProvider | None = None,
         routing_strategy: RoutingStrategy | None = None,
         revision_instructions: list[str] | None = None,
+        injected_memory_ids: list[str] | None = None,
+        memory_context: str | None = None,
     ) -> ResearchDraft:
         evidence_text = "\n".join(
             f"[{item.citation_id or 'uncited'}] {item.filename}: {item.excerpt}"
@@ -46,7 +49,9 @@ class ResearchSynthesisService:
         )
         result = await self._generation_runtime.execute(
             GenerationRequest(
-                prompt_context=PromptContext(context=evidence_text, chunks=[]),
+                prompt_context=with_memory_context(
+                    PromptContext(context=evidence_text, chunks=[]), memory_context
+                ),
                 system_prompt=(
                     "Write a grounded standard research report using only supplied evidence. "
                     "Include a title, abstract, methodology (describe this evidence-based "
@@ -103,6 +108,7 @@ class ResearchSynthesisService:
                     "research_run_id": str(research_run_id),
                     "prompt_version": "research-synthesis-v1",
                     "revision_requested": bool(revision_instructions),
+                    "injected_memory_ids": injected_memory_ids or [],
                 },
                 **config_fingerprint_kwargs(
                     surface="deep_research", prompt_version="research-synthesis-v1"

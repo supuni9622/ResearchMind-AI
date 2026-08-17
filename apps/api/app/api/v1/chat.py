@@ -34,7 +34,11 @@ from app.ai.memory.enums import MemoryType
 from app.ai.memory.extraction.orchestrator import MemoryExtractionOrchestrator
 from app.ai.memory.extraction.service import MemoryExtractionService
 from app.ai.memory.policy.models import MemoryTurnEvent
-from app.ai.memory.services.formatting import format_memory_context, with_memory_context
+from app.ai.memory.services.formatting import (
+    FormattedMemoryContext,
+    format_memory_context_with_ids,
+    with_memory_context,
+)
 from app.ai.memory.services.memory_service import MemoryService
 from app.ai.memory.session.state_updater import (
     SessionStateUpdaterService,
@@ -215,7 +219,7 @@ async def _retrieve_memory_context(
     conversation_id: UUID,
     query: str,
     transcript: str | None = None,
-) -> str | None:
+) -> FormattedMemoryContext:
     """
     Memory retrieval, ahead of generation (Runtime Memory Injection
     Pipeline -- mirrors `ResearchService._retrieve_memory_context`).
@@ -227,7 +231,7 @@ async def _retrieve_memory_context(
     """
 
     if memory_service is None:
-        return None
+        return FormattedMemoryContext(text=None, memory_ids=())
 
     try:
         context = await memory_service.get_context(
@@ -244,9 +248,9 @@ async def _retrieve_memory_context(
             error_type=type(exc).__name__,
             error=str(exc),
         )
-        return None
+        return FormattedMemoryContext(text=None, memory_ids=())
 
-    return format_memory_context(context)
+    return format_memory_context_with_ids(context)
 
 
 async def _extract_and_store_memory(
@@ -392,7 +396,7 @@ async def _build_request(
         prompt_history.summary,
     )
 
-    memory_context_text = await _retrieve_memory_context(
+    memory_context = await _retrieve_memory_context(
         memory_service=memory_service,
         owner_id=owner_id,
         conversation_id=conversation.id,
@@ -402,7 +406,7 @@ async def _build_request(
 
     prompt_context = with_memory_context(
         PromptContext(context="", chunks=[]),
-        memory_context_text,
+        memory_context.text,
     )
     prompt_context = _with_web_search_context(prompt_context, web_context_text)
     prompt_context = _with_paper_search_context(prompt_context, paper_context_text)
@@ -416,6 +420,10 @@ async def _build_request(
     # `_sync_to_langsmith` mirrors to LangSmith automatically -- no new
     # wiring needed in either place.
     tool_invocation_metadata: dict[str, Any] = {}
+    if memory_context.memory_ids:
+        tool_invocation_metadata["injected_memory_ids"] = [
+            str(memory_id) for memory_id in memory_context.memory_ids
+        ]
     if payload.web_search_enabled:
         tool_invocation_metadata["web_search_invoked"] = web_invoked
         if web_invoked:
@@ -555,7 +563,7 @@ async def _generate_and_store_title(
     conversation_id: UUID,
     owner_id: UUID,
 ) -> None:
-    """Best-effort, Groq-only one-time title generation from the first question."""
+    """Best-effort one-time title generation with a model-independent fallback."""
 
     token = await conversation_service.claim_title_generation(
         conversation_id=conversation_id,
@@ -574,38 +582,43 @@ async def _generate_and_store_title(
             )
             return
 
-        result = await generation_service.generate(
-            provider=GenerationProvider.GROQ,
-            request=GenerationRequest(
-                prompt_context=PromptContext(context="", chunks=[]),
-                system_prompt=(
-                    "Write a concise title of at most eight words for the user's "
-                    "question below. Use only the question's explicit subject; do "
-                    "not infer a different subject or expand acronyms. Return only "
-                    "the title, with no quotation marks or ending punctuation."
+        try:
+            result = await generation_service.generate(
+                provider=GenerationProvider.GROQ,
+                request=GenerationRequest(
+                    prompt_context=PromptContext(context="", chunks=[]),
+                    system_prompt=(
+                        "Write a concise title of at most eight words for the user's "
+                        "question below. Use only the question's explicit subject; do "
+                        "not infer a different subject or expand acronyms. Return only "
+                        "the title, with no quotation marks or ending punctuation."
+                    ),
+                    user_prompt=f"First user question: {first_question}",
+                    owner_id=owner_id,
+                    conversation_id=conversation_id,
+                    # Reasoning-capable models may spend part of their completion
+                    # budget before producing visible answer text.
+                    max_tokens=128,
+                    temperature=0,
+                    cache_policy=CachePolicy.NEVER,
+                    metadata={"usage_category": "conversation_title"},
+                    artifact_runtime=ArtifactRuntime.CHAT,
                 ),
-                user_prompt=f"First user question: {first_question}",
-                owner_id=owner_id,
-                conversation_id=conversation_id,
-                max_tokens=24,
-                temperature=0,
-                cache_policy=CachePolicy.NEVER,
-                metadata={"usage_category": "conversation_title"},
-                artifact_runtime=ArtifactRuntime.CHAT,
-            ),
+            )
+            title = " ".join(result.content.strip().strip('"').split())[:255]
+        except Exception as exc:
+            logger.warning(
+                "chat.title_generation_model_failed",
+                conversation_id=str(conversation_id),
+                error_type=type(exc).__name__,
+            )
+            title = ""
+
+        await conversation_service.complete_title_generation(
+            conversation_id=conversation_id,
+            token=token,
+            title=title or _fallback_conversation_title(first_question),
         )
-        title = " ".join(result.content.strip().strip('"').split())[:255]
-        if title:
-            await conversation_service.complete_title_generation(
-                conversation_id=conversation_id,
-                token=token,
-                title=title,
-            )
-        else:
-            await conversation_service.release_title_generation(
-                conversation_id=conversation_id,
-                token=token,
-            )
     except Exception as exc:
         await conversation_service.release_title_generation(
             conversation_id=conversation_id,
@@ -617,6 +630,13 @@ async def _generate_and_store_title(
             error_type=type(exc).__name__,
             error=str(exc),
         )
+
+
+def _fallback_conversation_title(first_question: str) -> str:
+    """Derive a stable sidebar title when the optional title model fails."""
+
+    words = first_question.strip().split()[:8]
+    return " ".join(words).strip(" \t\r\n\"'.,!?;:")[:255] or "New chat"
 
 
 async def _chain_events(

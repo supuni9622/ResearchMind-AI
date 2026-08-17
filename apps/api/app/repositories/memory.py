@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from typing import cast
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.sql.elements import ColumnElement
 
 from app.models.memory import Memory
 
@@ -23,6 +25,15 @@ class MemoryRepository:
 
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
+
+    @staticmethod
+    def _active_filter() -> ColumnElement[bool]:
+        """Hide lineage rows archived by consolidation from normal reads."""
+
+        return cast(
+            ColumnElement[bool],
+            Memory.memory_metadata["_consolidated_into"].astext.is_(None),
+        )
 
     async def create(
         self,
@@ -57,6 +68,7 @@ class MemoryRepository:
             Memory.owner_id == owner_id,
             Memory.scope_type == scope_type,
             Memory.project_id.is_(None) if project_id is None else Memory.project_id == project_id,
+            self._active_filter(),
         )
 
         result = await self.session.execute(statement)
@@ -87,6 +99,7 @@ class MemoryRepository:
                 Memory.project_id.is_(None)
                 if project_id is None
                 else Memory.project_id == project_id,
+                self._active_filter(),
             )
             .order_by(Memory.updated_at.desc())
             .limit(limit)
@@ -117,6 +130,7 @@ class MemoryRepository:
             Memory.owner_id == owner_id,
             Memory.scope_type == scope_type,
             Memory.project_id.is_(None) if project_id is None else Memory.project_id == project_id,
+            self._active_filter(),
         ]
         if types:
             filters.append(Memory.type.in_(types))
@@ -162,6 +176,7 @@ class MemoryRepository:
                 Memory.type.in_(types),
                 Memory.updated_at < older_than,
                 Memory.importance_score <= max_importance,
+                self._active_filter(),
             )
             .order_by(Memory.updated_at.asc())
             .limit(limit)
@@ -173,6 +188,21 @@ class MemoryRepository:
         result = await self.session.execute(statement)
 
         return list(result.scalars().all())
+
+    async def list_consolidation_seeds(self, *, types: list[str], limit: int) -> list[Memory]:
+        """Return active, not-yet-reviewed rows across tenants for the admin worker."""
+
+        statement = (
+            select(Memory)
+            .where(
+                Memory.type.in_(types),
+                self._active_filter(),
+                Memory.memory_metadata["_consolidation_checked_at"].astext.is_(None),
+            )
+            .order_by(Memory.created_at.asc(), Memory.id.asc())
+            .limit(limit)
+        )
+        return list((await self.session.execute(statement)).scalars().all())
 
     async def delete(
         self,

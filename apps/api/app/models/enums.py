@@ -51,6 +51,13 @@ class FeedbackSurface(StrEnum):
     DEEP_RESEARCH = "deep_research"
 
 
+class MemoryFeedbackSignal(StrEnum):
+    """Explicit user assessment of memory's effect on one answer."""
+
+    HELPED = "helped"
+    WRONG = "wrong"
+
+
 class CommentClassification(StrEnum):
     """
     Objective/preference split for a feedback comment (E11,

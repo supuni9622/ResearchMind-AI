@@ -104,6 +104,12 @@ RESEARCH_RUN_EVENTS_MAX_STREAM_DURATION_SECONDS = 1800
 
 
 def _session_response(research_session: ResearchSession) -> ResearchSessionResponse:
+    runtime_metadata = research_session.runtime_metadata or {}
+    raw_generation_id = runtime_metadata.get("generation_id")
+    try:
+        generation_id = UUID(str(raw_generation_id)) if raw_generation_id else None
+    except (TypeError, ValueError):
+        generation_id = None
     return ResearchSessionResponse(
         research_id=research_session.id,
         conversation_id=research_session.conversation_id,
@@ -111,6 +117,8 @@ def _session_response(research_session: ResearchSession) -> ResearchSessionRespo
         answer=research_session.answer,
         citations=research_session.citations,
         sources=research_session.sources,
+        generation_id=generation_id,
+        memory_used=bool(runtime_metadata.get("memory_used", False)),
         created_at=research_session.created_at,
     )
 
@@ -908,6 +916,7 @@ async def get_research_report_download(
         download_url=download.download_url,
         expires_in_seconds=ResearchReportDownloadService.EXPIRES_IN_SECONDS,
         generation_id=download.generation_id,
+        memory_used=download.memory_used,
     )
 
 

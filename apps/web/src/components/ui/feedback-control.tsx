@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { api, type FeedbackRating, type FeedbackSurface } from '@/lib/api';
+import { api, type FeedbackRating, type FeedbackSurface, type MemoryFeedbackSignal } from '@/lib/api';
 import { ThumbsDownIcon, ThumbsUpIcon } from '@/components/ui/icons';
 
 interface FeedbackControlProps {
@@ -11,6 +11,7 @@ interface FeedbackControlProps {
    * than a disabled/broken button. */
   generationId: string | undefined;
   surface: FeedbackSurface;
+  memoryUsed?: boolean;
   className?: string;
 }
 
@@ -24,13 +25,15 @@ interface FeedbackControlProps {
  * feedback is a small inline state change next to the buttons themselves,
  * not a global notification.
  */
-export function FeedbackControl({ generationId, surface, className }: FeedbackControlProps) {
+export function FeedbackControl({ generationId, surface, memoryUsed = false, className }: FeedbackControlProps) {
   const [rating, setRating] = useState<FeedbackRating | null>(null);
   const [submitting, setSubmitting] = useState<FeedbackRating | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [showComment, setShowComment] = useState(false);
   const [comment, setComment] = useState('');
   const [commentSaved, setCommentSaved] = useState(false);
+  const [memorySignal, setMemorySignal] = useState<MemoryFeedbackSignal | null>(null);
+  const [memorySubmitting, setMemorySubmitting] = useState(false);
 
   if (!generationId) {
     return null;
@@ -52,6 +55,19 @@ export function FeedbackControl({ generationId, surface, className }: FeedbackCo
       setError(err instanceof Error ? err.message : 'Could not submit feedback.');
     } finally {
       setSubmitting(null);
+    }
+  };
+
+  const submitMemory = async (signal: MemoryFeedbackSignal) => {
+    setMemorySubmitting(true);
+    setError(null);
+    try {
+      await api.feedback.submitMemory(generationId, surface, signal);
+      setMemorySignal(signal);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not submit memory feedback.');
+    } finally {
+      setMemorySubmitting(false);
     }
   };
 
@@ -110,6 +126,29 @@ export function FeedbackControl({ generationId, surface, className }: FeedbackCo
         </div>
       )}
       {commentSaved && <span className="pl-1 text-[11px] text-ink-500">Comment sent.</span>}
+      {memoryUsed && (
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className="text-[11px] text-ink-500">Did memory affect this answer?</span>
+          <button
+            type="button"
+            onClick={() => void submitMemory('helped')}
+            disabled={memorySubmitting}
+            aria-pressed={memorySignal === 'helped'}
+            className={`rounded-full border px-2 py-0.5 text-[10px] transition-colors ${memorySignal === 'helped' ? 'border-sage-600 bg-sage-950 text-sage-300' : 'border-ink-700 text-ink-500 hover:text-ink-200'}`}
+          >
+            Memory helped
+          </button>
+          <button
+            type="button"
+            onClick={() => void submitMemory('wrong')}
+            disabled={memorySubmitting}
+            aria-pressed={memorySignal === 'wrong'}
+            className={`rounded-full border px-2 py-0.5 text-[10px] transition-colors ${memorySignal === 'wrong' ? 'border-red-800 bg-red-950/40 text-red-300' : 'border-ink-700 text-ink-500 hover:text-ink-200'}`}
+          >
+            Memory was wrong
+          </button>
+        </div>
+      )}
     </div>
   );
 }

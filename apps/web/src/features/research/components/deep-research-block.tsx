@@ -504,6 +504,7 @@ export function DeepResearchBlock({
                 <FeedbackControl
                   generationId={turn.generationId}
                   surface="deep_research"
+                  memoryUsed={turn.memoryUsed}
                   className="mt-2"
                 />
               </div>
@@ -529,7 +530,11 @@ export function DeepResearchBlock({
                     <span className="font-mono text-[10px] text-stone-700">Preparing PDF…</span>
                   )}
                 </div>
-                <FeedbackControl generationId={turn.generationId} surface="deep_research" />
+                <FeedbackControl
+                  generationId={turn.generationId}
+                  surface="deep_research"
+                  memoryUsed={turn.memoryUsed}
+                />
               </div>
             )}
           </div>

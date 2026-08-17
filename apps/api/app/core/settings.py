@@ -75,7 +75,7 @@ class Settings(BaseSettings):
 
     gemini_model: str = "gemini-2.5-flash"
 
-    groq_model: str = "llama-3.3-70b-versatile"
+    groq_model: str = "openai/gpt-oss-120b"
 
     ollama_model: str = "gemma4:12b"
 
@@ -264,6 +264,13 @@ class Settings(BaseSettings):
     memory_lifecycle_semantic_max_importance: float = 0.3
     memory_lifecycle_research_stale_after_days: int = 180
     memory_lifecycle_research_max_importance: float = 0.2
+    # M8 starts disabled/report-only. Enable only after reviewing candidate
+    # decisions against the M6 benchmark and a human-labeled staging sample.
+    memory_consolidation_enabled: bool = False
+    memory_consolidation_dry_run: bool = True
+    memory_consolidation_batch_size: int = 50
+    memory_consolidation_candidate_limit: int = 5
+    memory_consolidation_similarity_threshold: float = 0.88
 
     # Chat history is paginated for replay. Model context receives recent turns
     # verbatim and a deterministic, persisted summary of older turns; this
@@ -492,6 +499,11 @@ class Settings(BaseSettings):
     ongoing LLM-call cost on top of the existing Ragas suite, even though
     it rides the same risk-weighted sample -- an operator should opt in
     deliberately, not get it silently enabled by an unrelated deploy."""
+
+    memory_online_utility_judge_enabled: bool = False
+    """Run the M7 memory-utility judge on sampled generations that actually
+    injected memory. Disabled by default because it adds one model call to the
+    existing online-evaluation sample; explicit user feedback remains active."""
 
     @field_validator(
         "eval_online_baseline_sample_rate",

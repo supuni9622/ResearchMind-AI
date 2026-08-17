@@ -21,6 +21,10 @@ from dataclasses import dataclass, field
 from typing import Literal
 
 from app.ai.memory.observability.metrics import (
+    CONSOLIDATION_CANDIDATES,
+    CONSOLIDATION_DURATION,
+    CONSOLIDATION_EXAMINED,
+    CONSOLIDATION_OUTCOMES,
     CONTEXT_DURABLE_AVAILABLE,
     CONTEXT_DURABLE_EMPTY,
     CONTEXT_ITEMS_OMITTED,
@@ -515,6 +519,22 @@ COUNTER_METRICS: dict[str, MetricSpec] = {
         "Total durable-memory rows whose lifecycle deletion failed.",
         "counter",
     ),
+    CONSOLIDATION_EXAMINED: MetricSpec(
+        "researchmind_memory_consolidation_examined_total",
+        "Total memory rows examined for consolidation.",
+        "counter",
+    ),
+    CONSOLIDATION_CANDIDATES: MetricSpec(
+        "researchmind_memory_consolidation_candidates_total",
+        "Total near-duplicate candidate pairs nominated by embeddings.",
+        "counter",
+    ),
+    CONSOLIDATION_OUTCOMES: MetricSpec(
+        "researchmind_memory_consolidation_outcomes_total",
+        "Typed consolidation outcomes.",
+        "counter",
+        ("action",),
+    ),
     CONTEXT_ITEMS_OMITTED: MetricSpec(
         "researchmind_memory_context_items_omitted_total",
         "Total memory entries omitted by the coordinated token budget.",
@@ -614,6 +634,13 @@ DURATION_METRICS: dict[str, MetricSpec] = {
     LIFECYCLE_DURATION: MetricSpec(
         "researchmind_memory_lifecycle_duration_seconds",
         "Memory lifecycle sweep duration.",
+        "histogram",
+        (),
+        RUNTIME_BUCKETS,
+    ),
+    CONSOLIDATION_DURATION: MetricSpec(
+        "researchmind_memory_consolidation_duration_seconds",
+        "Memory consolidation batch duration.",
         "histogram",
         (),
         RUNTIME_BUCKETS,

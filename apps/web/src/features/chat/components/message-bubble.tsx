@@ -122,6 +122,7 @@ export function MessageBubble({ message }: { message: ChatMessage }) {
             <FeedbackControl
               generationId={message.generationId}
               surface="chat"
+              memoryUsed={message.memoryUsed}
               className="mt-2 pt-2 border-t border-ink-700"
             />
           )}

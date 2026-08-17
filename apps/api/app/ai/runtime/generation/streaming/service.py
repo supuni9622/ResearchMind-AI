@@ -343,7 +343,11 @@ class StreamingService:
                     # type. Matches the id `_build_stream_result()` below
                     # gives the persisted `GenerationUsage` row, so
                     # `POST /feedback` always references a real row.
-                    event.metadata = {**event.metadata, "generation_id": str(generation_id)}
+                    event.metadata = {
+                        **event.metadata,
+                        "generation_id": str(generation_id),
+                        "memory_used": bool(request.metadata.get("injected_memory_ids")),
+                    }
                     emitted_events.append(event)
 
                     yield event

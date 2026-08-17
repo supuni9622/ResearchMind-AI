@@ -124,6 +124,7 @@ export interface DeepResearchTurn {
   /** From `getReportDownload`'s response (E21) -- required to submit
    * feedback on a completed, approved report. */
   generationId?: string;
+  memoryUsed?: boolean;
   /** Set instead of `reportDownloadUrl` when the report was rejected but still published as a plain answer. */
   linearAnswer: DeepResearchLinearAnswer | null;
   /** Populated from `research_related_papers_completed`'s metadata, if the
@@ -151,6 +152,7 @@ export interface ResearchTurn {
   /** From the stream's `generation_id` metadata (E21) -- required to
    * submit feedback; absent until the first event carrying it arrives. */
   generationId?: string;
+  memoryUsed?: boolean;
 }
 
 /**

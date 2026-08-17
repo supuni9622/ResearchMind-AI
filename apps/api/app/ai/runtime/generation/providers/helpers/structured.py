@@ -91,16 +91,10 @@ def build_groq_response_format(
 ) -> dict[str, Any] | None:
 
     #
-    # Groq only enables `response_format: json_schema` for a narrow,
-    # provider-curated allowlist of models (see
-    # console.groq.com/docs/structured-outputs#supported-models) --
-    # notably NOT `llama-3.3-70b-versatile`, this platform's default/
-    # AUTO-routed Groq model, which rejects it with a 400. This config
-    # has no per-model capability granularity (`structured_output` is
-    # provider-wide), so rather than tracking Groq's allowlist here too,
-    # every STRUCTURED request uses plain `json_object` mode instead --
-    # `parse_structured_output()`'s repair fallback already exists to
-    # handle providers without schema-constrained decoding.
+    # `_create_completion` handles schema-bearing structured requests with a
+    # forced tool call. This helper supplies JSON Object Mode for plain JSON
+    # requests and schema-less structured requests, without duplicating Groq's
+    # changing native Structured Outputs allowlist here.
     #
 
     if request.response_format in (

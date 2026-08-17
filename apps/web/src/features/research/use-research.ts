@@ -124,6 +124,9 @@ export function useResearch() {
             generationId = event.metadata.generation_id;
             setTurns((prev) => patchTurn(prev, localId, { generationId: generationId! }));
           }
+          if (event.metadata?.memory_used === true) {
+            setTurns((prev) => patchTurn(prev, localId, { memoryUsed: true }));
+          }
 
           if (!conversationIdAtStart && event.metadata?.conversation_id) {
             // First turn of a brand new conversation -- learn its

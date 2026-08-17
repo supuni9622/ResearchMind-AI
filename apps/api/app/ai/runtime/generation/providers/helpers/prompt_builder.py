@@ -62,11 +62,9 @@ def build_chat_messages(
     user_content = request.prompt_context.context + "\n\n" + request.user_prompt
 
     #
-    # Providers reached via `build_chat_messages` don't all get
-    # schema-constrained decoding (e.g. Groq's `llama-3.3-70b-versatile`
-    # falls back to plain `json_object` mode -- see
-    # `build_groq_response_format`), so the schema must be spelled out
-    # in the prompt itself or the model has nothing to conform to.
+    # Providers reached via `build_chat_messages` do not all get native
+    # schema-constrained decoding. Groq also retains a forced-tool fallback,
+    # so spelling out the schema keeps regeneration prompts self-contained.
     #
 
     if request.response_format == ResponseFormat.STRUCTURED and request.output_schema:

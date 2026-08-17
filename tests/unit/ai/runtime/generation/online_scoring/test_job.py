@@ -23,6 +23,9 @@ from app.ai.guardrails.enums import GuardrailAction, GuardrailStage
 from app.ai.guardrails.models import GuardrailReport, GuardrailResult
 from app.ai.knowledge.context.citations.models import Citation
 from app.ai.knowledge.context.models import ContextChunk, PromptContext
+from app.ai.memory.enums import MemoryType
+from app.ai.memory.models import MemoryContext, MemoryRecord
+from app.ai.memory.services.formatting import format_memory_context
 from app.ai.runtime.generation.enums import GenerationProvider
 from app.ai.runtime.generation.models import (
     GenerationExecution,
@@ -33,8 +36,10 @@ from app.ai.runtime.generation.models import (
 from app.ai.runtime.generation.online_scoring.job import (
     _GENERIC_ONLINE_RUBRIC,
     TOOL_INVOCATION_METRIC_NAMES,
+    MemoryUtilityJudge,
     OnlineScoringJob,
 )
+from app.ai.runtime.generation.online_scoring.memory_utility import MemoryUtilityScore
 from app.ai.runtime.generation.online_scoring.sampling import OnlineScoringConfig
 from app.ai.runtime.research.review import ReviewDecision
 from app.models.enums import EvalScoreSource
@@ -65,6 +70,7 @@ def _make_artifact_result(
     citations: list[Citation] | None = None,
     guardrails: GuardrailReport | None = None,
     metadata: dict[str, object] | None = None,
+    context_text: str = "context",
 ) -> GenerationResult:
     chunks = chunks if chunks is not None else [_make_context_chunk()]
     citations = (
@@ -79,7 +85,7 @@ def _make_artifact_result(
         ]
     )
     request = GenerationRequest(
-        prompt_context=PromptContext(context="context", chunks=chunks, citations=citations),
+        prompt_context=PromptContext(context=context_text, chunks=chunks, citations=citations),
         user_prompt="What is RAG?",
         owner_id=owner_id,
         surface="chat",
@@ -141,7 +147,12 @@ class _JobHarness:
     assertions, matching the MagicMock/AsyncMock convention in
     tests/unit/services/test_feedback_service.py."""
 
-    def __init__(self, *, config: OnlineScoringConfig | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        config: OnlineScoringConfig | None = None,
+        memory_utility_judge: MemoryUtilityJudge | None = None,
+    ) -> None:
         self.generation_usage_repository = MagicMock()
         # Default: no LangSmith run configured for this generation -- most
         # tests here aren't about the LangSmith sync, so this keeps
@@ -165,6 +176,7 @@ class _JobHarness:
             commit=self.commit,
             rollback=self.rollback,
             rng=random.Random(0),
+            memory_utility_judge=memory_utility_judge,
         )
 
     def record_calls(self) -> list[dict[str, object]]:
@@ -180,6 +192,46 @@ async def test_run_once_returns_zero_when_there_are_no_candidates() -> None:
 
     assert processed == 0
     harness.eval_score_repository.record.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_run_once_snapshots_entire_batch_before_per_row_commit() -> None:
+    owner_id = uuid.uuid4()
+    first_id = uuid.uuid4()
+    second_id = uuid.uuid4()
+    first = _make_usage_row(owner_id=owner_id, generation_id=first_id)
+    second = _make_usage_row(owner_id=owner_id, generation_id=second_id)
+    artifacts = {
+        first_id: GenerationArtifactBuilder().build(
+            result=_make_artifact_result(owner_id=owner_id, generation_id=first_id)
+        ),
+        second_id: GenerationArtifactBuilder().build(
+            result=_make_artifact_result(owner_id=owner_id, generation_id=second_id)
+        ),
+    }
+    harness = _JobHarness(config=OnlineScoringConfig(baseline_sample_rate=0.0))
+    harness.generation_usage_repository.list_unscored_since = AsyncMock(
+        return_value=[first, second]
+    )
+    harness.artifact_reader.read = AsyncMock(
+        side_effect=lambda generation_id: artifacts[generation_id]
+    )
+
+    async def expire_remaining_rows() -> None:
+        if harness.commit.await_count == 1:
+            second.generation_id = uuid.uuid4()
+            second.owner_id = uuid.uuid4()
+
+    harness.commit.side_effect = expire_remaining_rows
+
+    processed = await harness.job.run_once()
+
+    assert processed == 2
+    assert [call.args[0] for call in harness.artifact_reader.read.await_args_list] == [
+        first_id,
+        second_id,
+    ]
+    assert harness.rollback.await_count == 0
 
 
 @pytest.mark.asyncio
@@ -204,6 +256,50 @@ async def test_scores_citation_validity_for_every_candidate_regardless_of_sampli
     assert calls[0]["passed"] is True
     assert calls[0]["source"] == EvalScoreSource.ONLINE_SAMPLED.value
     harness.commit.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_sampled_memory_backed_generation_records_utility_without_raw_text() -> None:
+    owner_id = uuid.uuid4()
+    generation_id = uuid.uuid4()
+    memory = MemoryRecord(
+        id=uuid.uuid4(),
+        owner_id=owner_id,
+        type=MemoryType.USER,
+        content="Prefers concise answers",
+        importance_score=1,
+        created_at=datetime.now(UTC),
+        updated_at=datetime.now(UTC),
+    )
+    memory_text = format_memory_context(MemoryContext(user_memories=[memory]))
+    assert memory_text is not None
+    row = _make_usage_row(owner_id=owner_id, generation_id=generation_id)
+    row.injected_memory_ids = [memory.id]
+    artifact = GenerationArtifactBuilder().build(
+        result=_make_artifact_result(
+            owner_id=owner_id,
+            generation_id=generation_id,
+            context_text=memory_text,
+            metadata={"injected_memory_ids": [str(memory.id)]},
+        )
+    )
+    judge = MagicMock()
+    judge.evaluate = AsyncMock(
+        return_value=MemoryUtilityScore(utility=0.8, relevant=True, harmful=False)
+    )
+    harness = _JobHarness(
+        config=OnlineScoringConfig(baseline_sample_rate=1.0), memory_utility_judge=judge
+    )
+    harness.generation_usage_repository.list_unscored_since = AsyncMock(return_value=[row])
+    harness.artifact_reader.read = AsyncMock(return_value=artifact)
+
+    await harness.job.run_once()
+
+    calls = {call["metric_name"]: call for call in harness.record_calls()}
+    assert calls["memory_utility"]["score"] == 0.8
+    assert calls["memory_utility"]["reason"] == "memory relevant"
+    assert calls["irrelevant_memory_harm"]["score"] == 0.0
+    assert memory.content not in str(calls)
 
 
 @pytest.mark.asyncio
@@ -604,6 +700,49 @@ async def test_syncs_every_judge_metric_to_langsmith_separately() -> None:
     assert sync_mock.call_count == 2
     synced_metrics = {call.kwargs["metric_name"] for call in sync_mock.call_args_list}
     assert synced_metrics == {"citation_validity", "answer_relevancy"}
+
+
+@pytest.mark.asyncio
+async def test_optional_judge_failure_preserves_deterministic_scores_and_stops_retry() -> None:
+    owner_id = uuid.uuid4()
+    generation_id = uuid.uuid4()
+    row = _make_usage_row(
+        owner_id=owner_id,
+        generation_id=generation_id,
+        guardrail_final_action=GuardrailAction.WARN.value,
+    )
+    artifact = GenerationArtifactBuilder().build(
+        result=_make_artifact_result(owner_id=owner_id, generation_id=generation_id)
+    )
+    harness = _JobHarness()
+    harness.generation_usage_repository.list_unscored_since = AsyncMock(return_value=[row])
+    harness.artifact_reader.read = AsyncMock(return_value=artifact)
+    score_generation_fn = AsyncMock(side_effect=RuntimeError("provider included sensitive text"))
+    harness.job = OnlineScoringJob(
+        generation_usage_repository=harness.generation_usage_repository,
+        eval_score_repository=harness.eval_score_repository,
+        research_run_repository=harness.research_run_repository,
+        artifact_reader=harness.artifact_reader,
+        config=OnlineScoringConfig(baseline_sample_rate=0.0),
+        commit=harness.commit,
+        rollback=harness.rollback,
+        score_generation_fn=score_generation_fn,
+        judge=object(),
+        rng=random.Random(0),
+    )
+
+    processed = await harness.job.run_once()
+
+    assert processed == 1
+    calls = harness.record_calls()
+    assert [call["metric_name"] for call in calls] == [
+        "citation_validity",
+        "online_judge_execution",
+    ]
+    assert calls[-1]["reason"] == "judge failed: RuntimeError"
+    assert "sensitive text" not in str(calls)
+    harness.commit.assert_awaited_once()
+    harness.rollback.assert_not_awaited()
 
 
 # ==============================================================

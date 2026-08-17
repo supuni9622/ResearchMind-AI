@@ -437,7 +437,8 @@ async def test_retrieve_memory_context_returns_none_without_a_memory_service() -
         owner_id=uuid4(), session_id=uuid4(), query="How does RAG work?"
     )
 
-    assert context is None
+    assert context.text is None
+    assert context.memory_ids == ()
 
 
 @pytest.mark.asyncio
@@ -455,7 +456,8 @@ async def test_retrieve_memory_context_survives_a_memory_backend_failure() -> No
         owner_id=uuid4(), session_id=uuid4(), query="How does RAG work?"
     )
 
-    assert context is None
+    assert context.text is None
+    assert context.memory_ids == ()
 
 
 def _approved_proposal(run: ResearchRun) -> ResearchProposal:

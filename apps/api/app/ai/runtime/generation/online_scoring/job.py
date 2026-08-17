@@ -37,6 +37,7 @@ from __future__ import annotations
 
 import random
 from collections.abc import Awaitable, Callable, Sequence
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Protocol
 from uuid import UUID
@@ -45,6 +46,7 @@ import structlog
 from app.ai.artifacts.exceptions import ArtifactNotFoundError
 from app.ai.artifacts.generation.readers import GenerationArtifactReader
 from app.ai.knowledge.context.citations.validity import check_prompt_context_citation_validity
+from app.ai.memory.services.formatting import extract_memory_context_text
 from app.ai.observability.providers.langsmith.eval_score_sync import sync_eval_score
 from app.ai.runtime.generation.online_scoring.sampling import (
     OnlineScoringConfig,
@@ -59,6 +61,31 @@ from app.repositories.generation_usage import GenerationUsageRepository
 from app.repositories.research_run import ResearchRunRepository
 
 logger = structlog.get_logger()
+
+
+@dataclass(frozen=True)
+class _GenerationUsageSnapshot:
+    """Fields needed after per-row commits expire the queried ORM batch."""
+
+    generation_id: UUID
+    owner_id: UUID
+    surface: str | None
+    session_id: UUID | None
+    guardrail_final_action: str | None
+    prompt_version: str | None
+    injected_memory_ids: tuple[UUID, ...]
+
+    @classmethod
+    def from_row(cls, row: GenerationUsage) -> _GenerationUsageSnapshot:
+        return cls(
+            generation_id=row.generation_id,
+            owner_id=row.owner_id,
+            surface=row.surface,
+            session_id=row.session_id,
+            guardrail_final_action=row.guardrail_final_action,
+            prompt_version=row.prompt_version,
+            injected_memory_ids=tuple(row.injected_memory_ids or ()),
+        )
 
 
 class _MetricCheckResultLike(Protocol):
@@ -93,6 +120,24 @@ class _GenerationScoreReportLike(Protocol):
 ScoreGenerationFn = Callable[..., Awaitable[_GenerationScoreReportLike]]
 """Structurally: `async def(*, question, answer, contexts, reference,
 judge, rubric=None, rubric_judge=None) -> _GenerationScoreReportLike`."""
+
+
+class _MemoryUtilityScoreLike(Protocol):
+    @property
+    def utility(self) -> float: ...
+
+    @property
+    def relevant(self) -> bool: ...
+
+    @property
+    def harmful(self) -> bool: ...
+
+
+class MemoryUtilityJudge(Protocol):
+    async def evaluate(
+        self, *, question: str, answer: str, memory_context: str
+    ) -> _MemoryUtilityScoreLike: ...
+
 
 TOOL_INVOCATION_METRIC_NAMES = (
     "web_search_invoked",
@@ -138,6 +183,7 @@ class OnlineScoringJob:
         score_generation_fn: ScoreGenerationFn | None = None,
         judge: object | None = None,
         rubric_judge: object | None = None,
+        memory_utility_judge: MemoryUtilityJudge | None = None,
         batch_size: int = 25,
         lookback_hours: float = 24.0,
         rng: random.Random | None = None,
@@ -153,6 +199,7 @@ class OnlineScoringJob:
         self._score_generation_fn = score_generation_fn
         self._judge = judge
         self._rubric_judge = rubric_judge
+        self._memory_utility_judge = memory_utility_judge
         """`None` unless `Settings.eval_online_rubric_judge_enabled` was
         set at composition time (see `apps/worker/eval_scoring_main.py`)
         -- same opt-in shape as `judge`/`score_generation_fn` above, not
@@ -178,22 +225,22 @@ class OnlineScoringJob:
         # expired attribute from this synchronous logging expression makes
         # SQLAlchemy attempt implicit async I/O and masks the real failure with
         # MissingGreenlet.
-        generation_ids = [str(row.generation_id) for row in candidates]
+        snapshots = [_GenerationUsageSnapshot.from_row(row) for row in candidates]
 
-        for row, generation_id in zip(candidates, generation_ids, strict=True):
+        for row in snapshots:
             try:
                 await self._score_one(row)
                 await self._commit()
             except Exception:
                 logger.exception(
                     "online_scoring_job.row_failed",
-                    generation_id=generation_id,
+                    generation_id=str(row.generation_id),
                 )
                 await self._rollback()
 
         return len(candidates)
 
-    async def _score_one(self, row: GenerationUsage) -> None:
+    async def _score_one(self, row: _GenerationUsageSnapshot) -> None:
         log = logger.bind(generation_id=str(row.generation_id), surface=row.surface)
 
         research_run = await self._deep_research_run_for(row)
@@ -301,24 +348,84 @@ class OnlineScoringJob:
             log.debug("online_scoring_job.judges_skipped", reason=sampling_decision.reason)
             return
 
+        memory_context = extract_memory_context_text(artifact.request.prompt_context.context)
+        if (
+            row.injected_memory_ids
+            and memory_context is not None
+            and self._memory_utility_judge is not None
+        ):
+            memory_result = await self._memory_utility_judge.evaluate(
+                question=artifact.request.user_prompt,
+                answer=artifact.response.content,
+                memory_context=memory_context,
+            )
+            memory_score = await self._eval_score_repository.record(
+                owner_id=row.owner_id,
+                generation_id=row.generation_id,
+                metric_name="memory_utility",
+                score=memory_result.utility,
+                passed=memory_result.relevant and not memory_result.harmful,
+                reason=(
+                    "memory harmful"
+                    if memory_result.harmful
+                    else "memory relevant"
+                    if memory_result.relevant
+                    else "memory irrelevant"
+                ),
+                source=EvalScoreSource.ONLINE_SAMPLED.value,
+                sample_category=sampling_decision.category.value,
+            )
+            self._sync_to_langsmith(langsmith_run_id, memory_score)
+            harm_score = await self._eval_score_repository.record(
+                owner_id=row.owner_id,
+                generation_id=row.generation_id,
+                metric_name="irrelevant_memory_harm",
+                score=1.0 if memory_result.harmful else 0.0,
+                passed=not memory_result.harmful,
+                reason="memory harm classification",
+                source=EvalScoreSource.ONLINE_SAMPLED.value,
+                sample_category=sampling_decision.category.value,
+            )
+            self._sync_to_langsmith(langsmith_run_id, harm_score)
+
         if self._score_generation_fn is None or self._judge is None:
             log.debug("online_scoring_job.no_judge_configured", reason=sampling_decision.reason)
             return
 
         contexts = [chunk.content for chunk in artifact.request.prompt_context.chunks]
-        report = await self._score_generation_fn(
-            question=artifact.request.user_prompt,
-            answer=artifact.response.content,
-            contexts=contexts,
-            reference=None,
-            judge=self._judge,
-            # E16 follow-up: rubric/rubric_judge default to None on
-            # score_generation()'s own side when self._rubric_judge is
-            # None (not wired at composition time), so this is a no-op
-            # there -- no separate enabled-check needed here.
-            rubric=(_GENERIC_ONLINE_RUBRIC if self._rubric_judge is not None else None),
-            rubric_judge=self._rubric_judge,
-        )
+        try:
+            report = await self._score_generation_fn(
+                question=artifact.request.user_prompt,
+                answer=artifact.response.content,
+                contexts=contexts,
+                reference=None,
+                judge=self._judge,
+                # E16 follow-up: rubric/rubric_judge default to None on
+                # score_generation()'s own side when self._rubric_judge is
+                # None (not wired at composition time), so this is a no-op
+                # there -- no separate enabled-check needed here.
+                rubric=(_GENERIC_ONLINE_RUBRIC if self._rubric_judge is not None else None),
+                rubric_judge=self._rubric_judge,
+            )
+        except Exception as exc:
+            # Optional LLM judges must not roll back the deterministic citation
+            # and tool scores already computed above, nor leave this generation
+            # eligible for an infinite retry loop. Store only the exception
+            # class; provider messages may contain prompt fragments.
+            error_type = type(exc).__name__
+            log.warning("online_scoring_job.judge_failed", error_type=error_type)
+            failure_score = await self._eval_score_repository.record(
+                owner_id=row.owner_id,
+                generation_id=row.generation_id,
+                metric_name="online_judge_execution",
+                score=0.0,
+                passed=False,
+                reason=f"judge failed: {error_type}",
+                source=EvalScoreSource.ONLINE_SAMPLED.value,
+                sample_category=sampling_decision.category.value,
+            )
+            self._sync_to_langsmith(langsmith_run_id, failure_score)
+            return
         for check in report.checks:
             judge_score = await self._eval_score_repository.record(
                 owner_id=row.owner_id,
@@ -353,7 +460,7 @@ class OnlineScoringJob:
             reason=eval_score.reason,
         )
 
-    async def _deep_research_run_for(self, row: GenerationUsage) -> ResearchRun | None:
+    async def _deep_research_run_for(self, row: _GenerationUsageSnapshot) -> ResearchRun | None:
         """Single lookup backing the terminal-status gate in `_score_one()`
         plus `_review_decision_from()`/`_web_search_signal_from()` below --
         `ResearchRun.id` is tagged as `session_id` on `GenerationRequest`

@@ -230,21 +230,12 @@ class GroqProvider(
         #
         # Structured Outputs -- forced tool call
         #
-        # Groq only enables native `response_format: json_schema` for a
-        # narrow, provider-curated model allowlist that excludes
-        # `llama-3.3-70b-versatile` (this platform's default/AUTO-routed
-        # Groq model -- see `build_groq_response_format`), so structured
-        # requests fall back to plain `json_object` mode with the schema
-        # spelled out as prose in the prompt. That's schema-*unenforced*:
-        # the model occasionally drifts (missing/extra fields, wrong enum
-        # casing, wrong task count) even after a regeneration attempt --
-        # confirmed in production via repeated `ResearchPlannerError`s on
-        # the research planner. Tool/function calling, unlike the narrow
-        # Structured Outputs allowlist, is broadly supported on Groq
-        # (including this model) and is what the model was fine-tuned to
-        # follow precisely, so forcing a single tool call whose
+        # Structured requests use a forced single tool call whose
         # `parameters` *is* the output schema constrains the response
-        # shape far more reliably than prompt-only JSON mode. The
+        # shape reliably across Groq models. The current default,
+        # `openai/gpt-oss-120b`, also supports native strict Structured
+        # Outputs; retaining this proven tool path avoids coupling the
+        # provider to a changing model allowlist. The
         # resulting `tool_calls[0].function.arguments` is read back as
         # `content` in `generate()`.
         #

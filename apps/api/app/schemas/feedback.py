@@ -7,7 +7,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.models.enums import FeedbackRating, FeedbackSurface
+from app.models.enums import FeedbackRating, FeedbackSurface, MemoryFeedbackSignal
 
 
 class FeedbackCreateRequest(BaseModel):
@@ -36,5 +36,24 @@ class FeedbackResponse(BaseModel):
     surface: FeedbackSurface
     rating: FeedbackRating
     comment: str | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class MemoryFeedbackCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    generation_id: UUID
+    surface: FeedbackSurface
+    signal: MemoryFeedbackSignal
+
+
+class MemoryFeedbackResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    generation_id: UUID
+    surface: FeedbackSurface
+    signal: MemoryFeedbackSignal
     created_at: datetime
     updated_at: datetime

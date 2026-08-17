@@ -102,6 +102,8 @@ class MultiWaveResearchState(TypedDict):
     web_search_rejection_reason: str | None
     paper_suggestions_enabled: bool
     related_papers_suggestion: dict[str, object]
+    injected_memory_ids: list[str]
+    memory_context: str | None
 
 
 def compile_multi_wave_research_graph(
@@ -331,6 +333,8 @@ def compile_multi_wave_research_graph(
                 owner_id=UUID(state["owner_id"]),
                 research_run_id=UUID(state["research_run_id"]),
                 revision_instructions=revision_instructions,
+                injected_memory_ids=state.get("injected_memory_ids", []),
+                memory_context=state.get("memory_context"),
             )
         except ResearchSynthesisError as exc:
             if synthesis_revision_count >= budget.max_review_iterations:
@@ -352,6 +356,8 @@ def compile_multi_wave_research_graph(
                 owner_id=UUID(state["owner_id"]),
                 research_run_id=UUID(state["research_run_id"]),
                 revision_instructions=[str(exc)],
+                injected_memory_ids=state.get("injected_memory_ids", []),
+                memory_context=state.get("memory_context"),
             )
         except Exception:
             logger.exception(

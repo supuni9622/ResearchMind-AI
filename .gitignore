@@ -32,8 +32,8 @@ htmlcov/
 dist/
 build/
 
-# Local storage
-storage/
+# Local storage (root only; source packages may legitimately be named storage)
+/storage/
 
 # Large local media (hosted on YouTube instead, see README)
 docs/videos/

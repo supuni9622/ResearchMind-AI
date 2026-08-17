@@ -236,6 +236,7 @@ def create_eval_scoring_worker(*, session: AsyncSession) -> EvalScoringWorker:
     storage = create_storage(settings)
     judge: object | None = None
     rubric_judge: object | None = None
+    memory_utility_judge = None
     score_generation_fn: ScoreGenerationFn | None = None
     if settings.openai_api_key:
         from benchmarks.generation.ragas_judge import build_openai_ragas_judge
@@ -248,6 +249,16 @@ def create_eval_scoring_worker(*, session: AsyncSession) -> EvalScoringWorker:
             from benchmarks.generation.rubric_judge import build_rubric_judge
 
             rubric_judge = build_rubric_judge()
+
+        if settings.memory_online_utility_judge_enabled:
+            from app.ai.runtime.generation.online_scoring.memory_utility import (
+                OpenAIMemoryUtilityJudge,
+            )
+            from openai import AsyncOpenAI
+
+            memory_utility_judge = OpenAIMemoryUtilityJudge(
+                client=AsyncOpenAI(api_key=settings.openai_api_key)
+            )
 
     job = OnlineScoringJob(
         generation_usage_repository=GenerationUsageRepository(session),
@@ -264,6 +275,7 @@ def create_eval_scoring_worker(*, session: AsyncSession) -> EvalScoringWorker:
         score_generation_fn=score_generation_fn,
         judge=judge,
         rubric_judge=rubric_judge,
+        memory_utility_judge=memory_utility_judge,
         batch_size=settings.eval_online_batch_size,
         lookback_hours=settings.eval_online_lookback_hours,
     )

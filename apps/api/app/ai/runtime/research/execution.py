@@ -19,7 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.ai.knowledge.context.citations.models import Citation
 from app.ai.knowledge.context.interfaces import ContextBuilderInterface
 from app.ai.knowledge.retrieval.service import RetrievalService
-from app.ai.memory.services.formatting import format_memory_context
+from app.ai.memory.services.formatting import FormattedMemoryContext, format_memory_context_with_ids
 from app.ai.memory.services.memory_service import MemoryService
 from app.ai.research.models import ResearchOutcome, ResearchSource
 from app.ai.research.service import ResearchService
@@ -274,6 +274,7 @@ class ResearchRuntimeExecutionService:
                     paper_suggestions_enabled=bool(
                         request.get("paper_suggestions_enabled") or False
                     ),
+                    injected_memory_ids=list(request.get("injected_memory_ids") or []),
                 )
         except ResearchReportRejectedError as exc:
             # A genuine user rejection no longer raises this -- it routes to
@@ -560,25 +561,31 @@ class ResearchRuntimeExecutionService:
         web_search_include_domains: list[str] | None = None,
         web_search_exclude_domains: list[str] | None = None,
         paper_suggestions_enabled: bool = False,
+        injected_memory_ids: list[str] | None = None,
     ) -> ResearchOutcome | None:
         generation_runtime, retrieval, context_builder, storage = self._v1_graph_dependencies()
 
         started = perf_counter()
+        memory_context = await self._retrieve_memory_context(
+            owner_id=owner_id,
+            session_id=conversation_id or run.id,
+            query=query,
+        )
+        execution_memory_ids = [str(item) for item in memory_context.memory_ids]
+        if execution_memory_ids:
+            injected_memory_ids = execution_memory_ids
         if plan is None:
             planner = ResearchPlanner(generation_runtime)
-            memory_context = await self._retrieve_memory_context(
-                owner_id=owner_id,
-                session_id=conversation_id or run.id,
-                query=query,
-            )
             plan = await planner.plan(
                 query=query,
                 owner_id=owner_id,
                 research_run_id=run.id,
                 provider=provider,
                 routing_strategy=routing_strategy,
-                memory_context=memory_context,
+                memory_context=memory_context.text,
+                injected_memory_ids=[str(item) for item in memory_context.memory_ids],
             )
+            injected_memory_ids = [str(item) for item in memory_context.memory_ids]
         validate_plan(plan)
         transition_run(run, target=ResearchRunStatus.RESEARCHING, phase="task_retrieval")
         await self._session.commit()
@@ -626,6 +633,8 @@ class ResearchRuntimeExecutionService:
                     "web_search_exclude_domains": web_search_exclude_domains or [],
                     "web_search_count": 0,
                     "paper_suggestions_enabled": paper_suggestions_enabled,
+                    "injected_memory_ids": injected_memory_ids or [],
+                    "memory_context": memory_context.text,
                 }
             try:
                 result = await asyncio.wait_for(
@@ -922,6 +931,7 @@ class ResearchRuntimeExecutionService:
             owner_id=owner_id,
             conversation_id=conversation_id,
             duration_ms=(perf_counter() - started) * 1000,
+            memory_used=bool(result.get("injected_memory_ids")),
         )
 
     @staticmethod
@@ -1010,13 +1020,13 @@ class ResearchRuntimeExecutionService:
         owner_id: UUID,
         session_id: UUID,
         query: str,
-    ) -> str | None:
+    ) -> FormattedMemoryContext:
         """Best-effort, mirrors `ResearchProposalService._retrieve_memory_context`:
         this fallback path only runs when a plan wasn't already proposed/approved
         (the `execute()` compatibility path), so it needs the same injection."""
 
         if self._memory is None:
-            return None
+            return FormattedMemoryContext(text=None, memory_ids=())
         try:
             context = await self._memory.get_context(
                 owner_id=owner_id,
@@ -1029,8 +1039,8 @@ class ResearchRuntimeExecutionService:
                 owner_id=str(owner_id),
                 error_type=type(exc).__name__,
             )
-            return None
-        return format_memory_context(context)
+            return FormattedMemoryContext(text=None, memory_ids=())
+        return format_memory_context_with_ids(context)
 
     async def _is_cancellation_requested(self, run_id: UUID) -> bool:
         return await self._runs.is_cancellation_requested(run_id=run_id)

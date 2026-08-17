@@ -60,6 +60,7 @@ from ragas.metrics.collections import (  # noqa: E402
 
 DEFAULT_JUDGE_MODEL = "gpt-4o-mini"
 DEFAULT_JUDGE_EMBEDDING_MODEL = "text-embedding-3-small"
+DEFAULT_JUDGE_MAX_TOKENS = 2048
 
 
 @dataclass(frozen=True)
@@ -91,7 +92,12 @@ def build_openai_ragas_judge(
         )
 
     client = AsyncOpenAI(api_key=settings.openai_api_key)
-    llm = llm_factory(model, provider="openai", client=client)
+    llm = llm_factory(
+        model,
+        provider="openai",
+        client=client,
+        max_tokens=DEFAULT_JUDGE_MAX_TOKENS,
+    )
     embeddings = embedding_factory(provider="openai", model=embedding_model, client=client)
     # `embedding_factory` is a unified legacy+modern factory, so its
     # static return type is a union -- passing `client=` always selects
@@ -112,6 +118,7 @@ def build_openai_ragas_judge(
 __all__ = [
     "DEFAULT_JUDGE_EMBEDDING_MODEL",
     "DEFAULT_JUDGE_MODEL",
+    "DEFAULT_JUDGE_MAX_TOKENS",
     "RagasJudge",
     "build_openai_ragas_judge",
 ]

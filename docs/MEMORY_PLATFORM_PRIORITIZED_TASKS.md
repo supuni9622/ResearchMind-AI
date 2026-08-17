@@ -317,6 +317,27 @@ accepted or rejected using a repeatable benchmark rather than intuition.
 
 ### M7. Add online quality signals with safe sampling
 
+**Implemented; rollout pending:** 2026-08-17. Chat, Linear Research, and Deep
+Research now carry exact post-budget injected memory UUIDs into their
+answer-producing generation metadata and persist them on `generation_usage`,
+linking memory to generation and LangSmith run IDs without putting memory
+content in metrics. Deep Research propagates its execution-time memory block
+through synthesis so utility scoring measures the final report, not merely its
+planner. Its durable session metadata preserves the final generation ID and
+the safe memory-used flag for both approved PDF reports and rejected reports
+published as plain answers, so either UI path can submit correlated feedback.
+User-facing responses expose only a `memory_used` boolean. The shared
+feedback control offers independent “Memory helped” and “Memory was wrong” signals,
+stored owner-scoped in `memory_feedback` and mirrored to `eval_scores` as
+`memory_user_signal`. The existing risk-weighted online scoring sample can run
+an opt-in structured memory-utility judge and records `memory_utility` plus
+`irrelevant_memory_harm` using categorical, non-content reasons.
+
+Operational rollout: apply migration `f5a6b7c8d9e0`, deploy API/web and the
+evaluation worker, verify explicit feedback on staging, and enable
+`MEMORY_ONLINE_UTILITY_JUDGE_ENABLED=true` only after accepting its additional
+sampled OpenAI cost. The judge uses the existing online sample rates.
+
 - Correlate injected memory IDs with generation IDs and user feedback.
 - Sample an LLM-as-judge memory-utility score: helpful, irrelevant, stale,
   contradictory, or unsafe.
@@ -324,9 +345,24 @@ accepted or rejected using a repeatable benchmark rather than intuition.
   interpreting a generic thumbs-down as proof that memory caused the problem.
 - Avoid storing raw sensitive memory text in metrics/logs.
 
+**Done when:** staging confirms owner isolation and trace correlation, sampled
+scores have a human-reviewed calibration set, and utility/harm alerts have
+enough traffic for meaningful thresholds.
+
 ## P1 — Improve quality and prevent semantic drift
 
 ### M8. Implement evidence-driven consolidation for SEMANTIC/RESEARCH
+
+**Implemented; rollout/evidence gate pending:** 2026-08-17. The lifecycle
+worker can now run a separately gated, bounded consolidation batch. Embedding
+similarity only nominates same-owner/scope/project/type pairs; a structured
+judge classifies each pair as duplicate, mergeable, contradiction, or
+unrelated. Duplicate/mergeable sources remain in Postgres as reversible
+lineage records while disappearing from normal reads, and the canonical vector
+is updated before the source vector is removed. Failed vector or database
+operations are compensated/rolled back. Contradictions are retained. The
+feature defaults disabled and dry-run, with bounded outcome metrics for sample
+review before mutation is enabled.
 
 - First instrument near-duplicate candidate rates and build a reviewed sample;
   tune from observed data.

@@ -2,6 +2,8 @@
 
 **Status:** Active backlog  
 **Last reviewed:** 2026-08-17
+**Next implementation task:** M10 typed preference attributes; M3 and M6-M9
+retain their separate operational rollout/calibration work.
 **Scope:** `app/ai/memory/`, `/memory` APIs, runtime injection, storage,
 evaluation, observability, lifecycle, governance, and upcoming Projects
 integration.
@@ -21,11 +23,11 @@ schema and typed research-object work in product Wave 3.
 
 ## Current baseline
 
-The staged 2026-08-12 changes complete USER-memory prompt injection across
-Chat, linear Research, and both Deep Research checkpoints; preference feedback
-can create USER memory; exact duplicates are updated; and a bounded, fail-open
-LLM check can supersede one of the 20 most-recently-updated USER preferences.
-They also add API/unit coverage and a `memory.superseded` metric name.
+USER-memory prompt injection is live across Chat, Linear Research, and both
+Deep Research checkpoints. Preference feedback can create USER memory, exact
+duplicates are updated, and M9 now nominates same-topic supersession candidates
+from the owner's complete scope-safe history rather than only the 20 most
+recent rows. The bounded, fail-open LLM judge remains overwrite authority.
 
 M3's code path was implemented on 2026-08-17; staging/production rollout
 evidence remains open. A personal-only slice of M12-M13 was also pulled forward:
@@ -380,9 +382,7 @@ review before mutation is enabled.
 **Done when:** durable growth and duplicate injection decrease without lowering
 Recall@K, losing provenance, or merging contradictory findings.
 
-### M9. Remove the USER supersession recency blind spot
-
-The current comparison examines only the 20 most-recently-updated preferences.
+### M9. ✅ Remove the USER supersession recency blind spot
 
 **Implemented; rollout calibration pending:** 2026-08-17. New USER
 preferences now receive a cheap structured topic classification containing a

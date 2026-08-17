@@ -23,9 +23,10 @@ simplification noted there).
 
 For memory implementation status and acceptance criteria, use
 [`MEMORY_PLATFORM_PRIORITIZED_TASKS.md`](MEMORY_PLATFORM_PRIORITIZED_TASKS.md),
-not this directional document. M0-M2 and M4 are complete, M3 has rollout
-pending, and a personal-only M12/M13 management slice is live. M5's isolation
-foundation is complete. Its
+not this directional document. M0-M2 and M4-M9 are implemented, with M3
+rollout and the documented M6-M9 staging/calibration gates still pending; a
+personal-only M12/M13 management slice is live. M5's isolation foundation is
+complete. Its
 personal/project scope is the prerequisite boundary for Project-scoped memory and
 complements the broader Project and typed-object model below.
 

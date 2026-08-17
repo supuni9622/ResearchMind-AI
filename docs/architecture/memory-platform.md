@@ -90,10 +90,12 @@ The M3 and M4 hardening tasks are implemented:
   coordinated total budget (default 1,200 tokens), per-type shares, and
   evidence/output reserves. It keeps whole entries, reports omissions, and
   allows unused capacity to flow to other memory types.
-- **Current sequence** — M0-M2, M4, and the M5 project-isolation foundation
-  are implemented; M3 operational rollout is pending. The Project/workspace
-  product must supply an authorized project context before project traffic is
-  activated.
+- **Current sequence** — M0-M2 and M4-M9 are implemented; M3 operational
+  rollout and M6-M9 staging calibration/rollout gates remain. M9 uses a cheap
+  structured topic classifier to nominate scope-safe historical USER
+  preferences, while a conservative judge remains the only overwrite
+  authority. The Project/workspace product must supply an authorized project
+  context before project traffic is activated.
 - **Personal Memory management (partial M12/M13)** — `/memory` now provides an
   owner-scoped USER-memory inventory with server-side pagination, content
   search, feedback-source filtering, inline editing, and confirmed deletion.

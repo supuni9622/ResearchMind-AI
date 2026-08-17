@@ -1,7 +1,8 @@
 # Memory Architecture — Current Implementation Evaluation
 
-> Reconciled 2026-08-17: memory hardening M0-M5 foundation is implemented. The M3
-> lifecycle worker remains dry-run by default pending production rollout. A
+> Reconciled 2026-08-17: memory hardening M0-M2 and M4-M9 is implemented. The M3
+> lifecycle worker remains dry-run by default pending production rollout;
+> M6-M9 retain their documented staging calibration/rollout gates. A
 > personal-only M12/M13 management slice is live with owner-scoped listing,
 > search/source filtering, pagination, editing, and confirmed deletion. M5's
 > storage and authorization isolation is live; Project/workspace runtime and

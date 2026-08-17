@@ -2,8 +2,9 @@
 
 **Status:** Living architecture and delivery summary  
 **Last reconciled:** 2026-08-17  
-**Implementation progress:** M0-M2, M4, and M5 foundation complete; M3 rollout
-pending; personal-only slices of M12-M13 shipped early
+**Implementation progress:** M0-M2 and M4-M5 complete; M3 rollout pending;
+M6-M9 implemented with staging calibration/rollout still pending where noted;
+personal-only slices of M12-M13 shipped early
 
 This document explains the existing and planned ResearchMind memory platform in
 one place. It is an orientation document, not a replacement for the accepted
@@ -44,13 +45,13 @@ memory, agent memory, and memory-driven request routing are explicitly deferred.
 | Memory types | SESSION, USER, SEMANTIC, RESEARCH with explicit personal/project scope | Activate project scope from Project-aware runtimes |
 | Session state | Scope-safe Valkey keys, seven-day TTL, compact state by default | Capacity telemetry and tested expiry behavior |
 | Durable storage | PostgreSQL canonical rows; Qdrant for vector retrieval | Lifecycle scheduling, reconciliation, quotas, consolidation |
-| Capture | Post-turn extraction, repeated-interest promotion, feedback preferences | Evaluated extraction, stronger supersession, optional typed preferences |
+| Capture | Post-turn extraction, repeated-interest promotion, feedback preferences, complete-history topical USER supersession | Calibrate extraction/supersession and add optional typed preferences |
 | Retrieval | Four product surfaces share one coordinated token budget; scope-safe services are implemented | Activate authorized project context in Project-aware runtimes |
 | Write safety | Public mutation limits and payload bounds; internal circuit breaker | Per-plan quotas, load tests, operational alerts |
 | Feedback safety | Canonical feedback commits before isolated memory write | Durable outbox only if delivery guarantees justify it |
 | User controls | Single-record create/read/update/delete | Paginated inventory, Personal/Project UI, export, bulk erasure, confirmations |
 | Lifecycle | Recurring, batched, locked worker implemented; report-only by default | Validate staging dry runs, enable conservative deletion, and monitor production cadence |
-| Quality | Unit/component coverage; no memory eval program | Offline retrieval and answer-utility gates plus sampled online signals |
+| Quality | M6 offline benchmark plus M7 generation correlation, explicit feedback, and opt-in sampled utility/harm scoring | Staging calibration and enforced deployment gates |
 | Observability | Operation counters/timers and rate-limit metrics | Absolute size, drift, lifecycle, token, utility, and alert dashboards |
 
 ## 3. Memory model
@@ -117,7 +118,7 @@ flowchart TD
     N --> D{Exact duplicate?}
     D -- yes --> R[Update existing evidence/importance]
     D -- no --> Y{USER preference?}
-    Y -- yes --> W[Compare recent supersession candidates]
+    Y -- yes --> W[Classify topic and query scope-safe historical candidates]
     Y -- no --> Z[Store canonical row]
     W --> Z
     Z --> Q{Vector-backed type?}
@@ -132,9 +133,12 @@ call and memory write. Valkey failure is fail-open for this internal optimizatio
 so the main answer flow remains available. Extraction output is capped at five
 memories per turn.
 
-USER supersession compares against the 20 most recently touched preferences.
-This works for common changes but can miss an old, dormant contradiction; M9
-replaces this recency-only window with topic-relevant candidate retrieval.
+USER supersession classifies a stable preference key and bounded search terms,
+then queries up to 20 topic-relevant candidates across the complete authorized
+personal/project history. Classification or query failure falls back to five
+recent items and never blocks creation. A conservative second model call alone
+can approve update-in-place, with the replaced ID, reason, and timestamp kept
+as audit metadata.
 
 ### 5.2 Feedback-derived preferences (M0 complete)
 
@@ -337,9 +341,9 @@ alone are not sufficient evidence to merge facts. M9 improves USER preference
 supersession with topic-aware candidates; M10 gradually adds optional typed
 preference fields while retaining readable text for prompting and migration.
 
-## 12. Planned total prompt budget (M4)
+## 12. Total prompt budget (M4 complete)
 
-The context builder will receive one model-aware token budget shared by all
+The context builder receives one model-aware token budget shared by all
 memory types. Allocation policy must be deterministic, observable, and leave
 reserved room for the current instruction, retrieved documents, tool output,
 and answer generation. Lower-value items are truncated or omitted before

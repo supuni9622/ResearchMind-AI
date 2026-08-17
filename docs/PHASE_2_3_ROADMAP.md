@@ -24,10 +24,11 @@ order."
 For memory status, task IDs, and acceptance criteria, use
 [`MEMORY_PLATFORM_PRIORITIZED_TASKS.md`](MEMORY_PLATFORM_PRIORITIZED_TASKS.md),
 with [`MEMORY_MANAGEMENT_SUMMARY.md`](MEMORY_MANAGEMENT_SUMMARY.md) as the
-orientation. M0-M2 and M4 are complete, M3 has rollout pending, and a
-personal-only M12/M13 Memory management slice is live. M5's scope and
-authorization foundation is complete; Project-aware runtime activation still
-must precede any Project-scoped product write or retrieval.
+orientation. M0-M2 and M4-M9 are implemented; M3 has rollout pending, M6-M9
+still have the staging calibration/rollout gates recorded in the memory
+backlog, and a personal-only M12/M13 Memory management slice is live. M5's
+scope and authorization foundation is complete; Project-aware runtime
+activation still must precede any Project-scoped product write or retrieval.
 
 ## How to read this document
 

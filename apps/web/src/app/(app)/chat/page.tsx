@@ -9,6 +9,14 @@ import { ChatComposer } from '@/features/chat/components/chat-composer';
 import { EmptyChat } from '@/features/chat/components/empty-chat';
 
 export default function ChatPage() {
+  const replaceConversationUrl = useCallback((conversationId: string) => {
+    window.history.replaceState(
+      null,
+      '',
+      `/chat?conversation=${encodeURIComponent(conversationId)}`
+    );
+  }, []);
+
   const {
     conversations,
     activeConversationId,
@@ -23,7 +31,7 @@ export default function ChatPage() {
     newConversation,
     loadMoreConversations,
     loadOlderMessages,
-  } = useChat();
+  } = useChat({ onConversationCreated: replaceConversationUrl });
   const [input, setInput] = useState('');
   const [provider, setProvider] = useState<GenerationProvider | 'auto'>('auto');
   const [webSearchEnabled, setWebSearchEnabled] = useState(false);
@@ -33,9 +41,36 @@ export default function ChatPage() {
   const lastMessageContent = messages[messages.length - 1]?.content;
 
   useEffect(() => {
-    const conversationId = new URLSearchParams(window.location.search).get('conversation');
-    if (conversationId) void selectConversation(conversationId);
-  }, [selectConversation]);
+    const restoreConversationFromUrl = () => {
+      const conversationId = new URLSearchParams(window.location.search).get('conversation');
+      if (conversationId) {
+        void selectConversation(conversationId);
+      } else {
+        newConversation();
+      }
+    };
+
+    restoreConversationFromUrl();
+    window.addEventListener('popstate', restoreConversationFromUrl);
+    return () => window.removeEventListener('popstate', restoreConversationFromUrl);
+  }, [newConversation, selectConversation]);
+
+  const handleSelectConversation = useCallback(
+    async (conversationId: string) => {
+      await selectConversation(conversationId);
+      window.history.pushState(
+        null,
+        '',
+        `/chat?conversation=${encodeURIComponent(conversationId)}`
+      );
+    },
+    [selectConversation]
+  );
+
+  const handleNewConversation = useCallback(() => {
+    newConversation();
+    window.history.pushState(null, '', '/chat');
+  }, [newConversation]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -57,8 +92,8 @@ export default function ChatPage() {
       <ChatSidebar
         conversations={conversations}
         activeConversationId={activeConversationId}
-        onSelect={selectConversation}
-        onNew={newConversation}
+        onSelect={(conversationId) => void handleSelectConversation(conversationId)}
+        onNew={handleNewConversation}
         hasMore={hasMoreConversations}
         loadingMore={loadingMoreConversations}
         onLoadMore={loadMoreConversations}

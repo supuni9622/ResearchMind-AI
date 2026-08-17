@@ -20,7 +20,11 @@ function patchMessage(
   );
 }
 
-export function useChat() {
+export function useChat({
+  onConversationCreated,
+}: {
+  onConversationCreated?: (conversationId: string) => void;
+} = {}) {
   const [conversations, setConversations] = useState<ChatConversationSummary[]>([]);
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -126,6 +130,7 @@ export function useChat() {
           if (event.session_id && !resolvedConversationId) {
             resolvedConversationId = event.session_id;
             setActiveConversationId(resolvedConversationId);
+            onConversationCreated?.(resolvedConversationId);
           }
 
           // Stamped on every event by StreamingService (E21) -- captured
@@ -231,7 +236,7 @@ export function useChat() {
         setSending(false);
       }
     },
-    [activeConversationId, sending, refreshConversations]
+    [activeConversationId, sending, refreshConversations, onConversationCreated]
   );
 
   const selectConversation = useCallback(

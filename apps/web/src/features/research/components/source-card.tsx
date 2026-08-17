@@ -1,15 +1,13 @@
 import type { ResearchSource } from '@/lib/api';
-import { relativeScorePercent } from '@/features/research/types';
+import { relevanceScorePercent } from '@/features/research/types';
 import { FileTextIcon } from '@/components/ui/icons';
 
 export function SourceCard({
   source,
-  maxScore,
 }: {
   source: ResearchSource;
-  maxScore: number;
 }) {
-  const scorePct = relativeScorePercent(source.score, maxScore);
+  const scorePct = relevanceScorePercent(source.score);
 
   return (
     <div className="border border-ink-600 rounded-lg p-3.5 hover:border-ink-400 transition-colors duration-100">

@@ -1,16 +1,14 @@
 import type { Citation } from '@/lib/api';
-import { isWebCitation, relativeScorePercent } from '@/features/research/types';
+import { isWebCitation, relevanceScorePercent } from '@/features/research/types';
 import { FileTextIcon, NetworkIcon } from '@/components/ui/icons';
 
 export function CitationCard({
   citation,
-  maxScore,
 }: {
   citation: Citation;
-  maxScore: number;
 }) {
   const web = isWebCitation(citation.citation_id);
-  const scorePct = relativeScorePercent(citation.score, maxScore);
+  const scorePct = relevanceScorePercent(citation.score);
   return (
     <div className="border border-ink-600 rounded-lg p-3.5 hover:border-ink-400 transition-colors duration-100">
       <div className="flex items-start gap-2.5">

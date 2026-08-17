@@ -26,9 +26,6 @@ function MetricTile({
 
 export function SourcePanel({ turn }: { turn: ResearchTurn | null }) {
   const done = turn?.stage === 'done';
-  const maxCitationScore = Math.max(0, ...(turn?.citations.map((c) => c.score) ?? []));
-  const maxSourceScore = Math.max(0, ...(turn?.sources.map((s) => s.score) ?? []));
-
   return (
     <aside className="w-80 flex-shrink-0 border-l border-ink-600 bg-ink-900/50 h-full overflow-y-auto scrollbar-thin">
       <div className="px-5 py-4 border-b border-ink-700">
@@ -39,7 +36,7 @@ export function SourcePanel({ turn }: { turn: ResearchTurn | null }) {
         {turn && turn.citations.length > 0 ? (
           <div className="space-y-2.5">
             {turn.citations.map((c) => (
-              <CitationCard key={c.citation_id} citation={c} maxScore={maxCitationScore} />
+              <CitationCard key={c.citation_id} citation={c} />
             ))}
           </div>
         ) : (
@@ -57,7 +54,7 @@ export function SourcePanel({ turn }: { turn: ResearchTurn | null }) {
           {turn && turn.sources.length > 0 ? (
             <div className="space-y-2.5">
               {turn.sources.map((s) => (
-                <SourceCard key={s.chunk_id} source={s} maxScore={maxSourceScore} />
+                <SourceCard key={s.chunk_id} source={s} />
               ))}
             </div>
           ) : (

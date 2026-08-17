@@ -143,6 +143,9 @@ class Settings(BaseSettings):
     cross_encoder_model: str = "BAAI/bge-reranker-base"
 
     voyage_reranker_model: str = "rerank-2"
+    # Cross-encoder relevance gate for knowledge retrieval. RRF scores are
+    # rank-only and cannot distinguish a weak best match from a strong one.
+    retrieval_rerank_score_threshold: float = 0.2
 
     # ==========================================================================
     # Runtime Caching Platform

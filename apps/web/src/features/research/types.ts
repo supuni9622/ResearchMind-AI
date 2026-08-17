@@ -42,19 +42,11 @@ export function isWebCitation(citationId: string): boolean {
   return citationId.startsWith('W');
 }
 
-/**
- * Relevance percentage relative to the best score in the same list, not an
- * absolute scale. `Citation.score`/`ResearchSource.score` come from RRF
- * fusion (`app/ai/knowledge/retrieval/fusion/rrf.py`, k=60 across up to 3
- * ranked lists) -- its raw value tops out around 3-5% even for the best
- * possible match, so rendering it directly as `score * 100` reads as "weak"
- * no matter how relevant the result actually is. Normalizing against the
- * top score in the current answer's own list keeps the bar meaningful
- * (best match ~100%) regardless of what scale the backend's retrieval
- * strategy happens to produce.
- */
-export function relativeScorePercent(score: number, maxScore: number): number {
-  return maxScore > 0 ? Math.round((score / maxScore) * 100) : 0;
+/** The backend exposes the final cross-encoder relevance score. Never scale
+ * against the best item in the same result set: doing so labels even a very
+ * weak best match as 100% relevant. */
+export function relevanceScorePercent(score: number): number {
+  return Math.round(Math.max(0, Math.min(1, score)) * 100);
 }
 
 /**

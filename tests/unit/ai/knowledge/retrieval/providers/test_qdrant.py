@@ -13,8 +13,8 @@ Covers:
   KeyError) instead of silently producing a bad chunk or leaking a raw
   KeyError to the API layer
 - search_metadata performs a filter-only `scroll()` (no vector), assigns
-  matches a flat score since there is no similarity to rank by, and always
-  scopes the scroll to owner_id even when no additional filters are given
+  matches a flat score since there is no similarity to rank by, and skips
+  the branch when no real metadata constraint was supplied
 - search/search_sparse/search_metadata each wrap a failed Qdrant client
   call into a RetrievalExecutionError (chained via `from exc`) rather
   than letting the raw client exception escape, so the API layer's
@@ -170,7 +170,12 @@ async def test_search_metadata_scrolls_with_filter_and_assigns_flat_score() -> N
         }
     )
     client.scroll = AsyncMock(return_value=([record], None))
-    query = RetrievalQuery(query="rag", top_k=5, owner_id="owner-1")
+    query = RetrievalQuery(
+        query="rag",
+        top_k=5,
+        owner_id="owner-1",
+        filters={"filename": "test.pdf"},
+    )
 
     result = await provider.search_metadata(query=query)
 
@@ -184,7 +189,7 @@ async def test_search_metadata_scrolls_with_filter_and_assigns_flat_score() -> N
     assert result.chunks[0].score == 1.0
 
 
-async def test_search_metadata_scrolls_scoped_to_owner_with_no_additional_filters() -> None:
+async def test_search_metadata_skips_unfiltered_owner_scroll() -> None:
     provider, client = _make_provider()
     client.scroll = AsyncMock(return_value=([], None))
 
@@ -192,10 +197,7 @@ async def test_search_metadata_scrolls_scoped_to_owner_with_no_additional_filter
         query=RetrievalQuery(query="rag", owner_id="owner-1"),
     )
 
-    client.scroll.assert_awaited_once()
-    scroll_filter = client.scroll.await_args.kwargs["scroll_filter"]
-    assert scroll_filter.must[0].key == "owner_id"
-    assert scroll_filter.must[0].match.value == "owner-1"
+    client.scroll.assert_not_awaited()
     assert result.chunks == []
 
 
@@ -233,7 +235,11 @@ async def test_search_metadata_wraps_client_failure_in_retrieval_execution_error
 
     with pytest.raises(RetrievalExecutionError) as exc_info:
         await provider.search_metadata(
-            query=RetrievalQuery(query="rag", owner_id="owner-1"),
+            query=RetrievalQuery(
+                query="rag",
+                owner_id="owner-1",
+                filters={"filename": "test.pdf"},
+            ),
         )
 
     assert isinstance(exc_info.value.__cause__, RuntimeError)

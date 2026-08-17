@@ -140,6 +140,7 @@ def _make_service(
     sparse_query_embedding_service: AsyncMock | None = None,
     fusion_service: AsyncMock | None = None,
     reranking_service: AsyncMock | None = None,
+    rerank_score_threshold: float | None = None,
 ) -> RetrievalService:
     return RetrievalService(
         registry=registry,
@@ -147,6 +148,7 @@ def _make_service(
         sparse_query_embedding_service=(sparse_query_embedding_service or AsyncMock()),
         fusion_service=(fusion_service or AsyncMock()),
         reranking_service=reranking_service,
+        rerank_score_threshold=rerank_score_threshold,
     )
 
 
@@ -304,7 +306,7 @@ async def test_search_metadata_returns_result_with_statistics() -> None:
     assert result.statistics.returned_chunks == 1
 
 
-async def test_search_hybrid_runs_dense_sparse_and_metadata_then_fuses() -> None:
+async def test_search_hybrid_runs_dense_sparse_and_filtered_metadata_then_fuses() -> None:
     dense_chunk = _make_chunk()
     sparse_chunk = _make_chunk()
     metadata_chunk = _make_chunk()
@@ -331,7 +333,12 @@ async def test_search_hybrid_runs_dense_sparse_and_metadata_then_fuses() -> None
 
     result = await service.search_hybrid(
         provider=RetrievalProvider.QDRANT,
-        query=RetrievalQuery(query="rag", top_k=5, owner_id="owner-1"),
+        query=RetrievalQuery(
+            query="rag",
+            top_k=5,
+            owner_id="owner-1",
+            filters={"filename": "test.pdf"},
+        ),
     )
 
     provider.search.assert_awaited_once()
@@ -371,7 +378,42 @@ async def test_search_hybrid_reranks_by_default_when_configured() -> None:
     reranking_service.rerank.assert_awaited_once()
     assert reranking_service.rerank.await_args.kwargs["provider"] == RerankingProvider.VOYAGE_AI
     assert reranking_service.rerank.await_args.kwargs["request"].chunks == [fused_chunk]
-    assert result.chunks == [reranked_chunk]
+    assert [chunk.chunk_id for chunk in result.chunks] == [reranked_chunk.chunk_id]
+    assert result.chunks[0].score == 1.0
+
+
+async def test_search_hybrid_rejects_chunks_below_absolute_rerank_threshold() -> None:
+    weak_chunk = _make_chunk()
+    provider = _make_provider()
+    fusion_service = _make_fusion_service(
+        RetrievalResult(
+            query=RetrievalQuery(query="unrelated topic", owner_id="owner-1"),
+            execution=RetrievalExecution(),
+            chunks=[weak_chunk],
+        )
+    )
+    reranking_service = AsyncMock()
+    reranking_service.rerank = AsyncMock(
+        return_value=RerankingResult(
+            chunks=[RerankedChunk(chunk=weak_chunk, rerank_score=0.04)],
+            duration_ms=1.0,
+        )
+    )
+    service = _make_service(
+        registry=RetrievalRegistry([provider]),
+        fusion_service=fusion_service,
+        reranking_service=reranking_service,
+        rerank_score_threshold=0.2,
+    )
+
+    result = await service.search_hybrid(
+        provider=RetrievalProvider.QDRANT,
+        query=RetrievalQuery(query="unrelated topic", top_k=5, owner_id="owner-1"),
+    )
+
+    assert result.chunks == []
+    assert result.statistics is not None
+    assert result.statistics.returned_chunks == 0
 
 
 async def test_search_hybrid_skips_reranking_when_rerank_is_false() -> None:

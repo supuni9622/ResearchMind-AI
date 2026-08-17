@@ -133,6 +133,18 @@ class QdrantRetrievalProvider(
         the tenant even when no additional filters are supplied.
         """
 
+        # Owner scoping is mandatory access control, not a metadata match.
+        # Scrolling with only owner_id returns arbitrary chunks in storage
+        # order and gives them an undeserved third vote during RRF fusion.
+        # Only run this retrieval branch when the caller supplied an actual
+        # document metadata constraint.
+        if not query.filters:
+            return RetrievalResult(
+                query=query,
+                execution=RetrievalExecution(completed_at=datetime.now(UTC)),
+                chunks=[],
+            )
+
         search_filter = self._build_filter(
             owner_id=query.owner_id,
             filters=query.filters,

@@ -255,3 +255,21 @@ an authenticated database fixture or SQL console. Then use the normal
    A search cannot retrieve a Project B point.
 8. Inspect Valkey after project SESSION/extraction activity and confirm keys
    include the project scope/ID, distinct from personal and Project B keys.
+
+# M6 offline benchmark smoke test
+
+Run the checked-in synthetic reference through the deterministic scorer:
+
+```bash
+DEBUG=false ENVIRONMENT=test uv run python -m benchmarks.memory.runner \
+  --dataset benchmarks/datasets/memory/v1/dataset.json \
+  --results benchmarks/datasets/memory/v1/reference-results.json \
+  --output /tmp/researchmind-memory-m6-report
+```
+
+Confirm the command exits zero and creates `report.json` and `report.md`.
+Inspect the JSON and verify `scope_leak_rate` and
+`unsafe_memory_injection_rate` are both `0`. To exercise the release gate,
+copy the result file outside the repository, add an ID not present in a query's
+`allowed_memory_ids`, rerun the command, and confirm it exits non-zero. The
+reference result validates the scorer only; it does not certify live retrieval.

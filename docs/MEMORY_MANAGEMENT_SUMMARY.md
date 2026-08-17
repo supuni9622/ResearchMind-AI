@@ -417,7 +417,7 @@ memory content must not become metric labels.
 | 4 | M3 scheduled lifecycle | Implemented; rollout pending | Validate dry runs, enable deletion, and monitor cadence |
 | 5 | M4 total token budget | Complete | Bound prompt cost and context crowding |
 | 6 | M5 project scope | Foundation complete; Project runtime activation pending | Prevent cross-project memory leakage |
-| 7 | M6 offline evaluation | Planned | Establish measurable retrieval/answer release gates |
+| 7 | M6 offline evaluation | In progress; versioned dataset, scorer, and scope/unsafe gates implemented | Add live capture, paired answer utility, budgets, and CI/staging wiring |
 | 8 | M7 online quality signals | Planned | Detect production benefit or harm safely |
 | 9 | M8-M10 consolidation and preference quality | Planned | Reduce duplication, drift, and supersession misses |
 | 10 | M11 observability | Partially present; expansion planned | Make size, health, drift, and utility visible |

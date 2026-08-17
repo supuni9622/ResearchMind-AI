@@ -156,6 +156,7 @@ benchmarks/
     retrieval/
     reranking/
     generation/
+    memory/
     pipeline/
 
     regression/
@@ -165,6 +166,25 @@ benchmarks/
         detector.py
         report_generator.py
 ```
+
+## Memory benchmark (M6)
+
+The memory benchmark scores captured staging or production-policy retrieval
+results against version-controlled ground truth. Captured results remain
+separate from the dataset so an implementation cannot define its own expected
+answers.
+
+```bash
+uv run python -m benchmarks.memory.runner \
+  --dataset benchmarks/datasets/memory/v1/dataset.json \
+  --results benchmarks/datasets/memory/v1/reference-results.json
+```
+
+The first slice reports Recall@5, Precision@5, MRR, nDCG@5, injection-harm
+rates, latency, selected tokens, and a zero-tolerance scope-leak gate. The
+checked-in reference result validates the harness; it is not evidence that the
+live memory stack passes. A live capture adapter and paired memory-on/off answer
+evaluation remain M6 work.
 
 ---
 

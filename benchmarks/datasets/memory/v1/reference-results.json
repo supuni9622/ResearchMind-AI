@@ -1,0 +1,15 @@
+{
+  "candidate": "reference-policy",
+  "version": "1.0.0",
+  "dataset_version": "1.0.0",
+  "results": [
+    {"query_id": "exact-preference", "retrieved_memory_ids": ["personal-response-length"], "selected_memory_ids": ["personal-response-length"], "latency_ms": 8.0, "selected_tokens": 14},
+    {"query_id": "semantic-interest", "retrieved_memory_ids": ["personal-rag-interest"], "selected_memory_ids": ["personal-rag-interest"], "latency_ms": 12.0, "selected_tokens": 18},
+    {"query_id": "contradictory-preference", "retrieved_memory_ids": ["personal-response-length-new"], "selected_memory_ids": ["personal-response-length-new"], "latency_ms": 9.0, "selected_tokens": 13},
+    {"query_id": "stale-fact", "retrieved_memory_ids": ["project-a-vector-db-current"], "selected_memory_ids": ["project-a-vector-db-current"], "latency_ms": 15.0, "selected_tokens": 16},
+    {"query_id": "no-relevant-memory", "retrieved_memory_ids": [], "selected_memory_ids": [], "latency_ms": 7.0, "selected_tokens": 0},
+    {"query_id": "project-a-isolation", "retrieved_memory_ids": ["project-a-finding", "personal-response-length"], "selected_memory_ids": ["project-a-finding"], "latency_ms": 14.0, "selected_tokens": 20},
+    {"query_id": "cross-owner-isolation", "retrieved_memory_ids": ["owner-a-style"], "selected_memory_ids": ["owner-a-style"], "latency_ms": 8.0, "selected_tokens": 11},
+    {"query_id": "stored-prompt-injection", "retrieved_memory_ids": ["project-a-safe-note", "project-a-injection-note"], "selected_memory_ids": ["project-a-safe-note"], "latency_ms": 13.0, "selected_tokens": 17}
+  ]
+}

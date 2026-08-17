@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, BackgroundTasks, Depends, Query, status
 
 from app.ai.memory.create import get_memory_metrics
 from app.ai.memory.enums import MemoryScopeType, MemoryType
@@ -18,7 +18,11 @@ from app.ai.memory.observability.metrics import (
 from app.ai.memory.services.memory_service import MemoryService
 from app.auth.dependencies import get_current_user
 from app.core.settings import settings
-from app.dependencies.memory import get_memory_governance_service, get_memory_service
+from app.dependencies.memory import (
+    get_memory_governance_service,
+    get_memory_service,
+    run_memory_governance_job,
+)
 from app.dependencies.project import get_project_authorization_service
 from app.dependencies.rate_limiting import enforce_rate_limit, get_rate_limiter
 from app.exceptions.base import NotFoundException, RateLimitExceededException, ValidationException
@@ -92,9 +96,14 @@ async def preview_memory_deletion(
     current_user: User = Depends(get_current_user),
     governance: MemoryGovernanceService = Depends(get_memory_governance_service),
     project_authorization: ProjectAuthorizationService = Depends(get_project_authorization_service),
+    rate_limiter: ValkeyRateLimiter = Depends(get_rate_limiter),
+    metrics: MetricsRecorder = Depends(get_memory_metrics),
 ) -> MemoryDeletionPreviewResponse:
     await project_authorization.authorize_memory_scope(
         user_id=current_user.id, scope_type=payload.scope_type, project_id=payload.project_id
+    )
+    await _check_memory_mutation_rate_limit(
+        rate_limiter=rate_limiter, metrics=metrics, owner_id=current_user.id, operation="delete"
     )
     token, confirmation = await governance.preview_deletion(
         owner_id=current_user.id,
@@ -114,12 +123,22 @@ async def preview_memory_deletion(
 @router.post("/deletion/jobs", response_model=MemoryGovernanceJobResponse)
 async def execute_memory_deletion(
     payload: MemoryDeletionExecuteRequest,
+    background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_user),
     governance: MemoryGovernanceService = Depends(get_memory_governance_service),
+    rate_limiter: ValkeyRateLimiter = Depends(get_rate_limiter),
+    metrics: MetricsRecorder = Depends(get_memory_metrics),
 ) -> MemoryGovernanceJobResponse:
+    await _check_memory_mutation_rate_limit(
+        rate_limiter=rate_limiter, metrics=metrics, owner_id=current_user.id, operation="delete"
+    )
     job = await governance.execute_deletion(
         owner_id=current_user.id, token=payload.confirmation_token
     )
+    if job.status == "running":
+        background_tasks.add_task(
+            run_memory_governance_job, owner_id=current_user.id, job_id=job.id
+        )
     return MemoryGovernanceJobResponse.from_row(job)
 
 
@@ -137,12 +156,21 @@ async def get_memory_deletion_job(
 @router.post("/deletion/jobs/{job_id}/retry", response_model=MemoryGovernanceJobResponse)
 async def retry_memory_deletion_job(
     job_id: UUID,
+    background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_user),
     governance: MemoryGovernanceService = Depends(get_memory_governance_service),
+    rate_limiter: ValkeyRateLimiter = Depends(get_rate_limiter),
+    metrics: MetricsRecorder = Depends(get_memory_metrics),
 ) -> MemoryGovernanceJobResponse:
-    return MemoryGovernanceJobResponse.from_row(
-        await governance.retry(owner_id=current_user.id, job_id=job_id)
+    await _check_memory_mutation_rate_limit(
+        rate_limiter=rate_limiter, metrics=metrics, owner_id=current_user.id, operation="delete"
     )
+    job = await governance.retry(owner_id=current_user.id, job_id=job_id)
+    if job.status == "running":
+        background_tasks.add_task(
+            run_memory_governance_job, owner_id=current_user.id, job_id=job.id
+        )
+    return MemoryGovernanceJobResponse.from_row(job)
 
 
 @router.get(

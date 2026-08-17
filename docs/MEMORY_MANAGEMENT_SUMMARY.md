@@ -2,8 +2,12 @@
 
 **Status:** Living architecture and delivery summary  
 **Last reconciled:** 2026-08-17  
-**Implementation progress:** M0-M2 and M4-M16 complete; M3 rollout pending;
-M6-M10 retain staging calibration/rollout gates where noted
+**Implementation progress:** M0-M2, M4-M5, M11-M12, and M15 are
+acceptance-complete. M3 and M6-M10 are implemented with rollout/calibration
+gates. M13's UI affordances are implemented with Project-runtime verification
+pending. M14 has background execution, polling/retry, limits, metrics, and
+cross-store retry regressions; backup policy and dependency-backed staging
+evidence remain. M16 hardening is partial.
 
 This document explains the existing and planned ResearchMind memory platform in
 one place. It is an orientation document, not a replacement for the accepted
@@ -46,9 +50,9 @@ memory, agent memory, and memory-driven request routing are explicitly deferred.
 | Durable storage | PostgreSQL canonical rows; Qdrant vector index; recurring lifecycle worker; reversible consolidation; scheduled drift inventory | Enable deletion after rollout evidence; add quotas and reconciliation repair tooling |
 | Capture | Post-turn extraction, repeated-interest promotion, feedback preferences, complete-history topical supersession, and versioned typed preferences | Calibrate extraction/supersession thresholds |
 | Retrieval | Four product surfaces share one coordinated token budget; scope-safe services are implemented | Activate authorized project context in Project-aware runtimes |
-| Write safety | Public mutation limits and payload bounds; internal circuit breaker; throttle metrics and alerts | Per-plan quotas and load tests |
+| Write safety | Legacy mutation limits and payload bounds; internal circuit breaker; throttle metrics and alerts | Apply destructive limits to M14 preview/job/retry routes; per-plan quotas and load tests |
 | Feedback safety | Canonical feedback commits before isolated memory write | Durable outbox only if delivery guarantees justify it |
-| User controls | M12-M15 scope-safe management, portable export, server-confirmed selected/full-scope cross-store erasure, and Personal/Project UI | Production policy calibration |
+| User controls | M12 scope-safe API plus implemented M13-M15 Personal/Project UI, portable export, and server-confirmed erasure foundation | Move/retrieval/end-date UI, complete dialog focus behavior, job recovery UI, cross-store integration evidence, backup-expiry policy |
 | Lifecycle | Recurring, batched, locked worker implemented; report-only by default | Validate staging dry runs, enable conservative deletion, and monitor production cadence |
 | Quality | M6 offline benchmark plus M7 generation correlation, explicit feedback, and opt-in sampled utility/harm scoring | Staging calibration and enforced deployment gates |
 | Observability | M11 dashboard/alerts for absolute size, growth, drift, lifecycle, tokens, throttles, consolidation, and utility | Production threshold calibration and notification routing |
@@ -273,10 +277,10 @@ Implemented rules:
 - Integration tests must prove cross-project and cross-owner leakage is
   impossible on every API, retrieval, cache, and background path.
 
-## 10. User-visible memory management (M12-M15)
+## 10. User-visible memory management (M12/M15 complete; M13/M14 operational gates)
 
 The initial personal USER-memory slice shipped early on 2026-08-17 and was
-completed in the same delivery cycle. `/memory` now exposes Personal and
+expanded in the same delivery cycle. `/memory` now exposes Personal and
 authorized Project inventories for durable types, with accurate pagination,
 filters, provenance, edit review, capture/inheritance controls, portable JSON
 export, and selected/full-scope erasure. M14-M15 require a server-authorized
@@ -284,6 +288,13 @@ preview and a hashed, single-use, five-minute confirmation token before an
 immediate cross-store deletion job can run. The Project/workspace product must
 still supply authorized project context before project-scoped runtime traffic
 is activated; that is a product integration gate, not a missing Memory UI.
+
+Scope move, retrieval settings, both date bounds, and accessible modal focus
+behavior are exposed in the UI. Deletion runs after the response using an
+independently scoped database session; the UI polls durable job status and can
+retry a failed stage. The remaining governance work is a published
+provider-specific backup expiry and a dependency-backed staging drill. Project
+runtime effect verification remains gated on Wave 3's authorized context.
 
 The diagram below shows the implemented M5/M12-M15 flow:
 
@@ -361,7 +372,7 @@ This makes the cost/latency/accuracy trade-off explicit:
 - **Accuracy:** relevant recent preferences and evidence survive before stale or
   weakly matched content.
 
-## 13. Planned evaluation loop (M6-M7)
+## 13. Implemented evaluation loop with rollout gates (M6-M7)
 
 ```mermaid
 flowchart LR
@@ -394,8 +405,11 @@ The Memory Runtime dashboard and alert rules now include:
 - Supersession, consolidation, conflict, and duplicate rates.
 - Lifecycle candidates, deleted rows, duration, failures, and last success.
 - Memory tokens injected, items omitted, retrieval latency, and utility signals.
-- Export/erasure completion and reconciliation failures without sensitive
-  content in labels or logs.
+- Reconciliation failures without sensitive content in labels or logs.
+
+Governance job state is durable in PostgreSQL. Bounded completion/failure-stage
+and duration metrics are emitted to Prometheus, shown on the Memory dashboard,
+and backed by a failed-erasure alert.
 
 Metric dimensions must remain bounded; owner IDs, project IDs, and free-text
 memory content must not become metric labels.
@@ -420,7 +434,7 @@ memory content must not become metric labels.
 |---:|---|---|---|
 | 1 | M0 feedback transaction isolation | Complete | Feedback remains durable when memory fails |
 | 2 | M1 SESSION ordering | Complete | Newest context selected and rendered chronologically |
-| 3 | M2 mutation limits and payload bounds | Complete | Bounded public writes and internal extraction cost |
+| 3 | M2 mutation limits and payload bounds | Complete | All public and governance mutation routes are bounded; extraction has an independent circuit breaker |
 | 4 | M3 scheduled lifecycle | Implemented; rollout pending | Validate dry runs, enable deletion, and monitor cadence |
 | 5 | M4 total token budget | Complete | Bound prompt cost and context crowding |
 | 6 | M5 project scope | Foundation complete; Project runtime activation pending | Prevent cross-project memory leakage |
@@ -430,10 +444,10 @@ memory content must not become metric labels.
 | 10 | M9-M10 preference quality | Implemented; rollout calibration pending | Complete-history topical lookup plus additive typed values and deterministic safe-key supersession |
 | 11 | M11 observability | Complete | Scheduled bounded inventory plus size, growth, lifecycle, drift, budget, consolidation, and utility panels/alerts |
 | 12 | M12 management API | Complete | Scope-safe durable enumeration/mutations, safe responses, explicit edits, confirmed moves, independent settings, and two-user/two-project tests |
-| 13 | M13 management UI | Complete | Personal and authorized Project views expose boundaries, filters, provenance, capture/inheritance controls, edit review, export, and deletion entry points |
-| 14 | M14 export and erasure | Complete; migration required | Portable export and auditable retryable cross-store erasure; deploy revision `c8d9e0f1a2b3` first |
+| 13 | M13 management UI | Implemented; product integration pending | Full Personal/Project controls work; verify the next Project request once Wave 3 supplies authorized context |
+| 14 | M14 export and erasure | Implemented; operational acceptance pending | Deploy `c8d9e0f1a2b3`; verify backup expiry and run a real dependency-backed erasure drill |
 | 15 | M15 destructive confirmation | Complete | Authorized previews plus hashed, single-use, five-minute confirmation tokens |
-| 16 | M16 hardening | Implementation complete; calibration ongoing | Prompt delimiters, quotas, failure contracts, drift inventory, and bounded governance paths |
+| 16 | M16 hardening | Partial | Prompt delimiters, quotas, reconciliation, 1,000-candidate budget, and retry regressions exist; staged load/failure suites remain |
 
 The authoritative acceptance criteria and dependencies for every item remain in
 [MEMORY_PLATFORM_PRIORITIZED_TASKS.md](MEMORY_PLATFORM_PRIORITIZED_TASKS.md).

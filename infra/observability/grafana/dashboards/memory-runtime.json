@@ -613,6 +613,26 @@
           "refId": "A"
         }
       ]
+    },
+    {
+      "id": 28,
+      "type": "timeseries",
+      "title": "Governance erasure outcomes",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 104 },
+      "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] },
+      "targets": [
+        { "expr": "sum by (outcome, stage) (rate(researchmind_memory_governance_jobs_total[1h]))", "legendFormat": "{{outcome}} · {{stage}}", "refId": "A" }
+      ]
+    },
+    {
+      "id": 29,
+      "type": "timeseries",
+      "title": "Governance erasure duration",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 104 },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "targets": [
+        { "expr": "histogram_quantile(0.95, sum(rate(researchmind_memory_governance_duration_seconds_bucket[1h])) by (le, outcome))", "legendFormat": "P95 {{outcome}}", "refId": "A" }
+      ]
     }
   ],
   "description": "Memory scale, lifecycle health, context pressure, write safety, consolidation, drift, and utility. Storage inventory is emitted by the memory lifecycle worker on port 8011."

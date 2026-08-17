@@ -491,6 +491,11 @@ def test_deletion_requires_server_preview_then_accepts_token(
     assert execute.status_code == 200
     assert execute.json()["status"] == "completed"
     assert execute.json()["deleted_postgres"] == 1
+    limiter = fake_memory_service.rate_limiter  # type: ignore[attr-defined]
+    assert limiter.keys == [
+        f"memory_delete:{_OWNER_ID}",
+        f"memory_delete:{_OWNER_ID}",
+    ]
 
 
 @pytest.mark.parametrize(

@@ -175,3 +175,18 @@ def test_unused_type_share_falls_through_to_other_types(monkeypatch) -> None:
 
     assert rendered is not None
     assert "finding 0" in rendered
+
+
+def test_large_candidate_set_remains_bounded_by_configured_context_budget() -> None:
+    memories = [
+        _memory(MemoryType.SEMANTIC, f"candidate {index} " + "detail " * 40)
+        for index in range(1_000)
+    ]
+
+    rendered = format_memory_context(
+        MemoryContext(semantic_memories=memories), total_token_budget=500
+    )
+
+    assert rendered is not None
+    assert TokenBudgetValidator._estimate_tokens(rendered) <= 500
+    assert "Omitted by memory token budget" in rendered

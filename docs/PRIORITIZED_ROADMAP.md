@@ -18,9 +18,12 @@ state — check it before starting any Wave 1 item.
 [`MEMORY_PLATFORM_PRIORITIZED_TASKS.md`](MEMORY_PLATFORM_PRIORITIZED_TASKS.md)
 is authoritative for memory task IDs and acceptance criteria, with
 [`MEMORY_MANAGEMENT_SUMMARY.md`](MEMORY_MANAGEMENT_SUMMARY.md) as the living
-orientation. Reconciled 2026-08-17: M0-M2 and M4-M16 are complete, while M3
-has operational rollout pending and M6-M10 retain calibration gates. M5's
-isolation foundation and the authorized Personal/Project Memory UI are complete. Wave 3 must now
+orientation. Reconciled 2026-08-17: M0-M2, M4-M5, M11-M12, and M15 are
+complete. M3 and M6-M10 retain rollout/calibration gates. M13's UI is
+implemented with Project-runtime verification pending; M14 has background
+job polling/retry, limits, metrics, and cross-store retry tests with backup and
+staging evidence outstanding; M16 hardening is partial. M5's isolation foundation
+and the main Personal/Project Memory UI are live. Wave 3 must now
 provide the full Project model and authorized runtime context before it sends
 Project-scoped runtime traffic; the management UI itself is already active.
 
@@ -85,7 +88,7 @@ instruction, not derived:
 | 2 | ✅ Preference feedback → `USER` memory write path — Done, 2026-08-12 | Med | Med | Depends on the read-side fix above |
 | 2 | **Reject-with-revise, i.e. "edit interruption capability"** (plan/report approval) | Med-High | Med | Reuses `REVISE_SYNTHESIS` path; see expanded detail below — this is more than one line captures |
 | 2 | Live cost/token visibility in Deep Research events | Med | High | Reuses an existing cost-lookup query pattern |
-| 2 | Memory production hardening + Projects isolation — M0-M2/M4-M16 implemented; rollout/calibration remains | High | Med | M3 remains report-only pending staging evidence; M6-M10 remain calibration-gated. Management, governance, prompt safety, quotas, and drift visibility are implemented. |
+| 2 | Memory production hardening + Projects isolation — implementation advanced; acceptance closure remains | High | Med | M2 must cover governance routes; M3 needs rollout evidence; M6-M10 need calibration; M13 needs final UI/focus affordances; M14 needs metrics, background recovery UX, and cross-store integration proof; M16 needs load/failure suites. M0-M1, M4-M5, M11-M12, and M15 are complete. |
 | 2 | Proposal-level rejection/expiry (before a run exists) | Med | Med | One stage earlier than reject-with-revise above, same approval-checkpoint family; triaged in from `AI_ENGINEERING_AUDIT.md` §5 P4#24's still-open half, 2026-08-12 |
 | 2 | Deep Research rate limiting: per-owner fair-share, not just total-queue-depth | Med | Med | Today one owner's burst can fill the global queue cap and get other owners' approvals shed; reuses the existing `ValkeyRateLimiter`/`deep_research_max_queued_runs` infra, just needs fair-share accounting on top; triaged in from `REMAINING_WORK.md` item 3, 2026-08-12 |
 | 2 | Cross-conversation Deep Research run-history browser | Med | Med | Today's browsing path is "pick a conversation, see its runs" — this adds "see every run a user has ever started" independent of conversation; `GET /research/{id}` already exists, needs a new list endpoint + UI; triaged in from `REMAINING_WORK.md` item 5, 2026-08-12 |
@@ -184,9 +187,10 @@ it once Wave 3's domain model exists. This is a deliberate, disclosed
 deviation from `NORTH_STAR.md`'s original sequencing, not an oversight.
 
 USER prompt injection and the preference-feedback write path are now complete.
-M3 is implemented with operational rollout pending; M12's management API and
-M13's Personal/Project Memory UI are complete; and M5's isolation foundation
-is complete. Use the memory backlog
+M3 is implemented with operational rollout pending; M12's management API is
+complete; M13's Personal/Project Memory UI and M14-M15 governance paths are
+live with the remaining product/operational evidence tracked in the memory backlog; and
+M5's isolation foundation is complete. Use the memory backlog
 rather than this section's older rationale to determine implementation status.
 The other items here close real gaps on already-shipped Deep Research features.
 

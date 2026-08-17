@@ -44,6 +44,8 @@ from app.ai.memory.observability.metrics import (
     EXTRACTION_REQUESTED,
     EXTRACTION_SKIPPED,
     EXTRACTION_SUCCEEDED,
+    GOVERNANCE_DURATION,
+    GOVERNANCE_JOBS,
     INVENTORY_LAST_SUCCESS,
     LIFECYCLE_DELETED,
     LIFECYCLE_DURATION,
@@ -537,6 +539,12 @@ COUNTER_METRICS: dict[str, MetricSpec] = {
         "counter",
         ("operation",),
     ),
+    GOVERNANCE_JOBS: MetricSpec(
+        "researchmind_memory_governance_jobs_total",
+        "Memory governance jobs by bounded outcome and failure stage.",
+        "counter",
+        ("outcome", "stage"),
+    ),
     EXTRACTION_RATE_LIMITED: MetricSpec(
         "researchmind_memory_extraction_rate_limited_total",
         "Internal memory extraction attempts skipped by the cost circuit breaker.",
@@ -681,6 +689,13 @@ DURATION_METRICS: dict[str, MetricSpec] = {
         "Memory consolidation batch duration.",
         "histogram",
         (),
+        RUNTIME_BUCKETS,
+    ),
+    GOVERNANCE_DURATION: MetricSpec(
+        "researchmind_memory_governance_duration_seconds",
+        "Memory governance job duration.",
+        "histogram",
+        ("outcome",),
         RUNTIME_BUCKETS,
     ),
 }

@@ -908,6 +908,8 @@ export const api = {
         method: 'POST',
         body: JSON.stringify({ confirmation_token: confirmationToken }),
       }),
+    getDeletionJob: (jobId: string) =>
+      request<MemoryGovernanceJob>(`/api/v1/memory/deletion/jobs/${jobId}`),
     retryDeletion: (jobId: string) =>
       request<MemoryGovernanceJob>(`/api/v1/memory/deletion/jobs/${jobId}/retry`, {
         method: 'POST',

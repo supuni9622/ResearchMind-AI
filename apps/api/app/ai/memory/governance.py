@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import secrets
 from datetime import UTC, datetime, timedelta
+from time import perf_counter
 from uuid import UUID, uuid4
 
 from sqlalchemy import delete, select
@@ -13,10 +14,12 @@ from sqlalchemy.sql.elements import ColumnElement
 
 from app.ai.memory.artifacts.writers import MemoryArtifactWriter
 from app.ai.memory.enums import MemoryScopeType
+from app.ai.memory.observability.metrics import GOVERNANCE_DURATION, GOVERNANCE_JOBS
 from app.ai.memory.storage.valkey_store import ValkeySessionStore
 from app.ai.memory.storage.vector_index import MemoryVectorIndex
 from app.core.settings import settings
 from app.exceptions.base import ConflictException, NotFoundException, ValidationException
+from app.infrastructure.metrics.interfaces import MetricsRecorder
 from app.models.memory import Memory, MemoryDeletionConfirmation, MemoryGovernanceJob
 
 
@@ -27,11 +30,13 @@ class MemoryGovernanceService:
         vector_index: MemoryVectorIndex,
         session_store: ValkeySessionStore,
         artifact_writer: MemoryArtifactWriter,
+        metrics: MetricsRecorder,
     ) -> None:
         self._session = session
         self._vector_index = vector_index
         self._session_store = session_store
         self._artifact_writer = artifact_writer
+        self._metrics = metrics
 
     @staticmethod
     def _scope_filters(
@@ -121,7 +126,32 @@ class MemoryGovernanceService:
         )
         self._session.add(job)
         await self._session.commit()
-        return await self._run(job, confirmation)
+        return job
+
+    async def run_job(self, *, owner_id: UUID, job_id: UUID) -> MemoryGovernanceJob:
+        job = await self.get_job(owner_id=owner_id, job_id=job_id)
+        if job.status in {"completed", "failed"}:
+            return job
+        confirmation = await self._session.get(MemoryDeletionConfirmation, job.confirmation_id)
+        if confirmation is None:
+            return await self._fail(
+                job,
+                "confirmation",
+                RuntimeError("Deletion confirmation audit record is unavailable"),
+            )
+        started = perf_counter()
+        result = await self._run(job, confirmation)
+        outcome = result.status
+        self._metrics.increment(
+            metric=GOVERNANCE_JOBS,
+            labels={"outcome": outcome, "stage": result.failure_stage or "complete"},
+        )
+        self._metrics.record_duration(
+            operation=GOVERNANCE_DURATION,
+            duration_ms=(perf_counter() - started) * 1000,
+            labels={"outcome": outcome},
+        )
+        return result
 
     async def retry(self, *, owner_id: UUID, job_id: UUID) -> MemoryGovernanceJob:
         job = await self.get_job(owner_id=owner_id, job_id=job_id)
@@ -134,7 +164,7 @@ class MemoryGovernanceService:
         job.failure_stage = None
         job.failure_detail = None
         await self._session.commit()
-        return await self._run(job, confirmation)
+        return job
 
     async def get_job(self, *, owner_id: UUID, job_id: UUID) -> MemoryGovernanceJob:
         job = (

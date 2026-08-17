@@ -102,6 +102,15 @@ groups:
         annotations:
           summary: Memory storage inventory has not completed successfully for 30h
 
+      - alert: ResearchMindMemoryGovernanceErasureFailed
+        expr: |
+          sum(increase(researchmind_memory_governance_jobs_total{outcome="failed"}[15m])) > 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: A permanent memory-erasure job failed and requires retry
+
       # Latency-SLO alerts (EVALUATION_IMPLEMENTATION_TRACKER.md E17,
       # PRODUCTION_READINESS_EVALUATION.md item 2). Thresholds are
       # documented starting points, not calibrated against real production

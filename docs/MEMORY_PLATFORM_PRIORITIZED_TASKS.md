@@ -2,9 +2,13 @@
 
 **Status:** Active backlog  
 **Last reviewed:** 2026-08-17
-**Next implementation task:** M3 operational rollout evidence. M6-M10 retain
-their separate staging calibration work; M14-M16 are implemented and require
-the `c8d9e0f1a2b3` governance migration in every deployed database.
+
+**Next work:** collect M3 operational rollout evidence, publish the M14 backup
+expiry policy, and complete the remaining M13/M14/M16 environment-level
+acceptance evidence listed below. M6-M10 retain separate staging
+calibration/evidence gates. Destructive governance requires migration
+`c8d9e0f1a2b3` in every deployed database.
+
 **Scope:** `app/ai/memory/`, `/memory` APIs, runtime injection, storage,
 evaluation, observability, lifecycle, governance, and upcoming Projects
 integration.
@@ -19,8 +23,9 @@ the next-wave Projects requirement. The broader product sequence remains in
 acceptance criteria, and internal sequencing. `PRIORITIZED_ROADMAP.md` decides
 product-wave placement; `PHASE_2_3_ROADMAP.md` preserves V2/V3 rationale; and
 `NORTH_STAR.md` defines the long-term product model. M5 provides the required
-storage and authorization foundation for Project-scoped memory writes, but it does not replace the broader Project
-schema and typed research-object work in product Wave 3.
+storage and authorization foundation for Project-scoped memory writes, but it
+does not replace the broader Project schema and typed research-object work in
+product Wave 3.
 
 ## Current baseline
 
@@ -31,10 +36,14 @@ from the owner's complete scope-safe history rather than only the 20 most
 recent rows. The bounded, fail-open LLM judge remains overwrite authority.
 
 M3's code path was implemented on 2026-08-17; staging/production rollout
-evidence remains open. M12-M13 now provide a scope-aware management API and
-complete Personal/Project Memory UI. M5's memory-platform foundation was
-implemented on 2026-08-17; broader Project creation and workspace routing
-remain product-wave work. The following are
+evidence remains open. M12 provides the scope-aware management API. M13 ships
+the main Personal/Project Memory UI, while the final move/retrieval/date-range
+and focus-management affordances remain open. M14-M15 ship the governance
+schema/API and confirmation flow but still need background job UX and real
+cross-store integration evidence. M16 ships deterministic safety, quota, and
+reconciliation coverage but not the requested scale/failure test matrix. M5's
+memory-platform foundation was implemented on 2026-08-17; broader Project
+creation and workspace routing remain product-wave work. The following are
 ordered by dependency and operational risk.
 "P0" means complete before characterizing the memory platform as production
 scale. Tasks inside a phase are in recommended implementation order.
@@ -128,6 +137,12 @@ on a positive denial and fails open on Valkey outages so answers remain
 available. Extraction output is also capped at 5 memories per turn to prevent
 one malformed model response from amplifying writes. No new model calls were
 added.
+
+**Cross-check closure 2026-08-17:** the later
+`POST /memory/deletion/preview`, `POST /memory/deletion/jobs`, and retry route
+now consume the owner-scoped destructive-operation bucket as well. The
+governance UI therefore cannot bypass the same fail-closed limit used by the
+legacy single-record delete path.
 
 **Why now:** authenticated `POST`, `PUT`, and `DELETE /memory` operations are
 currently unbounded.
@@ -282,7 +297,7 @@ Project A memory -/-> Project B
 
 ## P1 — Make memory quality measurable
 
-### M6. Build the memory evaluation harness and release gate
+### M6. 🟡 Build the memory evaluation harness and release gate
 
 **Implementation complete; staging calibration pending:** 2026-08-17. M6 provides a strict,
 versioned synthetic dataset and a captured-result scorer integrated with the
@@ -317,7 +332,7 @@ the authenticated live benchmark without a seeded environment and secrets.
 **Done when:** caps, thresholds, retention, and consolidation changes can be
 accepted or rejected using a repeatable benchmark rather than intuition.
 
-### M7. Add online quality signals with safe sampling
+### M7. 🟡 Add online quality signals with safe sampling
 
 **Implemented; rollout pending:** 2026-08-17. Chat, Linear Research, and Deep
 Research now carry exact post-budget injected memory UUIDs into their
@@ -353,7 +368,7 @@ enough traffic for meaningful thresholds.
 
 ## P1 — Improve quality and prevent semantic drift
 
-### M8. Implement evidence-driven consolidation for SEMANTIC/RESEARCH
+### M8. 🟡 Implement evidence-driven consolidation for SEMANTIC/RESEARCH
 
 **Implemented; rollout/evidence gate pending:** 2026-08-17. The lifecycle
 worker can now run a separately gated, bounded consolidation batch. Embedding
@@ -382,7 +397,7 @@ review before mutation is enabled.
 **Done when:** durable growth and duplicate injection decrease without lowering
 Recall@K, losing provenance, or merging contradictory findings.
 
-### M9. ✅ Remove the USER supersession recency blind spot
+### M9. 🟡 Remove the USER supersession recency blind spot
 
 **Implemented; rollout calibration pending:** 2026-08-17. New USER
 preferences now receive a cheap structured topic classification containing a
@@ -406,7 +421,7 @@ scenarios.
 preferences are found while related-but-distinct preferences are retained,
 with no owner/project leakage and no M6 retrieval regression.
 
-### M10. ✅ Introduce typed preference attributes gradually
+### M10. 🟡 Introduce typed preference attributes gradually
 
 **Implemented; rollout calibration pending:** 2026-08-17. The M9 classifier
 now emits a controlled kind (`response_length`, `tone`, `citation_style`,
@@ -492,16 +507,23 @@ PostgreSQL tests cover two users/two projects and project membership.
 and deliberately move memories within one resolved scope without accessing
 another user's or project's records.
 
-### M13. ✅ Complete the Personal Memory and Project Memory UI
+### M13. 🟡 Complete the Personal Memory and Project Memory UI
 
-**Completed 2026-08-17:** `/memory` is now a first-class navigation
+**Core UI implemented 2026-08-17; project-runtime acceptance remains:** `/memory` is now a first-class navigation
 destination. The initial USER-only Personal view and disabled Project
 placeholder were superseded in the same delivery cycle by authorized project
 selection, an explicit isolation boundary, persisted personal-inheritance and
 capture switches, durable-type/origin/source/date filters, provenance and usage
 metadata, review-before-edit, and the M14-backed scoped export and selected or
-full-scope erasure entry points. Loading, empty, error, keyboard-focus,
-responsive, search, pagination, and refresh states are implemented.
+full-scope erasure entry points. Loading, empty, error, responsive, search,
+pagination, refresh, visible lower/upper date bounds, capture and retrieval
+controls, scope move/promote confirmation, focus trapping/restoration, and
+Escape-close behavior are implemented.
+
+The remaining acceptance item is to verify that the next eligible project
+request reflects a Project-memory change once the broader Project runtime
+supplies authorized project context. That is a Wave 3 product integration gate,
+not an unimplemented Memory-page affordance.
 
 Add a first-class **Memory** area rather than hiding these controls inside chat.
 
@@ -538,14 +560,28 @@ include its expiry.
 for the current project, correct it, remove it, and see the effect reflected in
 the next eligible request.
 
-### M14. ✅ Add export and bulk erasure
+### M14. 🟡 Add export and bulk erasure
 
-**Completed 2026-08-17:** the authenticated governance API exports a documented
+**Core implementation shipped 2026-08-17; operational acceptance remains:** the authenticated governance API exports a documented
 `researchmind.memory.export.v1` payload and performs personal/project erasure
 through retryable, content-free audit jobs. Jobs remove canonical rows and
 Qdrant points, purge scope-wide Valkey state for whole-scope requests, retain
 stage/count progress, and verify Postgres completion. The UI uses the server
 export and supports selected or entire-scope erasure.
+
+Execution now leaves the request path and opens an independent database session
+in an in-process background task. The frontend polls
+`GET /memory/deletion/jobs/{id}` and exposes retry after a partial failure.
+Governance preview/execute/retry calls are rate-limited, and bounded
+completion/failure-stage and duration metrics feed dashboard panels plus a
+failure alert. Cross-store unit tests prove that Qdrant failure prevents the
+canonical delete and that a retry converges through PostgreSQL, Qdrant, Valkey,
+and artifact cleanup.
+
+The remaining acceptance items are infrastructure-level: deploy migration
+`c8d9e0f1a2b3`, publish and verify provider-specific backup expiry, run a real
+dependency-backed erasure exercise, and decide whether production scale needs
+a durable external queue instead of the current retryable in-process task.
 
 - Export all owner memory in a documented portable format, including scope and
   provenance but excluding internal secrets.
@@ -572,15 +608,22 @@ token. Immediate erasure was selected: there is no undo/tombstone delay.
 
 ## P2 — Hardening and maintainability
 
-### M16. ✅ Add safety, capacity, and failure-mode tests
+### M16. 🟡 Add safety, capacity, and failure-mode tests
 
-**Completed 2026-08-17:** durable prompt entries are explicitly delimited as
+**Deterministic hardening implemented 2026-08-17; scale evidence remains:** durable prompt entries are explicitly delimited as
 untrusted quoted data and closing delimiters are escaped; per-scope durable
 quotas fail closed with actionable UX; existing provider failure suites cover
 Postgres, Valkey, Qdrant, embeddings, and LLM decisions; lifecycle inventory
 continues scheduled Postgres/Qdrant drift detection; and export/erasure paths
-are bounded, retryable, and covered by management regressions. Production
-capacity thresholds still require environment-specific calibration.
+are bounded and retryable. A 1,000-candidate context regression proves the
+configured token ceiling, and cross-store erasure failure/retry regressions
+prove no false success when Qdrant fails. Production capacity thresholds still
+require environment-specific calibration.
+
+Still required for acceptance: dependency-backed load tests for large
+owner/project histories across lifecycle, consolidation, export, and erasure,
+plus staged failure injection against real PostgreSQL, Qdrant, Valkey, and
+artifact storage.
 
 - Stored prompt-injection content must be quoted/delimited as untrusted memory
   and never override system/current-turn instructions.
@@ -605,17 +648,17 @@ evaluation demonstrates a concrete need:
 
 ## Recommended delivery sequence
 
-1. **Stability patch:** M0, M1, M2, dashboard supersession panel from M11.
+1. **Stability patch:** M0, M1, M2, dashboard supersession panel from M11 complete.
 2. **Bounded operations:** M3 implementation and M4 complete; M3 operational rollout remains.
 3. **Projects prerequisite:** M5 isolation foundation complete; wire the full
    Project/workspace model and authorized runtime context before project-scoped
    production writes.
 4. **Measurement:** M6, then M7.
 5. **Quality:** M8–M10, each gated by evaluation results.
-6. **User control:** M12-M15 are implemented. Keep the Personal/Project UI and
-   governance paths behind migrated databases; broader Project-product work
-   must pass an authorized runtime context before project-scoped traffic is
-   activated.
-7. **Ongoing hardening:** M16's prompt-safety, quotas, reconciliation, and
-   failure contracts are implemented; calibrate capacity thresholds with
-   staging load evidence.
+6. **User control:** M12 and M15 are complete; M13's full management UI and
+   M14's background job polling/retry/observability are implemented. Complete
+   Project-runtime effect verification, backup policy, and a dependency-backed
+   erasure drill before declaring M13-M14 complete.
+7. **Ongoing hardening:** retain M16's implemented prompt-safety, quotas, and
+   reconciliation, then add the missing load/failure matrix and calibrate
+   capacity thresholds with staging evidence.

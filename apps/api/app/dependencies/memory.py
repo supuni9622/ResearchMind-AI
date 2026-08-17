@@ -4,6 +4,8 @@ Memory Platform dependencies (memory_platform_prd.md).
 
 from __future__ import annotations
 
+from uuid import UUID
+
 from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -34,7 +36,7 @@ from app.ai.memory.storage.vector_index import MemoryVectorIndex
 from app.ai.runtime.generation.enums import GenerationProvider
 from app.ai.runtime.generation.orchestration.orchestrator import GenerationRuntime
 from app.core.settings import settings
-from app.db.session import get_db
+from app.db.session import SessionFactory, get_db
 from app.dependencies.generation import get_generation_runtime
 from app.infrastructure.metrics.interfaces import MetricsRecorder
 from app.repositories.memory import MemoryRepository
@@ -60,7 +62,22 @@ def get_memory_governance_service(
         vector_index,
         create_valkey_session_store(),
         create_memory_artifact_writer(),
+        get_memory_metrics(),
     )
+
+
+async def run_memory_governance_job(*, owner_id: UUID, job_id: UUID) -> None:
+    """Run erasure after the response with independently scoped resources."""
+
+    async with SessionFactory() as session:
+        service = MemoryGovernanceService(
+            session,
+            create_memory_vector_index(),
+            create_valkey_session_store(),
+            create_memory_artifact_writer(),
+            get_memory_metrics(),
+        )
+        await service.run_job(owner_id=owner_id, job_id=job_id)
 
 
 def get_user_memory_service(

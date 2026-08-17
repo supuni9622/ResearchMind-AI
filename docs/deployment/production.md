@@ -35,10 +35,51 @@ Future milestones will define:
 
 ## Memory lifecycle worker
 
+### Memory export, erasure, and failure policy
+
+Apply the governance migration before enabling the M14-M15 UI:
+
+```bash
+DEBUG=false uv run alembic upgrade head
+DEBUG=false uv run alembic current
+```
+
+The expected head is `c8d9e0f1a2b3`. Deployments that start the API before
+this revision fail deletion preview with `UndefinedTable` for
+`memory_deletion_confirmations`. `DEBUG` is a boolean setting; environments
+that export values such as `DEBUG=release` must remove that value or override
+it with `DEBUG=false` for Alembic and application processes.
+
+Exports use `researchmind.memory.export.v1` and include user-safe scope,
+provenance, confidence, and timestamps. They exclude owner IDs, raw metadata,
+prompts, diagnostics, and secrets. Confirmation tokens expire after
+`MEMORY_DELETION_CONFIRMATION_TTL_SECONDS` (five minutes by default) and are
+single use. Erasure is immediate; there is no application undo/tombstone copy.
+Content-free audit jobs retain only identifiers, scope, counts, stage, and
+timestamps.
+
+| Dependency | Normal memory behavior | Export/erasure behavior |
+|---|---|---|
+| PostgreSQL | Durable reads/writes fail closed | Export and canonical deletion fail closed |
+| Qdrant | Retrieval fails open to no vector matches | Vector deletion must finish before canonical deletion |
+| Valkey | SESSION reads and availability hints fail open | Whole-scope erasure fails closed and is retryable |
+| Embeddings | Semantic operations preserve the documented caller fallback | Not used by export/erasure |
+| LLM provider | Extraction/supersession falls back or skips | Not used by export/erasure |
+| Artifact storage | Trace persistence fails open on the answer path | Selected and whole-scope erasure conservatively purge the scope's derived memory artifacts; failure is recorded and retryable |
+
+Encrypted backups may retain deleted bytes until the configured backup expiry.
+They must not be restored except for disaster recovery; after restoration,
+replay completed governance audit jobs before serving traffic. Publish the
+provider-specific backup expiry in the retention policy and incident runbook.
+
+`MEMORY_SCOPE_MAX_DURABLE_RECORDS` defaults to 10,000 per owner/scope. At the
+limit, new durable writes fail with an actionable error while reads, export,
+and deletion remain available. Calibrate the value with staging load tests.
+
 Before deploying the M5 scope-aware API or workers, apply the database migration:
 
 ```bash
-uv run alembic upgrade head
+DEBUG=false uv run alembic upgrade head
 ```
 
 The migrations create the minimal `projects` and `project_memberships`

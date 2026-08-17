@@ -145,6 +145,29 @@ export interface MemoryProject {
   role: string;
 }
 
+export interface MemoryDeletionPreview {
+  confirmation_token: string;
+  affected_count: number;
+  scope_type: 'personal' | 'project';
+  project_id: string | null;
+  expires_at: string;
+  immediate_erasure: boolean;
+}
+
+export interface MemoryGovernanceJob {
+  id: string;
+  scope_type: 'personal' | 'project';
+  project_id: string | null;
+  status: 'pending' | 'running' | 'completed' | 'failed';
+  requested_count: number;
+  deleted_postgres: number;
+  deleted_qdrant: number;
+  deleted_valkey: number;
+  deleted_artifacts: number;
+  failure_stage: string | null;
+  completed_at: string | null;
+}
+
 export type InfrastructureServiceStatus = 'healthy' | 'unhealthy';
 
 export interface HealthStatus {
@@ -861,6 +884,34 @@ export const api = {
   },
   memory: {
     projects: () => request<MemoryProject[]>('/api/v1/memory/projects'),
+    exportScope: (scopeType: 'personal' | 'project', projectId?: string) => {
+      const query = new URLSearchParams({ scope_type: scopeType });
+      if (projectId) query.set('project_id', projectId);
+      return request<Record<string, unknown>>(`/api/v1/memory/export?${query.toString()}`);
+    },
+    previewDeletion: (
+      scopeType: 'personal' | 'project',
+      projectId: string | undefined,
+      memoryIds: string[] | null,
+      signal?: AbortSignal
+    ) => request<MemoryDeletionPreview>('/api/v1/memory/deletion/preview', {
+      method: 'POST',
+      signal,
+      body: JSON.stringify({
+        scope_type: scopeType,
+        project_id: projectId ?? null,
+        memory_ids: memoryIds,
+      }),
+    }),
+    executeDeletion: (confirmationToken: string) =>
+      request<MemoryGovernanceJob>('/api/v1/memory/deletion/jobs', {
+        method: 'POST',
+        body: JSON.stringify({ confirmation_token: confirmationToken }),
+      }),
+    retryDeletion: (jobId: string) =>
+      request<MemoryGovernanceJob>(`/api/v1/memory/deletion/jobs/${jobId}/retry`, {
+        method: 'POST',
+      }),
     list: (params: MemoryListParams = {}) => {
       const query = new URLSearchParams();
       if (params.search) query.set('search', params.search);

@@ -43,6 +43,15 @@ class MemoryArtifactWriter:
             payload=artifact,
         )
 
+    async def purge_scope(
+        self, *, owner_id: object, scope_type: str, project_id: object | None
+    ) -> int:
+        prefix = f"memory/{owner_id}/{self._scope_path(scope_type, project_id)}/"
+        keys = await self._storage.list_keys(prefix=prefix)
+        for key in keys:
+            await self._storage.delete(key=key)
+        return len(keys)
+
     async def _write_json(
         self,
         *,

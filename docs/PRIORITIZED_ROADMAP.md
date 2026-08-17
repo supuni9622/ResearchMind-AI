@@ -18,11 +18,11 @@ state — check it before starting any Wave 1 item.
 [`MEMORY_PLATFORM_PRIORITIZED_TASKS.md`](MEMORY_PLATFORM_PRIORITIZED_TASKS.md)
 is authoritative for memory task IDs and acceptance criteria, with
 [`MEMORY_MANAGEMENT_SUMMARY.md`](MEMORY_MANAGEMENT_SUMMARY.md) as the living
-orientation. Reconciled 2026-08-17: M0-M2 and M4-M13 are complete, while M3
+orientation. Reconciled 2026-08-17: M0-M2 and M4-M16 are complete, while M3
 has operational rollout pending and M6-M10 retain calibration gates. M5's
 isolation foundation and the authorized Personal/Project Memory UI are complete. Wave 3 must now
 provide the full Project model and authorized runtime context before it sends
-Project-scoped traffic or activates the Project Memory UI.
+Project-scoped runtime traffic; the management UI itself is already active.
 
 ## How this is ordered
 
@@ -85,7 +85,7 @@ instruction, not derived:
 | 2 | ✅ Preference feedback → `USER` memory write path — Done, 2026-08-12 | Med | Med | Depends on the read-side fix above |
 | 2 | **Reject-with-revise, i.e. "edit interruption capability"** (plan/report approval) | Med-High | Med | Reuses `REVISE_SYNTHESIS` path; see expanded detail below — this is more than one line captures |
 | 2 | Live cost/token visibility in Deep Research events | Med | High | Reuses an existing cost-lookup query pattern |
-| 2 | Memory production hardening + Projects isolation — M0-M2/M4-M12 implemented; rollout/calibration remains | High | Med | M3 remains report-only pending staging evidence; M6-M10 remain calibration-gated. M11 adds operations visibility and M12 completes the scope-aware management API. M13-M16 remain sequenced in [`MEMORY_PLATFORM_PRIORITIZED_TASKS.md`](MEMORY_PLATFORM_PRIORITIZED_TASKS.md). |
+| 2 | Memory production hardening + Projects isolation — M0-M2/M4-M16 implemented; rollout/calibration remains | High | Med | M3 remains report-only pending staging evidence; M6-M10 remain calibration-gated. Management, governance, prompt safety, quotas, and drift visibility are implemented. |
 | 2 | Proposal-level rejection/expiry (before a run exists) | Med | Med | One stage earlier than reject-with-revise above, same approval-checkpoint family; triaged in from `AI_ENGINEERING_AUDIT.md` §5 P4#24's still-open half, 2026-08-12 |
 | 2 | Deep Research rate limiting: per-owner fair-share, not just total-queue-depth | Med | Med | Today one owner's burst can fill the global queue cap and get other owners' approvals shed; reuses the existing `ValkeyRateLimiter`/`deep_research_max_queued_runs` infra, just needs fair-share accounting on top; triaged in from `REMAINING_WORK.md` item 3, 2026-08-12 |
 | 2 | Cross-conversation Deep Research run-history browser | Med | Med | Today's browsing path is "pick a conversation, see its runs" — this adds "see every run a user has ever started" independent of conversation; `GET /research/{id}` already exists, needs a new list endpoint + UI; triaged in from `REMAINING_WORK.md` item 5, 2026-08-12 |

@@ -21,6 +21,7 @@ from app.ai.memory.create import (
 )
 from app.ai.memory.lifecycle.service import MemoryLifecycleService
 from app.ai.memory.observability.inventory import MemoryInventoryMetricsService
+from app.ai.memory.observability.reconciliation import MemoryVectorReconciliationService
 from app.ai.observability.prometheus.create import start_worker_metrics_server
 from app.ai.runtime.generation.orchestration.create import create_generation_runtime
 from app.core.settings import settings
@@ -64,6 +65,15 @@ async def main() -> None:
                 repository,
                 vector_index,
                 get_memory_metrics(),
+                reconciliation=(
+                    MemoryVectorReconciliationService(
+                        repository,
+                        vector_index,
+                        create_memory_query_embedding_service(),
+                    )
+                    if settings.memory_reconciliation_repair_enabled
+                    else None
+                ),
             ),
         )
 

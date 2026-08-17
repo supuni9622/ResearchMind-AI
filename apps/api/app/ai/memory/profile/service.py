@@ -24,6 +24,13 @@ class UserMemoryService:
     ) -> None:
         self._store = store
 
+    async def count_scope(
+        self, *, owner_id: UUID, scope_type: MemoryScopeType, project_id: UUID | None
+    ) -> int:
+        return await self._store.count_scope(
+            owner_id=owner_id, scope_type=scope_type, project_id=project_id
+        )
+
     async def remember(
         self,
         *,

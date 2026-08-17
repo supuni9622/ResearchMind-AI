@@ -257,6 +257,9 @@ class Settings(BaseSettings):
     memory_api_content_max_characters: int = 10_000
     memory_api_metadata_max_bytes: int = 16_384
     memory_api_metadata_max_depth: int = 6
+    memory_scope_max_durable_records: int = 10_000
+    memory_deletion_confirmation_ttl_seconds: int = 300
+    memory_reconciliation_repair_enabled: bool = False
     # Durable-memory lifecycle worker. It starts report-only so operators can
     # inspect real distributions before enabling deletion.
     memory_lifecycle_enabled: bool = True

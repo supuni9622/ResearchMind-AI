@@ -2,8 +2,9 @@
 
 **Status:** Active backlog  
 **Last reviewed:** 2026-08-17
-**Next implementation task:** M14 export and bulk erasure; M3
-and M6-M10 retain their separate operational rollout/calibration work.
+**Next implementation task:** M3 operational rollout evidence. M6-M10 retain
+their separate staging calibration work; M14-M16 are implemented and require
+the `c8d9e0f1a2b3` governance migration in every deployed database.
 **Scope:** `app/ai/memory/`, `/memory` APIs, runtime injection, storage,
 evaluation, observability, lifecycle, governance, and upcoming Projects
 integration.
@@ -493,16 +494,14 @@ another user's or project's records.
 
 ### M13. ✅ Complete the Personal Memory and Project Memory UI
 
-**Completed 2026-08-17:** `/memory` is now a
-first-class navigation destination. It lists durable USER preferences and
-supports debounced server-side search, feedback-source filtering, pagination,
-validated inline editing, a product-native confirmed deletion dialog, refresh,
-and loading/error/empty states. A clearly disabled Project Memory section
-states its M5 dependency. M13 replaces that placeholder with authorized project
+**Completed 2026-08-17:** `/memory` is now a first-class navigation
+destination. The initial USER-only Personal view and disabled Project
+placeholder were superseded in the same delivery cycle by authorized project
 selection, an explicit isolation boundary, persisted personal-inheritance and
 capture switches, durable-type/origin/source/date filters, provenance and usage
-metadata, review-before-edit, scoped JSON export, and selected-memory deletion.
-M14 remains responsible for durable cross-store export/erasure jobs.
+metadata, review-before-edit, and the M14-backed scoped export and selected or
+full-scope erasure entry points. Loading, empty, error, keyboard-focus,
+responsive, search, pagination, and refresh states are implemented.
 
 Add a first-class **Memory** area rather than hiding these controls inside chat.
 
@@ -539,7 +538,14 @@ include its expiry.
 for the current project, correct it, remove it, and see the effect reflected in
 the next eligible request.
 
-### M14. Add export and bulk erasure
+### M14. ✅ Add export and bulk erasure
+
+**Completed 2026-08-17:** the authenticated governance API exports a documented
+`researchmind.memory.export.v1` payload and performs personal/project erasure
+through retryable, content-free audit jobs. Jobs remove canonical rows and
+Qdrant points, purge scope-wide Valkey state for whole-scope requests, retain
+stage/count progress, and verify Postgres completion. The UI uses the server
+export and supports selected or entire-scope erasure.
 
 - Export all owner memory in a documented portable format, including scope and
   provenance but excluding internal secrets.
@@ -551,7 +557,12 @@ the next eligible request.
 - Define how backups and immutable audit artifacts satisfy the published
   retention/erasure policy.
 
-### M15. Require confirmation for destructive memory actions
+### M15. ✅ Require confirmation for destructive memory actions
+
+**Completed 2026-08-17:** server-authorized previews resolve the exact scope and
+count, persist only the selected IDs/count, and issue a random, hashed,
+single-use token with a five-minute expiry. Deletion jobs accept only that
+token. Immediate erasure was selected: there is no undo/tombstone delay.
 
 - Add a preview/confirmation contract for single and bulk deletion, including
   affected scope/count and a short-lived confirmation token.
@@ -561,7 +572,15 @@ the next eligible request.
 
 ## P2 — Hardening and maintainability
 
-### M16. Add safety, capacity, and failure-mode tests
+### M16. ✅ Add safety, capacity, and failure-mode tests
+
+**Completed 2026-08-17:** durable prompt entries are explicitly delimited as
+untrusted quoted data and closing delimiters are escaped; per-scope durable
+quotas fail closed with actionable UX; existing provider failure suites cover
+Postgres, Valkey, Qdrant, embeddings, and LLM decisions; lifecycle inventory
+continues scheduled Postgres/Qdrant drift detection; and export/erasure paths
+are bounded, retryable, and covered by management regressions. Production
+capacity thresholds still require environment-specific calibration.
 
 - Stored prompt-injection content must be quoted/delimited as untrusted memory
   and never override system/current-turn instructions.
@@ -593,8 +612,10 @@ evaluation demonstrates a concrete need:
    production writes.
 4. **Measurement:** M6, then M7.
 5. **Quality:** M8–M10, each gated by evaluation results.
-6. **User control:** retain the shipped personal M12/M13 slice; after the
-   Project product activates M5's scope boundary, complete the Project Memory
-   behavior, then M14–M15
-   export/erasure before broad external rollout.
-7. **Ongoing hardening:** M16 load, failure-mode, prompt-safety, and capacity work.
+6. **User control:** M12-M15 are implemented. Keep the Personal/Project UI and
+   governance paths behind migrated databases; broader Project-product work
+   must pass an authorized runtime context before project-scoped traffic is
+   activated.
+7. **Ongoing hardening:** M16's prompt-safety, quotas, reconciliation, and
+   failure contracts are implemented; calibrate capacity thresholds with
+   staging load evidence.

@@ -9,6 +9,7 @@ import {
   type MemoryProject,
   type MemoryRecord,
   type MemoryScopeSettings,
+  type MemoryDeletionPreview,
   type MemoryType,
 } from '@/lib/api';
 
@@ -59,6 +60,11 @@ export default function MemoryPage() {
   const [draft, setDraft] = useState('');
   const [reviewEdit, setReviewEdit] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<MemoryRecord[]>([]);
+  const [deleteEntireScope, setDeleteEntireScope] = useState(false);
+  const [deletionPreview, setDeletionPreview] = useState<MemoryDeletionPreview | null>(null);
+  const [previewingDeletion, setPreviewingDeletion] = useState(false);
+  const [deletionPreviewError, setDeletionPreviewError] = useState<string | null>(null);
+  const [deletionPreviewAttempt, setDeletionPreviewAttempt] = useState(0);
   const [mutating, setMutating] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const dialogCancelRef = useRef<HTMLButtonElement>(null);
@@ -113,11 +119,32 @@ export default function MemoryPage() {
   useEffect(() => { setPage(1); }, [createdFrom, debouncedSearch, origin, scope, source, type, updatedFrom, projectId]);
   useEffect(() => { void load(); }, [load]);
   useEffect(() => {
-    if (!pendingDelete.length && !reviewEdit) return;
+    if (!pendingDelete.length && !deleteEntireScope && !reviewEdit) return;
     dialogCancelRef.current?.focus();
-    const close = (event: KeyboardEvent) => { if (event.key === 'Escape' && !mutating) { setPendingDelete([]); setReviewEdit(false); } };
+    const close = (event: KeyboardEvent) => { if (event.key === 'Escape' && !mutating) { setPendingDelete([]); setDeleteEntireScope(false); setReviewEdit(false); } };
     window.addEventListener('keydown', close); return () => window.removeEventListener('keydown', close);
-  }, [mutating, pendingDelete.length, reviewEdit]);
+  }, [deleteEntireScope, mutating, pendingDelete.length, reviewEdit]);
+
+  useEffect(() => {
+    if (!pendingDelete.length && !deleteEntireScope) { setDeletionPreview(null); setDeletionPreviewError(null); return; }
+    let active = true;
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 10000);
+    setDeletionPreview(null);
+    setDeletionPreviewError(null);
+    setPreviewingDeletion(true);
+    void api.memory.previewDeletion(scope, activeProjectId, deleteEntireScope ? null : pendingDelete.map((item) => item.id), controller.signal)
+      .then((preview) => { if (active) setDeletionPreview(preview); })
+      .catch((err) => {
+        if (!active) return;
+        const message = err instanceof DOMException && err.name === 'AbortError'
+          ? 'The server did not respond in time. Check that the API is running and the latest database migration is applied.'
+          : err instanceof Error ? err.message : 'Failed to preview deletion';
+        setDeletionPreviewError(message);
+      })
+      .finally(() => { window.clearTimeout(timeout); if (active) setPreviewingDeletion(false); });
+    return () => { active = false; window.clearTimeout(timeout); controller.abort(); };
+  }, [activeProjectId, deleteEntireScope, deletionPreviewAttempt, pendingDelete, scope]);
 
   function clearFilters() { setSearch(''); setType('all'); setOrigin('all'); setSource(''); setCreatedFrom(''); setUpdatedFrom(''); }
 
@@ -148,28 +175,23 @@ export default function MemoryPage() {
   }
 
   async function deleteMemories() {
+    if (!deletionPreview) return;
     setMutating(true);
-    let deleted = 0;
     try {
-      for (const memory of pendingDelete) { await api.memory.delete(memory); deleted += 1; }
-      setPendingDelete([]); setSelected(new Set()); await load();
+      const job = await api.memory.executeDeletion(deletionPreview.confirmation_token);
+      if (job.status !== 'completed') throw new Error(`Erasure stopped at ${job.failure_stage ?? 'an unknown stage'}. Job ${job.id} can be retried.`);
+      setPendingDelete([]); setDeleteEntireScope(false); setSelected(new Set()); await load();
     } catch (err) {
-      setError(`${err instanceof Error ? err.message : 'Failed to delete memory'}${deleted ? ` (${deleted} deleted before the error.)` : ''}`);
-      setPendingDelete([]); await load();
+      setError(err instanceof Error ? err.message : 'Failed to delete memory');
+      setPendingDelete([]); setDeleteEntireScope(false); await load();
     } finally { setMutating(false); }
   }
 
   async function exportScope() {
     setRefreshing(true);
     try {
-      const all: MemoryRecord[] = [];
-      let offset = 0;
-      while (true) {
-        const batch = await api.memory.list({ ...query, limit: 100, offset });
-        all.push(...batch.memories); offset += batch.memories.length;
-        if (offset >= batch.total || batch.memories.length === 0) break;
-      }
-      const blob = new Blob([JSON.stringify({ exported_at: new Date().toISOString(), scope, project: selectedProject ?? null, memories: all }, null, 2)], { type: 'application/json' });
+      const exported = await api.memory.exportScope(scope, activeProjectId);
+      const blob = new Blob([JSON.stringify(exported, null, 2)], { type: 'application/json' });
       const url = URL.createObjectURL(blob); const anchor = document.createElement('a');
       anchor.href = url; anchor.download = `researchmind-${scope}-memory.json`; anchor.click(); URL.revokeObjectURL(url);
     } catch (err) { setError(err instanceof Error ? err.message : 'Failed to export memory'); }
@@ -208,7 +230,7 @@ export default function MemoryPage() {
       </section>}
 
       <section aria-labelledby="memory-list-heading">
-        <div className="mb-4 flex flex-wrap items-end justify-between gap-3"><div id="memory-list-heading"><SectionLabel count={total}>{scope === 'personal' ? 'What ResearchMind knows about you' : `${selectedProject?.name ?? 'Project'} memory`}</SectionLabel></div><div className="flex gap-2"><button type="button" onClick={() => void exportScope()} disabled={!canLoad || refreshing} className="rounded-lg border border-ink-600 px-3 py-1.5 text-[12px] text-stone-400 hover:text-stone-200 disabled:opacity-40">Export scope</button><button type="button" onClick={() => setPendingDelete(memories.filter((memory) => selected.has(memory.id)))} disabled={selected.size === 0} className="rounded-lg border border-red-900/70 px-3 py-1.5 text-[12px] text-red-400 disabled:opacity-35">Delete selected ({selected.size})</button></div></div>
+        <div className="mb-4 flex flex-wrap items-end justify-between gap-3"><div id="memory-list-heading"><SectionLabel count={total}>{scope === 'personal' ? 'What ResearchMind knows about you' : `${selectedProject?.name ?? 'Project'} memory`}</SectionLabel></div><div className="flex flex-wrap gap-2"><button type="button" onClick={() => void exportScope()} disabled={!canLoad || refreshing} className="rounded-lg border border-ink-600 px-3 py-1.5 text-[12px] text-stone-400 hover:text-stone-200 disabled:opacity-40">Export scope</button><button type="button" onClick={() => setPendingDelete(memories.filter((memory) => selected.has(memory.id)))} disabled={selected.size === 0} className="rounded-lg border border-red-900/70 px-3 py-1.5 text-[12px] text-red-400 disabled:opacity-35">Delete selected ({selected.size})</button><button type="button" onClick={() => setDeleteEntireScope(true)} disabled={!canLoad || total === 0} className="rounded-lg bg-red-950/40 px-3 py-1.5 text-[12px] text-red-400 disabled:opacity-35">Delete entire scope</button></div></div>
 
         <div className="mb-5 grid gap-2 rounded-xl border border-ink-600 bg-ink-800/30 p-3 sm:grid-cols-2 lg:grid-cols-7">
           <label className="relative sm:col-span-2"><span className="sr-only">Search memories</span><span className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-600"><SearchIcon size={13} /></span><input type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search memories…" className="w-full rounded-lg border border-ink-600 bg-ink-900 py-2 pl-8 pr-3 text-[12px] text-stone-200 focus:border-sage-600 focus:outline-none" /></label>
@@ -229,7 +251,7 @@ export default function MemoryPage() {
         {!loading && total > 0 && <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-ink-700 pt-4"><p className="font-mono text-[10px] text-stone-600">Showing {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, total)} of {total}</p><div className="flex items-center gap-2"><button type="button" disabled={page === 1 || refreshing} onClick={() => setPage((value) => value - 1)} className="rounded-lg border border-ink-600 px-3 py-1.5 text-[12px] text-stone-400 disabled:opacity-35">Previous</button><span className="font-mono text-[10px] text-stone-500">{page} / {totalPages}</span><button type="button" disabled={page >= totalPages || refreshing} onClick={() => setPage((value) => value + 1)} className="rounded-lg border border-ink-600 px-3 py-1.5 text-[12px] text-stone-400 disabled:opacity-35">Next</button></div></div>}
       </section>
 
-      {(pendingDelete.length > 0 || (reviewEdit && editing)) && <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4 backdrop-blur-sm" onMouseDown={(event) => { if (event.target === event.currentTarget && !mutating) { setPendingDelete([]); setReviewEdit(false); } }}><div role="alertdialog" aria-modal="true" aria-labelledby="memory-dialog-title" className="w-full max-w-lg overflow-hidden rounded-2xl border border-ink-500 bg-ink-800 shadow-2xl"><div className="border-b border-ink-600 px-5 py-5"><h2 id="memory-dialog-title" className="font-display text-lg text-stone-100">{reviewEdit ? 'Review the final memory' : pendingDelete.length > 1 ? `Forget ${pendingDelete.length} memories?` : 'Forget this memory?'}</h2><p className="mt-1 text-[12px] leading-5 text-stone-500">{reviewEdit ? 'Your correction becomes explicit and will be used in future eligible requests. Its scope will not change.' : 'ResearchMind will stop using the selected memory in future requests. This cannot be undone.'}</p></div><div className="max-h-64 overflow-y-auto px-5 py-4">{reviewEdit ? <div className="space-y-3"><div><p className="mb-1 font-mono text-[10px] uppercase text-stone-600">Before</p><p className="rounded-lg bg-ink-900 px-3 py-2 text-[13px] text-stone-500 line-through">{editing?.content}</p></div><div><p className="mb-1 font-mono text-[10px] uppercase text-sage-500">After</p><p className="rounded-lg border border-sage-900 bg-sage-950/30 px-3 py-2 text-[13px] text-stone-200">{draft.trim()}</p></div></div> : <ul className="space-y-2">{pendingDelete.map((memory) => <li key={memory.id} className="rounded-lg bg-ink-900 px-3 py-2 text-[13px] text-stone-300">“{memory.content}”</li>)}</ul>}</div><div className="flex justify-end gap-2 border-t border-ink-600 px-5 py-4"><button ref={dialogCancelRef} type="button" disabled={mutating} onClick={() => { setPendingDelete([]); setReviewEdit(false); }} className="rounded-lg border border-ink-500 px-4 py-2 text-[12px] text-stone-300 disabled:opacity-40">Cancel</button><button type="button" disabled={mutating} onClick={() => void (reviewEdit ? saveEdit() : deleteMemories())} className={`rounded-lg px-4 py-2 text-[12px] text-white disabled:opacity-50 ${reviewEdit ? 'bg-sage-700' : 'bg-red-800'}`}>{mutating ? 'Working…' : reviewEdit ? 'Confirm update' : 'Forget permanently'}</button></div></div></div>}
+      {(pendingDelete.length > 0 || deleteEntireScope || (reviewEdit && editing)) && <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4 backdrop-blur-sm" onMouseDown={(event) => { if (event.target === event.currentTarget && !mutating) { setPendingDelete([]); setDeleteEntireScope(false); setReviewEdit(false); } }}><div role="alertdialog" aria-modal="true" aria-labelledby="memory-dialog-title" className="w-full max-w-lg overflow-hidden rounded-2xl border border-ink-500 bg-ink-800 shadow-2xl"><div className="border-b border-ink-600 px-5 py-5"><h2 id="memory-dialog-title" className="font-display text-lg text-stone-100">{reviewEdit ? 'Review the final memory' : deleteEntireScope ? `Erase all ${scope} memory?` : pendingDelete.length > 1 ? `Forget ${pendingDelete.length} memories?` : 'Forget this memory?'}</h2><p className="mt-1 text-[12px] leading-5 text-stone-500">{reviewEdit ? 'Your correction becomes explicit and will be used in future eligible requests. Its scope will not change.' : previewingDeletion ? 'Calculating the exact affected scope…' : deletionPreview ? `This immediately erases ${deletionPreview.affected_count} canonical memory record(s) and associated indexes. There is no undo window.` : 'The affected scope must be verified before permanent erasure.'}</p></div><div className="max-h-64 overflow-y-auto px-5 py-4">{reviewEdit ? <div className="space-y-3"><div><p className="mb-1 font-mono text-[10px] uppercase text-stone-600">Before</p><p className="rounded-lg bg-ink-900 px-3 py-2 text-[13px] text-stone-500 line-through">{editing?.content}</p></div><div><p className="mb-1 font-mono text-[10px] uppercase text-sage-500">After</p><p className="rounded-lg border border-sage-900 bg-sage-950/30 px-3 py-2 text-[13px] text-stone-200">{draft.trim()}</p></div></div> : deleteEntireScope ? <p className="rounded-lg border border-red-900/60 bg-red-950/20 px-3 py-3 text-[13px] text-red-200">Scope: {selectedProject?.name ?? 'Personal memory'}. Capture settings and content-free audit records remain; memory content is erased immediately.</p> : <ul className="space-y-2">{pendingDelete.map((memory) => <li key={memory.id} className="rounded-lg bg-ink-900 px-3 py-2 text-[13px] text-stone-300">“{memory.content}”</li>)}</ul>}{deletionPreviewError && !reviewEdit && <div role="alert" className="mt-4 rounded-lg border border-red-900/60 bg-red-950/20 px-3 py-3"><p className="text-[12px] leading-5 text-red-200">{deletionPreviewError}</p><button type="button" onClick={() => setDeletionPreviewAttempt((attempt) => attempt + 1)} className="mt-2 rounded-md border border-red-800 px-3 py-1.5 text-[11px] text-red-200 hover:bg-red-950/50">Retry verification</button></div>}</div><div className="flex justify-end gap-2 border-t border-ink-600 px-5 py-4"><button ref={dialogCancelRef} type="button" disabled={mutating} onClick={() => { setPendingDelete([]); setDeleteEntireScope(false); setReviewEdit(false); }} className="rounded-lg border border-ink-500 px-4 py-2 text-[12px] text-stone-300 disabled:opacity-40">Cancel</button><button type="button" disabled={mutating || previewingDeletion || (!reviewEdit && !deletionPreview)} onClick={() => void (reviewEdit ? saveEdit() : deleteMemories())} className={`rounded-lg px-4 py-2 text-[12px] text-white disabled:opacity-50 ${reviewEdit ? 'bg-sage-700' : 'bg-red-800'}`}>{mutating ? 'Working…' : reviewEdit ? 'Confirm update' : 'Erase permanently'}</button></div></div></div>}
     </div>
   );
 }

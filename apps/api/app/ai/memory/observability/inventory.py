@@ -5,6 +5,7 @@ from __future__ import annotations
 import time
 
 from app.ai.memory.observability import metrics
+from app.ai.memory.observability.reconciliation import MemoryVectorReconciliationService
 from app.ai.memory.storage.vector_index import MemoryVectorIndex
 from app.infrastructure.metrics.interfaces import MetricsRecorder
 from app.repositories.memory import MemoryRepository
@@ -16,10 +17,12 @@ class MemoryInventoryMetricsService:
         repository: MemoryRepository,
         vector_index: MemoryVectorIndex,
         metrics_recorder: MetricsRecorder,
+        reconciliation: MemoryVectorReconciliationService | None = None,
     ) -> None:
         self._repository = repository
         self._vector_index = vector_index
         self._metrics = metrics_recorder
+        self._reconciliation = reconciliation
 
     async def collect(self) -> None:
         snapshot = await self._repository.memory_observability_snapshot()
@@ -62,3 +65,5 @@ class MemoryInventoryMetricsService:
             labels={"kind": "orphan_point"},
         )
         self._metrics.set_gauge(metric=metrics.INVENTORY_LAST_SUCCESS, value=time.time())
+        if self._reconciliation is not None:
+            await self._reconciliation.repair()

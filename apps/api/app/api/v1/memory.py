@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, Query, status
 from app.ai.memory.create import get_memory_metrics
 from app.ai.memory.enums import MemoryScopeType, MemoryType
 from app.ai.memory.exceptions import MemoryValidationError
+from app.ai.memory.governance import MemoryGovernanceService
 from app.ai.memory.models import MemorySearchRequest
 from app.ai.memory.observability.metrics import (
     MEMORY_MUTATION_ACCEPTED,
@@ -17,7 +18,7 @@ from app.ai.memory.observability.metrics import (
 from app.ai.memory.services.memory_service import MemoryService
 from app.auth.dependencies import get_current_user
 from app.core.settings import settings
-from app.dependencies.memory import get_memory_service
+from app.dependencies.memory import get_memory_governance_service, get_memory_service
 from app.dependencies.project import get_project_authorization_service
 from app.dependencies.rate_limiting import enforce_rate_limit, get_rate_limiter
 from app.exceptions.base import NotFoundException, RateLimitExceededException, ValidationException
@@ -26,9 +27,14 @@ from app.infrastructure.rate_limiting import ValkeyRateLimiter
 from app.models.user import User
 from app.schemas.memory import (
     MemoryContextResponse,
+    MemoryDeletionExecuteRequest,
+    MemoryDeletionPreviewRequest,
+    MemoryDeletionPreviewResponse,
+    MemoryGovernanceJobResponse,
     MemoryListResponse,
     MemoryMoveRequest,
     MemoryOrigin,
+    MemoryPortableExport,
     MemoryProjectResponse,
     MemoryRecordResponse,
     MemoryRememberRequest,
@@ -56,6 +62,87 @@ async def list_memory_projects(
         MemoryProjectResponse(id=project.id, name=project.name, role=role)
         for project, role in projects
     ]
+
+
+@router.get("/export", response_model=MemoryPortableExport)
+async def export_memory_scope(
+    scope_type: MemoryScopeType = Query(default=MemoryScopeType.PERSONAL),
+    project_id: UUID | None = Query(default=None),
+    current_user: User = Depends(get_current_user),
+    governance: MemoryGovernanceService = Depends(get_memory_governance_service),
+    project_authorization: ProjectAuthorizationService = Depends(get_project_authorization_service),
+) -> MemoryPortableExport:
+    await project_authorization.authorize_memory_scope(
+        user_id=current_user.id, scope_type=scope_type, project_id=project_id
+    )
+    rows = await governance.export_scope(
+        owner_id=current_user.id, scope_type=scope_type, project_id=project_id
+    )
+    return MemoryPortableExport(
+        exported_at=datetime.now().astimezone(),
+        scope_type=scope_type,
+        project_id=project_id,
+        memories=[MemoryRecordResponse.from_record(row) for row in rows],
+    )
+
+
+@router.post("/deletion/preview", response_model=MemoryDeletionPreviewResponse)
+async def preview_memory_deletion(
+    payload: MemoryDeletionPreviewRequest,
+    current_user: User = Depends(get_current_user),
+    governance: MemoryGovernanceService = Depends(get_memory_governance_service),
+    project_authorization: ProjectAuthorizationService = Depends(get_project_authorization_service),
+) -> MemoryDeletionPreviewResponse:
+    await project_authorization.authorize_memory_scope(
+        user_id=current_user.id, scope_type=payload.scope_type, project_id=payload.project_id
+    )
+    token, confirmation = await governance.preview_deletion(
+        owner_id=current_user.id,
+        scope_type=payload.scope_type,
+        project_id=payload.project_id,
+        memory_ids=payload.memory_ids,
+    )
+    return MemoryDeletionPreviewResponse(
+        confirmation_token=token,
+        affected_count=confirmation.expected_count,
+        scope_type=payload.scope_type,
+        project_id=payload.project_id,
+        expires_at=confirmation.expires_at,
+    )
+
+
+@router.post("/deletion/jobs", response_model=MemoryGovernanceJobResponse)
+async def execute_memory_deletion(
+    payload: MemoryDeletionExecuteRequest,
+    current_user: User = Depends(get_current_user),
+    governance: MemoryGovernanceService = Depends(get_memory_governance_service),
+) -> MemoryGovernanceJobResponse:
+    job = await governance.execute_deletion(
+        owner_id=current_user.id, token=payload.confirmation_token
+    )
+    return MemoryGovernanceJobResponse.from_row(job)
+
+
+@router.get("/deletion/jobs/{job_id}", response_model=MemoryGovernanceJobResponse)
+async def get_memory_deletion_job(
+    job_id: UUID,
+    current_user: User = Depends(get_current_user),
+    governance: MemoryGovernanceService = Depends(get_memory_governance_service),
+) -> MemoryGovernanceJobResponse:
+    return MemoryGovernanceJobResponse.from_row(
+        await governance.get_job(owner_id=current_user.id, job_id=job_id)
+    )
+
+
+@router.post("/deletion/jobs/{job_id}/retry", response_model=MemoryGovernanceJobResponse)
+async def retry_memory_deletion_job(
+    job_id: UUID,
+    current_user: User = Depends(get_current_user),
+    governance: MemoryGovernanceService = Depends(get_memory_governance_service),
+) -> MemoryGovernanceJobResponse:
+    return MemoryGovernanceJobResponse.from_row(
+        await governance.retry(owner_id=current_user.id, job_id=job_id)
+    )
 
 
 @router.get(
@@ -469,13 +556,14 @@ async def move_memory(
 )
 async def forget_memory(
     memory_id: UUID,
+    confirmation_token: str | None = Query(default=None, min_length=20, max_length=200),
     current_user: User = Depends(get_current_user),
-    memory_service: MemoryService = Depends(get_memory_service),
     rate_limiter: ValkeyRateLimiter = Depends(get_rate_limiter),
     metrics: MetricsRecorder = Depends(get_memory_metrics),
     scope_type: MemoryScopeType = Query(default=MemoryScopeType.PERSONAL),
     project_id: UUID | None = Query(default=None),
     project_authorization: ProjectAuthorizationService = Depends(get_project_authorization_service),
+    governance: MemoryGovernanceService = Depends(get_memory_governance_service),
 ) -> None:
     await project_authorization.authorize_memory_scope(
         user_id=current_user.id, scope_type=scope_type, project_id=project_id
@@ -486,18 +574,18 @@ async def forget_memory(
         owner_id=current_user.id,
         operation="delete",
     )
-    try:
-        deleted = await memory_service.forget(
-            owner_id=current_user.id,
-            memory_id=memory_id,
-            scope_type=scope_type,
-            project_id=project_id,
+    if confirmation_token is None:
+        _record_mutation(metrics, operation="delete", outcome="failed")
+        raise ValidationException(
+            message="Preview this deletion first and supply its short-lived confirmation token."
         )
+    try:
+        job = await governance.execute_deletion(owner_id=current_user.id, token=confirmation_token)
     except Exception:
         _record_mutation(metrics, operation="delete", outcome="failed")
         raise
 
-    if not deleted:
+    if job.status != "completed" or job.requested_count != 1:
         _record_mutation(metrics, operation="delete", outcome="failed")
-        raise NotFoundException(message=f"Memory '{memory_id}' was not found.")
+        raise ValidationException(message="The confirmed single-memory deletion did not complete.")
     _record_mutation(metrics, operation="delete", outcome="accepted")

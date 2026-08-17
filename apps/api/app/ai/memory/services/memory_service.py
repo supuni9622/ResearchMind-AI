@@ -268,6 +268,22 @@ class MemoryService:
             )
             return None
 
+        scope_count = (
+            await self._user.count_scope(
+                owner_id=owner_id, scope_type=scope_type, project_id=project_id
+            )
+            if type != MemoryType.SESSION
+            else 0
+        )
+        if (
+            isinstance(scope_count, int)
+            and scope_count >= settings.memory_scope_max_durable_records
+        ):
+            raise MemoryValidationError(
+                "Memory capacity reached for this scope. Delete or export "
+                "memories before adding more."
+            )
+
         started = perf_counter()
 
         if type == MemoryType.SESSION:

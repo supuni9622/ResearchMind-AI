@@ -7,8 +7,10 @@ from uuid import UUID, uuid4
 
 import pytest
 from app.ai.memory.enums import MemoryScopeType, MemoryType
+from app.ai.memory.exceptions import MemoryValidationError
 from app.ai.memory.models import MemoryRecord, MemorySearchRequest
 from app.ai.memory.services.memory_service import MemoryService
+from app.core.settings import settings
 
 
 def _record(
@@ -61,6 +63,24 @@ def _service(
         scope_settings=settings_repository,
         availability_service=availability,
     )
+
+
+@pytest.mark.asyncio
+async def test_durable_scope_quota_fails_closed_with_actionable_message(monkeypatch) -> None:
+    monkeypatch.setattr(settings, "memory_scope_max_durable_records", 2)
+    user = AsyncMock()
+    user.count_scope.return_value = 2
+    service = _service(user=user)
+
+    with pytest.raises(MemoryValidationError, match="Delete or export"):
+        await service.remember(
+            owner_id=uuid4(),
+            type=MemoryType.USER,
+            content="one more preference",
+            importance_score=1,
+        )
+
+    user.remember.assert_not_awaited()
 
 
 @pytest.mark.asyncio

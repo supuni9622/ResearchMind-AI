@@ -2,7 +2,7 @@
 
 **Status:** Living architecture and delivery summary  
 **Last reconciled:** 2026-08-17  
-**Implementation progress:** M0-M2 and M4-M13 complete; M3 rollout pending;
+**Implementation progress:** M0-M2 and M4-M16 complete; M3 rollout pending;
 M6-M10 retain staging calibration/rollout gates where noted
 
 This document explains the existing and planned ResearchMind memory platform in
@@ -48,7 +48,7 @@ memory, agent memory, and memory-driven request routing are explicitly deferred.
 | Retrieval | Four product surfaces share one coordinated token budget; scope-safe services are implemented | Activate authorized project context in Project-aware runtimes |
 | Write safety | Public mutation limits and payload bounds; internal circuit breaker; throttle metrics and alerts | Per-plan quotas and load tests |
 | Feedback safety | Canonical feedback commits before isolated memory write | Durable outbox only if delivery guarantees justify it |
-| User controls | Scope-aware M12 API plus complete M13 Personal/Project UI with filters, provenance, settings, edit review, scoped JSON export, and selected deletion | Durable cross-store export and bulk erasure jobs |
+| User controls | M12-M15 scope-safe management, portable export, server-confirmed selected/full-scope cross-store erasure, and Personal/Project UI | Production policy calibration |
 | Lifecycle | Recurring, batched, locked worker implemented; report-only by default | Validate staging dry runs, enable conservative deletion, and monitor production cadence |
 | Quality | M6 offline benchmark plus M7 generation correlation, explicit feedback, and opt-in sampled utility/harm scoring | Staging calibration and enforced deployment gates |
 | Observability | M11 dashboard/alerts for absolute size, growth, drift, lifecycle, tokens, throttles, consolidation, and utility | Production threshold calibration and notification routing |
@@ -204,13 +204,14 @@ The SESSION ordering defect is fixed (M1): cap selection chooses the newest
 items, then renders that selected window chronologically. Older messages are not
 allowed to displace newer state merely because presentation order is ascending.
 
-## 7. Existing APIs and user-control gap
+## 7. Existing APIs and user controls
 
 Existing endpoints support creating memory, searching, assembling context,
-single-record read/update/delete, and a bounded paginated personal USER-memory
-inventory with search/source filters. The frontend provides Personal Memory
-listing, inline editing, and confirmed deletion. Project Memory, broader
-scope/type/date/provenance controls, bulk export, and bulk erasure remain.
+scope-aware read/update/delete/move operations, and bounded paginated durable
+memory inventories. The frontend provides Personal and authorized Project
+views with search, type/source/origin/date filters, edit review, capture and
+inheritance controls, portable export, and server-confirmed selected or
+full-scope erasure.
 
 Owner checks must be enforced server-side on every read and mutation. Client
 metadata is never a trusted authorization boundary.
@@ -274,16 +275,17 @@ Implemented rules:
 
 ## 10. User-visible memory management (M12-M15)
 
-The first personal-memory slice shipped early on 2026-08-17: `/memory` is a
-first-class authenticated view backed by paginated `GET /memory`. It supports
-debounced content search, feedback-source filtering, accurate totals,
-validated inline edits, and a product-native confirmed delete flow. It shows
-USER memory only and remains owner-scoped. Project Memory is visibly deferred
-until the Project/workspace product supplies an authorized project context;
-M5's authorization and storage isolation boundary is implemented.
+The initial personal USER-memory slice shipped early on 2026-08-17 and was
+completed in the same delivery cycle. `/memory` now exposes Personal and
+authorized Project inventories for durable types, with accurate pagination,
+filters, provenance, edit review, capture/inheritance controls, portable JSON
+export, and selected/full-scope erasure. M14-M15 require a server-authorized
+preview and a hashed, single-use, five-minute confirmation token before an
+immediate cross-store deletion job can run. The Project/workspace product must
+still supply authorized project context before project-scoped runtime traffic
+is activated; that is a product integration gate, not a missing Memory UI.
 
-The diagram below includes both this shipped personal slice and the remaining
-M5/M12-M15 target:
+The diagram below shows the implemented M5/M12-M15 flow:
 
 ```mermaid
 flowchart LR
@@ -305,11 +307,11 @@ flowchart LR
     R --> A[Audit event and visible result]
 ```
 
-The UI should distinguish user-entered memories from inferred memories and show
-provenance without exposing hidden model reasoning. Users should be able to
-correct inaccurate content and disable categories or inference where supported.
-Bulk erasure must include canonical rows, vectors, caches, and derived artifacts
-with an auditable completion result.
+The UI distinguishes explicitly provided memories from inferred memories and
+shows user-safe provenance without hidden model reasoning. Erasure covers
+canonical rows, vector points, applicable scope caches/SESSION state, and
+derived memory artifacts, retaining only content-free confirmation/job audit
+records. Encrypted backup expiry remains a deployment retention-policy concern.
 
 ## 11. Bounded lifecycle and consolidation (M3, M8)
 
@@ -428,9 +430,10 @@ memory content must not become metric labels.
 | 10 | M9-M10 preference quality | Implemented; rollout calibration pending | Complete-history topical lookup plus additive typed values and deterministic safe-key supersession |
 | 11 | M11 observability | Complete | Scheduled bounded inventory plus size, growth, lifecycle, drift, budget, consolidation, and utility panels/alerts |
 | 12 | M12 management API | Complete | Scope-safe durable enumeration/mutations, safe responses, explicit edits, confirmed moves, independent settings, and two-user/two-project tests |
-| 13 | M13 management UI | Complete | Personal and authorized Project views expose boundaries, filters, provenance, capture/inheritance controls, edit review, export, and selected deletion |
-| 13 | M14-M15 export, erasure, confirmation | Planned | Governance and safe destructive actions |
-| 14 | M16 hardening | Ongoing/planned | Load, failure-mode, prompt-safety, and capacity confidence |
+| 13 | M13 management UI | Complete | Personal and authorized Project views expose boundaries, filters, provenance, capture/inheritance controls, edit review, export, and deletion entry points |
+| 14 | M14 export and erasure | Complete; migration required | Portable export and auditable retryable cross-store erasure; deploy revision `c8d9e0f1a2b3` first |
+| 15 | M15 destructive confirmation | Complete | Authorized previews plus hashed, single-use, five-minute confirmation tokens |
+| 16 | M16 hardening | Implementation complete; calibration ongoing | Prompt delimiters, quotas, failure contracts, drift inventory, and bounded governance paths |
 
 The authoritative acceptance criteria and dependencies for every item remain in
 [MEMORY_PLATFORM_PRIORITIZED_TASKS.md](MEMORY_PLATFORM_PRIORITIZED_TASKS.md).

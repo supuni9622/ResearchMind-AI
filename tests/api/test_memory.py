@@ -13,6 +13,7 @@ from __future__ import annotations
 import uuid
 from collections.abc import Iterator
 from datetime import UTC, datetime
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -25,7 +26,7 @@ from app.ai.memory.observability.metrics import (
 )
 from app.api.v1.memory import _check_memory_mutation_rate_limit
 from app.auth.dependencies import get_current_user
-from app.dependencies.memory import get_memory_service
+from app.dependencies.memory import get_memory_governance_service, get_memory_service
 from app.dependencies.project import get_project_authorization_service
 from app.dependencies.rate_limiting import get_rate_limiter
 from app.exceptions.base import ForbiddenException
@@ -121,6 +122,43 @@ class _FakeProjectAuthorization:
         return []
 
 
+class _FakeGovernanceService:
+    async def export_scope(self, **_: object) -> list[MemoryRecord]:
+        return [_record(MemoryType.USER, "portable preference")]
+
+    async def preview_deletion(self, **kwargs: object) -> tuple[str, object]:
+        ids = kwargs["memory_ids"]
+        return "x" * 32, SimpleNamespace(
+            expected_count=len(ids) if isinstance(ids, list) else 3,
+            expires_at=datetime.now(UTC),
+        )
+
+    async def execute_deletion(self, **_: object) -> object:
+        return self._job()
+
+    async def get_job(self, **_: object) -> object:
+        return self._job()
+
+    async def retry(self, **_: object) -> object:
+        return self._job()
+
+    @staticmethod
+    def _job() -> object:
+        return SimpleNamespace(
+            id=uuid.uuid4(),
+            scope_type="personal",
+            project_id=None,
+            status="completed",
+            requested_count=1,
+            deleted_postgres=1,
+            deleted_qdrant=0,
+            deleted_valkey=2,
+            deleted_artifacts=0,
+            failure_stage=None,
+            completed_at=datetime.now(UTC),
+        )
+
+
 def _fake_user() -> User:
     return User(
         id=_OWNER_ID,
@@ -136,11 +174,13 @@ def fake_memory_service() -> Iterator[_FakeMemoryService]:
     limiter = _FakeRateLimiter()
     metrics = MagicMock(spec=MetricsRecorder)
     project_authorization = _FakeProjectAuthorization()
+    governance = _FakeGovernanceService()
     app.dependency_overrides[get_memory_service] = lambda: service
     app.dependency_overrides[get_current_user] = _fake_user
     app.dependency_overrides[get_rate_limiter] = lambda: limiter
     app.dependency_overrides[get_memory_metrics] = lambda: metrics
     app.dependency_overrides[get_project_authorization_service] = lambda: project_authorization
+    app.dependency_overrides[get_memory_governance_service] = lambda: governance
     service.rate_limiter = limiter  # type: ignore[attr-defined]
     service.metrics = metrics  # type: ignore[attr-defined]
     service.project_authorization = project_authorization  # type: ignore[attr-defined]
@@ -152,6 +192,7 @@ def fake_memory_service() -> Iterator[_FakeMemoryService]:
     app.dependency_overrides.pop(get_rate_limiter, None)
     app.dependency_overrides.pop(get_memory_metrics, None)
     app.dependency_overrides.pop(get_project_authorization_service, None)
+    app.dependency_overrides.pop(get_memory_governance_service, None)
 
 
 def test_context_response_includes_user_memories(
@@ -227,8 +268,9 @@ def test_create_and_update_share_write_bucket_but_delete_is_separate(
 
     assert create.status_code == 200
     assert update.status_code == 200
-    assert delete.status_code == 204
-    assert fake_memory_service.mutation_calls == ["create", "update", "delete"]
+    assert delete.status_code == 400
+    assert "confirmation token" in delete.text
+    assert fake_memory_service.mutation_calls == ["create", "update"]
     limiter = fake_memory_service.rate_limiter  # type: ignore[attr-defined]
     assert limiter.keys == [
         f"memory_write:{_OWNER_ID}",
@@ -415,6 +457,40 @@ def test_memory_projects_are_listed_from_authorized_boundary(
 
     assert response.status_code == 200
     assert response.json() == []
+
+
+def test_portable_export_excludes_owner_and_internal_metadata(
+    client: TestClient, fake_memory_service: _FakeMemoryService
+) -> None:
+    response = client.get("/api/v1/memory/export")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["schema_version"] == "researchmind.memory.export.v1"
+    assert body["memories"][0]["content"] == "portable preference"
+    assert "owner_id" not in body["memories"][0]
+    assert "metadata" not in body["memories"][0]
+
+
+def test_deletion_requires_server_preview_then_accepts_token(
+    client: TestClient, fake_memory_service: _FakeMemoryService
+) -> None:
+    memory_id = uuid.uuid4()
+    preview = client.post(
+        "/api/v1/memory/deletion/preview",
+        json={"scope_type": "personal", "memory_ids": [str(memory_id)]},
+    )
+    assert preview.status_code == 200
+    assert preview.json()["affected_count"] == 1
+    assert preview.json()["immediate_erasure"] is True
+
+    execute = client.post(
+        "/api/v1/memory/deletion/jobs",
+        json={"confirmation_token": preview.json()["confirmation_token"]},
+    )
+    assert execute.status_code == 200
+    assert execute.json()["status"] == "completed"
+    assert execute.json()["deleted_postgres"] == 1
 
 
 @pytest.mark.parametrize(

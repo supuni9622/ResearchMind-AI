@@ -233,6 +233,14 @@ class MemoryRepository:
         )
         return set((await self.session.execute(statement)).scalars().all())
 
+    async def list_by_ids_admin(self, memory_ids: set[uuid.UUID]) -> list[Memory]:
+        """Administrative reconciliation lookup; callers must never expose rows."""
+
+        if not memory_ids:
+            return []
+        statement = select(Memory).where(Memory.id.in_(memory_ids), self._active_filter())
+        return list((await self.session.execute(statement)).scalars().all())
+
     async def memory_observability_snapshot(self) -> MemoryObservabilitySnapshot:
         """Bounded aggregate storage facts; never returns tenant identifiers."""
 

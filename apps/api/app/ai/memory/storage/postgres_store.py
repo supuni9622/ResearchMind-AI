@@ -166,6 +166,16 @@ class PostgresMemoryStore:
         )
         return [self._to_record(row) for row in rows], total
 
+    async def count_scope(
+        self, *, owner_id: UUID, scope_type: MemoryScopeType, project_id: UUID | None
+    ) -> int:
+        statement = select(func.count(Memory.id)).where(
+            Memory.owner_id == owner_id,
+            Memory.scope_type == scope_type.value,
+            Memory.project_id.is_(None) if project_id is None else Memory.project_id == project_id,
+        )
+        return int((await self._session.execute(statement)).scalar_one())
+
     async def list_user_preference_candidates(
         self,
         *,

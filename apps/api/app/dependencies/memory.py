@@ -15,9 +15,11 @@ from app.ai.memory.create import (
     create_memory_query_embedding_service,
     create_memory_vector_index,
     create_session_memory_service,
+    create_valkey_session_store,
     get_memory_metrics,
 )
 from app.ai.memory.extraction.service import MemoryExtractionService
+from app.ai.memory.governance import MemoryGovernanceService
 from app.ai.memory.lifecycle.service import MemoryLifecycleService
 from app.ai.memory.policy.supersession import PreferenceSupersessionService
 from app.ai.memory.profile.service import UserMemoryService
@@ -47,6 +49,18 @@ def get_postgres_memory_store(
     session: AsyncSession = Depends(get_db),
 ) -> PostgresMemoryStore:
     return PostgresMemoryStore(session)
+
+
+def get_memory_governance_service(
+    session: AsyncSession = Depends(get_db),
+    vector_index: MemoryVectorIndex = Depends(create_memory_vector_index),
+) -> MemoryGovernanceService:
+    return MemoryGovernanceService(
+        session,
+        vector_index,
+        create_valkey_session_store(),
+        create_memory_artifact_writer(),
+    )
 
 
 def get_user_memory_service(

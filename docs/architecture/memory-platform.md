@@ -92,7 +92,7 @@ The M3 and M4 hardening tasks are implemented:
   coordinated total budget (default 1,200 tokens), per-type shares, and
   evidence/output reserves. It keeps whole entries, reports omissions, and
   allows unused capacity to flow to other memory types.
-- **Current sequence** — M0-M2 and M4-M12 are implemented; M3 operational
+- **Current sequence** — M0-M2 and M4-M16 are implemented; M3 operational
   rollout and M6-M10 staging calibration/rollout gates remain. M9 uses a cheap
   structured topic classifier to nominate scope-safe historical USER
   preferences, while a conservative judge remains the only overwrite
@@ -100,12 +100,14 @@ The M3 and M4 hardening tasks are implemented:
   replacement only for one unique, explicit, high-confidence controlled key;
   custom/inferred/ambiguous cases retain the judge. The Project/workspace product must supply an authorized project
   context before project traffic is activated.
-- **Memory management (M12-M13 complete)** — `/memory` now provides a
+- **Memory management and governance (M12-M16 complete)** — `/memory` now provides a
   safe scope-aware API for every canonical durable type, full management
   filters, explicit audited edits, confirmed scope moves, independent
   capture/retrieval/inheritance settings, and cross-tenant tests. The frontend
   exposes Personal and authorized Project scopes with filtering, provenance,
-  edit review, scoped export, and selected deletion.
+  edit review, scoped export, and server-confirmed selected/full-scope erasure.
+  Destructive governance requires migration `c8d9e0f1a2b3`; prompt delimiters,
+  quotas, cross-store reconciliation, and failure contracts complete M16.
 
 ---
 

@@ -199,6 +199,35 @@ class ValkeySessionStore:
 
         return bool(deleted)
 
+    async def purge_scope(
+        self,
+        *,
+        owner_id: UUID,
+        scope_type: MemoryScopeType,
+        project_id: UUID | None,
+    ) -> int:
+        """Remove SESSION, interest, idempotency, and cache keys for one scope.
+
+        This administrative erasure path fails closed: callers need an exact
+        success/failure signal so a governance job cannot claim completion
+        while owner data remains in Valkey.
+        """
+
+        scope = self._scope_key(scope_type, project_id)
+        patterns = (
+            f"memory:*:{owner_id}:{scope}:*",
+            f"memory:interest:{owner_id}:*",
+            f"memory:extraction:*:{owner_id}:*",
+            f"memory:availability:{owner_id}:*",
+        )
+        keys: set[str] = set()
+        for pattern in patterns:
+            async for key in self._client.scan_iter(match=pattern, count=500):
+                keys.add(str(key))
+        if not keys:
+            return 0
+        return int(await self._client.delete(*keys))
+
     @staticmethod
     def _scope_key(scope_type: MemoryScopeType, project_id: UUID | None) -> str:
         return "personal" if scope_type == MemoryScopeType.PERSONAL else f"project:{project_id}"

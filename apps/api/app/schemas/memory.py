@@ -264,3 +264,68 @@ class MemoryProjectResponse(BaseModel):
     id: UUID
     name: str
     role: str
+
+
+class MemoryDeletionPreviewRequest(_MemoryScopeFields):
+    model_config = ConfigDict(extra="forbid")
+
+    memory_ids: list[UUID] | None = Field(default=None, max_length=1000)
+
+
+class MemoryDeletionPreviewResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    confirmation_token: str
+    affected_count: int
+    scope_type: MemoryScopeType
+    project_id: UUID | None
+    expires_at: datetime
+    immediate_erasure: bool = True
+
+
+class MemoryDeletionExecuteRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    confirmation_token: str = Field(min_length=20, max_length=200)
+
+
+class MemoryGovernanceJobResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: UUID
+    scope_type: MemoryScopeType
+    project_id: UUID | None
+    status: str
+    requested_count: int
+    deleted_postgres: int
+    deleted_qdrant: int
+    deleted_valkey: int
+    deleted_artifacts: int
+    failure_stage: str | None
+    completed_at: datetime | None
+
+    @classmethod
+    def from_row(cls, row: Any) -> MemoryGovernanceJobResponse:
+        return cls(
+            id=row.id,
+            scope_type=MemoryScopeType(row.scope_type),
+            project_id=row.project_id,
+            status=row.status,
+            requested_count=row.requested_count,
+            deleted_postgres=row.deleted_postgres,
+            deleted_qdrant=row.deleted_qdrant,
+            deleted_valkey=row.deleted_valkey,
+            deleted_artifacts=row.deleted_artifacts,
+            failure_stage=row.failure_stage,
+            completed_at=row.completed_at,
+        )
+
+
+class MemoryPortableExport(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: str = "researchmind.memory.export.v1"
+    exported_at: datetime
+    scope_type: MemoryScopeType
+    project_id: UUID | None
+    memories: list[MemoryRecordResponse]

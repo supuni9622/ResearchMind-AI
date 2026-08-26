@@ -84,7 +84,7 @@ instruction, not derived:
 | 1 | ✅ Mirror `POST /feedback` into LangSmith's own `create_feedback()` — Done | Med-High | Med | Gap-closure follow-up to E21, requested directly after the user noticed LangSmith's Feedback column stayed empty on a real click — correlates user feedback to its trace inside LangSmith's own UI |
 | 1 | ✅ Tool-invocation rate & success rate metric (E23) — Done for Chat + Deep Research web search, found and shipped 2026-08-12 | Med | High | `EVALUATION_PLAN.md` §10 labels this MVP (distinct from the Mature-tier tool-call-correctness judge); never had its own tracker item and was mislabeled as out-of-scope until this pass's cross-doc audit — `WebSearchNecessityDecision`/paper-search extraction are already computed, this is just a count over them. Deep Research web search closed same day via `ResearchRun.budget_usage`, no LangGraph changes needed; Deep Research paper search + Linear Research remain explicitly excluded (see E23) |
 | 2 | ✅ User-profile memory read-side wiring — Done, 2026-08-12 (prompt-content injection only; routing/behavior injection deliberately left open, see doc) | High | Med | Turns "captured but inert" into real personalization |
-| 2 | **Socratic Challenger node (pulled forward — see note below)** | High | High | Reuses `interrupt()`, proven 3x already — too cheap to defer |
+| 2 | ✅ **Socratic Challenger node (pulled forward — see note below)** — Done, 2026-08-18 | High | High | Reuses the existing plan-review `interrupt()` without adding a fourth lifecycle state; opt-in API contract, evidence-aware versioned prompt, UI response field, and fail-open RESEARCH-memory write are implemented |
 | 2 | ✅ Preference feedback → `USER` memory write path — Done, 2026-08-12 | Med | Med | Depends on the read-side fix above |
 | 2 | **Reject-with-revise, i.e. "edit interruption capability"** (plan/report approval) | Med-High | Med | Reuses `REVISE_SYNTHESIS` path; see expanded detail below — this is more than one line captures |
 | 2 | Live cost/token visibility in Deep Research events | Med | High | Reuses an existing cost-lookup query pattern |
@@ -185,6 +185,9 @@ explicit MVP simplification: log the human's response as a **plain
 research-memory note** first, not a full typed `HumanInsight`, and upgrade
 it once Wave 3's domain model exists. This is a deliberate, disclosed
 deviation from `NORTH_STAR.md`'s original sequencing, not an oversight.
+Per `PHASE_2_3_ROADMAP.md` V2 item 2's guardrail, this placeholder must be
+upgraded into Wave 3's typed `HumanInsight` object when that model ships,
+not organically grown into a new USER-memory feature in the meantime.
 
 USER prompt injection and the preference-feedback write path are now complete.
 M3 is implemented with operational rollout pending; M12's management API is

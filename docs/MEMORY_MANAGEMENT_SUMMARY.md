@@ -41,6 +41,17 @@ by five outcomes:
 Full archival tiers, reflection/episodic memory, organization-wide shared
 memory, agent memory, and memory-driven request routing are explicitly deferred.
 
+**Scope guardrail (`PHASE_2_3_ROADMAP.md` V2 item 2):** do not expand USER
+memory into the separate `HumanInsight` domain object. That typed object
+belongs to Wave 3's research-object model
+(`Knowledge`/`Evidence`/`HumanInsight`/`Hypothesis`), not to this platform.
+The Socratic Challenger node's human-response capture is the concrete case
+this guards: it deliberately writes a plain `RESEARCH` memory note today
+(see [`architecture/memory-platform.md`](architecture/memory-platform.md)),
+as a disclosed MVP placeholder, and must be upgraded into Wave 3's typed
+`HumanInsight` object once that model exists — not grown into a
+USER-memory feature in the meantime.
+
 ## 2. Executive status
 
 | Area | Existing today | Planned target |

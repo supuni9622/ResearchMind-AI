@@ -646,6 +646,16 @@ evaluation demonstrates a concrete need:
 - an S3 `memory_metrics.json` artifact when dashboards/eval records already
   provide the required operational history.
 
+**Scope guardrail, not a task (`PHASE_2_3_ROADMAP.md` V2 item 2):** USER
+memory must not be expanded into a separate `HumanInsight` domain object;
+that typed object is Wave 3's research-object model to build, anchored on
+the `Project` schema M5 provides the storage/authorization foundation for.
+The Socratic Challenger node's human-response capture is the live case this
+protects — it writes a plain `RESEARCH` memory note today as a disclosed MVP
+placeholder (see `PRIORITIZED_ROADMAP.md`'s Wave 2 note on that node) and
+should be upgraded into the Wave 3 typed `HumanInsight` object once that
+model ships, not organically grown into a new USER-memory feature here.
+
 ## Recommended delivery sequence
 
 1. **Stability patch:** M0, M1, M2, dashboard supersession panel from M11 complete.

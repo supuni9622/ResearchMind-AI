@@ -1458,3 +1458,50 @@ And Qdrant Cloud Free Tier sits outside all three compute environments:
                      ▼
              Qdrant Cloud
               Free Tier
+
+============================================================
+32. MANUAL TODO — BEFORE FIRST END-TO-END TEST
+============================================================
+
+Not automated on purpose (real AWS cost, real secret values). Do these only
+when actually ready to test the ecs-demo environment end-to-end -- not
+before Phase 4 exists, since nothing can use RDS/ElastiCache until the ECS
+API is deployed.
+
+[ ] 1. Apply Phase 3 (RDS + ElastiCache + Secrets Manager containers):
+
+    cd infra/terraform/environments/ecs-demo
+    AWS_PROFILE=researchmind-deploy terraform apply
+
+    Expect 14 resources to add. Starts real ongoing cost (~$21-27/month
+    while running -- see infra/terraform/README.md's cost table).
+    Run `terraform destroy` when done testing.
+
+[ ] 2. Populate the 9 Secrets Manager containers Phase 3 created (real
+       values, never through Terraform/tfstate):
+
+    AWS_PROFILE=researchmind-deploy aws secretsmanager put-secret-value \
+      --secret-id researchmind/ecs-demo/groq-api-key --secret-string "<value>"
+    AWS_PROFILE=researchmind-deploy aws secretsmanager put-secret-value \
+      --secret-id researchmind/ecs-demo/openai-api-key --secret-string "<value>"
+    AWS_PROFILE=researchmind-deploy aws secretsmanager put-secret-value \
+      --secret-id researchmind/ecs-demo/anthropic-api-key --secret-string "<value>"
+    AWS_PROFILE=researchmind-deploy aws secretsmanager put-secret-value \
+      --secret-id researchmind/ecs-demo/voyage-api-key --secret-string "<value>"
+    AWS_PROFILE=researchmind-deploy aws secretsmanager put-secret-value \
+      --secret-id researchmind/ecs-demo/tavily-api-key --secret-string "<value>"
+    AWS_PROFILE=researchmind-deploy aws secretsmanager put-secret-value \
+      --secret-id researchmind/ecs-demo/langsmith-api-key --secret-string "<value>"
+    AWS_PROFILE=researchmind-deploy aws secretsmanager put-secret-value \
+      --secret-id researchmind/ecs-demo/app-secret-key --secret-string "<value>"
+    AWS_PROFILE=researchmind-deploy aws secretsmanager put-secret-value \
+      --secret-id researchmind/ecs-demo/cognito-client-secret --secret-string "<value>"
+    AWS_PROFILE=researchmind-deploy aws secretsmanager put-secret-value \
+      --secret-id researchmind/ecs-demo/qdrant-api-key --secret-string "<value>"
+
+    RDS's own master password is NOT in this list -- manage_master_user_password
+    made AWS create/rotate that secret itself; neither Terraform nor you
+    ever touch its value.
+
+Until both steps are done, Phase 3 stays as validated-but-unapplied
+Terraform code (see infra/terraform/README.md "Current status").

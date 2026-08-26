@@ -2,13 +2,14 @@
 
 **Status:** Superseded as the planning document by
 [`../../AWS_Deployment.md`](../../AWS_Deployment.md) and the numbered
-`docs/deployment/01-06` series, which resolve most of the open questions
-originally raised here (frontend hosting, secrets management, Qdrant
-persistence, worker scaling/restart semantics, CI/CD shape). This file
+`docs/deployment/01-06` series. Phase 0 validation
+([`07-phase0-validation-findings.md`](../deployment/07-phase0-validation-findings.md))
+is now complete and all 7 open questions below are resolved. This file
 remains as the detailed working log/checklist for implementation — treat
-`AWS_Deployment.md` and `01-deployment-options-and-decisions.md` through
-`06-frontend-amplify-deployment.md` as the source of truth for anything they
-conflict on. Local/dev-parity containerization is done
+`AWS_Deployment.md`, `01-deployment-options-and-decisions.md` through
+`06-frontend-amplify-deployment.md`, and `07-phase0-validation-findings.md`
+as the source of truth for anything they conflict on. Local/dev-parity
+containerization is done
 (`docker/backend.Dockerfile`, `docker/web.Dockerfile`, full `docker-compose.yml`
 — see [`../deployment/local.md`](../deployment/local.md)), which resolves this
 document's biggest original blocker (no images to deploy) and de-risks the ECS
@@ -103,35 +104,38 @@ a lift-and-shift.
 
 ## Open questions before implementing
 
-Still genuinely open (need investigation, not just a decision):
+All 7 original open questions are now resolved — see
+[`07-phase0-validation-findings.md`](../deployment/07-phase0-validation-findings.md)
+for the two that needed real investigation (§§10-11 there) and
+`AWS_Deployment.md`/`docs/deployment/01-06` for the rest.
 
-1. **L2 semantic cache module gap.** The Compose `semantic-cache` service is
-   `redis-stack-server` specifically because `langchain_redis.RedisSemanticCache`
-   needs RediSearch (vector similarity) support. **Neither ElastiCache for
-   Redis nor MemoryDB for Redis support Redis modules** by default, but
-   `AWS_Deployment.md` section 8 directs us to run a real compatibility test
-   against ElastiCache Valkey (`FT.CREATE`, `FT.SEARCH`, vector search) rather
-   than assume either way — Valkey's search module support has moved since
-   this gap was first flagged. Preferred outcome if compatible: one
-   ElastiCache Valkey service covers L1 cache, rate limiting, session/memory,
-   and semantic cache. If not compatible, options remain: self-host
-   `redis-stack` on its own small ECS task (breaks the "managed ElastiCache"
-   simplicity for just this one piece), or repoint the L2 semantic cache at
-   Qdrant instead of Redis (a real code change in the caching platform, not
-   infra-only — needs its own investigation before committing). Local Docker
-   Compose keeps using Redis Stack regardless of the AWS outcome.
-2. **NAT Gateway cost.** Private-subnet ECS tasks pulling images from ECR or
-   calling out to Groq/OpenAI/Voyage/Tavily/LangSmith need egress — a NAT
-   Gateway is one of the most commonly underestimated recurring AWS costs
-   (hourly charge + per-GB processed) and is explicitly called out in
-   `AWS_Deployment.md` section 7 as one of the biggest cost risks in this
-   plan. Before implementing one, document why it's required, what traffic
-   goes through it, and its estimated hourly/monthly cost; evaluate VPC
-   endpoints for AWS-native traffic (ECR, S3, SQS, CloudWatch, Secrets
-   Manager) first to cut what needs to cross the NAT path at all.
+1. **L2 semantic cache module gap — resolved.** A real compatibility test
+   (`FT.CREATE`/`MODULE LIST` against the running local `valkey` container)
+   confirmed plain OSS Valkey has zero search-module support. Checking
+   AWS's current documentation, though, shows ElastiCache for Valkey 9.0
+   (GA May 2026) supports the exact `TEXT`+`NUMERIC`+`VECTOR` index schema
+   `langchain_redis.RedisSemanticCache` needs, at no additional cost — Valkey
+   8.2 only supports vector fields and would fail to create this schema
+   (`TEXT` fields are `NA` on 8.2 per AWS's own limits table). **Decision:
+   target ElastiCache for Valkey 9.0** — one service covers L1 cache, rate
+   limiting, session/memory, and semantic cache; no separate `redis-stack`
+   ECS service needed in AWS. Local Docker Compose keeps `redis-stack-server`
+   regardless, since there's no OSS Valkey image with the module built in.
+2. **NAT Gateway cost — resolved.** Priced directly: a NAT Gateway is
+   ~$32.40/mo fixed + $0.045/GB processed; VPC endpoints only cover
+   AWS-native traffic (not Groq/OpenAI/Voyage/Tavily/LangSmith), so they
+   can reduce but not eliminate the need for a NAT Gateway if ECS tasks stay
+   in private subnets, and stacking enough interface endpoints across 2 AZs
+   to matter (~$73/mo) is not obviously cheaper than one NAT Gateway anyway.
+   **Decision: skip NAT Gateway by default.** Run ECS tasks in public
+   subnets with `assign_public_ip = true` and a security group that only
+   allows inbound from the ALB — RDS/ElastiCache stay in genuinely private
+   subnets (they need no internet egress). NAT Gateway stays available as an
+   opt-in, temporary addition during Phase 11/12 networking-learning
+   sessions only, never as a standing part of `terraform apply`.
 
-Resolved by `AWS_Deployment.md` and the `docs/deployment/01-06` series (kept
-here for traceability):
+Also resolved by `AWS_Deployment.md` and the `docs/deployment/01-06` series
+(kept here for traceability):
 
 3. **Worker scaling/restart semantics on Fargate.** Decided: start
    conservatively at one task per worker service (API, document, research
@@ -174,11 +178,13 @@ here for traceability):
 
 The AWS side of this is still entirely a plan, not code: no Terraform/CDK, no
 ECR repos, no VPC, no RDS/ElastiCache instances, no ECS clusters/services/
-task definitions exist. Of the 7 open questions originally raised here, 5 now
-have a decided direction (worker scaling, Qdrant persistence, CI/CD shape,
-frontend hosting, secrets management) and 2 remain genuinely open pending
-investigation (semantic-cache compatibility, NAT Gateway cost) — see above.
+task definitions exist. All 7 open questions originally raised here now have
+a decided direction — see above and
+[`07-phase0-validation-findings.md`](../deployment/07-phase0-validation-findings.md).
 Nothing in this document should be read as already provisioned in AWS. The
-one piece that has moved from plan to code is local containerization
-(Dockerfiles + Compose, see "Current state" above) — necessary groundwork for
-this plan, not a substitute for it.
+pieces that have moved from plan to code are local containerization
+(Dockerfiles + Compose, see "Current state" above) and the Phase 0 fix to
+Qdrant Cloud auth (`qdrant_api_key` was never wired into either
+`AsyncQdrantClient` construction site — now fixed, see the validation
+findings doc §7) — necessary groundwork for this plan, not a substitute
+for it.

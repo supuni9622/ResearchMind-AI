@@ -41,6 +41,7 @@ class Settings(BaseSettings):
     database_url: str = Field(...)
     valkey_url: str = Field(...)
     qdrant_url: str = Field(...)
+    qdrant_api_key: str | None = None
     qdrant_collection_name: str = "researchmind_knowledge"
 
     # ==========================================================================

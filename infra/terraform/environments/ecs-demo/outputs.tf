@@ -33,3 +33,7 @@ output "ecs_execution_role_arn" {
 output "ecs_task_role_arn" {
   value = module.iam.task_role_arn
 }
+
+output "ecr_repository_urls" {
+  value = module.ecr.repository_urls
+}

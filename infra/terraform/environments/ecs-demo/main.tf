@@ -1,9 +1,20 @@
 # Phase 1 (AWS_Deployment.md section 26): VPC, subnets, routing, security
-# groups, IAM roles only. No ECS cluster/services, ALB, RDS, ElastiCache,
-# or ECR yet -- those are Phase 2+ and deliberately not created here.
+# groups, IAM roles.
+# Phase 2: ECR repositories for researchmind-backend and
+# research-intelligence-mcp only -- researchmind-web has no ECR repository,
+# see the module's main.tf for why.
 
 locals {
   name_prefix = "researchmind-ecs-demo"
+}
+
+module "ecr" {
+  source = "../../modules/ecr"
+
+  repository_names = [
+    "researchmind-backend",
+    "research-intelligence-mcp",
+  ]
 }
 
 module "vpc" {

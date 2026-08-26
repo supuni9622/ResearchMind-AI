@@ -5,6 +5,16 @@ plan) and `docs/deployment/01-06` (architecture/decisions). Use this file
 when you actually want to bring the AWS demo environment up, test it, and
 tear it back down to stay near the ~$5/month cost target.
 
+**Current status (2026-08-26): `ecs-demo` is destroyed.** Confirmed clean
+via `aws ecs list-clusters` / `aws rds describe-db-instances` / `aws
+elasticache describe-replication-groups` / `aws ecr describe-repositories`
+/ `aws ec2 describe-vpcs` — no RDS, ElastiCache, ECS cluster, ECR repo, or
+VPC left for this project (RDS + ElastiCache were the only real ongoing
+spend). `frontend` (Amplify, `app_id=dgje0byeua4jk`) and `cicd` were left
+up as intended. Section 1.1's Cognito `invalid_client` bug was **not**
+fixed before teardown — fix it first thing on the next spin-up, before
+re-testing login. Use section 2 below to bring `ecs-demo` back.
+
 **State layout** (`infra/terraform/environments/`):
 
 | Environment | Lifecycle | Contains |
@@ -102,7 +112,18 @@ listed here so a future spin-up doesn't need to rediscover them:
 - **ECR blocks `terraform destroy`**: a repo with images in it can't be
   deleted by default — every real teardown has pushed at least one tag
   first, so this stalled destroy at 71/72 resources. Fixed via
-  `force_delete = true` on `modules/ecr`'s `aws_ecr_repository`.
+  `force_delete = true` on `modules/ecr`'s `aws_ecr_repository`. Caveat
+  found live: on the repo that already existed *before* this fix was
+  committed, `terraform plan -destroy` still didn't show `force_delete` in
+  its diff at all (state predates the attribute) and the same
+  `RepositoryNotEmptyException` recurred once. Worked around by deleting
+  the images directly first (`aws ecr batch-delete-image --repository-name
+  <repo> --image-ids $(aws ecr list-images --repository-name <repo>
+  --query "imageIds[*].imageDigest" --output text | tr '\t' '\n' | sed
+  's/^/imageDigest=/' | tr '\n' ' ')`), then re-running destroy. A repo
+  created fresh under the new config (`force_delete = true` from the
+  start) should not hit this — if it does anyway, use the same manual
+  `batch-delete-image` fallback rather than debugging further.
 
 ---
 

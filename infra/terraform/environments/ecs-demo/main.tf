@@ -166,6 +166,17 @@ module "alb" {
   api_container_port = var.api_container_port
 }
 
+# Phase 7: HTTPS front door for the ALB -- see AWS_Deployment.md section
+# 33 and modules/cloudfront/main.tf for why. Recreated alongside the ALB
+# every ecs-demo cycle, unlike Amplify (environments/frontend), which is
+# meant to outlive this environment's apply/destroy cycles.
+module "cloudfront" {
+  source = "../../modules/cloudfront"
+
+  name_prefix  = local.name_prefix
+  alb_dns_name = module.alb.dns_name
+}
+
 module "api_service" {
   source = "../../modules/ecs-service"
 

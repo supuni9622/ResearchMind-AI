@@ -55,8 +55,13 @@ output "secrets_manager_arns" {
 }
 
 output "api_url" {
-  description = "HTTP only -- see modules/alb/main.tf for why. Test with curl/Postman; not yet safe for the (HTTPS) Amplify frontend to call."
+  description = "Direct ALB, HTTP only -- see modules/alb/main.tf for why. Fine for curl/Postman; not safe for the (HTTPS) Amplify frontend to call."
   value       = "http://${module.alb.dns_name}"
+}
+
+output "api_https_url" {
+  description = "Via CloudFront (Phase 7) -- this is the URL to use for environments/frontend's api_url variable / NEXT_PUBLIC_API_URL."
+  value       = "https://${module.cloudfront.domain_name}"
 }
 
 output "api_service_name" {

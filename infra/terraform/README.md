@@ -1,15 +1,22 @@
 # ResearchMind — Terraform
 
-Two environments, kept deliberately separate (`AWS_Deployment.md` section 20):
+Three environments/states, kept deliberately separate:
 
 ```text
 infra/terraform/
   bootstrap/              one-time: S3 state bucket + DynamoDB lock table
-  modules/                 shared building blocks (vpc, iam, ...)
+  modules/                 shared building blocks (vpc, iam, ecs-service, ...)
   environments/
     ecs-demo/              production-like ECS/Fargate environment (ephemeral)
+    frontend/               Amplify Hosting for apps/web (persistent -- outlives ecs-demo's cycles)
     eks-lab/                Kubernetes learning environment (ephemeral, not yet started)
 ```
+
+`ecs-demo`/`eks-lab` are separated per `AWS_Deployment.md` section 20.
+`frontend` is separate from `ecs-demo` for a different reason: Amplify is
+meant to outlive the backend's apply/destroy cycles (section 5 /
+docs/deployment/06's cost strategy), so it has its own state rather than
+being destroyed alongside RDS/ElastiCache/ALB/ECS every cycle.
 
 For the full architecture and *why* each service was chosen, see
 [`../../AWS_Deployment.md`](../../AWS_Deployment.md),
@@ -41,27 +48,35 @@ running are, in rough order of how expensive "leave it on by accident" is:
 Live as of this commit: Phase 1 (VPC, subnets, security groups, IAM roles)
 and Phase 2 (ECR repositories, `researchmind-backend` image pushed) — none
 of those have a meaningful ongoing cost. Phase 3 (RDS/ElastiCache/Secrets
-Manager), Phase 4 (ECS cluster/API service/ALB), Phase 5 (the four worker
-services), and Phase 6 (MCP, behind an `enable_mcp` toggle -- see below)
-Terraform all exist but have not been applied — `terraform plan` shows 37
-resources to add with the default `enable_mcp=false` (42 with
-`enable_mcp=true`). Applying starts the ~$21-27/mo RDS+ElastiCache clock
-plus ALB/Fargate billing (5 Fargate tasks, 6 once MCP is enabled) plus
-~$0.40/mo per Secrets Manager secret (10 of them = ~$4/mo — not
-negligible, this is why secrets are destroyed with everything else, not
-left running). See `AWS_Deployment.md` section 32 for the exact
-apply/secrets/verify steps, and section 34 for what's still needed in the
-separate `research-intelligence-mcp` repo before `enable_mcp=true` is
-useful.
+Manager), Phase 4 (ECS cluster/API service/ALB/CloudFront), Phase 5 (the
+four worker services), and Phase 6 (MCP, behind an `enable_mcp` toggle --
+see below) Terraform all exist in `ecs-demo` but have not been applied —
+`terraform plan` shows 38 resources to add with the default
+`enable_mcp=false` (43 with `enable_mcp=true`). Applying starts the
+~$21-27/mo RDS+ElastiCache clock plus ALB/Fargate billing (5 Fargate
+tasks, 6 once MCP is enabled) plus ~$0.40/mo per Secrets Manager secret
+(10 of them = ~$4/mo — not negligible, this is why secrets are destroyed
+with everything else, not left running). CloudFront itself adds ~$0 at
+this traffic level (within its free tier). See `AWS_Deployment.md`
+section 32 for the exact apply/secrets/verify steps, and section 34 for
+what's still needed in the separate `research-intelligence-mcp` repo
+before `enable_mcp=true` is useful.
+
+`environments/frontend` (Amplify) is separate and near-$0 either way
+(pay for build minutes + data served, not idle compute) — see "Working
+with the frontend environment" below and `AWS_Deployment.md` section 35.
 
 **Before every `apply`:** know what you're about to create and roughly what
 it costs. **After every session:** run `terraform destroy` on `ecs-demo`
 unless you have a specific reason to keep it up (see below for what's safe
-to leave running).
+to leave running). Do NOT run `terraform destroy` on `environments/frontend`
+as part of this routine — Amplify is meant to stay up.
 
-Low-cost/persistent-by-design and **not** part of this destroy workflow: the
-`bootstrap` state bucket/lock table (fractions of a cent/month), Cognito, S3,
-SQS, ECR repositories (storage only, cheap), IAM, Qdrant Cloud Free Tier.
+Low-cost/persistent-by-design and **not** part of `ecs-demo`'s destroy
+workflow: the `bootstrap` state bucket/lock table (fractions of a
+cent/month), Cognito, S3, SQS, ECR repositories (storage only, cheap),
+IAM, Qdrant Cloud Free Tier, and everything in `environments/frontend`
+(Amplify Hosting).
 
 ## One-time setup: a deploy IAM user
 
@@ -143,6 +158,27 @@ before confirming are not optional steps for this project — the whole point
 of the ephemeral-environment model is that nothing expensive survives a
 session by accident.
 
+## Working with the frontend environment
+
+Different lifecycle than `ecs-demo` -- apply once, leave it up, and only
+reapply when `api_url` needs updating (whenever `ecs-demo`'s CloudFront
+distribution is destroyed/recreated with a new domain) or when
+`base_url` gets filled in after the first apply. See
+`AWS_Deployment.md` section 35 for the full manual-setup walkthrough
+(Amplify's GitHub connection needs a real OAuth handshake through the
+Console, Terraform can't do it):
+
+```bash
+cd infra/terraform/environments/frontend
+cp terraform.tfvars.example terraform.tfvars   # set api_url from ecs-demo's api_https_url output
+AWS_PROFILE=researchmind-deploy terraform init
+AWS_PROFILE=researchmind-deploy terraform plan
+AWS_PROFILE=researchmind-deploy terraform apply
+```
+
+Do not run `terraform destroy` here as a matter of routine the way you
+would for `ecs-demo` -- this environment is meant to stay applied.
+
 ## Current status
 
 **Phase 1 is applied and live** in this project's AWS account (232727982313,
@@ -164,13 +200,23 @@ them — but `terraform destroy` still removes them cleanly when no longer
 needed.
 
 **Phase 3, 4, 5, and 6 are written and validated but NOT applied.** RDS,
-ElastiCache, Secrets Manager containers, ECS cluster, API service, ALB,
-all four worker services, and the MCP service/Cloud Map wiring all exist
-as reviewed Terraform code only. `terraform plan` shows 37 resources with
-the default `enable_mcp=false` (MCP is skipped entirely, not just
-deployed-and-broken, until `research-intelligence-mcp` actually has an
-image — see section 34), or 42 with `enable_mcp=true`. See
-`AWS_Deployment.md` section 32 for the manual TODO to actually apply
-Phase 3-5 (needs a real Qdrant Cloud cluster first, and the 10 secret
-values populated after apply), and section 34 for what's left in the
-separate MCP repo before flipping `enable_mcp` on.
+ElastiCache, Secrets Manager containers, ECS cluster, API service,
+ALB+CloudFront, all four worker services, and the MCP service/Cloud Map
+wiring all exist in `environments/ecs-demo` as reviewed Terraform code
+only. `terraform plan` shows 38 resources with the default
+`enable_mcp=false` (MCP is skipped entirely, not just deployed-and-broken,
+until `research-intelligence-mcp` actually has an image — see section
+34), or 43 with `enable_mcp=true`. See `AWS_Deployment.md` section 32 for
+the manual TODO to actually apply Phase 3-5 (needs a real Qdrant Cloud
+cluster first, and the 10 secret values populated after apply), and
+section 34 for what's left in the separate MCP repo before flipping
+`enable_mcp` on.
+
+**Phase 7 (`environments/frontend`, Amplify) is also written and
+validated but NOT applied** — a separate state/lifecycle from `ecs-demo`
+(see the top of this file for why). `terraform plan` shows 1 resource
+(the Amplify app shell). See `AWS_Deployment.md` section 35 for the
+manual walkthrough — the GitHub repo connection, the two-phase apply for
+`base_url` (Amplify's own domain depends on an ID that isn't known until
+after the first apply), and adding the frontend's callback/logout URLs
+to the existing Cognito app client.

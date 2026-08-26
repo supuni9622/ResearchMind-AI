@@ -1605,11 +1605,15 @@ join Cognito/S3/ECR as an accepted low-cost *persistent* item rather than
 something torn down each cycle. Worth reconsidering later if a stable
 public URL becomes valuable; not needed to unblock Phase 7.
 
-Implementation: deferred to Phase 7, since that's the phase that actually
-exercises it (frontend calling the API). Add a CloudFront module with the
-ALB as its origin, forwarding all paths, HTTPS-only viewer protocol
-policy, HTTP-only origin protocol policy; output the distribution's
-`*.cloudfront.net` domain as the value for `NEXT_PUBLIC_API_URL`.
+Implementation: done, in `environments/ecs-demo` (`modules/cloudfront`),
+not a separate state -- CloudFront's whole purpose is fronting THIS
+cycle's ALB, which gets a new DNS name every time ecs-demo is destroyed
+and reapplied, so it shares that lifecycle rather than Amplify's (see
+section 35). Caching is disabled (AWS managed `CachingDisabled` policy --
+this fronts a dynamic JSON API, not static assets). Output
+`api_https_url` is what feeds `environments/frontend`'s `api_url`
+variable. Not yet applied -- see section 32's manual TODO (Phase 3-5) and
+section 35 (Amplify) for the actual apply steps.
 
 ============================================================
 34. REMAINING WORK IN research-intelligence-mcp (SEPARATE REPO)
@@ -1669,3 +1673,86 @@ research-intelligence-mcp repository itself needs:
 
 This section exists so the "what's left" list isn't only in chat history.
 Update the checkboxes here as each step happens in the other repo.
+
+============================================================
+35. PHASE 7 — FRONTEND (AMPLIFY) MANUAL SETUP
+============================================================
+
+`infra/terraform/environments/frontend` creates the Amplify app shell
+(name, platform=WEB_COMPUTE, monorepo build spec targeting apps/web,
+environment variables) in its OWN Terraform state -- deliberately
+separate from ecs-demo. Amplify is meant to outlive the backend's
+apply/destroy cycles (section 5 / docs/deployment/06's cost strategy:
+"Amplify frontend remains available" while "ECS backend: apply ->
+test/demo -> destroy"); keeping it in ecs-demo's state would mean
+`terraform destroy` there tears down the frontend too, which isn't the
+intent.
+
+What Terraform does NOT do: connect the GitHub repository. That needs a
+real OAuth handshake (Amplify's GitHub App -- the modern recommended
+flow, not a raw personal access token sitting in Terraform state/config).
+Also unresolved without a live app: the build_spec's monorepo
+`appRoot: apps/web` config is a first attempt based on AWS's documented
+syntax, not something that could be verified without an actual build
+(apps/web has no root-level package.json/workspace config for Amplify to
+auto-detect, so this couldn't just be left to auto-detection either) --
+watch the first build log and adjust if it fails.
+
+[ ] 1. Apply the app shell (first pass, base_url left empty -- see
+       environments/frontend/main.tf's comment on why it can't be
+       derived automatically in one apply):
+
+    cd infra/terraform/environments/frontend
+    AWS_PROFILE=researchmind-deploy terraform apply \
+      -var="api_url=<ecs-demo's api_https_url output>"
+
+    Amplify Hosting's own idle cost is negligible (pay for build minutes
+    + data served + storage, not idle compute) -- this one is fine to
+    leave applied, unlike the ecs-demo resources.
+
+[ ] 2. Console -> Amplify -> the new `researchmind-web` app -> connect
+       the GitHub repository and branch (`main`) through the console's
+       own flow -- this is the real OAuth handshake, Terraform can't do
+       it. Save and deploy; watch the first build log (see the
+       appRoot/monorepo caveat above).
+
+[ ] 3. Once the first build succeeds, get the real app_id from Terraform
+       and set base_url, then apply again so
+       NEXT_PUBLIC_BASE_URL/NEXT_PUBLIC_REDIRECT_URI are wired in:
+
+    AWS_PROFILE=researchmind-deploy terraform output app_id
+    AWS_PROFILE=researchmind-deploy terraform apply \
+      -var="api_url=<same as step 1>" \
+      -var="base_url=https://main.<app_id from above>.amplifyapp.com"
+
+    This triggers an Amplify redeploy (environment variable change).
+
+[ ] 4. Add the frontend's callback/logout URLs to the EXISTING Cognito
+       app client -- Cognito is treated as an existing/external resource
+       here (section 13), not Terraform-managed, so this is a CLI step
+       that ADDS to the current callback/logout URL lists, it does not
+       replace them (check current values first so you don't drop the
+       local-dev ones):
+
+    AWS_PROFILE=researchmind-deploy aws cognito-idp describe-user-pool-client \
+      --user-pool-id us-east-1_9chS0pt6P --client-id 1r4at7v1s9nr9jqots6gl15ht \
+      --query "UserPoolClient.{Callbacks:CallbackURLs,Logouts:LogoutURLs}"
+
+    AWS_PROFILE=researchmind-deploy terraform output cognito_callback_url_to_add
+    AWS_PROFILE=researchmind-deploy terraform output cognito_logout_url_to_add
+
+    Then re-run `update-user-pool-client` with the FULL merged list
+    (existing URLs + the new one) for both `--callback-urls` and
+    `--logout-urls` -- the API replaces the whole list, it does not
+    append.
+
+[ ] 5. Verify: open the Amplify app's URL in a browser, confirm Cognito
+       Hosted UI login redirects back correctly, and confirm the frontend
+       can reach the API through CloudFront without a mixed-content error
+       in the browser console.
+
+Cost note: unlike sections 32/34, none of this needs to be destroyed
+between sessions -- Amplify Hosting and CloudFront are both effectively
+free at this project's traffic level. What DOES need updating is
+`api_url` (and therefore step 3's redeploy) whenever ecs-demo's
+CloudFront distribution is destroyed and recreated with a new domain.

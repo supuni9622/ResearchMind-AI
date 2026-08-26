@@ -54,9 +54,13 @@ EKS
 
 ``` text
 researchmind-backend
-researchmind-web
 research-intelligence-mcp
 ```
+
+The frontend has no Kubernetes Deployment in this lab either -- it stays on
+Amplify Hosting regardless of which backend compute environment (ECS or
+EKS) is active, matching `AWS_Deployment.md`'s closing diagram where
+Amplify/Qdrant Cloud sit outside all three compute environments.
 
 Do not rewrite the application for Kubernetes.
 

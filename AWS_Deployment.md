@@ -732,8 +732,17 @@ Do not implement sophisticated autoscaling before the basic service is working.
 Create ECR repositories for:
 
     researchmind-backend
-    researchmind-web
     research-intelligence-mcp
+
+researchmind-web does NOT need an ECR repository. AWS Amplify Hosting for a
+Next.js app builds directly from the connected GitHub source using its own
+build environment -- it never pulls a pre-built Docker image from ECR. The
+Docker-image-via-ECR path in Amplify's own docs refers to a different,
+older feature (Amplify's multi-container Fargate hosting), which is not
+what section 5's decision uses and would contradict "the frontend should
+NOT run on ECS/Fargate." docker/web.Dockerfile remains real and necessary
+for local Docker Compose dev-parity; it has no role in the AWS deployment
+path.
 
 The backend repository uses one image for:
 

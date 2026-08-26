@@ -190,9 +190,12 @@ Repositories:
 
 ``` text
 researchmind-backend
-researchmind-web
 research-intelligence-mcp
 ```
+
+`researchmind-web` is not an ECR repository -- Amplify Hosting builds the
+Next.js frontend directly from GitHub source, not from a pushed Docker
+image (see `06-frontend-amplify-deployment.md`).
 
 ### CD
 

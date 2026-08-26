@@ -158,12 +158,15 @@ Also resolved by `AWS_Deployment.md` and the `docs/deployment/01-06` series
 5. **CI/CD gap.** Decided direction (not yet implemented): GitHub Actions
    runs tests/lint/typecheck/frontend build/Docker build on PRs, then on
    `main` builds and pushes to ECR (`researchmind-backend`,
-   `researchmind-web`, `research-intelligence-mcp` — one backend image
-   reused for the API and all four workers), and CD publishes a new ECS task
-   definition revision, updates the service, and verifies health. Terraform
-   stays responsible for infrastructure; GitHub Actions stays responsible for
-   application build/publish/deploy — these are kept as separate concerns,
-   not one combined workflow. See `AWS_Deployment.md` section 25 and
+   `research-intelligence-mcp` — one backend image reused for the API and
+   all four workers), and CD publishes a new ECS task definition revision,
+   updates the service, and verifies health. `researchmind-web` has no ECR
+   repository — Amplify Hosting builds the Next.js frontend directly from
+   GitHub source (see Phase 2 correction below); its CI/CD is Amplify's own
+   build pipeline, not a Docker push. Terraform stays responsible for
+   infrastructure; GitHub Actions stays responsible for application
+   build/publish/deploy — these are kept as separate concerns, not one
+   combined workflow. See `AWS_Deployment.md` section 25 and
    `docs/deployment/02-full-deployment-architecture.md` section 8.
 6. **Frontend hosting decision.** Decided: AWS Amplify Hosting (see the
    "Frontend" bullet above).

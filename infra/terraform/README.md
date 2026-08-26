@@ -133,9 +133,16 @@ session by accident.
 
 ## Current status
 
-Phase 1 only (`AWS_Deployment.md` section 26): VPC, public/private subnets
-across 2 AZs, route tables, security groups (ALB/ECS-tasks/RDS/ElastiCache,
-chained by reference), and IAM roles (ECS task execution + task role, scoped
-to the existing S3 bucket and SQS queues from Phase 0 validation). No ECS
-cluster, ALB, RDS, ElastiCache, or ECR yet — those are later phases, built on
-this foundation, reviewed before their own first `apply`.
+**Phase 1 is applied and live** in this project's AWS account (232727982313,
+us-east-1): VPC (`vpc-0bc248f2a870a8d8b`), public/private subnets across 2
+AZs, route tables, security groups (ALB/ECS-tasks/RDS/ElastiCache, chained by
+reference), and IAM roles (ECS task execution + task role, scoped to the
+existing S3 bucket and SQS queues from Phase 0 validation). Run
+`terraform output` in `environments/ecs-demo` for current resource IDs.
+
+None of these resources have an ongoing cost, so there's no urgency to
+destroy them — but `terraform destroy` still removes them cleanly when no
+longer needed.
+
+No ECS cluster, ALB, RDS, ElastiCache, or ECR yet — those are later phases,
+built on this foundation, reviewed before their own first `apply`.

@@ -1372,7 +1372,7 @@ We are successful when:
 
 [ ] ECR repositories exist.
 
-[ ] Terraform can create the AWS environment.
+[x] Terraform can create the AWS environment.
 
 [ ] API runs on ECS/Fargate.
 

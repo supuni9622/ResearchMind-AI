@@ -1379,7 +1379,7 @@ We are successful when:
 
 [ ] MCP builds successfully.
 
-[ ] ECR repositories exist.
+[x] ECR repositories exist.
 
 [x] Terraform can create the AWS environment.
 

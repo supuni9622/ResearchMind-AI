@@ -1,6 +1,6 @@
 # ResearchMind — Terraform
 
-Three environments/states, kept deliberately separate:
+Four environments/states, kept deliberately separate:
 
 ```text
 infra/terraform/
@@ -9,14 +9,17 @@ infra/terraform/
   environments/
     ecs-demo/              production-like ECS/Fargate environment (ephemeral)
     frontend/               Amplify Hosting for apps/web (persistent -- outlives ecs-demo's cycles)
+    cicd/                   GitHub Actions OIDC provider + IAM roles (persistent)
     eks-lab/                Kubernetes learning environment (ephemeral, not yet started)
 ```
 
 `ecs-demo`/`eks-lab` are separated per `AWS_Deployment.md` section 20.
-`frontend` is separate from `ecs-demo` for a different reason: Amplify is
-meant to outlive the backend's apply/destroy cycles (section 5 /
-docs/deployment/06's cost strategy), so it has its own state rather than
-being destroyed alongside RDS/ElastiCache/ALB/ECS every cycle.
+`frontend` and `cicd` are separate from `ecs-demo` for the same reason:
+both need to exist independent of whether ecs-demo happens to be applied
+right now -- Amplify is meant to outlive the backend's apply/destroy
+cycles (section 5 / docs/deployment/06's cost strategy), and CI should be
+able to push images to ECR (itself persistent) regardless of whether the
+ECS services currently exist.
 
 For the full architecture and *why* each service was chosen, see
 [`../../AWS_Deployment.md`](../../AWS_Deployment.md),
@@ -183,6 +186,30 @@ AWS_PROFILE=researchmind-deploy terraform apply
 ⚠️ Do not run `terraform destroy` here as a matter of routine the way you
 would for `ecs-demo` -- this environment is meant to stay applied.
 
+## Working with the cicd environment
+
+One-time setup, then leave applied indefinitely -- same "not part of the
+ecs-demo destroy routine" rule as `frontend`. See `AWS_Deployment.md`
+section 36 for the full walkthrough (this is a Terraform apply plus a
+GitHub-side step Terraform can't do: setting repository variables).
+
+```bash
+cd infra/terraform/environments/cicd
+AWS_PROFILE=researchmind-deploy terraform init
+AWS_PROFILE=researchmind-deploy terraform plan
+AWS_PROFILE=researchmind-deploy terraform apply
+AWS_PROFILE=researchmind-deploy terraform output
+```
+
+Then, in the GitHub repo (Settings → Secrets and variables → Actions →
+**Variables**, not Secrets -- these are role ARNs, not credentials),
+create `AWS_ECR_PUSH_ROLE_ARN` and `AWS_ECS_DEPLOY_ROLE_ARN` from those
+two outputs. No AWS access keys are ever stored in GitHub -- both
+workflows authenticate via OIDC (`aws-actions/configure-aws-credentials`
+exchanging GitHub's workflow-scoped token for short-lived credentials).
+
+⚠️ Do not run `terraform destroy` here either.
+
 ## Current status
 
 **Phase 1 is applied and live** in this project's AWS account (232727982313,
@@ -224,3 +251,14 @@ manual walkthrough — the GitHub repo connection, the two-phase apply for
 `base_url` (Amplify's own domain depends on an ID that isn't known until
 after the first apply), and adding the frontend's callback/logout URLs
 to the existing Cognito app client.
+
+**Phase 9 (`environments/cicd`, GitHub Actions OIDC) is also written and
+validated but NOT applied** — `terraform plan` shows 5 resources (an OIDC
+provider + two least-privilege IAM roles, `ecr-push` and `ecs-deploy`;
+neither has anything close to the human deploy user's
+`AdministratorAccess`). `.github/workflows/build-and-push.yml` (auto on
+relevant backend changes to `main`, plus manual dispatch) and
+`.github/workflows/deploy.yml` (manual dispatch only — ecs-demo may not
+even exist between sessions, so this is never automatic) both assume
+these roles via OIDC once applied and the two repository variables are
+set. See `AWS_Deployment.md` section 36.

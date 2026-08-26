@@ -1783,3 +1783,68 @@ between sessions -- Amplify Hosting and CloudFront are both effectively
 free at this project's traffic level. What DOES need updating is
 `api_url` (and therefore step 3's redeploy) whenever ecs-demo's
 CloudFront distribution is destroyed and recreated with a new domain.
+
+============================================================
+36. PHASE 9 — CI/CD SETUP
+============================================================
+
+`infra/terraform/environments/cicd` provisions a GitHub Actions OIDC
+provider and two least-privilege IAM roles (`ecr-push`, `ecs-deploy`) --
+no long-lived AWS access keys ever sit in GitHub secrets; both workflows
+exchange GitHub's own workflow-scoped OIDC token for short-lived AWS
+credentials at runtime. Separate, persistent state from ecs-demo, same
+reasoning as `environments/frontend` -- CI should be able to push images
+to ECR regardless of whether ecs-demo happens to be applied right now.
+
+Three workflows:
+
+    .github/workflows/ci.yml
+        tests/lint/mypy (already existed) + a new frontend-quality job
+        (lint/type-check/build for apps/web). Runs on every push/PR to
+        main/develop. No AWS access at all.
+
+    .github/workflows/build-and-push.yml
+        Builds docker/backend.Dockerfile, pushes to the researchmind
+        -backend ECR repo tagged with the git short SHA. Auto-triggered
+        on push to main when backend-relevant paths change, plus manual
+        dispatch. Uses the ecr-push role.
+
+    .github/workflows/deploy.yml
+        Swaps the image in each of the 5 ECS task definitions (api + 4
+        workers) to a given tag, registers a new revision, updates the
+        service. MANUAL DISPATCH ONLY, never automatic -- ecs-demo may
+        not even exist between sessions (see the ephemeral-environment
+        model, section 2), so auto-deploying on every merge would either
+        fail loudly or start Fargate tasks nobody asked for. Terraform
+        still owns the *shape* of each task definition (CPU/memory, env
+        vars, secrets, roles) -- this workflow only swaps the image
+        within that shape; re-run `terraform apply` if the shape itself
+        needs to change, not this workflow. Uses the ecs-deploy role.
+
+[ ] 1. Apply the cicd environment (idle cost: negligible -- an OIDC
+       provider and two IAM roles have no meaningful cost regardless):
+
+    cd infra/terraform/environments/cicd
+    AWS_PROFILE=researchmind-deploy terraform apply
+    AWS_PROFILE=researchmind-deploy terraform output
+
+[ ] 2. In the GitHub repo (supuni9622/ResearchMind-AI) -> Settings ->
+       Secrets and variables -> Actions -> **Variables** tab (not
+       Secrets -- these are role ARNs, not credentials) -> create:
+
+    AWS_ECR_PUSH_ROLE_ARN  = <ecr_push_role_arn output>
+    AWS_ECS_DEPLOY_ROLE_ARN = <ecs_deploy_role_arn output>
+
+[ ] 3. Push a change touching a backend path (or use "Run workflow" on
+       build-and-push.yml manually) and confirm it builds and pushes a
+       new `researchmind-backend:<short-sha>` tag to ECR.
+
+[ ] 4. Once ecs-demo is applied (section 32) and you want to deploy a
+       newer image than the one Terraform originally deployed with:
+       Actions -> "Deploy to ECS" -> Run workflow -> paste the tag from
+       step 3. Watch the 5 parallel jobs (one per service).
+
+Not done here, deliberately out of scope for this project's size: a
+staging/production environment split, approval gates, or canary/blue
+-green deployment -- ecs-demo is a single ephemeral demo environment, not
+a multi-stage pipeline target. Revisit only if that changes.

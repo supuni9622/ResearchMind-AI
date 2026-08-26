@@ -30,6 +30,40 @@ on:
         default: false
 
 jobs:
+  frontend-quality:
+    # Independent of the backend `quality` job below -- a frontend lint/
+    # type/build failure shouldn't block on backend test setup and vice
+    # versa. Mirrors apps/web/package.json's own scripts, nothing invented.
+
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: apps/web
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: apps/web/package-lock.json
+
+      - run: npm ci
+
+      - run: npm run lint
+
+      - run: npm run type-check
+
+      - name: Build
+        env:
+          # Build-time only (Next.js inlines NEXT_PUBLIC_* at build), not
+          # a real backend -- this job only verifies the build succeeds,
+          # it doesn't run the app against anything.
+          NEXT_PUBLIC_API_URL: https://ci-build-placeholder.invalid
+        run: npm run build
+
   quality:
 
     runs-on: ubuntu-latest

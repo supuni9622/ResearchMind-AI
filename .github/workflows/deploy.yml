@@ -1,0 +1,77 @@
+name: Deploy to ECS
+
+# Manual-dispatch only, deliberately -- never automatic on push/merge.
+# Unlike a real always-on service, ecs-demo is ephemeral (AWS_Deployment.md
+# section 2): it may not even exist between sessions, and auto-deploying
+# on every merge would either fail loudly (nothing to deploy to) or,
+# worse, silently start Fargate tasks nobody asked to be running. A human
+# decides when ecs-demo is up and worth deploying to.
+#
+# Terraform (infra/terraform/environments/ecs-demo) owns the *shape* of
+# each task definition -- CPU/memory, env vars, secrets, roles. This
+# workflow only swaps the container image within that shape and registers
+# a new revision; it never touches infrastructure. Re-run `terraform
+# apply` instead if anything in the task definition's shape needs to
+# change, not this workflow.
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "researchmind-backend ECR tag to deploy (from build-and-push.yml's short SHA, or any existing tag)"
+        required: true
+      wait_for_stability:
+        description: "Wait for each service to reach steady state before the job finishes"
+        type: boolean
+        default: true
+
+permissions:
+  id-token: write # OIDC -- see infra/terraform/environments/cicd
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false # one service's deploy failing shouldn't block the other four
+      matrix:
+        service:
+          - api
+          - worker-processing
+          - worker-research-runtime
+          - worker-eval-scoring
+          - worker-memory-lifecycle
+
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ECS_DEPLOY_ROLE_ARN }}
+          aws-region: us-east-1
+
+      - name: Log in to ECR
+        id: ecr-login
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Download current task definition
+        run: |
+          aws ecs describe-task-definition \
+            --task-definition "researchmind-ecs-demo-${{ matrix.service }}" \
+            --query taskDefinition > task-definition.json
+
+      - name: Render new image into task definition
+        id: render
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        with:
+          task-definition: task-definition.json
+          container-name: ${{ matrix.service }}
+          image: ${{ steps.ecr-login.outputs.registry }}/researchmind-backend:${{ inputs.image_tag }}
+
+      - name: Deploy
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v2
+        with:
+          task-definition: ${{ steps.render.outputs.task-definition }}
+          service: "researchmind-ecs-demo-${{ matrix.service }}"
+          cluster: researchmind-ecs-demo-cluster
+          wait-for-service-stability: ${{ inputs.wait_for_stability }}

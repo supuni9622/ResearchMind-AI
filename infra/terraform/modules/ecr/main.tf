@@ -11,6 +11,15 @@ resource "aws_ecr_repository" "this" {
   name                 = each.value
   image_tag_mutability = "IMMUTABLE" # a given tag (e.g. a git SHA) always points at the same image -- no silent overwrite
 
+  # ecs-demo is ephemeral by design (see docs/deployment/08-runbook-and-
+  # known-issues.md section 3) -- every real teardown pushes at least one
+  # image tag first, and ECR refuses to delete a non-empty repository
+  # without this, blocking `terraform destroy` entirely (found live: 71 of
+  # 72 resources destroyed, then a hard stop here). force_delete just
+  # means the images go with the repo, matching the "up and destroy"
+  # workflow this environment is built for.
+  force_delete = true
+
   image_scanning_configuration {
     scan_on_push = true
   }

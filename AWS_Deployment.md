@@ -1362,11 +1362,11 @@ Do not mix them.
 
 We are successful when:
 
-[ ] Local Docker Compose still works.
+[x] Local Docker Compose still works.
 
-[ ] ResearchMind backend builds successfully.
+[x] ResearchMind backend builds successfully.
 
-[ ] Frontend builds successfully.
+[x] Frontend builds successfully.
 
 [ ] MCP builds successfully.
 
@@ -1404,7 +1404,7 @@ We are successful when:
 
 [ ] Same application can later be deployed to EKS/Fargate.
 
-[ ] Architecture and tradeoffs are documented.
+[x] Architecture and tradeoffs are documented.
 
 Most importantly:
 

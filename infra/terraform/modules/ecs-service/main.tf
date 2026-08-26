@@ -26,6 +26,23 @@ resource "aws_ecs_task_definition" "this" {
   execution_role_arn       = var.execution_role_arn
   task_role_arn            = var.task_role_arn
 
+  # Defaults to ARM64 (Graviton) -- found live, not anticipated: pushing
+  # researchmind-backend from an Apple Silicon Mac without an explicit
+  # `docker build --platform` produces an arm64-only image manifest, and
+  # Fargate defaults to X86_64, so tasks failed with CannotPullContainerError
+  # ("manifest does not contain descriptor matching platform linux/amd64").
+  # Matching Fargate to the image's actual native architecture is both the
+  # fix and a deliberate choice: Graviton is ~20% cheaper on Fargate for
+  # the same vCPU/memory, and it deploys the exact image already validated
+  # locally (torch CPU imports, the healthy Compose stack) rather than an
+  # untested amd64 rebuild. Override to "X86_64" per-service if a given
+  # image (e.g. research-intelligence-mcp, built in a separate repo/CI
+  # this one doesn't control) isn't multi-arch.
+  runtime_platform {
+    cpu_architecture        = var.cpu_architecture
+    operating_system_family = "LINUX"
+  }
+
   container_definitions = jsonencode([
     {
       name      = var.service_name

@@ -40,6 +40,12 @@ variable "service_registry_arn" {
   default     = null
 }
 
+variable "cpu_architecture" {
+  description = "\"ARM64\" (default, matches the researchmind-backend image built natively on Apple Silicon) or \"X86_64\" -- must match the actual image architecture or ECS fails to pull it (CannotPullContainerError). See this file's runtime_platform comment."
+  type        = string
+  default     = "ARM64"
+}
+
 variable "cpu" {
   type = number
 }

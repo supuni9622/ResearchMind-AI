@@ -1785,19 +1785,38 @@ watch the first build log and adjust if it fails.
        here (section 13), not Terraform-managed, so this is a CLI step
        that ADDS to the current callback/logout URL lists, it does not
        replace them (check current values first so you don't drop the
-       local-dev ones):
+       local-dev ones).
+
+       ⚠️ `update-user-pool-client` is a full-replace API, not a patch --
+       confirmed live, the hard way: an earlier call here that only
+       passed `--callback-urls`/`--logout-urls` silently reset
+       `AllowedOAuthFlowsUserPoolClient` to `false` (it wasn't
+       re-specified), which broke Hosted UI login entirely for BOTH
+       localhost and the deployed frontend at once -- "Invalid request"
+       regardless of which redirect_uri was used, not just the new one.
+       Every call to this command MUST include the full OAuth
+       configuration, not just the URLs you're changing:
 
     AWS_PROFILE=researchmind-deploy aws cognito-idp describe-user-pool-client \
       --user-pool-id us-east-1_9chS0pt6P --client-id 1r4at7v1s9nr9jqots6gl15ht \
-      --query "UserPoolClient.{Callbacks:CallbackURLs,Logouts:LogoutURLs}"
+      --query "UserPoolClient"
 
-    AWS_PROFILE=researchmind-deploy terraform output cognito_callback_url_to_add
-    AWS_PROFILE=researchmind-deploy terraform output cognito_logout_url_to_add
+    Note the FULL current CallbackURLs/LogoutURLs/AllowedOAuthFlows/
+    AllowedOAuthScopes/SupportedIdentityProviders before changing
+    anything. Then re-run `update-user-pool-client` with the merged URL
+    list AND all the OAuth settings restated (values below are this
+    project's current known-good config -- confirmed restored live after
+    the incident above):
 
-    Then re-run `update-user-pool-client` with the FULL merged list
-    (existing URLs + the new one) for both `--callback-urls` and
-    `--logout-urls` -- the API replaces the whole list, it does not
-    append.
+    AWS_PROFILE=researchmind-deploy aws cognito-idp update-user-pool-client \
+      --user-pool-id us-east-1_9chS0pt6P \
+      --client-id 1r4at7v1s9nr9jqots6gl15ht \
+      --callback-urls "http://localhost:3000/auth/callback" "<new callback URL>" \
+      --logout-urls "http://localhost:3000" "<new logout URL>" \
+      --allowed-o-auth-flows-user-pool-client \
+      --allowed-o-auth-flows "code" \
+      --allowed-o-auth-scopes "email" "openid" "phone" \
+      --supported-identity-providers "COGNITO"
 
 [ ] 5. Verify: open the Amplify app's URL in a browser, confirm Cognito
        Hosted UI login redirects back correctly, and confirm the frontend

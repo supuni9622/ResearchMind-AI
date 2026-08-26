@@ -34,6 +34,12 @@ variable "target_group_arn" {
   default     = null
 }
 
+variable "service_registry_arn" {
+  description = "Only the MCP service (Phase 6) sets this -- an aws_service_discovery_service ARN, so the API/Research Runtime worker can reach it over Cloud Map private DNS instead of the ALB (MCP is internal-only, never internet-exposed)."
+  type        = string
+  default     = null
+}
+
 variable "cpu" {
   type = number
 }

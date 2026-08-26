@@ -373,6 +373,7 @@ Primary AWS services:
     Fargate
     ECR
     ALB
+    CloudFront
     RDS PostgreSQL
     ElastiCache for Valkey
     S3
@@ -1483,20 +1484,31 @@ environment end-to-end.
       -var="backend_image_tag=bc623c6" \
       -var="qdrant_url=<your Qdrant Cloud cluster URL>"
 
-    Expect 36 resources to add: RDS+ElastiCache+9 secrets (17), ECS
-    cluster+ALB+API service (7), 4 worker services (12). Starts real
-    ongoing cost (~$21-27/month RDS+ElastiCache, plus ALB/Fargate billing
-    for 5 running tasks -- see infra/terraform/README.md's cost table).
-    `backend_image_tag` must be an existing tag in the researchmind-backend
-    ECR repo (currently `bc623c6`; push a new one first if the code has
-    moved on -- the SAME tag deploys to all 5 services, one shared image).
-    Run `terraform destroy` when done testing.
+    Expect 37 resources to add (with the default `enable_mcp=false` --
+    MCP is skipped entirely rather than deployed-and-broken until
+    research-intelligence-mcp has a real image, see section 34): RDS+
+    ElastiCache+10 secrets (18, including the always-created
+    mcp-auth-token placeholder), ECS cluster+ALB+API service (7), 4
+    worker services (12). Starts real ongoing cost (~$21-27/month
+    RDS+ElastiCache, plus ALB/Fargate billing for 5 running tasks, plus
+    ~$4/month for 10 Secrets Manager secrets -- see
+    infra/terraform/README.md's cost table). `backend_image_tag` must be
+    an existing tag in the researchmind-backend ECR repo (currently
+    `bc623c6`; push a new one first if the code has moved on -- the SAME
+    tag deploys to all 5 services, one shared image). Run
+    `terraform destroy` when done testing.
 
-[ ] 3. Populate the 9 Secrets Manager containers Phase 3 created (real
-       values, never through Terraform/tfstate) -- the API and all four
-       workers won't start cleanly until these have real values, since
-       every one of their task definitions already references all of them
-       (same shared environment/secrets, see main.tf's `local.common_secrets`):
+[ ] 3. Populate the 10 Secrets Manager containers Phase 3 created (real
+       values, never through Terraform/tfstate) -- ALL 10 need at least
+       one version set, even if empty, or every task (API and all four
+       workers, since their task definitions reference all of them via
+       `local.common_secrets`) fails at launch with
+       `ResourceNotFoundException` (Secrets Manager has no AWSCURRENT
+       version to resolve) -- this is not optional cleanup, a
+       never-populated secret blocks every service, not just the one
+       that would have used it. If `research-intelligence-mcp` turns out
+       not to need `mcp-auth-token` (section 34), set it to an explicit
+       empty string, don't leave it unset:
 
     AWS_PROFILE=researchmind-deploy aws secretsmanager put-secret-value \
       --secret-id researchmind/ecs-demo/groq-api-key --secret-string "<value>"
@@ -1516,6 +1528,8 @@ environment end-to-end.
       --secret-id researchmind/ecs-demo/cognito-client-secret --secret-string "<value>"
     AWS_PROFILE=researchmind-deploy aws secretsmanager put-secret-value \
       --secret-id researchmind/ecs-demo/qdrant-api-key --secret-string "<value>"
+    AWS_PROFILE=researchmind-deploy aws secretsmanager put-secret-value \
+      --secret-id researchmind/ecs-demo/mcp-auth-token --secret-string "<value, or \"\" if unused>"
 
     RDS's DATABASE_URL secret is NOT in this list -- Terraform generates
     and owns that value itself (modules/rds), you never touch it.
@@ -1541,3 +1555,117 @@ environment end-to-end.
 
 Until all steps are done, Phase 3+4+5 stay as validated-but-unapplied
 Terraform code (see infra/terraform/README.md "Current status").
+
+============================================================
+33. CLOUDFRONT — HTTPS FOR THE ALB
+============================================================
+
+The ALB (Phase 4) is HTTP-only, since there is no custom domain to put a
+real ACM certificate on. This blocks Phase 7: the Amplify frontend is
+HTTPS, and every modern browser blocks an HTTPS page from calling an HTTP
+API as mixed content.
+
+DECISION: put an Amazon CloudFront distribution in front of the ALB.
+
+    Browser (HTTPS)
+         |
+         v
+    CloudFront
+      *.cloudfront.net
+      (AWS-provided cert, automatic)
+         |
+       HTTP (internal AWS traffic, not internet-exposed)
+         |
+         v
+    ALB (stays HTTP-only, unchanged)
+         |
+         v
+    ECS/Fargate API
+
+Why this over a custom domain:
+
+    - CloudFront terminates TLS on its own *.cloudfront.net domain using
+      an AWS-provided certificate automatically. No domain ownership, no
+      DNS validation, no Route 53 hosted zone needed.
+    - Cost is effectively $0 at this project's traffic level -- well
+      within CloudFront's free tier (1TB/month data transfer, 10M
+      requests/month).
+    - CloudFront -> ALB over HTTP is fine: that leg never leaves AWS's
+      network and is not exposed to the browser. The browser only ever
+      sees the HTTPS CloudFront URL.
+    - It is a legitimate, common production pattern (CDN in front of an
+      ALB) worth having in the architecture for the "production
+      engineering" story this project exists to tell.
+
+Rejected/deferred alternative: a real custom domain (Route 53 domain
+registration + hosted zone + ACM certificate + alias record to the ALB).
+More "real" and gives a stable, brandable URL for demos/interviews, but
+costs ~$12/year domain registration + ~$0.50/month hosted zone -- would
+join Cognito/S3/ECR as an accepted low-cost *persistent* item rather than
+something torn down each cycle. Worth reconsidering later if a stable
+public URL becomes valuable; not needed to unblock Phase 7.
+
+Implementation: deferred to Phase 7, since that's the phase that actually
+exercises it (frontend calling the API). Add a CloudFront module with the
+ALB as its origin, forwarding all paths, HTTPS-only viewer protocol
+policy, HTTP-only origin protocol policy; output the distribution's
+`*.cloudfront.net` domain as the value for `NEXT_PUBLIC_API_URL`.
+
+============================================================
+34. REMAINING WORK IN research-intelligence-mcp (SEPARATE REPO)
+============================================================
+
+Phase 6 (MCP) is split across two repositories. Everything on the
+ResearchMind-AI side is done in Terraform: the ECS service/task
+definition, Cloud Map service discovery so the API/Research Runtime
+worker can resolve it privately, the security group rule allowing that
+traffic, and `MCP_PAPERS_SERVER_URL`/`MCP_PAPERS_ENABLED` wired into the
+shared environment. None of it can run yet, because the
+research-intelligence-mcp repository itself needs:
+
+[ ] 1. A Dockerfile (same idea as this repo's docker/backend.Dockerfile --
+       one image, `python:3.12-slim`-style base, whatever the MCP
+       server's actual entrypoint/command is). Does not exist yet as far
+       as this repository can see.
+
+[ ] 2. Build and push that image to the ECR repository Terraform already
+       created here (Phase 2):
+
+    AWS_PROFILE=researchmind-deploy aws ecr get-login-password --region us-east-1 \
+      | docker login --username AWS --password-stdin 232727982313.dkr.ecr.us-east-1.amazonaws.com
+    docker build -t 232727982313.dkr.ecr.us-east-1.amazonaws.com/research-intelligence-mcp:<tag> .
+    docker push 232727982313.dkr.ecr.us-east-1.amazonaws.com/research-intelligence-mcp:<tag>
+
+    The repo is immutable-tagged (same reasoning as researchmind-backend,
+    see section 17) -- use a real tag (e.g. that repo's own git short SHA),
+    not `latest`.
+
+[ ] 3. Confirm the MCP server actually listens on port 8080 and speaks
+       plain HTTP inside the VPC (matches this repo's
+       `MCP_PAPERS_SERVER_URL=http://127.0.0.1:8080/mcp` local default,
+       and what the Terraform here assumes -- `container_port = 8080`,
+       no TLS, since it's never internet-exposed, only reachable from the
+       API/worker security group over Cloud Map's private DNS).
+
+[ ] 4. Confirm whether the MCP server actually requires
+       `MCP_PAPERS_AUTH_TOKEN` for anything -- this repo's Terraform
+       already provisions an `mcp-auth-token` Secrets Manager container
+       for it either way. It still needs a value set (even an explicit
+       empty string) before any task can launch -- see section 32 step 3;
+       a secret with zero versions breaks every service's task launch,
+       not just the one that would have used it.
+
+[ ] 5. Once pushed, apply Phase 6 here with the real tag and
+       `enable_mcp=true` (without it, MCP is skipped entirely regardless
+       of what's in ECR -- see the enable_mcp variable in
+       environments/ecs-demo/variables.tf):
+
+    cd infra/terraform/environments/ecs-demo
+    AWS_PROFILE=researchmind-deploy terraform apply \
+      -var="backend_image_tag=bc623c6" \
+      -var="qdrant_url=<your Qdrant Cloud cluster URL>" \
+      -var="enable_mcp=true" \
+      -var="mcp_image_tag=<research-intelligence-mcp tag>"
+
+This section exists so the "what's left" list isn't only in chat history.
+Update the checkboxes here as each step happens in the other repo.

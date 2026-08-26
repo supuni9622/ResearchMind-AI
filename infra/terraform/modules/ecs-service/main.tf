@@ -84,5 +84,12 @@ resource "aws_ecs_service" "this" {
     }
   }
 
+  dynamic "service_registries" {
+    for_each = var.service_registry_arn == null ? [] : [var.service_registry_arn]
+    content {
+      registry_arn = service_registries.value
+    }
+  }
+
   tags = var.tags
 }

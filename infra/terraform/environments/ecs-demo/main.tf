@@ -16,6 +16,13 @@ locals {
 
   sqs_queue_url = "https://sqs.${var.aws_region}.amazonaws.com/${data.aws_caller_identity.current.account_id}/${var.sqs_queue_names[0]}"
 
+  # Cloud Map private DNS namespace name -- a plain string this config
+  # owns, not a computed attribute, so it's safe to reference before the
+  # namespace resource itself (used both to create it and to build
+  # MCP_PAPERS_SERVER_URL below).
+  service_discovery_namespace = "${local.name_prefix}.local"
+  mcp_server_url              = var.enable_mcp ? "http://research-intelligence-mcp.${local.service_discovery_namespace}:${var.mcp_container_port}/mcp" : ""
+
   # Shared by the API and all four workers -- mirrors docker-compose.yml's
   # `x-backend-env` anchor, which every backend service (api, all workers)
   # applies identically. Same reasoning here: one shared image, one shared
@@ -39,6 +46,15 @@ locals {
     COGNITO_USER_POOL_ID   = var.cognito_user_pool_id
     COGNITO_APP_CLIENT_ID  = var.cognito_app_client_id
     COGNITO_DOMAIN         = var.cognito_domain
+
+    # Chat + Deep Research (API + Research Runtime worker) reach MCP over
+    # Cloud Map private DNS, never the ALB -- MCP is internal-only. Every
+    # service gets this (including the two workers that never call it),
+    # matching docker-compose.yml's shared `x-backend-env` -- harmless
+    # unused config, same as the local setup.
+    MCP_PAPERS_ENABLED        = var.enable_mcp ? "true" : "false"
+    MCP_PAPERS_SERVER_URL     = local.mcp_server_url
+    MCP_PAPERS_QUERY_PROVIDER = "auto"
   }
 
   common_secrets = {
@@ -52,6 +68,7 @@ locals {
     VOYAGE_API_KEY        = module.secrets.secret_arns["voyage-api-key"]
     TAVILY_API_KEY        = module.secrets.secret_arns["tavily-api-key"]
     LANGSMITH_API_KEY     = module.secrets.secret_arns["langsmith-api-key"]
+    MCP_PAPERS_AUTH_TOKEN = module.secrets.secret_arns["mcp-auth-token"]
   }
 }
 
@@ -73,6 +90,7 @@ module "vpc" {
   public_subnet_cidrs  = var.public_subnet_cidrs
   private_subnet_cidrs = var.private_subnet_cidrs
   api_container_port   = var.api_container_port
+  mcp_container_port   = var.mcp_container_port
 }
 
 module "iam" {
@@ -128,6 +146,7 @@ module "secrets" {
     "app-secret-key",
     "cognito-client-secret",
     "qdrant-api-key",
+    "mcp-auth-token", # Phase 6 -- may end up unused; see section 34's manual TODO
   ]
 }
 
@@ -296,4 +315,73 @@ module "worker_memory_lifecycle" {
     MEMORY_LIFECYCLE_DRY_RUN = "true"
   })
   secrets = local.common_secrets
+}
+
+# --- Phase 6: MCP --------------------------------------------------------
+# research-intelligence-mcp is a separate repository (AWS_Deployment.md
+# section 4) -- see section 34's manual TODO for what still has to happen
+# there (a Dockerfile, an image pushed to the ECR repo Phase 2 already
+# created) before this can actually run.
+#
+# MCP is internal-only: no ALB target group, reached by the API/Research
+# Runtime worker over Cloud Map private DNS instead. Classic Cloud Map
+# (aws_service_discovery_*), not the newer ECS Service Connect feature --
+# simpler for a one-way "API calls MCP" relationship: only MCP needs to
+# register anything, callers just do a normal DNS lookup, no sidecar
+# proxy required on either side.
+
+resource "aws_service_discovery_private_dns_namespace" "internal" {
+  count = var.enable_mcp ? 1 : 0
+
+  name = local.service_discovery_namespace
+  vpc  = module.vpc.vpc_id
+}
+
+resource "aws_service_discovery_service" "mcp" {
+  count = var.enable_mcp ? 1 : 0
+
+  name = "research-intelligence-mcp"
+
+  dns_config {
+    namespace_id = aws_service_discovery_private_dns_namespace.internal[0].id
+
+    dns_records {
+      ttl  = 10
+      type = "A"
+    }
+  }
+}
+
+module "mcp_service" {
+  count = var.enable_mcp ? 1 : 0
+
+  source = "../../modules/ecs-service"
+
+  name_prefix  = local.name_prefix
+  service_name = "mcp"
+  cluster_id   = module.ecs_cluster.cluster_id
+  image        = "${module.ecr.repository_urls["research-intelligence-mcp"]}:${var.mcp_image_tag}"
+  # command left null -- unlike the shared backend image, this is a
+  # different codebase (separate repo) with its own Dockerfile CMD; this
+  # config has no basis for overriding it.
+
+  container_port       = var.mcp_container_port
+  service_registry_arn = aws_service_discovery_service.mcp[0].arn
+
+  cpu           = var.mcp_cpu
+  memory        = var.mcp_memory
+  desired_count = 1
+
+  subnet_ids         = module.vpc.public_subnet_ids
+  security_group_id  = module.vpc.ecs_tasks_security_group_id
+  execution_role_arn = module.iam.execution_role_arn
+  task_role_arn      = module.iam.task_role_arn
+  aws_region         = var.aws_region
+
+  # MCP's own environment/secrets needs are unknown from this repo (see
+  # section 34) -- passing the same shared secrets is harmless (unused
+  # entries) and gives it MCP_PAPERS_AUTH_TOKEN if it turns out to need
+  # one for its own upstream paper-search providers.
+  environment = local.common_environment
+  secrets     = local.common_secrets
 }

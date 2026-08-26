@@ -144,6 +144,19 @@ resource "aws_security_group" "ecs_tasks" {
     security_groups = [aws_security_group.alb.id]
   }
 
+  # Self-referencing, not from the ALB -- the MCP service (Phase 6) is
+  # internal-only, reached by the API/Research Runtime worker via Cloud
+  # Map private DNS, not through the ALB at all. Without this rule other
+  # ecs_tasks members (API, workers) cannot reach an MCP task on its port
+  # regardless of Cloud Map resolving its address correctly.
+  ingress {
+    description = "MCP from other ECS tasks in this security group (Cloud Map service discovery)"
+    from_port   = var.mcp_container_port
+    to_port     = var.mcp_container_port
+    protocol    = "tcp"
+    self        = true
+  }
+
   egress {
     description = "ECR image pulls, RDS/ElastiCache/Qdrant Cloud, external AI/tool providers"
     from_port   = 0

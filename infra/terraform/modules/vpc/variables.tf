@@ -37,6 +37,12 @@ variable "api_container_port" {
   default     = 8000
 }
 
+variable "mcp_container_port" {
+  description = "Port the internal-only MCP service (Phase 6) listens on -- reachable from other ECS tasks in the same security group via Cloud Map, never through the ALB."
+  type        = number
+  default     = 8080
+}
+
 variable "tags" {
   description = "Common tags applied to every resource."
   type        = map(string)

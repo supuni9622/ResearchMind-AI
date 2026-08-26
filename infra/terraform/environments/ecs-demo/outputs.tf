@@ -71,3 +71,12 @@ output "worker_service_names" {
     memory_lifecycle = module.worker_memory_lifecycle.service_name
   }
 }
+
+output "mcp_service_name" {
+  value = var.enable_mcp ? module.mcp_service[0].service_name : null
+}
+
+output "mcp_server_url" {
+  description = "Internal-only Cloud Map DNS URL -- not reachable from outside the VPC, this is just what MCP_PAPERS_SERVER_URL resolves to for the API/Research Runtime worker."
+  value       = local.mcp_server_url
+}

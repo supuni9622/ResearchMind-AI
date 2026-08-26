@@ -99,3 +99,37 @@ variable "cognito_domain" {
   type    = string
   default = "https://us-east-19chs0pt6p.auth.us-east-1.amazoncognito.com"
 }
+
+# --- Phase 6: MCP ------------------------------------------------------
+# research-intelligence-mcp is a separate repository (AWS_Deployment.md
+# section 4) -- see section 34's manual TODO for what still needs to
+# happen there before this can actually run.
+
+variable "enable_mcp" {
+  description = "Off by default -- no image exists in the research-intelligence-mcp ECR repo yet (section 34's manual TODO). Skips creating the Cloud Map namespace/service and the MCP ECS service entirely, rather than creating a service doomed to crash-loop (and burn Fargate spend) pulling a tag that doesn't exist. Flip to true once that repo has pushed a real image. The app already handles \"MCP disabled\" as a safe inert state (see .env.example's MCP_PAPERS_ENABLED comment) -- turning this off doesn't break Chat or Deep Research, paper search just stays unavailable."
+  type        = bool
+  default     = false
+}
+
+variable "mcp_container_port" {
+  description = "Must match the vpc module's mcp_container_port (the security group rule allowing this traffic references that value, not this one -- keep them in sync)."
+  type        = number
+  default     = 8080
+}
+
+variable "mcp_image_tag" {
+  description = "research-intelligence-mcp ECR tag to deploy. Only required when enable_mcp=true."
+  type        = string
+  default     = ""
+}
+
+variable "mcp_cpu" {
+  description = "Unvalidated placeholder -- this repository has no visibility into the MCP server's actual resource footprint. Revisit once it's actually running (Phase 10/12)."
+  type        = number
+  default     = 256
+}
+
+variable "mcp_memory" {
+  type    = number
+  default = 512
+}

@@ -41,12 +41,18 @@ running are, in rough order of how expensive "leave it on by accident" is:
 Live as of this commit: Phase 1 (VPC, subnets, security groups, IAM roles)
 and Phase 2 (ECR repositories, `researchmind-backend` image pushed) — none
 of those have a meaningful ongoing cost. Phase 3 (RDS/ElastiCache/Secrets
-Manager), Phase 4 (ECS cluster/API service/ALB), and Phase 5 (the four
-worker services) Terraform all exist but have not been applied —
-`terraform plan` shows 36 resources to add. Applying starts the
-~$21-27/mo RDS+ElastiCache clock plus ALB/Fargate billing (5 Fargate
-tasks total once workers are up). See `AWS_Deployment.md` section 32 for
-the exact apply/secrets/verify steps.
+Manager), Phase 4 (ECS cluster/API service/ALB), Phase 5 (the four worker
+services), and Phase 6 (MCP, behind an `enable_mcp` toggle -- see below)
+Terraform all exist but have not been applied — `terraform plan` shows 37
+resources to add with the default `enable_mcp=false` (42 with
+`enable_mcp=true`). Applying starts the ~$21-27/mo RDS+ElastiCache clock
+plus ALB/Fargate billing (5 Fargate tasks, 6 once MCP is enabled) plus
+~$0.40/mo per Secrets Manager secret (10 of them = ~$4/mo — not
+negligible, this is why secrets are destroyed with everything else, not
+left running). See `AWS_Deployment.md` section 32 for the exact
+apply/secrets/verify steps, and section 34 for what's still needed in the
+separate `research-intelligence-mcp` repo before `enable_mcp=true` is
+useful.
 
 **Before every `apply`:** know what you're about to create and roughly what
 it costs. **After every session:** run `terraform destroy` on `ecs-demo`
@@ -157,12 +163,14 @@ None of Phase 1/2 has an ongoing cost, so there's no urgency to destroy
 them — but `terraform destroy` still removes them cleanly when no longer
 needed.
 
-**Phase 3, 4, and 5 are written and validated (`terraform plan`: 36
-resources) but NOT applied.** RDS, ElastiCache, Secrets Manager containers,
-ECS cluster, API service, ALB, and all four worker services all exist as
-reviewed Terraform code only. See `AWS_Deployment.md` section 32 for the
-manual TODO to actually apply them (needs a real Qdrant Cloud cluster
-first, and the 9 secret values populated after apply).
-
-No MCP service yet — that's Phase 6, built on this same
-`modules/ecs-service`, reviewed before its own first `apply`.
+**Phase 3, 4, 5, and 6 are written and validated but NOT applied.** RDS,
+ElastiCache, Secrets Manager containers, ECS cluster, API service, ALB,
+all four worker services, and the MCP service/Cloud Map wiring all exist
+as reviewed Terraform code only. `terraform plan` shows 37 resources with
+the default `enable_mcp=false` (MCP is skipped entirely, not just
+deployed-and-broken, until `research-intelligence-mcp` actually has an
+image — see section 34), or 42 with `enable_mcp=true`. See
+`AWS_Deployment.md` section 32 for the manual TODO to actually apply
+Phase 3-5 (needs a real Qdrant Cloud cluster first, and the 10 secret
+values populated after apply), and section 34 for what's left in the
+separate MCP repo before flipping `enable_mcp` on.

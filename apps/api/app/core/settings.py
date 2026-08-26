@@ -406,6 +406,56 @@ class Settings(BaseSettings):
     memory_importance_threshold: float = 0.1
 
     # ==========================================================================
+    # Voice-on-Chat POC (docs/todo/voice-chat-poc-implementation-plan.md)
+    # ==========================================================================
+    # Default-off. `WS /chat/voice` is the only code path that reads any of
+    # these -- `WS /chat/ws`, `/chat/stream`, Linear Research, and Deep
+    # Research never do, so this section cannot change their behavior
+    # regardless of value. `deepgram_api_key`/`elevenlabs_api_key`/
+    # `elevenlabs_voice_id` absent degrades the relevant provider factory to
+    # `None` rather than raising, same "unconfigured deployment never
+    # crashes" convention as `tavily_api_key`/`mcp_papers_server_url` above.
+    voice_enabled: bool = False
+    deepgram_api_key: str | None = None
+    elevenlabs_api_key: str | None = None
+    # No default: ElevenLabs voice IDs are account-specific (the free-tier
+    # voice library varies per account), so silently defaulting to a voice
+    # ID that may not resolve for this account is worse than failing closed
+    # via `create_voice_tts_provider()` returning `None`. Set this from the
+    # "Voices" tab of your own ElevenLabs dashboard.
+    elevenlabs_voice_id: str | None = None
+    deepgram_model: str = "nova-3"
+    deepgram_sample_rate: int = 16000
+    # Milliseconds of trailing silence Deepgram waits before marking a
+    # transcript `is_final` -- this is what ends a voice turn server-side,
+    # there is no explicit client "stop talking" message in this protocol.
+    deepgram_endpointing_ms: int = 300
+    elevenlabs_model_id: str = "eleven_flash_v2_5"
+    elevenlabs_output_format: str = "mp3_44100_128"
+    voice_stt_connect_timeout_seconds: float = 10.0
+    voice_tts_connect_timeout_seconds: float = 10.0
+    # Barge-in (interrupting a still-playing response) -- energy-based
+    # voice-activity detection over incoming audio during playback, not a
+    # second live Deepgram connection (cheaper, one fewer concurrent
+    # vendor session per turn).
+    #
+    # Default OFF, not on: confirmed live (2026-08-27) that the original
+    # 800.0/3-chunk defaults were tuned for nothing but a guess, and were
+    # low enough that ordinary microphone room noise -- present the whole
+    # time since the mic stays open for the entire response, not just
+    # while the user is actually talking -- falsely triggered an
+    # "interrupt" on essentially every turn, aborting generation before
+    # any answer arrived. A false interrupt breaking the core "ask,
+    # get an answer" path is a much worse failure than losing this one
+    # stretch feature, so this defaults off until real tuning happens.
+    # The threshold below is also raised well above the old default in
+    # case it's re-enabled, but is still an untuned starting guess, not a
+    # calibrated value -- see the plan doc's T11.
+    voice_barge_in_enabled: bool = False
+    voice_barge_in_rms_threshold: float = 4000.0
+    voice_barge_in_consecutive_chunks: int = 5
+
+    # ==========================================================================
     # Prometheus / Grafana Observability (prometheus_grafana_observability_prd.md)
     # ==========================================================================
 

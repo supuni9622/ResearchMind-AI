@@ -31,6 +31,11 @@ export default function ChatPage() {
     newConversation,
     loadMoreConversations,
     loadOlderMessages,
+    voiceStatus,
+    voiceError,
+    voiceDraftTranscript,
+    startVoiceChat,
+    stopVoiceChat,
   } = useChat({ onConversationCreated: replaceConversationUrl });
   const [input, setInput] = useState('');
   const [provider, setProvider] = useState<GenerationProvider | 'auto'>('auto');
@@ -153,6 +158,17 @@ export default function ChatPage() {
           onWebSearchEnabledChange={setWebSearchEnabled}
           paperSearchEnabled={paperSearchEnabled}
           onPaperSearchEnabledChange={setPaperSearchEnabled}
+          voiceStatus={voiceStatus}
+          voiceError={voiceError}
+          voiceDraftTranscript={voiceDraftTranscript}
+          onStartVoice={() =>
+            void startVoiceChat({
+              provider: provider === 'auto' ? undefined : provider,
+              webSearchEnabled,
+              paperSearchEnabled,
+            })
+          }
+          onStopVoice={stopVoiceChat}
         />
       </div>
     </div>

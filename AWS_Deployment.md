@@ -1544,14 +1544,32 @@ environment end-to-end.
 
     After populating secrets, force a fresh deployment on all five
     services so they pick up the new values (ECS resolves secrets once
-    per task, not continuously):
+    per task, not continuously). AWS_PAGER="" is required here, not
+    optional -- without it, the AWS CLI pipes each command's full JSON
+    output through `less`, and the loop BLOCKS on the first iteration
+    waiting for someone to press `q`; every service after the first
+    silently never runs until that pager is dismissed. The --query trims
+    output to the useful bit so all 5 results are easy to eyeball at once:
 
+    AWS_PAGER="" bash -c '
     for svc in api worker-processing worker-research-runtime worker-eval-scoring worker-memory-lifecycle; do
       AWS_PROFILE=researchmind-deploy aws ecs update-service \
         --cluster researchmind-ecs-demo-cluster \
         --service "researchmind-ecs-demo-$svc" \
-        --force-new-deployment --region us-east-1
+        --force-new-deployment --region us-east-1 \
+        --query "service.{Name:serviceName,Status:status}"
     done
+    '
+
+    Give it a minute or two, then confirm all 5 tasks actually came up
+    healthy (a bad secret value or missing permission shows up here as
+    Running staying below Desired):
+
+    AWS_PAGER="" AWS_PROFILE=researchmind-deploy aws ecs describe-services \
+      --cluster researchmind-ecs-demo-cluster \
+      --services researchmind-ecs-demo-api researchmind-ecs-demo-worker-processing researchmind-ecs-demo-worker-research-runtime researchmind-ecs-demo-worker-eval-scoring researchmind-ecs-demo-worker-memory-lifecycle \
+      --region us-east-1 \
+      --query "services[].{Name:serviceName,Running:runningCount,Desired:desiredCount,LastEvent:events[0].message}"
 
 [ ] 4. Verify the API directly (HTTP, via the ALB):
 

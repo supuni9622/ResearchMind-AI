@@ -38,6 +38,16 @@ build/
 # Large local media (hosted on YouTube instead, see README)
 docs/videos/
 
+# Terraform (.terraform.lock.hcl is intentionally NOT ignored -- commit it,
+# same as uv.lock/package-lock.json, for reproducible provider versions)
+**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+!*.tfvars.example
+crash.log
+crash.*.log
+
 # Raw source PDFs for benchmark datasets -- only processed_document.json
 # is a tracked dataset artifact, see benchmarks/datasets/README.md
 benchmarks/datasets/research-papers-sources/

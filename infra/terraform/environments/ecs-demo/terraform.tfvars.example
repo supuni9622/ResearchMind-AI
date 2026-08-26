@@ -1,0 +1,10 @@
+# Copy to terraform.tfvars (gitignored) and adjust if the defaults in
+# variables.tf don't match your account. Most of these already match the
+# values Phase 0 validation confirmed for this project's AWS account --
+# see docs/deployment/07-phase0-validation-findings.md.
+
+aws_region          = "us-east-1"
+availability_zones  = ["us-east-1a", "us-east-1b"]
+
+s3_bucket_name   = "researchmind-ai-documents-dev"
+sqs_queue_names  = ["ResearchMind-Processing", "ResearchMind-Processing-DLQ"]

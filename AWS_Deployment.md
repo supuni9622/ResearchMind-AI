@@ -1545,16 +1545,40 @@ environment end-to-end.
         --force-new-deployment --region us-east-1
     done
 
-[ ] 4. Verify the API: `curl http://$(cd infra/terraform/environments/ecs-demo && AWS_PROFILE=researchmind-deploy terraform output -raw api_url | sed 's#http://##')/api/v1/health/live`
-       (HTTP only -- see modules/alb/main.tf; not yet safe for the Amplify
-       frontend, which is HTTPS, to call -- that needs Phase 7 to resolve
-       the custom-domain/ACM gap first). Verify the workers by checking
-       CloudWatch Logs (`/ecs/researchmind-ecs-demo-worker-*`) or, for
-       research-runtime/memory-lifecycle, hitting their `/metrics` port
-       directly if reachable.
+[ ] 4. Verify the API directly (HTTP, via the ALB):
 
-Until all steps are done, Phase 3+4+5 stay as validated-but-unapplied
-Terraform code (see infra/terraform/README.md "Current status").
+    curl http://$(cd infra/terraform/environments/ecs-demo && AWS_PROFILE=researchmind-deploy terraform output -raw api_url | sed 's#http://##')/api/v1/health/live
+
+    Then verify the HTTPS front door (CloudFront, Phase 7 -- this is the
+    URL Amplify actually uses):
+
+    curl $(cd infra/terraform/environments/ecs-demo && AWS_PROFILE=researchmind-deploy terraform output -raw api_https_url)/api/v1/health/live
+
+    (CloudFront distributions take 5-15 minutes to deploy after apply --
+    if this curl fails right after `terraform apply`, that's likely why;
+    retry rather than assuming something's broken.) Verify the workers by
+    checking CloudWatch Logs (`/ecs/researchmind-ecs-demo-worker-*`) or,
+    for research-runtime/memory-lifecycle, hitting their `/metrics` port
+    directly if reachable.
+
+[ ] 5. Apply the frontend (Amplify, Phase 7) using the `api_https_url`
+       from step 4 -- see section 35 for the full walkthrough (GitHub
+       connection, the two-phase `base_url` apply, Cognito callback/logout
+       URLs). Do this as part of the same testing session, not a separate
+       later thing to remember, since the API isn't actually reachable
+       from a browser (mixed content) until CloudFront exists anyway.
+
+    ⚠️  DO NOT run `terraform destroy` in `environments/frontend`. Unlike
+    Phase 3-5 above, Amplify is meant to stay up between sessions --
+    destroying it is NOT part of the normal end-of-session cleanup. See
+    the cost note at the end of section 35 and
+    infra/terraform/README.md's "Working with the frontend environment".
+
+When you're done testing, `terraform destroy` in `environments/ecs-demo`
+only (Phase 3-5, and Phase 6 if `enable_mcp=true` was used) -- leave
+`environments/frontend` applied. Until Phase 3-5 above are done,
+they stay as validated-but-unapplied Terraform code (see
+infra/terraform/README.md "Current status").
 
 ============================================================
 33. CLOUDFRONT — HTTPS FOR THE ALB

@@ -69,8 +69,12 @@ with the frontend environment" below and `AWS_Deployment.md` section 35.
 **Before every `apply`:** know what you're about to create and roughly what
 it costs. **After every session:** run `terraform destroy` on `ecs-demo`
 unless you have a specific reason to keep it up (see below for what's safe
-to leave running). Do NOT run `terraform destroy` on `environments/frontend`
-as part of this routine — Amplify is meant to stay up.
+to leave running).
+
+⚠️ **Never run `terraform destroy` on `environments/frontend` as part of
+this routine.** Amplify is meant to stay up between sessions — it isn't
+part of the ephemeral-environment cleanup, unlike everything in
+`ecs-demo`. See `AWS_Deployment.md` section 32 step 5.
 
 Low-cost/persistent-by-design and **not** part of `ecs-demo`'s destroy
 workflow: the `bootstrap` state bucket/lock table (fractions of a
@@ -176,7 +180,7 @@ AWS_PROFILE=researchmind-deploy terraform plan
 AWS_PROFILE=researchmind-deploy terraform apply
 ```
 
-Do not run `terraform destroy` here as a matter of routine the way you
+⚠️ Do not run `terraform destroy` here as a matter of routine the way you
 would for `ecs-demo` -- this environment is meant to stay applied.
 
 ## Current status

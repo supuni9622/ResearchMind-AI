@@ -66,4 +66,19 @@ resource "aws_amplify_app" "web" {
       NEXT_PUBLIC_REDIRECT_URI = "${var.base_url}/auth/callback"
     }
   )
+
+  # Found live, the hard way: connecting the GitHub repo through the
+  # Console (Step 6) rewrites build_spec (adds its own npm cache flags,
+  # restructures the monorepo YAML) and attaches an IAM service role we
+  # never set here -- Terraform then saw that as drift from this file and
+  # planned a REPLACE to force it back, which destroyed the whole app
+  # (losing the just-configured GitHub connection/branch/service role,
+  # since none of those are Terraform resources) rather than just
+  # updating in place. Once a human has connected the branch via the
+  # Console, the Console is the right place to manage these two fields,
+  # not this seed config -- ignore future drift on them so this can't
+  # happen again.
+  lifecycle {
+    ignore_changes = [build_spec, iam_service_role_arn]
+  }
 }

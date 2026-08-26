@@ -96,6 +96,19 @@ variable "qdrant_url" {
   type        = string
 }
 
+# CORS allow-list for the API (backend/app/middleware/cors.py splits this
+# on comma). Needs BOTH localhost:3000 (local frontend dev pointed at the
+# deployed backend) and the Amplify app's default domain (environments/
+# frontend's `app_id` output -- https://main.<app_id>.amplifyapp.com) --
+# same cross-environment plain-string-input pattern as frontend/variables.tf's
+# api_url, just in the opposite direction. Update and reapply if the
+# Amplify app is ever destroyed/recreated (new app_id => new domain).
+variable "frontend_url" {
+  description = "Comma-separated list of allowed CORS origins."
+  type        = string
+  default     = "http://localhost:3000,https://main.dgje0byeua4jk.amplifyapp.com"
+}
+
 # Cognito already exists (AWS_Deployment.md section 13) -- these are the
 # real, non-sensitive values for this project's pool. The client secret is
 # NOT here -- it's one of the Phase 3 Secrets Manager entries.

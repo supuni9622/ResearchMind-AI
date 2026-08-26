@@ -41,6 +41,8 @@ locals {
     VALKEY_URL               = "redis://${module.elasticache.endpoint}:${module.elasticache.port}/0"
     SEMANTIC_CACHE_REDIS_URL = "redis://${module.elasticache.endpoint}:${module.elasticache.port}"
 
+    FRONTEND_URL = var.frontend_url
+
     QDRANT_URL             = var.qdrant_url
     QDRANT_COLLECTION_NAME = "researchmind_knowledge"
     COGNITO_USER_POOL_ID   = var.cognito_user_pool_id

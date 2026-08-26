@@ -50,6 +50,13 @@ class Settings(BaseSettings):
 
     frontend_url: str = "http://localhost:3000"
 
+    @property
+    def frontend_urls(self) -> list[str]:
+        """CORS allow-list. frontend_url may be a comma-separated list
+        (e.g. local dev + deployed Amplify domain both need access to the
+        same backend)."""
+        return [origin.strip() for origin in self.frontend_url.split(",") if origin.strip()]
+
     # ==========================================================================
     # AI Services
     # ==========================================================================

@@ -41,3 +41,17 @@ docs/videos/
 # Raw source PDFs for benchmark datasets -- only processed_document.json
 # is a tracked dataset artifact, see benchmarks/datasets/README.md
 benchmarks/datasets/research-papers-sources/
+
+# Terraform
+**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+crash.log
+crash.*.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+.terraformrc
+terraform.rc

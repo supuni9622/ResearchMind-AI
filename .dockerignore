@@ -1,0 +1,33 @@
+.git
+.github
+.venv
+.mypy_cache
+.pytest_cache
+.ruff_cache
+.vscode
+.claude
+
+**/__pycache__
+**/*.pyc
+.coverage
+
+node_modules
+apps/web/.next
+apps/web/node_modules
+apps/web/tsconfig.tsbuildinfo
+
+# datasets/ (root-level, small) ships in the backend image -- app/services/
+# segment_analysis.py reads datasets/golden/rag_answer_gold.json at runtime.
+# benchmarks/datasets and benchmarks/reports are dev-only benchmark corpora
+# and CLI output, not runtime dependencies -- excluded to keep the image lean.
+graphify-out
+benchmarks/datasets
+benchmarks/reports
+prds
+
+*.HEIC
+*.heic
+
+.env
+.env.*
+!.env.example

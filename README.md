@@ -333,6 +333,59 @@ It's expected to be reachable at `MCP_PAPERS_SERVER_URL` (default `http://127.0.
 
 ---
 
+## Full Stack via Docker Compose
+
+Steps 1–5 above still apply (clone, `.env`), but instead of running the API
+and each worker directly on the host (steps 6–10), `docker compose up -d --build`
+runs the entire platform as containers — Postgres, Valkey, Qdrant, the
+semantic-cache Redis, the API, all four workers, the Next.js frontend, and
+Prometheus/Grafana:
+
+```bash
+cp .env.example .env   # fill in provider API keys, Cognito, AWS as usual
+docker compose up -d --build
+```
+
+`docker-compose.yml` builds two images from `docker/`:
+
+- `docker/backend.Dockerfile` — one shared image for the API and every
+  `apps/worker/*_main.py` process (they're one uv-managed project with a
+  single dependency set; workers import directly from `app.*`). The `api`,
+  `worker-processing`, `worker-research-runtime`, `worker-eval-scoring`, and
+  `worker-memory-lifecycle` services all build from it and differ only in
+  their `command:`.
+- `docker/web.Dockerfile` — a multi-stage Next.js `output: "standalone"`
+  build for `apps/web`.
+
+A one-shot `migrate` service runs `alembic upgrade head` before the API and
+workers start (`depends_on: condition: service_completed_successfully`), so
+migrations never race a hot-reloading dev server the way running them inside
+`uvicorn --reload` would. `DATABASE_URL`/`VALKEY_URL`/`QDRANT_URL` are
+overridden in Compose to the service names (`postgres`, `valkey`, `qdrant`)
+regardless of what `.env` has for host-run development; every other setting
+(provider keys, AWS/Cognito, feature flags) still comes from `.env` via
+`env_file`. Prometheus scrapes `api:8000`, `worker-research-runtime:8010`, and
+`worker-memory-lifecycle:8011` by service name instead of
+`host.docker.internal`.
+
+```bash
+docker compose ps                 # see every service and its health state
+docker compose logs -f api        # tail one service
+docker compose down                # stop everything, keep volumes
+docker compose up -d --build       # rebuild after a code change
+```
+
+Open the same URLs as above, plus the frontend at http://localhost:3000.
+
+This is the local/dev-parity path, not the production deployment target.
+Production is AWS ECS Fargate + RDS + ElastiCache; see
+[`docs/todo/aws-ecs-fargate-production-deployment.md`](docs/todo/aws-ecs-fargate-production-deployment.md)
+for that plan's decided direction and open questions, and
+[`docs/deployment/production.md`](docs/deployment/production.md) for the
+memory-lifecycle worker's production rollout procedure.
+
+---
+
 ## Testing
 
 Tests require `ENVIRONMENT=test` so they connect to `researchmind_test` instead of the development database.

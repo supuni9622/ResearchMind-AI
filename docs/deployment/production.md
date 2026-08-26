@@ -12,15 +12,39 @@ This document will evolve throughout the project.
 
 ## Target Architecture
 
-ResearchMind will support production deployment using:
+The decided production architecture is AWS ECS/Fargate for the API and four
+workers, fronted by an ALB, with AWS Amplify Hosting for the Next.js
+frontend:
 
-- Docker
-- Reverse Proxy
-- PostgreSQL
-- Valkey
-- Qdrant
-- Monitoring
-- Observability
+- ECS/Fargate (API + document/research-runtime/evaluation/memory-lifecycle
+  workers), behind an ALB
+- AWS Amplify Hosting (frontend, deployed independently of the backend)
+- RDS PostgreSQL, ElastiCache Valkey, S3, SQS, Cognito (existing), Secrets
+  Manager
+- Qdrant Cloud Free Tier (not self-hosted)
+- A separate ECS/Fargate service for the `research-intelligence-mcp` server
+- CloudWatch logs/metrics as the first observability layer (Prometheus/
+  Grafana stay local-only for now)
+
+This is deliberately an **ephemeral** environment
+(`terraform apply` → test/demo → `terraform destroy`), not a 24/7 deployment —
+ResearchMind is a portfolio/interview project with a hard **~$5/month**
+persistent-cost target, not real production traffic. See
+[`../../AWS_Deployment.md`](../../AWS_Deployment.md) and
+[`01-deployment-options-and-decisions.md`](01-deployment-options-and-decisions.md)
+through
+[`06-frontend-amplify-deployment.md`](06-frontend-amplify-deployment.md) for
+the full architecture and the reasoning behind each choice.
+
+Local/dev-parity containerization (Dockerfiles + full `docker-compose.yml`
+for the API, all four workers, and the frontend) is done — see
+[`local.md`](local.md). None of the AWS infrastructure above is provisioned
+yet (no Terraform, no ECR pushes, no live ECS/RDS/ElastiCache) — see
+[`../todo/aws-ecs-fargate-production-deployment.md`](../todo/aws-ecs-fargate-production-deployment.md)
+for the implementation checklist and its two remaining open questions
+(semantic-cache ElastiCache-Valkey compatibility, NAT Gateway cost/VPC
+endpoint strategy); worker scaling, Qdrant persistence, frontend hosting,
+secrets management, and the CI/CD shape are already decided there.
 
 Future milestones will define:
 

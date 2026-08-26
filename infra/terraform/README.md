@@ -35,16 +35,18 @@ running are, in rough order of how expensive "leave it on by accident" is:
 | RDS PostgreSQL | ~$12-15/mo+ (`db.t4g.micro`) | Terraform written (Phase 3) — not yet applied |
 | ElastiCache Valkey | ~$9-12/mo+ (`cache.t4g.micro`) | Terraform written (Phase 3) — not yet applied |
 | ALB | ~$16-20/mo + LCU usage | Terraform written (Phase 4) — not yet applied |
-| ECS/Fargate (API task) | Billed per vCPU/GB-hour while running (0.5 vCPU/1GB to start) | Terraform written (Phase 4) — not yet applied |
+| ECS/Fargate (API + 4 workers) | Billed per vCPU/GB-hour while running (2.5 vCPU / 6GB combined to start) | Terraform written (Phase 4-5) — not yet applied |
 | NAT Gateway | **Not created by default** — see Phase 0 finding §11; only ever added temporarily, never left running | |
 
 Live as of this commit: Phase 1 (VPC, subnets, security groups, IAM roles)
 and Phase 2 (ECR repositories, `researchmind-backend` image pushed) — none
 of those have a meaningful ongoing cost. Phase 3 (RDS/ElastiCache/Secrets
-Manager) and Phase 4 (ECS cluster/API service/ALB) Terraform both exist but
-have not been applied — `terraform plan` shows 24 resources to add. Applying
-starts the ~$21-27/mo RDS+ElastiCache clock plus ALB/Fargate billing. See
-`AWS_Deployment.md` section 32 for the exact apply/secrets/verify steps.
+Manager), Phase 4 (ECS cluster/API service/ALB), and Phase 5 (the four
+worker services) Terraform all exist but have not been applied —
+`terraform plan` shows 36 resources to add. Applying starts the
+~$21-27/mo RDS+ElastiCache clock plus ALB/Fargate billing (5 Fargate
+tasks total once workers are up). See `AWS_Deployment.md` section 32 for
+the exact apply/secrets/verify steps.
 
 **Before every `apply`:** know what you're about to create and roughly what
 it costs. **After every session:** run `terraform destroy` on `ecs-demo`
@@ -155,12 +157,12 @@ None of Phase 1/2 has an ongoing cost, so there's no urgency to destroy
 them — but `terraform destroy` still removes them cleanly when no longer
 needed.
 
-**Phase 3 and Phase 4 are written and validated (`terraform plan`: 24
+**Phase 3, 4, and 5 are written and validated (`terraform plan`: 36
 resources) but NOT applied.** RDS, ElastiCache, Secrets Manager containers,
-ECS cluster, API service, and ALB all exist as reviewed Terraform code only.
-See `AWS_Deployment.md` section 32 for the manual TODO to actually apply
-them (needs a real Qdrant Cloud cluster first, and the 9 secret values
-populated after apply).
+ECS cluster, API service, ALB, and all four worker services all exist as
+reviewed Terraform code only. See `AWS_Deployment.md` section 32 for the
+manual TODO to actually apply them (needs a real Qdrant Cloud cluster
+first, and the 9 secret values populated after apply).
 
-No worker services or MCP service yet — those are Phase 5/6, built on this
-same `modules/ecs-service`, reviewed before their own first `apply`.
+No MCP service yet — that's Phase 6, built on this same
+`modules/ecs-service`, reviewed before its own first `apply`.

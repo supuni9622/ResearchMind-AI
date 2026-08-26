@@ -1473,27 +1473,30 @@ environment end-to-end.
        `qdrant-api-key` secret value in step 3 below, the URL becomes the
        `qdrant_url` Terraform variable in step 2.
 
-[ ] 2. Apply Phase 3 + Phase 4 together (RDS, ElastiCache, Secrets Manager
-       containers, ECS cluster, API service, ALB) -- applying Phase 3 alone
-       first would pay for RDS/ElastiCache with nothing yet able to connect
-       to them:
+[ ] 2. Apply Phase 3 + 4 + 5 together (RDS, ElastiCache, Secrets Manager
+       containers, ECS cluster, API service, ALB, all four worker
+       services) -- applying Phase 3 alone first would pay for
+       RDS/ElastiCache with nothing yet able to connect to them:
 
     cd infra/terraform/environments/ecs-demo
     AWS_PROFILE=researchmind-deploy terraform apply \
       -var="backend_image_tag=bc623c6" \
       -var="qdrant_url=<your Qdrant Cloud cluster URL>"
 
-    Expect 24 resources to add. Starts real ongoing cost (~$21-27/month
-    RDS+ElastiCache, plus ALB/Fargate billing while running -- see
-    infra/terraform/README.md's cost table). `backend_image_tag` must be an
-    existing tag in the researchmind-backend ECR repo (currently `bc623c6`;
-    push a new one first if the code has moved on). Run `terraform destroy`
-    when done testing.
+    Expect 36 resources to add: RDS+ElastiCache+9 secrets (17), ECS
+    cluster+ALB+API service (7), 4 worker services (12). Starts real
+    ongoing cost (~$21-27/month RDS+ElastiCache, plus ALB/Fargate billing
+    for 5 running tasks -- see infra/terraform/README.md's cost table).
+    `backend_image_tag` must be an existing tag in the researchmind-backend
+    ECR repo (currently `bc623c6`; push a new one first if the code has
+    moved on -- the SAME tag deploys to all 5 services, one shared image).
+    Run `terraform destroy` when done testing.
 
 [ ] 3. Populate the 9 Secrets Manager containers Phase 3 created (real
-       values, never through Terraform/tfstate) -- the API service won't
-       start cleanly until these have real values, since its task
-       definition already references all of them:
+       values, never through Terraform/tfstate) -- the API and all four
+       workers won't start cleanly until these have real values, since
+       every one of their task definitions already references all of them
+       (same shared environment/secrets, see main.tf's `local.common_secrets`):
 
     AWS_PROFILE=researchmind-deploy aws secretsmanager put-secret-value \
       --secret-id researchmind/ecs-demo/groq-api-key --secret-string "<value>"
@@ -1517,19 +1520,24 @@ environment end-to-end.
     RDS's DATABASE_URL secret is NOT in this list -- Terraform generates
     and owns that value itself (modules/rds), you never touch it.
 
-    After populating secrets, force a fresh deployment so the API task
-    picks them up (ECS caches resolved secret values per task, not
-    per-service):
+    After populating secrets, force a fresh deployment on all five
+    services so they pick up the new values (ECS resolves secrets once
+    per task, not continuously):
 
-    AWS_PROFILE=researchmind-deploy aws ecs update-service \
-      --cluster researchmind-ecs-demo-cluster \
-      --service researchmind-ecs-demo-api \
-      --force-new-deployment --region us-east-1
+    for svc in api worker-processing worker-research-runtime worker-eval-scoring worker-memory-lifecycle; do
+      AWS_PROFILE=researchmind-deploy aws ecs update-service \
+        --cluster researchmind-ecs-demo-cluster \
+        --service "researchmind-ecs-demo-$svc" \
+        --force-new-deployment --region us-east-1
+    done
 
-[ ] 4. Verify: `curl http://$(cd infra/terraform/environments/ecs-demo && AWS_PROFILE=researchmind-deploy terraform output -raw api_url | sed 's#http://##')/api/v1/health/live`
+[ ] 4. Verify the API: `curl http://$(cd infra/terraform/environments/ecs-demo && AWS_PROFILE=researchmind-deploy terraform output -raw api_url | sed 's#http://##')/api/v1/health/live`
        (HTTP only -- see modules/alb/main.tf; not yet safe for the Amplify
        frontend, which is HTTPS, to call -- that needs Phase 7 to resolve
-       the custom-domain/ACM gap first).
+       the custom-domain/ACM gap first). Verify the workers by checking
+       CloudWatch Logs (`/ecs/researchmind-ecs-demo-worker-*`) or, for
+       research-runtime/memory-lifecycle, hitting their `/metrics` port
+       directly if reachable.
 
-Until all steps are done, Phase 3+4 stay as validated-but-unapplied
+Until all steps are done, Phase 3+4+5 stay as validated-but-unapplied
 Terraform code (see infra/terraform/README.md "Current status").

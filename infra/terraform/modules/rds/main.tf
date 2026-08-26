@@ -64,6 +64,13 @@ resource "aws_db_instance" "this" {
 resource "aws_secretsmanager_secret" "database_url" {
   name = "${var.secrets_path_prefix}/database-url"
 
+  # See the same setting in modules/secrets/main.tf: immediate deletion,
+  # not AWS's default 30-day recovery window, so `terraform destroy` then
+  # `apply` doesn't fail trying to recreate this while an old one is
+  # still pending deletion. Right tradeoff for an apply/destroy/reapply
+  # environment; would not be for a real production secret.
+  recovery_window_in_days = 0
+
   tags = var.tags
 }
 

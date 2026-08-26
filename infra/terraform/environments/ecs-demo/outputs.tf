@@ -62,3 +62,12 @@ output "api_url" {
 output "api_service_name" {
   value = module.api_service.service_name
 }
+
+output "worker_service_names" {
+  value = {
+    processing       = module.worker_processing.service_name
+    research_runtime = module.worker_research_runtime.service_name
+    eval_scoring     = module.worker_eval_scoring.service_name
+    memory_lifecycle = module.worker_memory_lifecycle.service_name
+  }
+}

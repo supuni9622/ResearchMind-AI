@@ -122,6 +122,11 @@ from app.infrastructure.metrics.research import (
     RESEARCH_RUNS_FAILED_TOTAL,
     RESEARCH_RUNS_TOTAL,
 )
+from app.infrastructure.metrics.voice import (
+    VOICE_STT_FIRST_TRANSCRIPT_DURATION,
+    VOICE_TTS_FIRST_AUDIO_DURATION,
+    VOICE_TURN_DURATION,
+)
 from app.infrastructure.metrics.web_search import (
     WEB_SEARCH_DURATION,
     WEB_SEARCH_FAILURES_TOTAL,
@@ -610,6 +615,30 @@ DURATION_METRICS: dict[str, MetricSpec] = {
         "Web-search call duration.",
         "histogram",
         ("provider",),
+        RUNTIME_BUCKETS,
+    ),
+    VOICE_STT_FIRST_TRANSCRIPT_DURATION: MetricSpec(
+        "researchmind_voice_stt_first_transcript_duration_seconds",
+        "Time from opening a Deepgram connection for a voice turn to the "
+        "first transcript event (interim or final) coming back.",
+        "histogram",
+        (),
+        RUNTIME_BUCKETS,
+    ),
+    VOICE_TTS_FIRST_AUDIO_DURATION: MetricSpec(
+        "researchmind_voice_tts_first_audio_duration_seconds",
+        "Time from opening an ElevenLabs connection for a voice turn's "
+        "response to the first synthesized audio chunk coming back.",
+        "histogram",
+        (),
+        RUNTIME_BUCKETS,
+    ),
+    VOICE_TURN_DURATION: MetricSpec(
+        "researchmind_voice_turn_duration_seconds",
+        "End-to-end voice turn duration: final transcript received to "
+        "the response (text + audio) finishing.",
+        "histogram",
+        (),
         RUNTIME_BUCKETS,
     ),
     MCP_TOOL_DURATION: MetricSpec(

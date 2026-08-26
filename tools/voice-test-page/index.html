@@ -1,0 +1,303 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>ResearchMind Voice — Manual Test Harness</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 760px; margin: 2rem auto; padding: 0 1rem; }
+  h1 { font-size: 1.2rem; }
+  fieldset { margin-bottom: 1rem; }
+  label { display: block; margin: 0.4rem 0 0.1rem; font-size: 0.85rem; color: #444; }
+  input[type=text] { width: 100%; padding: 0.4rem; box-sizing: border-box; }
+  button { margin: 0.3rem 0.3rem 0.3rem 0; padding: 0.5rem 0.9rem; cursor: pointer; }
+  button:disabled { cursor: not-allowed; opacity: 0.5; }
+  #status { font-weight: bold; }
+  #transcript, #response { border: 1px solid #ccc; padding: 0.6rem; min-height: 2rem; margin-top: 0.3rem; white-space: pre-wrap; }
+  #log { border: 1px solid #ccc; padding: 0.6rem; height: 220px; overflow-y: auto; font-family: monospace; font-size: 0.78rem; white-space: pre-wrap; }
+</style>
+</head>
+<body>
+
+<h1>ResearchMind Voice — Manual Test Harness</h1>
+<p>
+  Throwaway debug tool for <code>WS /api/v1/chat/voice</code> (see
+  <code>docs/todo/voice-chat-poc-implementation-plan.md</code>, T4). Not part
+  of the shipped app — zero blast radius, this file is never imported by
+  anything else. <strong>Must be served over HTTP (not opened as a
+  <code>file://</code> URL)</strong>, since browsers only allow microphone
+  access in a secure context: run <code>python3 -m http.server 8080</code>
+  from this directory and open <code>http://localhost:8080/</code>.
+</p>
+
+<fieldset>
+  <legend>Connection</legend>
+  <label>API base URL (the FastAPI server, not this page)</label>
+  <input type="text" id="apiBase" value="ws://localhost:8000" />
+  <label>
+    Bearer token (paste a valid JWT — this page never stores it).
+    Get one by logging into the real app at localhost:3000, then in that
+    tab's DevTools console running:
+    <code>sessionStorage.getItem('rm_id_token')</code>
+  </label>
+  <input type="text" id="token" placeholder="eyJ..." />
+  <button id="connectBtn">Connect</button>
+  <button id="disconnectBtn" disabled>Disconnect</button>
+  <div>Status: <span id="status">disconnected</span></div>
+</fieldset>
+
+<fieldset>
+  <legend>Microphone</legend>
+  <button id="micBtn" disabled>Start mic</button>
+  <div>Mic: <span id="micStatus">off</span></div>
+</fieldset>
+
+<fieldset>
+  <legend>Live transcript</legend>
+  <div id="transcript"></div>
+</fieldset>
+
+<fieldset>
+  <legend>Assistant response (text)</legend>
+  <div id="response"></div>
+</fieldset>
+
+<fieldset>
+  <legend>Raw event log</legend>
+  <div id="log"></div>
+</fieldset>
+
+<audio id="player" autoplay></audio>
+
+<script>
+'use strict';
+
+// ---------------------------------------------------------------------
+// Constants -- must match apps/api/app/core/settings.py's
+// deepgram_sample_rate default (16000). If that setting changes, this
+// must change too -- there is no server-side negotiation of this value.
+// ---------------------------------------------------------------------
+const TARGET_SAMPLE_RATE = 16000;
+
+const statusEl = document.getElementById('status');
+const micStatusEl = document.getElementById('micStatus');
+const transcriptEl = document.getElementById('transcript');
+const responseEl = document.getElementById('response');
+const logEl = document.getElementById('log');
+const connectBtn = document.getElementById('connectBtn');
+const disconnectBtn = document.getElementById('disconnectBtn');
+const micBtn = document.getElementById('micBtn');
+const player = document.getElementById('player');
+
+let ws = null;
+let audioContext = null;
+let micStream = null;
+let micSourceNode = null;
+let micProcessorNode = null;
+let mediaSource = null;
+let sourceBuffer = null;
+let pendingAudioChunks = [];
+
+function log(line) {
+  const time = new Date().toISOString().split('T')[1].replace('Z', '');
+  logEl.textContent += `[${time}] ${line}\n`;
+  logEl.scrollTop = logEl.scrollHeight;
+}
+
+function setStatus(text) {
+  statusEl.textContent = text;
+}
+
+// ---------------------------------------------------------------------
+// Playback: MediaSource + a plain <audio> element, not manual PCM
+// scheduling. ElevenLabs' default `output_format` (mp3_44100_128, see
+// settings.py) requires either full-file decode or progressive MSE
+// append -- PCM output formats would be simpler to schedule manually,
+// but they require an ElevenLabs Creator-tier+ subscription, not
+// available on the free tier this POC is built against. MSE is the
+// correct choice given that constraint, not a shortcut.
+// ---------------------------------------------------------------------
+function setupPlayback() {
+  mediaSource = new MediaSource();
+  player.src = URL.createObjectURL(mediaSource);
+  mediaSource.addEventListener('sourceopen', () => {
+    sourceBuffer = mediaSource.addSourceBuffer('audio/mpeg');
+    sourceBuffer.addEventListener('updateend', flushPendingAudio);
+  }, { once: true });
+}
+
+function flushPendingAudio() {
+  if (!sourceBuffer || sourceBuffer.updating || pendingAudioChunks.length === 0) return;
+  const chunk = pendingAudioChunks.shift();
+  sourceBuffer.appendBuffer(chunk);
+}
+
+function queueAudioChunk(arrayBuffer) {
+  pendingAudioChunks.push(arrayBuffer);
+  flushPendingAudio();
+}
+
+function stopPlaybackImmediately() {
+  // Best-effort "stop now" for a barge-in interrupt (T10). MSE has no
+  // single atomic "discard everything and go silent" call; aborting the
+  // pending append plus muting/pausing is the closest practical
+  // approximation, not a guarantee of zero residual audio.
+  pendingAudioChunks = [];
+  try {
+    if (sourceBuffer && !sourceBuffer.updating) sourceBuffer.abort();
+  } catch (err) {
+    log(`playback abort failed (non-fatal): ${err}`);
+  }
+  player.pause();
+}
+
+// ---------------------------------------------------------------------
+// Mic capture -> 16kHz mono 16-bit PCM binary frames.
+//
+// Deliberately ScriptProcessorNode, not an AudioWorklet: this is a
+// single-file throwaway debug tool (T4), and ScriptProcessorNode needs
+// no separate worklet module file to serve. It is a deprecated Web
+// Audio API, universally supported today regardless -- not something
+// to carry into the real chat UI (T13), which should use an
+// AudioWorklet instead.
+// ---------------------------------------------------------------------
+function downsampleTo16k(float32Samples, inputSampleRate) {
+  if (inputSampleRate === TARGET_SAMPLE_RATE) return float32Samples;
+  const ratio = inputSampleRate / TARGET_SAMPLE_RATE;
+  const outLength = Math.floor(float32Samples.length / ratio);
+  const out = new Float32Array(outLength);
+  for (let i = 0; i < outLength; i++) {
+    out[i] = float32Samples[Math.floor(i * ratio)];
+  }
+  return out;
+}
+
+function floatTo16BitPCM(float32Samples) {
+  const out = new Int16Array(float32Samples.length);
+  for (let i = 0; i < float32Samples.length; i++) {
+    const s = Math.max(-1, Math.min(1, float32Samples[i]));
+    out[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
+  }
+  return out;
+}
+
+async function startMic() {
+  micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  audioContext = new AudioContext();
+  micSourceNode = audioContext.createMediaStreamSource(micStream);
+  // Buffer size 4096 at typical 44.1/48kHz is roughly 85-93ms per frame --
+  // small enough for reasonably responsive interim transcripts, large
+  // enough not to flood the WS with tiny frames.
+  micProcessorNode = audioContext.createScriptProcessor(4096, 1, 1);
+
+  micProcessorNode.onaudioprocess = (event) => {
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    const input = event.inputBuffer.getChannelData(0);
+    const downsampled = downsampleTo16k(input, audioContext.sampleRate);
+    const pcm16 = floatTo16BitPCM(downsampled);
+    ws.send(pcm16.buffer);
+  };
+
+  micSourceNode.connect(micProcessorNode);
+  // A ScriptProcessorNode only fires onaudioprocess while connected into
+  // the graph's destination path; connecting to `destination` at zero
+  // gain would also work, but Chrome in particular is inconsistent about
+  // firing the callback without *some* path to destination, so route
+  // through a muted gain node instead of silencing the mic input itself.
+  const silentGain = audioContext.createGain();
+  silentGain.gain.value = 0;
+  micProcessorNode.connect(silentGain);
+  silentGain.connect(audioContext.destination);
+
+  micStatusEl.textContent = 'live (streaming to server)';
+  micBtn.disabled = true;
+}
+
+function stopMic() {
+  if (micProcessorNode) micProcessorNode.disconnect();
+  if (micSourceNode) micSourceNode.disconnect();
+  if (micStream) micStream.getTracks().forEach((track) => track.stop());
+  if (audioContext) audioContext.close();
+  micStatusEl.textContent = 'off';
+}
+
+// ---------------------------------------------------------------------
+// WebSocket wiring
+// ---------------------------------------------------------------------
+function connect() {
+  const base = document.getElementById('apiBase').value.trim();
+  const token = document.getElementById('token').value.trim();
+  if (!token) {
+    alert('Paste a bearer token first.');
+    return;
+  }
+
+  setupPlayback();
+
+  const url = `${base}/api/v1/chat/voice?token=${encodeURIComponent(token)}`;
+  ws = new WebSocket(url);
+  ws.binaryType = 'arraybuffer';
+
+  ws.onopen = () => {
+    setStatus('connected');
+    log('WS open -- sending handshake');
+    ws.send(JSON.stringify({
+      conversation_id: null,
+      provider: null,
+      web_search_enabled: false,
+      paper_search_enabled: false,
+    }));
+    connectBtn.disabled = true;
+    disconnectBtn.disabled = false;
+    micBtn.disabled = false;
+  };
+
+  ws.onmessage = (event) => {
+    if (event.data instanceof ArrayBuffer) {
+      log(`<- audio chunk (${event.data.byteLength} bytes)`);
+      queueAudioChunk(event.data);
+      return;
+    }
+
+    let payload;
+    try {
+      payload = JSON.parse(event.data);
+    } catch (err) {
+      log(`<- unparseable text frame: ${event.data}`);
+      return;
+    }
+    log(`<- ${JSON.stringify(payload)}`);
+
+    if (payload.type === 'voice.transcript') {
+      transcriptEl.textContent = `${payload.transcript}${payload.is_final ? ' [FINAL]' : ' …'}`;
+      if (payload.is_final) responseEl.textContent = ''; // new turn starting
+    } else if (payload.type === 'voice.interrupted') {
+      stopPlaybackImmediately();
+    } else if (payload.type === 'token' && payload.content) {
+      responseEl.textContent += payload.content;
+    }
+  };
+
+  ws.onerror = (event) => log(`WS error: ${JSON.stringify(event)}`);
+
+  ws.onclose = (event) => {
+    setStatus(`closed (code=${event.code}, reason="${event.reason}")`);
+    log(`WS closed: code=${event.code} reason=${event.reason}`);
+    connectBtn.disabled = false;
+    disconnectBtn.disabled = true;
+    micBtn.disabled = true;
+    stopMic();
+  };
+}
+
+function disconnect() {
+  if (ws) ws.close(1000, 'user disconnected');
+  stopMic();
+}
+
+connectBtn.addEventListener('click', connect);
+disconnectBtn.addEventListener('click', disconnect);
+micBtn.addEventListener('click', () => startMic().catch((err) => log(`mic error: ${err}`)));
+</script>
+
+</body>
+</html>

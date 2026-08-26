@@ -296,3 +296,34 @@ export function ThumbsDownIcon({ className, size = 14, filled = false }: RatingI
     </svg>
   );
 }
+
+export function MicIcon({ className, size = 14 }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 14 14" {...base} className={className}>
+      <rect x="5" y="1.5" width="4" height="7" rx="2" stroke="currentColor" strokeWidth="1.25" />
+      <path
+        d="M3 7.5A4 4 0 0 0 7 11.5A4 4 0 0 0 11 7.5"
+        stroke="currentColor"
+        strokeWidth="1.25"
+        strokeLinecap="round"
+      />
+      <path d="M7 11.5V13" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+export function MicOffIcon({ className, size = 14 }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 14 14" {...base} className={className}>
+      <rect x="5" y="1.5" width="4" height="7" rx="2" stroke="currentColor" strokeWidth="1.25" />
+      <path
+        d="M3 7.5A4 4 0 0 0 7 11.5A4 4 0 0 0 11 7.5"
+        stroke="currentColor"
+        strokeWidth="1.25"
+        strokeLinecap="round"
+      />
+      <path d="M7 11.5V13" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" />
+      <path d="M1.5 1.5L12.5 12.5" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" />
+    </svg>
+  );
+}

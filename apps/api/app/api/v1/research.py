@@ -609,6 +609,7 @@ async def get_research_run_plan(
             for item in pending.evidence.evidence
             if item.citation_id is not None
         ],
+        socratic_question=pending.socratic_question,
     )
 
 
@@ -641,6 +642,7 @@ async def submit_research_plan_decision(
             edited_goal=(
                 payload.edited_plan.rewritten_goal if payload.edited_plan is not None else None
             ),
+            socratic_response=payload.socratic_response,
         )
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc

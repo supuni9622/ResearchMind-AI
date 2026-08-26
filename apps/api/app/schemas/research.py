@@ -91,6 +91,14 @@ class ResearchProposalRequest(ResearchRequest):
         ),
     )
 
+    socratic_challenger_enabled: bool = Field(
+        default=False,
+        description=(
+            "Opt in to one evidence-aware Socratic question at the existing "
+            "pre-synthesis plan checkpoint. The answer is stored as research memory."
+        ),
+    )
+
 
 class ResearchDraftFindingEdit(BaseModel):
     """One edited findings section -- keeps the original's `citation_ids`
@@ -163,6 +171,8 @@ class ResearchPlanDecisionRequest(BaseModel):
 
     # Only meaningful when `approved` -- mirrors `ResearchReportDecisionRequest.edited_draft`.
     edited_plan: ResearchPlanGoalEdit | None = None
+
+    socratic_response: str | None = Field(default=None, min_length=1, max_length=4_000)
 
 
 class ResearchWebSearchDecisionRequest(BaseModel):
@@ -317,6 +327,7 @@ class ResearchPendingPlanResponse(BaseModel):
     tasks: list[ResearchPendingPlanTaskResponse]
     evidence: ResearchPendingPlanEvidenceSummary
     citations: list[ResearchDraftCitationResponse]
+    socratic_question: str | None = None
 
 
 class ResearchPendingWebSearchResponse(BaseModel):

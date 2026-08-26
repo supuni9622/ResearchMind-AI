@@ -432,6 +432,7 @@ export interface DeepResearchPendingPlan {
   tasks: DeepResearchPendingPlanTask[];
   evidence: DeepResearchPendingPlanEvidence;
   citations: DeepResearchDraftCitation[];
+  socratic_question: string | null;
 }
 
 // Matches `app/schemas/research.py::ResearchPendingWebSearchResponse` -- the
@@ -1034,6 +1035,7 @@ export const api = {
           include_domains: options.includeDomains ?? [],
           exclude_domains: options.excludeDomains ?? [],
           paper_suggestions_enabled: options.paperSuggestionsEnabled ?? false,
+          socratic_challenger_enabled: true,
         }),
       }),
     approveProposal: (proposalId: string) =>
@@ -1063,13 +1065,20 @@ export const api = {
       request<DeepResearchDraft>(`/api/v1/research/runs/${runId}/draft`),
     getPlan: (runId: string) =>
       request<DeepResearchPendingPlan>(`/api/v1/research/runs/${runId}/plan`),
-    submitPlanDecision: (runId: string, approved: boolean, reason?: string, editedGoal?: string) =>
+    submitPlanDecision: (
+      runId: string,
+      approved: boolean,
+      reason?: string,
+      editedGoal?: string,
+      socraticResponse?: string
+    ) =>
       request<DeepResearchRun>(`/api/v1/research/runs/${runId}/plan-decision`, {
         method: 'POST',
         body: JSON.stringify({
           approved,
           reason: reason ?? null,
           edited_plan: editedGoal ? { rewritten_goal: editedGoal } : null,
+          socratic_response: socraticResponse || null,
         }),
       }),
     getReportDownload: (runId: string) =>

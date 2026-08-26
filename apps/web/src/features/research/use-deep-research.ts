@@ -367,9 +367,22 @@ export function useDeepResearch(onConversationLearned?: (conversationId: string)
   );
 
   const submitPlanDecision = useCallback(
-    async (localId: string, runId: string, approved: boolean, reason?: string, editedGoal?: string) => {
+    async (
+      localId: string,
+      runId: string,
+      approved: boolean,
+      reason?: string,
+      editedGoal?: string,
+      socraticResponse?: string
+    ) => {
       try {
-        const run = await api.research.submitPlanDecision(runId, approved, reason, editedGoal);
+        const run = await api.research.submitPlanDecision(
+          runId,
+          approved,
+          reason,
+          editedGoal,
+          socraticResponse
+        );
         // Optimistic, mirrors `submitReportDecision` -- the run is still
         // `awaiting_plan_approval` at this point (the worker hasn't resumed
         // the graph yet), so flip to `running` immediately rather than

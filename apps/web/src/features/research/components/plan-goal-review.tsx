@@ -24,9 +24,11 @@ const labelClass = 'font-mono text-stone-600 text-[10px] tracking-[0.15em] upper
 export function PlanGoalReview({
   plan,
   onEditingChange,
+  onSocraticResponseChange,
 }: {
   plan: DeepResearchPendingPlan;
   onEditingChange: (editedGoal: string | null) => void;
+  onSocraticResponseChange: (response: string) => void;
 }) {
   const [editing, setEditing] = useState(false);
   const [goal, setGoal] = useState('');
@@ -87,6 +89,25 @@ export function PlanGoalReview({
             ` · ${plan.evidence.warning_count} warning${plan.evidence.warning_count === 1 ? '' : 's'}`}
         </p>
       </div>
+
+      {plan.socratic_question && (
+        <div className="rounded-lg border border-sage-800/50 bg-sage-900/10 p-3">
+          <label className={labelClass}>Socratic challenge</label>
+          <p className="mb-2 text-[13px] leading-relaxed text-stone-200">
+            {plan.socratic_question}
+          </p>
+          <textarea
+            onChange={(event) => onSocraticResponseChange(event.target.value)}
+            placeholder="Your perspective (optional)"
+            rows={3}
+            maxLength={4000}
+            className={textareaClass}
+          />
+          <p className="mt-1 text-[10px] text-stone-600">
+            Your response will be saved as research memory for future work.
+          </p>
+        </div>
+      )}
 
       <ul className="space-y-1.5">
         {plan.tasks.map((task) => (

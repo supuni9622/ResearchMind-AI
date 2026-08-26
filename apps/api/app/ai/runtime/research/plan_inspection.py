@@ -27,6 +27,7 @@ class PendingPlanUnavailableError(RuntimeError):
 class PendingPlanSnapshot:
     plan: ResearchPlan
     evidence: ResearchEvidenceBundle
+    socratic_question: str | None = None
 
 
 class ResearchPlanInspectionService:
@@ -50,4 +51,9 @@ class ResearchPlanInspectionService:
         return PendingPlanSnapshot(
             plan=ResearchPlan.model_validate(values["plan"]),
             evidence=ResearchEvidenceBundle.model_validate(values["evidence_bundle"]),
+            socratic_question=(
+                str(values["socratic_question"])
+                if values.get("socratic_question") is not None
+                else None
+            ),
         )

@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.ai.knowledge.context.citations.models import Citation
 from app.ai.knowledge.context.interfaces import ContextBuilderInterface
 from app.ai.knowledge.retrieval.service import RetrievalService
+from app.ai.memory.enums import MemoryType
 from app.ai.memory.services.formatting import FormattedMemoryContext, format_memory_context_with_ids
 from app.ai.memory.services.memory_service import MemoryService
 from app.ai.research.models import ResearchOutcome, ResearchSource
@@ -48,6 +49,7 @@ from app.ai.runtime.research.review import ResearchReview, ResearchReviewService
 from app.ai.runtime.research.review_artifact import ResearchReviewArtifactWriter
 from app.ai.runtime.research.run_service import ResearchRunService
 from app.ai.runtime.research.service import ResearchRuntimeService
+from app.ai.runtime.research.socratic import SocraticChallengerService
 from app.ai.runtime.research.synthesis.service import ResearchSynthesisService
 from app.ai.runtime.research.types import (
     ResearchRunStatus,
@@ -273,6 +275,9 @@ class ResearchRuntimeExecutionService:
                     web_search_exclude_domains=list(request.get("exclude_domains") or []),
                     paper_suggestions_enabled=bool(
                         request.get("paper_suggestions_enabled") or False
+                    ),
+                    socratic_challenger_enabled=bool(
+                        request.get("socratic_challenger_enabled") or False
                     ),
                     injected_memory_ids=list(request.get("injected_memory_ids") or []),
                 )
@@ -542,6 +547,38 @@ class ResearchRuntimeExecutionService:
             paper_search=self._paper_search,
             paper_query_extraction=self._paper_query_extraction,
             metrics=self._metrics,
+            socratic_challenge=lambda goal, evidence: SocraticChallengerService(
+                generation_runtime
+            ).generate(
+                goal=goal,
+                evidence=evidence,
+                owner_id=run.owner_id,
+                research_run_id=run.id,
+            ),
+            remember_socratic_response=(
+                lambda question, response: self._remember_socratic_response(
+                    run=run, question=question, response=response
+                )
+            ),
+        )
+
+    async def _remember_socratic_response(
+        self, *, run: ResearchRun, question: str, response: str
+    ) -> None:
+        """Persist the researcher's answer as the Wave-2 plain RESEARCH note."""
+
+        if self._memory is None:
+            return
+        await self._memory.remember(
+            owner_id=run.owner_id,
+            type=MemoryType.RESEARCH,
+            content=f"Socratic question: {question}\nResearcher response: {response}",
+            metadata={
+                "source": "socratic_challenger",
+                "research_run_id": str(run.id),
+                "prompt_version": "socratic-challenger-v1",
+            },
+            importance_score=0.8,
         )
 
     async def _execute_v1_graph(
@@ -561,6 +598,7 @@ class ResearchRuntimeExecutionService:
         web_search_include_domains: list[str] | None = None,
         web_search_exclude_domains: list[str] | None = None,
         paper_suggestions_enabled: bool = False,
+        socratic_challenger_enabled: bool = False,
         injected_memory_ids: list[str] | None = None,
     ) -> ResearchOutcome | None:
         generation_runtime, retrieval, context_builder, storage = self._v1_graph_dependencies()
@@ -633,6 +671,7 @@ class ResearchRuntimeExecutionService:
                     "web_search_exclude_domains": web_search_exclude_domains or [],
                     "web_search_count": 0,
                     "paper_suggestions_enabled": paper_suggestions_enabled,
+                    "socratic_challenger_enabled": socratic_challenger_enabled,
                     "injected_memory_ids": injected_memory_ids or [],
                     "memory_context": memory_context.text,
                 }

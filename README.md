@@ -294,7 +294,7 @@ python -m apps.worker.eval_scoring_main
 Durable-memory lifecycle worker (report-only by default):
 
 ```bash
-uv run python -m apps.worker.memory_lifecycle_main
+python -m apps.worker.memory_lifecycle_main
 ```
 
 Run one replica per environment. It wakes daily by default, uses a Valkey

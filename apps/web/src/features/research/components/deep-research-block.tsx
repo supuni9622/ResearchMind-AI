@@ -113,7 +113,12 @@ export function DeepResearchBlock({
   onApprove: () => void;
   onCancel: () => void;
   onRetry: () => void;
-  onPlanDecision: (approved: boolean, reason?: string, editedGoal?: string) => void;
+  onPlanDecision: (
+    approved: boolean,
+    reason?: string,
+    editedGoal?: string,
+    socraticResponse?: string
+  ) => void;
   onReportDecision: (approved: boolean, reason?: string, editedDraft?: DeepResearchDraftEdit) => void;
   onWebSearchDecision: (approved: boolean, reason?: string) => void;
 }) {
@@ -123,6 +128,7 @@ export function DeepResearchBlock({
   const [planRejectReason, setPlanRejectReason] = useState('');
   const [showPlanRejectInput, setShowPlanRejectInput] = useState(false);
   const [editedGoal, setEditedGoal] = useState<string | null>(null);
+  const [socraticResponse, setSocraticResponse] = useState('');
   const [webSearchRejectReason, setWebSearchRejectReason] = useState('');
   const [showWebSearchRejectInput, setShowWebSearchRejectInput] = useState(false);
   const { plan } = turn.proposal;
@@ -242,7 +248,11 @@ export function DeepResearchBlock({
               </span>
             </div>
             {turn.pendingPlan ? (
-              <PlanGoalReview plan={turn.pendingPlan} onEditingChange={setEditedGoal} />
+              <PlanGoalReview
+                plan={turn.pendingPlan}
+                onEditingChange={setEditedGoal}
+                onSocraticResponseChange={setSocraticResponse}
+              />
             ) : (
               <p className="text-stone-600 text-[12px] mb-3">Loading the gathered evidence…</p>
             )}
@@ -278,7 +288,12 @@ export function DeepResearchBlock({
                   type="button"
                   onClick={(e) => {
                     e.stopPropagation();
-                    onPlanDecision(true, undefined, editedGoal ?? undefined);
+                    onPlanDecision(
+                      true,
+                      undefined,
+                      editedGoal ?? undefined,
+                      socraticResponse || undefined
+                    );
                   }}
                   className="px-3 py-1.5 rounded-lg bg-sage-600 hover:bg-sage-500 text-stone-100 text-[12px] font-medium transition-colors duration-150"
                 >

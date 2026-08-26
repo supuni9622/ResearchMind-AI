@@ -209,6 +209,7 @@ class ResearchRunService:
         approved: bool,
         reason: str | None = None,
         edited_goal: str | None = None,
+        socratic_response: str | None = None,
     ) -> ResearchRun | None:
         """Record the plan-approval decision and re-queue the run's dispatch
         in one transaction -- mirrors `record_report_decision`'s atomicity
@@ -237,6 +238,8 @@ class ResearchRunService:
         }
         if approved and edited_goal is not None:
             decision["edited_plan"] = {"rewritten_goal": edited_goal}
+        if approved and socratic_response is not None:
+            decision["socratic_response"] = socratic_response
 
         run.budget_usage = {**(run.budget_usage or {}), "plan_decision": decision}
         await self._dispatches.reopen(run_id=run.id)

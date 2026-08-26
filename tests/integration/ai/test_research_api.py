@@ -218,7 +218,14 @@ class _FakeResearchRunService:
         return run
 
     async def record_plan_decision(
-        self, *, run_id, owner_id, approved, reason=None, edited_goal=None
+        self,
+        *,
+        run_id,
+        owner_id,
+        approved,
+        reason=None,
+        edited_goal=None,
+        socratic_response=None,
     ):
         run = self._runs.get(run_id)
         if run is None or run.owner_id != owner_id:
@@ -231,6 +238,8 @@ class _FakeResearchRunService:
         }
         if approved and edited_goal is not None:
             decision["edited_plan"] = {"rewritten_goal": edited_goal}
+        if approved and socratic_response is not None:
+            decision["socratic_response"] = socratic_response
         run.budget_usage = {**(run.budget_usage or {}), "plan_decision": decision}
         return run
 

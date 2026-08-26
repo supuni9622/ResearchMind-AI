@@ -39,6 +39,71 @@ async def _approve_plan(graph: object, config: dict[str, Any]) -> dict[str, Any]
 
 
 @pytest.mark.asyncio
+async def test_socratic_challenger_pauses_with_question_and_remembers_response() -> None:
+    run_id, owner_id = uuid4(), uuid4()
+    retrieval = AsyncMock()
+    retrieval.execute_task.return_value = ResearchTaskResult(
+        task_id="initial", status=ResearchTaskStatus.COMPLETED
+    )
+    writer = AsyncMock(spec=ResearchEvidenceArtifactWriter)
+    writer.write.return_value = "artifacts/research-runs/evidence.json"
+    synthesis = AsyncMock(spec=ResearchSynthesisService)
+    synthesis.synthesize.return_value = ResearchDraft(
+        title="Report",
+        abstract="Abstract.",
+        methodology="Methodology.",
+        findings=[ResearchDraftSection(heading="Finding", content="Grounded finding.")],
+        discussion="Discussion.",
+        conclusion="Conclusion.",
+    )
+    final_writer = AsyncMock(spec=ResearchFinalReportArtifactWriter)
+    remember = AsyncMock()
+    challenge = AsyncMock(return_value="What assumption would most change this conclusion?")
+    graph = compile_multi_wave_research_graph(
+        checkpointer=InMemorySaver(),
+        task_retrieval=retrieval,
+        evidence_writer=writer,
+        synthesis=synthesis,
+        final_report_writer=final_writer,
+        socratic_challenge=challenge,
+        remember_socratic_response=remember,
+    )
+    config = {"configurable": {"thread_id": str(run_id)}}
+    paused = await graph.ainvoke(
+        {
+            "research_run_id": str(run_id),
+            "owner_id": str(owner_id),
+            "plan": {"goal": "q", "complexity": "moderate"},
+            "waves": [[ResearchPlanTask(task_id="initial", question="q").model_dump(mode="json")]],
+            "filters": {},
+            "top_k": 5,
+            "task_results": {},
+            "socratic_challenger_enabled": True,
+        },
+        config=config,
+    )
+
+    payload = paused["__interrupt__"][0].value
+    assert payload["socratic_question"] == "What assumption would most change this conclusion?"
+    resumed = await graph.ainvoke(
+        Command(
+            resume={
+                "decision": "approved",
+                "socratic_response": "The result depends on selection bias.",
+            }
+        ),
+        config=config,
+    )
+
+    assert resumed["socratic_response"] == "The result depends on selection bias."
+    remember.assert_awaited_once_with(
+        "What assumption would most change this conclusion?",
+        "The result depends on selection bias.",
+    )
+    assert resumed["__interrupt__"][0].value["kind"] == "report_approval"
+
+
+@pytest.mark.asyncio
 async def test_multi_wave_graph_waits_for_dependencies_before_aggregation() -> None:
     run_id, owner_id = uuid4(), uuid4()
     retrieval = AsyncMock()

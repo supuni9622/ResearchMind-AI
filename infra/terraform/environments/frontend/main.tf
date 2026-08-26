@@ -67,18 +67,24 @@ resource "aws_amplify_app" "web" {
     }
   )
 
-  # Found live, the hard way: connecting the GitHub repo through the
-  # Console (Step 6) rewrites build_spec (adds its own npm cache flags,
-  # restructures the monorepo YAML) and attaches an IAM service role we
-  # never set here -- Terraform then saw that as drift from this file and
-  # planned a REPLACE to force it back, which destroyed the whole app
-  # (losing the just-configured GitHub connection/branch/service role,
-  # since none of those are Terraform resources) rather than just
-  # updating in place. Once a human has connected the branch via the
-  # Console, the Console is the right place to manage these two fields,
-  # not this seed config -- ignore future drift on them so this can't
-  # happen again.
+  # Found live, the hard way, in two separate incidents: connecting the
+  # GitHub repo through the Console (Step 6) rewrites build_spec (adds its
+  # own npm cache flags, restructures the monorepo YAML) and attaches an
+  # IAM service role we never set here -- Terraform saw that as drift and
+  # first planned a REPLACE to force it back (destroyed the whole app,
+  # losing the just-configured GitHub connection/branch/service role,
+  # since none of those are Terraform resources). Fixed by ignoring those
+  # two, but the very next apply then silently unset `repository` (this
+  # config never sets it either) and wiped `custom_rules` (the console's
+  # SPA-fallback rewrite rule) back to empty -- an in-place update this
+  # time, not a replace, but still Terraform clobbering console-managed
+  # state it doesn't own. Once a human has connected the branch via the
+  # Console, the Console owns all four of these fields, not this seed
+  # config -- ignore future drift on all of them so this can't happen a
+  # third time. environment_variables and platform/name are NOT here:
+  # those are genuinely Terraform-owned (e.g. NEXT_PUBLIC_API_URL needs
+  # updating whenever ecs-demo's CloudFront domain changes).
   lifecycle {
-    ignore_changes = [build_spec, iam_service_role_arn]
+    ignore_changes = [build_spec, iam_service_role_arn, repository, custom_rule]
   }
 }

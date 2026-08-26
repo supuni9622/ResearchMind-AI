@@ -92,6 +92,19 @@ resource "aws_ecs_service" "this" {
     assign_public_ip = true # public subnets, no NAT -- see the Phase 0 decision this module's variables.tf references
   }
 
+  # Only matters when a load_balancer block exists (below) -- found live:
+  # with no grace period, the ALB starts counting failed health checks the
+  # instant a task registers as a target, which is often BEFORE the
+  # container has even pulled the image (a ~900MB cold pull with no local
+  # cache on the Fargate host took ~30s here) let alone started Uvicorn.
+  # unhealthy_threshold(3) * interval(15s) in modules/alb can elapse before
+  # the app is ever listening, so ECS kills a task that would have passed
+  # moments later -- confirmed via CloudWatch logs showing real 200
+  # responses to /api/v1/health/live logged seconds after the ALB had
+  # already marked the target unhealthy. This doesn't affect the workers
+  # (no target_group_arn, so no load_balancer block, so this is a no-op).
+  health_check_grace_period_seconds = var.target_group_arn == null ? null : 120
+
   dynamic "load_balancer" {
     for_each = var.target_group_arn == null ? [] : [var.target_group_arn]
     content {

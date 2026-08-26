@@ -37,3 +37,19 @@ output "ecs_task_role_arn" {
 output "ecr_repository_urls" {
   value = module.ecr.repository_urls
 }
+
+output "rds_endpoint" {
+  value = module.rds.endpoint
+}
+
+output "rds_master_user_secret_arn" {
+  value = module.rds.master_user_secret_arn
+}
+
+output "elasticache_endpoint" {
+  value = "${module.elasticache.endpoint}:${module.elasticache.port}"
+}
+
+output "secrets_manager_arns" {
+  value = module.secrets.secret_arns
+}

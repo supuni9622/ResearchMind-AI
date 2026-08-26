@@ -32,15 +32,17 @@ running are, in rough order of how expensive "leave it on by accident" is:
 
 | Resource | Cost if left running | Notes |
 |---|---|---|
-| RDS PostgreSQL | ~$12-15/mo+ (smallest instance) | Created in Phase 3 |
-| ElastiCache Valkey | ~$9-12/mo+ (`cache.t4g.micro`) | Created in Phase 3 |
+| RDS PostgreSQL | ~$12-15/mo+ (`db.t4g.micro`) | Terraform written (Phase 3) — not yet applied |
+| ElastiCache Valkey | ~$9-12/mo+ (`cache.t4g.micro`) | Terraform written (Phase 3) — not yet applied |
 | ALB | ~$16-20/mo + LCU usage | Created in Phase 4 |
 | ECS/Fargate tasks | Billed per vCPU/GB-hour while running | Created in Phase 4-5 |
 | NAT Gateway | **Not created by default** — see Phase 0 finding §11; only ever added temporarily, never left running | |
 
-None of these exist yet as of this commit — only the Phase 1 foundation
-(VPC, subnets, security groups, IAM roles) does, and none of those four
-resource types have a meaningful idle cost.
+Live as of this commit: Phase 1 (VPC, subnets, security groups, IAM roles)
+and Phase 2 (ECR repositories, `researchmind-backend` image pushed) — none
+of those have a meaningful ongoing cost. Phase 3's RDS/ElastiCache Terraform
+exists but has not been applied; applying it starts the ~$12-15/mo +
+~$9-12/mo clock above.
 
 **Before every `apply`:** know what you're about to create and roughly what
 it costs. **After every session:** run `terraform destroy` on `ecs-demo`

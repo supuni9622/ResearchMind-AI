@@ -1468,11 +1468,14 @@ Not automated on purpose (real AWS cost, real secret values, a real
 external account). Do these only when actually ready to test the ecs-demo
 environment end-to-end.
 
-[ ] 1. Create a Qdrant Cloud Free Tier cluster (AWS_Deployment.md section 3
-       -- Qdrant is external, Terraform does not provision it). Note the
-       cluster URL and API key; the API key becomes the
-       `qdrant-api-key` secret value in step 3 below, the URL becomes the
-       `qdrant_url` Terraform variable in step 2.
+[x] 1. Create a Qdrant Cloud Free Tier cluster (AWS_Deployment.md section 3
+       -- Qdrant is external, Terraform does not provision it). Done --
+       cluster and API key exist. Reminder for step 2 below: the cluster
+       endpoint needs an explicit `:6333` port appended for `qdrant_url`
+       (confirmed against Qdrant's own docs -- their client examples
+       always include it; omitting it risks a connection error). The
+       key/endpoint are not committed anywhere in this repo -- keep them
+       out of any file that gets `git add`ed.
 
 [ ] 2. Apply Phase 3 + 4 + 5 together (RDS, ElastiCache, Secrets Manager
        containers, ECS cluster, API service, ALB, all four worker
@@ -1482,14 +1485,14 @@ environment end-to-end.
     cd infra/terraform/environments/ecs-demo
     AWS_PROFILE=researchmind-deploy terraform apply \
       -var="backend_image_tag=bc623c6" \
-      -var="qdrant_url=<your Qdrant Cloud cluster URL>"
+      -var="qdrant_url=<your Qdrant Cloud cluster URL, with :6333 appended>"
 
-    Expect 37 resources to add (with the default `enable_mcp=false` --
+    Expect 38 resources to add (with the default `enable_mcp=false` --
     MCP is skipped entirely rather than deployed-and-broken until
     research-intelligence-mcp has a real image, see section 34): RDS+
     ElastiCache+10 secrets (18, including the always-created
-    mcp-auth-token placeholder), ECS cluster+ALB+API service (7), 4
-    worker services (12). Starts real ongoing cost (~$21-27/month
+    mcp-auth-token placeholder), ECS cluster+ALB+CloudFront+API service
+    (8), 4 worker services (12). Starts real ongoing cost (~$21-27/month
     RDS+ElastiCache, plus ALB/Fargate billing for 5 running tasks, plus
     ~$4/month for 10 Secrets Manager secrets -- see
     infra/terraform/README.md's cost table). `backend_image_tag` must be

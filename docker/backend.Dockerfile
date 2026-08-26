@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1
 # Shared image for the API and every apps/worker/*_main.py process.
 #
 # One image, not three: apps/api and apps/worker are one uv-managed project
@@ -27,7 +28,12 @@ ENV UV_COMPILE_BYTECODE=1 \
 # it, and hatchling's editable-install build validates the file exists.
 COPY pyproject.toml uv.lock README.md ./
 COPY apps/api/app apps/api/app
-RUN uv sync --frozen --no-dev
+# The cache mount keeps uv's downloaded-wheel cache out of the image layer
+# entirely (it's build-time-only and was previously baked in at ~5.7GB per
+# build with no runtime value); it persists across builds on the host/CI
+# runner instead, which also speeds up rebuilds.
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen --no-dev
 
 COPY alembic.ini ./
 COPY alembic alembic

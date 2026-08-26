@@ -51,13 +51,48 @@ Low-cost/persistent-by-design and **not** part of this destroy workflow: the
 `bootstrap` state bucket/lock table (fractions of a cent/month), Cognito, S3,
 SQS, ECR repositories (storage only, cheap), IAM, Qdrant Cloud Free Tier.
 
+## One-time setup: a deploy IAM user
+
+Terraform needs broader permissions than the app's own runtime credentials
+(`researchmind-api-dev`, used by `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY`
+in `.env`) — that user is deliberately scoped down and can't create a VPC,
+IAM roles, RDS, etc. Keep the two separate; don't widen the app's runtime
+user.
+
+1. Console → **IAM** → **Users** → **Create user** → name
+   `researchmind-terraform-deploy`, no console access (programmatic only).
+2. Attach `AdministratorAccess` (single-tenant portfolio account; a hand
+   -scoped policy isn't worth maintaining across every phase below). A
+   tighter alternative is `PowerUserAccess` + `IAMFullAccess`.
+3. That user → **Security credentials** → **Create access key** → CLI use
+   case → copy the key ID/secret.
+4. Configure a **named profile** locally (don't overwrite `default`, which
+   stays the scoped-down app credential):
+
+   ```bash
+   aws configure --profile researchmind-deploy
+   # Access key / secret from step 3, region us-east-1, output json
+   ```
+
+5. Verify:
+
+   ```bash
+   AWS_PROFILE=researchmind-deploy aws sts get-caller-identity
+   # Arn should end in :user/researchmind-terraform-deploy
+   ```
+
+Every `terraform` command below runs with `AWS_PROFILE=researchmind-deploy`
+set. When you're not actively deploying, you can deactivate (not delete)
+that access key from the IAM console — same "don't leave things running
+unnecessarily" spirit as the cost rules above.
+
 ## One-time setup: bootstrap the state backend
 
 ```bash
 cd infra/terraform/bootstrap
-terraform init
-terraform apply
-terraform output   # note state_bucket_name and lock_table_name
+AWS_PROFILE=researchmind-deploy terraform init
+AWS_PROFILE=researchmind-deploy terraform apply
+AWS_PROFILE=researchmind-deploy terraform output   # note state_bucket_name and lock_table_name
 ```
 
 Then fill in `environments/ecs-demo/providers.tf`'s `backend "s3"` block
@@ -65,20 +100,30 @@ Then fill in `environments/ecs-demo/providers.tf`'s `backend "s3"` block
 needs to happen once per AWS account; never run `terraform destroy` in
 `bootstrap/` while `ecs-demo` (or `eks-lab`) still has state stored there.
 
+Already done for this project's AWS account (232727982313, us-east-1):
+
+```text
+state_bucket_name = "researchmind-terraform-state-232727982313"
+lock_table_name   = "researchmind-terraform-locks"
+```
+
+`environments/ecs-demo/providers.tf` already points at these — skip this
+section unless bootstrapping a different AWS account.
+
 ## Working with an environment
 
 ```bash
 cd infra/terraform/environments/ecs-demo
 cp terraform.tfvars.example terraform.tfvars   # adjust if needed, gitignored
-terraform init
-terraform plan     # review before every apply -- know what's about to be billed
-terraform apply
+AWS_PROFILE=researchmind-deploy terraform init
+AWS_PROFILE=researchmind-deploy terraform plan     # review before every apply -- know what's about to be billed
+AWS_PROFILE=researchmind-deploy terraform apply
 ```
 
 When you're done testing/demoing:
 
 ```bash
-terraform destroy
+AWS_PROFILE=researchmind-deploy terraform destroy
 ```
 
 `terraform plan` before `apply` and reading what `destroy` is about to remove

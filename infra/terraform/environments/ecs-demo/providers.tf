@@ -8,14 +8,12 @@ terraform {
     }
   }
 
-  # Bootstrap this backend once via infra/terraform/bootstrap (creates the
-  # S3 bucket + DynamoDB lock table), then fill in `bucket`/`dynamodb_table`
-  # below with that apply's outputs before running `terraform init` here.
+  # Created once via infra/terraform/bootstrap -- see ../../README.md.
   backend "s3" {
-    bucket         = "REPLACE_WITH_bootstrap_state_bucket_name_output"
+    bucket         = "researchmind-terraform-state-232727982313"
     key            = "ecs-demo/terraform.tfstate"
     region         = "us-east-1"
-    dynamodb_table = "REPLACE_WITH_bootstrap_lock_table_name_output"
+    dynamodb_table = "researchmind-terraform-locks"
     encrypt        = true
   }
 }

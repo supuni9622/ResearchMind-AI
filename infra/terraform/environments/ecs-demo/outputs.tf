@@ -42,8 +42,8 @@ output "rds_endpoint" {
   value = module.rds.endpoint
 }
 
-output "rds_master_user_secret_arn" {
-  value = module.rds.master_user_secret_arn
+output "rds_database_url_secret_arn" {
+  value = module.rds.database_url_secret_arn
 }
 
 output "elasticache_endpoint" {
@@ -52,4 +52,13 @@ output "elasticache_endpoint" {
 
 output "secrets_manager_arns" {
   value = module.secrets.secret_arns
+}
+
+output "api_url" {
+  description = "HTTP only -- see modules/alb/main.tf for why. Test with curl/Postman; not yet safe for the (HTTPS) Amplify frontend to call."
+  value       = "http://${module.alb.dns_name}"
+}
+
+output "api_service_name" {
+  value = module.api_service.service_name
 }

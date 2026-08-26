@@ -17,6 +17,22 @@ resource "aws_db_subnet_group" "this" {
   tags = var.tags
 }
 
+# AWS's own manage_master_user_password would keep Terraform out of the
+# password entirely, but it stores separate username/password JSON fields
+# -- the app expects one composed DATABASE_URL connection string
+# (postgresql+psycopg://user:pass@host:port/db), which can't be built from
+# a single ECS `secrets` JSON-key reference without an app code change.
+# Simpler and just as standard: Terraform generates the password and owns
+# a single composed-URL secret for the whole lifecycle, so there's no
+# stale-secret risk from AWS rotating the password out from under a
+# separately-derived value. The password does sit in Terraform state as a
+# result (true of any Terraform-managed credential) -- protected by the
+# same encrypted/versioned/non-public state bucket set up in bootstrap.
+resource "random_password" "master" {
+  length  = 32
+  special = false # RDS also rejects '/','@','"',' ' in the password; simplest to skip special chars entirely
+}
+
 resource "aws_db_instance" "this" {
   identifier = "${var.name_prefix}-postgres"
 
@@ -30,10 +46,7 @@ resource "aws_db_instance" "this" {
 
   db_name  = var.database_name
   username = var.master_username
-
-  # RDS creates and rotates the master password in Secrets Manager itself --
-  # Terraform never sees or stores the plaintext value.
-  manage_master_user_password = true
+  password = random_password.master.result
 
   db_subnet_group_name   = aws_db_subnet_group.this.name
   vpc_security_group_ids = [var.security_group_id]
@@ -46,4 +59,15 @@ resource "aws_db_instance" "this" {
   apply_immediately       = true
 
   tags = var.tags
+}
+
+resource "aws_secretsmanager_secret" "database_url" {
+  name = "${var.secrets_path_prefix}/database-url"
+
+  tags = var.tags
+}
+
+resource "aws_secretsmanager_secret_version" "database_url" {
+  secret_id     = aws_secretsmanager_secret.database_url.id
+  secret_string = "postgresql+psycopg://${var.master_username}:${random_password.master.result}@${aws_db_instance.this.address}:${aws_db_instance.this.port}/${var.database_name}"
 }

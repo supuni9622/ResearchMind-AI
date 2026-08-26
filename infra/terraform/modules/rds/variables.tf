@@ -40,6 +40,11 @@ variable "master_username" {
   default = "researchmind"
 }
 
+variable "secrets_path_prefix" {
+  description = "Secrets Manager name prefix the composed DATABASE_URL secret is created under -- must match modules/iam's secrets_manager_secret_arns scope."
+  type        = string
+}
+
 variable "tags" {
   type    = map(string)
   default = {}

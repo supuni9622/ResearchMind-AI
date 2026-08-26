@@ -53,3 +53,49 @@ variable "secrets_manager_path_prefix" {
   type        = string
   default     = "researchmind/ecs-demo"
 }
+
+# --- Phase 4: ECS API ------------------------------------------------------
+
+variable "backend_image_tag" {
+  description = "researchmind-backend ECR tag to deploy (e.g. a git short SHA). Required, no default -- ECR is immutable-tagged (modules/ecr) precisely so a deploy always names an exact, intentional image, never a silently-reused \"latest\"."
+  type        = string
+}
+
+variable "api_cpu" {
+  description = "Fargate vCPU units (1024 = 1 vCPU). Starting size from Phase 0's idle-memory-based estimate (docs/deployment/07-phase0-validation-findings.md section 12) -- not load-tested yet."
+  type        = number
+  default     = 512
+}
+
+variable "api_memory" {
+  description = "Fargate memory in MB."
+  type        = number
+  default     = 1024
+}
+
+# Qdrant Cloud is external and not provisioned by Terraform (AWS_Deployment.md
+# section 3) -- there is no default because no Qdrant Cloud cluster has been
+# created yet. Must be supplied once one exists; see AWS_Deployment.md
+# section 32's manual TODO.
+variable "qdrant_url" {
+  description = "Qdrant Cloud cluster URL, e.g. https://xxxx.us-east-1.aws.cloud.qdrant.io:6333."
+  type        = string
+}
+
+# Cognito already exists (AWS_Deployment.md section 13) -- these are the
+# real, non-sensitive values for this project's pool. The client secret is
+# NOT here -- it's one of the Phase 3 Secrets Manager entries.
+variable "cognito_user_pool_id" {
+  type    = string
+  default = "us-east-1_9chS0pt6P"
+}
+
+variable "cognito_app_client_id" {
+  type    = string
+  default = "1r4at7v1s9nr9jqots6gl15ht"
+}
+
+variable "cognito_domain" {
+  type    = string
+  default = "https://us-east-19chs0pt6p.auth.us-east-1.amazoncognito.com"
+}

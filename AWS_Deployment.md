@@ -1463,22 +1463,37 @@ And Qdrant Cloud Free Tier sits outside all three compute environments:
 32. MANUAL TODO — BEFORE FIRST END-TO-END TEST
 ============================================================
 
-Not automated on purpose (real AWS cost, real secret values). Do these only
-when actually ready to test the ecs-demo environment end-to-end -- not
-before Phase 4 exists, since nothing can use RDS/ElastiCache until the ECS
-API is deployed.
+Not automated on purpose (real AWS cost, real secret values, a real
+external account). Do these only when actually ready to test the ecs-demo
+environment end-to-end.
 
-[ ] 1. Apply Phase 3 (RDS + ElastiCache + Secrets Manager containers):
+[ ] 1. Create a Qdrant Cloud Free Tier cluster (AWS_Deployment.md section 3
+       -- Qdrant is external, Terraform does not provision it). Note the
+       cluster URL and API key; the API key becomes the
+       `qdrant-api-key` secret value in step 3 below, the URL becomes the
+       `qdrant_url` Terraform variable in step 2.
+
+[ ] 2. Apply Phase 3 + Phase 4 together (RDS, ElastiCache, Secrets Manager
+       containers, ECS cluster, API service, ALB) -- applying Phase 3 alone
+       first would pay for RDS/ElastiCache with nothing yet able to connect
+       to them:
 
     cd infra/terraform/environments/ecs-demo
-    AWS_PROFILE=researchmind-deploy terraform apply
+    AWS_PROFILE=researchmind-deploy terraform apply \
+      -var="backend_image_tag=bc623c6" \
+      -var="qdrant_url=<your Qdrant Cloud cluster URL>"
 
-    Expect 14 resources to add. Starts real ongoing cost (~$21-27/month
-    while running -- see infra/terraform/README.md's cost table).
-    Run `terraform destroy` when done testing.
+    Expect 24 resources to add. Starts real ongoing cost (~$21-27/month
+    RDS+ElastiCache, plus ALB/Fargate billing while running -- see
+    infra/terraform/README.md's cost table). `backend_image_tag` must be an
+    existing tag in the researchmind-backend ECR repo (currently `bc623c6`;
+    push a new one first if the code has moved on). Run `terraform destroy`
+    when done testing.
 
-[ ] 2. Populate the 9 Secrets Manager containers Phase 3 created (real
-       values, never through Terraform/tfstate):
+[ ] 3. Populate the 9 Secrets Manager containers Phase 3 created (real
+       values, never through Terraform/tfstate) -- the API service won't
+       start cleanly until these have real values, since its task
+       definition already references all of them:
 
     AWS_PROFILE=researchmind-deploy aws secretsmanager put-secret-value \
       --secret-id researchmind/ecs-demo/groq-api-key --secret-string "<value>"
@@ -1499,9 +1514,22 @@ API is deployed.
     AWS_PROFILE=researchmind-deploy aws secretsmanager put-secret-value \
       --secret-id researchmind/ecs-demo/qdrant-api-key --secret-string "<value>"
 
-    RDS's own master password is NOT in this list -- manage_master_user_password
-    made AWS create/rotate that secret itself; neither Terraform nor you
-    ever touch its value.
+    RDS's DATABASE_URL secret is NOT in this list -- Terraform generates
+    and owns that value itself (modules/rds), you never touch it.
 
-Until both steps are done, Phase 3 stays as validated-but-unapplied
+    After populating secrets, force a fresh deployment so the API task
+    picks them up (ECS caches resolved secret values per task, not
+    per-service):
+
+    AWS_PROFILE=researchmind-deploy aws ecs update-service \
+      --cluster researchmind-ecs-demo-cluster \
+      --service researchmind-ecs-demo-api \
+      --force-new-deployment --region us-east-1
+
+[ ] 4. Verify: `curl http://$(cd infra/terraform/environments/ecs-demo && AWS_PROFILE=researchmind-deploy terraform output -raw api_url | sed 's#http://##')/api/v1/health/live`
+       (HTTP only -- see modules/alb/main.tf; not yet safe for the Amplify
+       frontend, which is HTTPS, to call -- that needs Phase 7 to resolve
+       the custom-domain/ACM gap first).
+
+Until all steps are done, Phase 3+4 stay as validated-but-unapplied
 Terraform code (see infra/terraform/README.md "Current status").

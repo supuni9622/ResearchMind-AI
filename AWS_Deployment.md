@@ -1487,19 +1487,24 @@ environment end-to-end.
       -var="backend_image_tag=bc623c6" \
       -var="qdrant_url=<your Qdrant Cloud cluster URL, with :6333 appended>"
 
-    Expect 38 resources to add (with the default `enable_mcp=false` --
+    Expect 47 resources to add (with the default `enable_mcp=false` --
     MCP is skipped entirely rather than deployed-and-broken until
     research-intelligence-mcp has a real image, see section 34): RDS+
     ElastiCache+10 secrets (18, including the always-created
     mcp-auth-token placeholder), ECS cluster+ALB+CloudFront+API service
-    (8), 4 worker services (12). Starts real ongoing cost (~$21-27/month
-    RDS+ElastiCache, plus ALB/Fargate billing for 5 running tasks, plus
+    (8), 4 worker services (12), Phase 8's CloudWatch alarms/dashboard/SNS
+    topic (9). Starts real ongoing cost (~$21-27/month RDS+ElastiCache,
+    plus ALB/Fargate billing for 5 running tasks, plus
     ~$4/month for 10 Secrets Manager secrets -- see
     infra/terraform/README.md's cost table). `backend_image_tag` must be
     an existing tag in the researchmind-backend ECR repo (currently
     `bc623c6`; push a new one first if the code has moved on -- the SAME
-    tag deploys to all 5 services, one shared image). Run
-    `terraform destroy` when done testing.
+    tag deploys to all 5 services, one shared image). Optionally add
+    `-var="alarm_email=<you>@example.com"` to get real email notifications
+    from Phase 8's alarms (requires confirming a subscription email
+    afterward) -- omit it and the alarms/dashboard still get created,
+    just with nobody subscribed. Run `terraform destroy` when done
+    testing.
 
 [ ] 3. Populate the 10 Secrets Manager containers Phase 3 created (real
        values, never through Terraform/tfstate) -- ALL 10 need at least
@@ -1562,7 +1567,10 @@ environment end-to-end.
     retry rather than assuming something's broken.) Verify the workers by
     checking CloudWatch Logs (`/ecs/researchmind-ecs-demo-worker-*`) or,
     for research-runtime/memory-lifecycle, hitting their `/metrics` port
-    directly if reachable.
+    directly if reachable. Open the Phase 8 dashboard
+    (`terraform output cloudwatch_dashboard_url`) and confirm the widgets
+    are populating -- ALB requests/5xx, ECS API CPU/memory, RDS CPU/
+    connections, ElastiCache engine CPU.
 
 [ ] 5. Apply the frontend (Amplify, Phase 7) using the `api_https_url`
        from step 4 -- see section 35 for the full walkthrough (GitHub

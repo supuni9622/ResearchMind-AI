@@ -2,6 +2,11 @@ output "endpoint" {
   value = aws_db_instance.this.endpoint
 }
 
+output "instance_id" {
+  description = "For CloudWatch AWS/RDS DBInstanceIdentifier dimension (modules/cloudwatch-alarms)."
+  value       = aws_db_instance.this.id
+}
+
 output "database_name" {
   value = aws_db_instance.this.db_name
 }

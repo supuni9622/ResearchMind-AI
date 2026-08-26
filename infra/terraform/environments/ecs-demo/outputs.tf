@@ -85,3 +85,7 @@ output "mcp_server_url" {
   description = "Internal-only Cloud Map DNS URL -- not reachable from outside the VPC, this is just what MCP_PAPERS_SERVER_URL resolves to for the API/Research Runtime worker."
   value       = local.mcp_server_url
 }
+
+output "cloudwatch_dashboard_url" {
+  value = "https://${var.aws_region}.console.aws.amazon.com/cloudwatch/home?region=${var.aws_region}#dashboards:name=${module.cloudwatch_alarms.dashboard_name}"
+}

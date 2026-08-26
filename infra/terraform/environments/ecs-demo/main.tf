@@ -112,10 +112,11 @@ module "iam" {
 module "rds" {
   source = "../../modules/rds"
 
-  name_prefix         = local.name_prefix
-  private_subnet_ids  = module.vpc.private_subnet_ids
-  security_group_id   = module.vpc.rds_security_group_id
-  secrets_path_prefix = var.secrets_manager_path_prefix
+  name_prefix          = local.name_prefix
+  private_subnet_ids   = module.vpc.private_subnet_ids
+  security_group_id    = module.vpc.rds_security_group_id
+  secrets_path_prefix  = var.secrets_manager_path_prefix
+  allocated_storage_gb = var.rds_allocated_storage_gb
 }
 
 module "elasticache" {
@@ -395,4 +396,25 @@ module "mcp_service" {
   # one for its own upstream paper-search providers.
   environment = local.common_environment
   secrets     = local.common_secrets
+}
+
+# Phase 8: CloudWatch alarms + dashboard (AWS_Deployment.md section 19).
+# Log groups already exist per-service (modules/ecs-service); this adds
+# the alarm layer on top -- ALB 5xx/unhealthy-hosts, RDS CPU/storage,
+# ElastiCache engine CPU, ECS API CPU/memory. Scoped to the API service
+# only, not all 5 ECS services -- see the module's variables.tf for why.
+module "cloudwatch_alarms" {
+  source = "../../modules/cloudwatch-alarms"
+
+  name_prefix = local.name_prefix
+  aws_region  = var.aws_region
+  alarm_email = var.alarm_email
+
+  alb_arn_suffix           = module.alb.arn_suffix
+  target_group_arn_suffix  = module.alb.target_group_arn_suffix
+  rds_instance_id          = module.rds.instance_id
+  rds_allocated_storage_gb = var.rds_allocated_storage_gb
+  elasticache_cluster_id   = module.elasticache.cluster_id
+  ecs_cluster_name         = module.ecs_cluster.cluster_name
+  ecs_api_service_name     = module.api_service.service_name
 }

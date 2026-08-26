@@ -13,3 +13,7 @@ sqs_queue_names  = ["ResearchMind-Processing", "ResearchMind-Processing-DLQ"]
 # section 32's manual TODO):
 backend_image_tag = "bc623c6" # existing tag in the researchmind-backend ECR repo
 qdrant_url        = ""        # Qdrant Cloud cluster URL, e.g. https://xxxx.us-east-1.aws.cloud.qdrant.io:6333
+
+# Phase 8 -- optional, defaults to "" (alarms/dashboard still get created,
+# just nobody subscribed):
+# alarm_email = "you@example.com"

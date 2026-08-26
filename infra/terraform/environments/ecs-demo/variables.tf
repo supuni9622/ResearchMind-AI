@@ -54,6 +54,20 @@ variable "secrets_manager_path_prefix" {
   default     = "researchmind/ecs-demo"
 }
 
+variable "rds_allocated_storage_gb" {
+  description = "Passed to both modules/rds and modules/cloudwatch-alarms (the low-free-storage alarm threshold is relative to this) -- kept as one environment-level value instead of letting the two drift independently."
+  type        = number
+  default     = 20
+}
+
+# --- Phase 8: CloudWatch alarms ------------------------------------------
+
+variable "alarm_email" {
+  description = "Optional -- subscribes this address to the CloudWatch alarm SNS topic (requires confirming a subscription email from AWS after apply). Leave \"\" to still create the topic/alarms/dashboard without anyone subscribed."
+  type        = string
+  default     = ""
+}
+
 # --- Phase 4: ECS API ------------------------------------------------------
 
 variable "backend_image_tag" {

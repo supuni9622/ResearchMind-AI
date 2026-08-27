@@ -1,8 +1,13 @@
 import type { ResearchSource } from '@/lib/api';
+import { relevanceScorePercent } from '@/features/research/types';
 import { FileTextIcon } from '@/components/ui/icons';
 
-export function SourceCard({ source }: { source: ResearchSource }) {
-  const scorePct = Math.round(source.score * 100);
+export function SourceCard({
+  source,
+}: {
+  source: ResearchSource;
+}) {
+  const scorePct = relevanceScorePercent(source.score);
 
   return (
     <div className="border border-ink-600 rounded-lg p-3.5 hover:border-ink-400 transition-colors duration-100">

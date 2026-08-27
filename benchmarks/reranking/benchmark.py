@@ -81,6 +81,10 @@ from benchmarks.retrieval.metrics import (
 # benchmarks' collections so runs never interfere with each other.
 BENCHMARK_COLLECTION_NAME = "benchmark_reranking"
 
+# Matches BenchmarkRetrievalIndexer's default owner_id fallback when no
+# owner_ids_by_document_id mapping is supplied.
+BENCHMARK_OWNER_ID = "benchmark"
+
 # Hybrid candidate pool size retrieved before (optional) reranking.
 POOL_SIZE = 20
 
@@ -198,6 +202,7 @@ class RerankingBenchmark(Benchmark):
         candidate_query = RetrievalQuery(
             query=query_text,
             top_k=pool_size * 2,
+            owner_id=BENCHMARK_OWNER_ID,
         )
 
         with Timer() as timer:

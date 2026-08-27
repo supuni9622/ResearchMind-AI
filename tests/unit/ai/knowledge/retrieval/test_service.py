@@ -140,6 +140,7 @@ def _make_service(
     sparse_query_embedding_service: AsyncMock | None = None,
     fusion_service: AsyncMock | None = None,
     reranking_service: AsyncMock | None = None,
+    rerank_score_threshold: float | None = None,
 ) -> RetrievalService:
     return RetrievalService(
         registry=registry,
@@ -147,6 +148,7 @@ def _make_service(
         sparse_query_embedding_service=(sparse_query_embedding_service or AsyncMock()),
         fusion_service=(fusion_service or AsyncMock()),
         reranking_service=reranking_service,
+        rerank_score_threshold=rerank_score_threshold,
     )
 
 
@@ -154,7 +156,7 @@ async def test_search_returns_result_with_statistics_populated_from_provider() -
     chunk = _make_chunk()
     provider = _make_provider(
         result=RetrievalResult(
-            query=RetrievalQuery(query="rag"),
+            query=RetrievalQuery(query="rag", owner_id="owner-1"),
             execution=RetrievalExecution(),
             chunks=[chunk],
         ),
@@ -169,7 +171,7 @@ async def test_search_returns_result_with_statistics_populated_from_provider() -
 
     result = await service.search(
         provider=RetrievalProvider.QDRANT,
-        query=RetrievalQuery(query="what is rag?", top_k=3),
+        query=RetrievalQuery(query="what is rag?", top_k=3, owner_id="owner-1"),
     )
 
     query_embedding_service.embed.assert_awaited_once_with("what is rag?")
@@ -196,7 +198,7 @@ async def test_search_normalizes_whitespace_in_query() -> None:
 
     await service.search(
         provider=RetrievalProvider.QDRANT,
-        query=RetrievalQuery(query="  what   is\n\nrag?  "),
+        query=RetrievalQuery(query="  what   is\n\nrag?  ", owner_id="owner-1"),
     )
 
     query_embedding_service.embed.assert_awaited_once_with("what is rag?")
@@ -216,7 +218,7 @@ async def test_search_raises_on_empty_or_whitespace_only_query(query_text: str) 
     # RetrievalQuery enforces min_length=1 at construction, so an empty
     # string is built via model_copy (which skips validation) to reach
     # the service's own validation instead of pydantic's.
-    query = RetrievalQuery(query="x").model_copy(update={"query": query_text})
+    query = RetrievalQuery(query="x", owner_id="owner-1").model_copy(update={"query": query_text})
 
     with pytest.raises(RetrievalValidationError, match="cannot be empty"):
         await service.search(
@@ -236,7 +238,7 @@ async def test_search_raises_when_query_exceeds_max_length() -> None:
     with pytest.raises(RetrievalValidationError, match="maximum length"):
         await service.search(
             provider=RetrievalProvider.QDRANT,
-            query=RetrievalQuery(query=long_query),
+            query=RetrievalQuery(query=long_query, owner_id="owner-1"),
         )
 
     provider.search.assert_not_awaited()
@@ -250,7 +252,9 @@ async def test_search_raises_when_top_k_is_not_positive() -> None:
     with pytest.raises(RetrievalValidationError, match="top_k"):
         await service.search(
             provider=RetrievalProvider.QDRANT,
-            query=RetrievalQuery(query="rag", top_k=5).model_copy(update={"top_k": 0}),
+            query=RetrievalQuery(query="rag", top_k=5, owner_id="owner-1").model_copy(
+                update={"top_k": 0}
+            ),
         )
 
     provider.search.assert_not_awaited()
@@ -262,7 +266,7 @@ async def test_search_raises_when_provider_not_registered() -> None:
     with pytest.raises(RetrievalProviderNotFoundError):
         await service.search(
             provider=RetrievalProvider.QDRANT,
-            query=RetrievalQuery(query="rag"),
+            query=RetrievalQuery(query="rag", owner_id="owner-1"),
         )
 
 
@@ -281,7 +285,7 @@ async def test_search_metadata_returns_result_with_statistics() -> None:
     chunk = _make_chunk()
     provider = _make_provider(
         metadata_result=RetrievalResult(
-            query=RetrievalQuery(query="rag"),
+            query=RetrievalQuery(query="rag", owner_id="owner-1"),
             execution=RetrievalExecution(),
             chunks=[chunk],
         ),
@@ -291,7 +295,7 @@ async def test_search_metadata_returns_result_with_statistics() -> None:
 
     result = await service.search_metadata(
         provider=RetrievalProvider.QDRANT,
-        query=RetrievalQuery(query="rag", top_k=5, filters={"owner_id": "owner-1"}),
+        query=RetrievalQuery(query="rag", top_k=5, owner_id="owner-1"),
     )
 
     provider.search_metadata.assert_awaited_once()
@@ -302,23 +306,23 @@ async def test_search_metadata_returns_result_with_statistics() -> None:
     assert result.statistics.returned_chunks == 1
 
 
-async def test_search_hybrid_runs_dense_sparse_and_metadata_then_fuses() -> None:
+async def test_search_hybrid_runs_dense_sparse_and_filtered_metadata_then_fuses() -> None:
     dense_chunk = _make_chunk()
     sparse_chunk = _make_chunk()
     metadata_chunk = _make_chunk()
     provider = _make_provider(
         result=RetrievalResult(
-            query=RetrievalQuery(query="rag"),
+            query=RetrievalQuery(query="rag", owner_id="owner-1"),
             execution=RetrievalExecution(),
             chunks=[dense_chunk],
         ),
         sparse_result=RetrievalResult(
-            query=RetrievalQuery(query="rag"),
+            query=RetrievalQuery(query="rag", owner_id="owner-1"),
             execution=RetrievalExecution(),
             chunks=[sparse_chunk],
         ),
         metadata_result=RetrievalResult(
-            query=RetrievalQuery(query="rag"),
+            query=RetrievalQuery(query="rag", owner_id="owner-1"),
             execution=RetrievalExecution(),
             chunks=[metadata_chunk],
         ),
@@ -329,7 +333,12 @@ async def test_search_hybrid_runs_dense_sparse_and_metadata_then_fuses() -> None
 
     result = await service.search_hybrid(
         provider=RetrievalProvider.QDRANT,
-        query=RetrievalQuery(query="rag", top_k=5),
+        query=RetrievalQuery(
+            query="rag",
+            top_k=5,
+            owner_id="owner-1",
+            filters={"filename": "test.pdf"},
+        ),
     )
 
     provider.search.assert_awaited_once()
@@ -348,7 +357,7 @@ async def test_search_hybrid_reranks_by_default_when_configured() -> None:
     provider = _make_provider()
     fusion_service = _make_fusion_service(
         RetrievalResult(
-            query=RetrievalQuery(query="rag"),
+            query=RetrievalQuery(query="rag", owner_id="owner-1"),
             execution=RetrievalExecution(),
             chunks=[fused_chunk],
         )
@@ -363,13 +372,48 @@ async def test_search_hybrid_reranks_by_default_when_configured() -> None:
 
     result = await service.search_hybrid(
         provider=RetrievalProvider.QDRANT,
-        query=RetrievalQuery(query="rag", top_k=5),
+        query=RetrievalQuery(query="rag", top_k=5, owner_id="owner-1"),
     )
 
     reranking_service.rerank.assert_awaited_once()
     assert reranking_service.rerank.await_args.kwargs["provider"] == RerankingProvider.VOYAGE_AI
     assert reranking_service.rerank.await_args.kwargs["request"].chunks == [fused_chunk]
-    assert result.chunks == [reranked_chunk]
+    assert [chunk.chunk_id for chunk in result.chunks] == [reranked_chunk.chunk_id]
+    assert result.chunks[0].score == 1.0
+
+
+async def test_search_hybrid_rejects_chunks_below_absolute_rerank_threshold() -> None:
+    weak_chunk = _make_chunk()
+    provider = _make_provider()
+    fusion_service = _make_fusion_service(
+        RetrievalResult(
+            query=RetrievalQuery(query="unrelated topic", owner_id="owner-1"),
+            execution=RetrievalExecution(),
+            chunks=[weak_chunk],
+        )
+    )
+    reranking_service = AsyncMock()
+    reranking_service.rerank = AsyncMock(
+        return_value=RerankingResult(
+            chunks=[RerankedChunk(chunk=weak_chunk, rerank_score=0.04)],
+            duration_ms=1.0,
+        )
+    )
+    service = _make_service(
+        registry=RetrievalRegistry([provider]),
+        fusion_service=fusion_service,
+        reranking_service=reranking_service,
+        rerank_score_threshold=0.2,
+    )
+
+    result = await service.search_hybrid(
+        provider=RetrievalProvider.QDRANT,
+        query=RetrievalQuery(query="unrelated topic", top_k=5, owner_id="owner-1"),
+    )
+
+    assert result.chunks == []
+    assert result.statistics is not None
+    assert result.statistics.returned_chunks == 0
 
 
 async def test_search_hybrid_skips_reranking_when_rerank_is_false() -> None:
@@ -377,7 +421,7 @@ async def test_search_hybrid_skips_reranking_when_rerank_is_false() -> None:
     provider = _make_provider()
     fusion_service = _make_fusion_service(
         RetrievalResult(
-            query=RetrievalQuery(query="rag"),
+            query=RetrievalQuery(query="rag", owner_id="owner-1"),
             execution=RetrievalExecution(),
             chunks=[fused_chunk],
         )
@@ -392,7 +436,7 @@ async def test_search_hybrid_skips_reranking_when_rerank_is_false() -> None:
 
     result = await service.search_hybrid(
         provider=RetrievalProvider.QDRANT,
-        query=RetrievalQuery(query="rag", top_k=5),
+        query=RetrievalQuery(query="rag", top_k=5, owner_id="owner-1"),
         rerank=False,
     )
 
@@ -405,7 +449,7 @@ async def test_search_hybrid_skips_reranking_when_no_reranking_service_configure
     provider = _make_provider()
     fusion_service = _make_fusion_service(
         RetrievalResult(
-            query=RetrievalQuery(query="rag"),
+            query=RetrievalQuery(query="rag", owner_id="owner-1"),
             execution=RetrievalExecution(),
             chunks=[fused_chunk],
         )
@@ -419,7 +463,7 @@ async def test_search_hybrid_skips_reranking_when_no_reranking_service_configure
 
     result = await service.search_hybrid(
         provider=RetrievalProvider.QDRANT,
-        query=RetrievalQuery(query="rag", top_k=5),
+        query=RetrievalQuery(query="rag", top_k=5, owner_id="owner-1"),
     )
 
     assert result.chunks == [fused_chunk]
@@ -433,7 +477,7 @@ async def test_search_hybrid_populates_component_latencies_from_component_result
 
     result = await service.search_hybrid(
         provider=RetrievalProvider.QDRANT,
-        query=RetrievalQuery(query="rag", top_k=5),
+        query=RetrievalQuery(query="rag", top_k=5, owner_id="owner-1"),
         rerank=False,
     )
 
@@ -453,7 +497,7 @@ async def test_search_hybrid_populates_rerank_latency_and_provider_when_reranked
     provider = _make_provider()
     fusion_service = _make_fusion_service(
         RetrievalResult(
-            query=RetrievalQuery(query="rag"),
+            query=RetrievalQuery(query="rag", owner_id="owner-1"),
             execution=RetrievalExecution(),
             chunks=[fused_chunk],
         )
@@ -468,7 +512,7 @@ async def test_search_hybrid_populates_rerank_latency_and_provider_when_reranked
 
     result = await service.search_hybrid(
         provider=RetrievalProvider.QDRANT,
-        query=RetrievalQuery(query="rag", top_k=5),
+        query=RetrievalQuery(query="rag", top_k=5, owner_id="owner-1"),
     )
 
     assert result.statistics is not None
@@ -481,7 +525,7 @@ async def test_search_hybrid_skips_reranking_when_fusion_returns_no_chunks() -> 
     provider = _make_provider()
     fusion_service = _make_fusion_service(
         RetrievalResult(
-            query=RetrievalQuery(query="rag"),
+            query=RetrievalQuery(query="rag", owner_id="owner-1"),
             execution=RetrievalExecution(),
             chunks=[],
         )
@@ -496,7 +540,7 @@ async def test_search_hybrid_skips_reranking_when_fusion_returns_no_chunks() -> 
 
     result = await service.search_hybrid(
         provider=RetrievalProvider.QDRANT,
-        query=RetrievalQuery(query="rag", top_k=5),
+        query=RetrievalQuery(query="rag", top_k=5, owner_id="owner-1"),
     )
 
     reranking_service.rerank.assert_not_awaited()

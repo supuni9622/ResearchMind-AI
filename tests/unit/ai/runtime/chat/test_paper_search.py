@@ -41,6 +41,7 @@ async def test_disabled_toggle_never_calls_search() -> None:
     assert outcome.events == []
     assert outcome.context_text is None
     assert outcome.sources == []
+    assert outcome.invoked is False
     search.assert_not_awaited()
 
 
@@ -54,6 +55,7 @@ async def test_missing_collaborator_degrades_to_no_search() -> None:
         paper_search=None,
     )
     assert outcome.events == []
+    assert outcome.invoked is False
 
 
 @pytest.mark.asyncio
@@ -67,6 +69,7 @@ async def test_unavailable_service_degrades_to_no_search() -> None:
         paper_search=_paper_search(available=False, search=search),
     )
     assert outcome.events == []
+    assert outcome.invoked is False
     search.assert_not_awaited()
 
 
@@ -104,6 +107,7 @@ async def test_successful_search_produces_events_context_and_sources() -> None:
     assert "RAG for Knowledge-Intensive NLP Tasks" in outcome.context_text
     assert len(outcome.sources) == 1
     assert outcome.sources[0].year == 2020
+    assert outcome.invoked is True
     search.assert_awaited_once()
 
 
@@ -128,6 +132,7 @@ async def test_search_with_no_usable_results_emits_skipped_event() -> None:
     ]
     assert outcome.context_text is None
     assert outcome.sources == []
+    assert outcome.invoked is True
 
 
 @pytest.mark.asyncio
@@ -146,6 +151,7 @@ async def test_search_failure_degrades_to_skipped_event() -> None:
         ChatEventType.CHAT_PAPER_SEARCH_STARTED.value,
         ChatEventType.CHAT_PAPER_SEARCH_SKIPPED.value,
     ]
+    assert outcome.invoked is True
 
 
 @pytest.mark.asyncio

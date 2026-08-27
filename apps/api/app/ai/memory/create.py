@@ -23,6 +23,7 @@ from app.ai.knowledge.vectorstores.create import create_qdrant_client
 from app.ai.memory.artifacts.writers import MemoryArtifactWriter
 from app.ai.memory.extraction.service import MemoryExtractionService
 from app.ai.memory.observability.recorder import StructuredMemoryMetricsRecorder
+from app.ai.memory.policy.supersession import PreferenceSupersessionService
 from app.ai.memory.profile.service import UserMemoryService
 from app.ai.memory.research.service import ResearchMemoryService
 from app.ai.memory.retrieval.availability import DurableMemoryAvailabilityService
@@ -40,6 +41,7 @@ from app.core.settings import settings
 from app.infrastructure.metrics.composite import CompositeMetricsRecorder
 from app.infrastructure.metrics.interfaces import MetricsRecorder
 from app.infrastructure.storage import create_storage
+from app.repositories.memory_settings import MemoryScopeSettingsRepository
 
 
 @lru_cache
@@ -154,6 +156,8 @@ def build_memory_service(
             create_memory_availability_client(),
             metrics,
         ),
+        supersession_service=build_preference_supersession_service(),
+        scope_settings=MemoryScopeSettingsRepository(session),
     )
 
 
@@ -189,6 +193,16 @@ def build_memory_extraction_service() -> MemoryExtractionService:
 def build_session_state_updater_service() -> SessionStateUpdaterService:
     provider, fallback_provider = _cheap_memory_providers()
     return SessionStateUpdaterService(
+        create_generation_runtime(),
+        provider=provider,
+        fallback_provider=fallback_provider,
+    )
+
+
+@lru_cache
+def build_preference_supersession_service() -> PreferenceSupersessionService:
+    provider, fallback_provider = _cheap_memory_providers()
+    return PreferenceSupersessionService(
         create_generation_runtime(),
         provider=provider,
         fallback_provider=fallback_provider,

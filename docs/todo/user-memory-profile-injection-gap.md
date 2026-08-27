@@ -1,7 +1,8 @@
-# TODO: USER memory (durable preferences) is captured but never applied
+# Resolved: USER memory (durable preferences) is captured and applied
 
-**Status:** Not started — investigation/clarification only, verified against
-code on 2026-07-26. No implementation decision made yet.
+**Status:** ✅ Read side wired, 2026-08-12 (`PRIORITIZED_ROADMAP.md` Wave 2,
+"User-profile memory read-side wiring"). See "Resolution" section at the
+bottom for what shipped and what deliberately stayed open.
 **Source:** Conversation, 2026-07-26 — clarifying how ResearchMind keeps a
 user profile/preferences over time, as an expansion of Session and Semantic
 memory. Verified by direct read of `app/ai/memory/`, not from memory of the
@@ -46,13 +47,17 @@ fuzzy-matched by meaning.
   `GET /memory/{id}`, `PUT /memory/{id}`, `DELETE /memory/{id}`.
   `UserMemoryService.list_preferences()` backs a recency listing (no
   ranking — USER has no embedding index to rank against).
-- Retention: no automatic hot/warm/cold decay yet. `MemoryLifecycleService.
-  sweep_stale()` (`lifecycle/service.py`) removes low-importance
-  (`importance_score < 0.3`) USER/SEMANTIC/RESEARCH rows untouched for 90+
-  days — but it's deliberately callable-but-unscheduled; nothing in this
-  codebase runs recurring jobs today, so nothing actually invokes it.
+- Retention: no hot/warm/cold decay exists. A dedicated recurring worker calls
+  `MemoryLifecycleService.sweep_stale()` with configurable per-type age and
+  importance policies, a Valkey singleton lock, bounded batches, metrics, and
+  row-level failure isolation. It defaults to dry-run; production deletion is
+  an explicit rollout decision.
 
-## The gap — confirmed by code, not assumption
+## Historical gap — resolved 2026-08-12
+
+> The diagnosis below records the pre-resolution implementation and is kept as
+> decision history. It does not describe the current runtime behavior; see
+> “Resolution” below.
 
 **`MemoryContext` (the bundle injected into every live Chat/Research turn)
 deliberately excludes `user_memories`.** `app/ai/memory/models.py:63-67`'s own
@@ -86,7 +91,7 @@ behavior via the extraction pipeline above. Neither currently feeds back
 into generation — Phase 1.6 because it hasn't been built at all, this one
 because the read side isn't wired despite the write side working.
 
-## Open questions before implementing a fix
+## Historical open questions before implementing the fix
 
 1. **Where does USER memory get read?** Two candidate injection points,
    not mutually exclusive:
@@ -119,8 +124,90 @@ because the read side isn't wired despite the write side working.
    preferences belong to which mechanism before wiring either one's read
    side.
 
-## Not started
+## Resolution (2026-08-12)
 
-No code changes have been made. `format_memory_context()`, `MemoryContext`,
-and `RoutingService` are all unchanged as of this writing — this document
-exists to make the gap explicit and trackable, not to record a fix.
+Prompt-content injection path (open question 1's first option) is now wired,
+end to end, with zero call-site changes needed in any consuming runtime:
+
+- `MemoryContext` (`app/ai/memory/models.py`) gained a `user_memories` field.
+- `MemoryService.get_context()` now fetches
+  `self._user.list_preferences(owner_id=owner_id, limit=top_k)` unconditionally
+  alongside the existing session fetch — an uncached Postgres query every
+  turn, same as session's Valkey fetch, deliberately not wrapped in the
+  semantic/research try/except-and-continue pattern (answers open question 2:
+  a handful-of-rows owner-scoped lookup is cheap enough to just always do; no
+  new caching layer was added).
+- `format_memory_context()` renders a new "Durable user preferences (apply to
+  every turn):" section, positioned right after session state.
+- Because Chat, Linear Research, Deep Research proposal, and Deep Research
+  execution all call the shared `format_memory_context()`/`with_memory_context()`
+  helpers rather than touching `MemoryContext` fields directly, all four
+  surfaces now surface USER memory with no per-runtime code change.
+
+**Same-day follow-up (2026-08-12): precedence + write-path.**
+- **Conflict resolution (open question 3, partially answered):** the current
+  turn's explicit instruction now always wins over a stored USER preference
+  when they conflict — `format_memory_context()`'s closing text states this
+  directly ("If anything above conflicts with an explicit instruction in the
+  user's current question, the current question always wins"), and the USER
+  section heading was softened from "apply to every turn" to "defaults, see
+  precedence note below" to match. This is prompt-text guidance only, not
+  code-enforced.
+- **Preference feedback → `USER` memory write path** (a separate Wave 2
+  roadmap line item, done together with the above): `FeedbackService.submit()`
+  now writes a USER memory from a feedback comment, but only when E11's
+  existing objective/preference classifier (`CommentClassificationService`,
+  see `comment-classification-platform` memory) judges it `PREFERENCE` —
+  `OBJECTIVE` comments (factual answer-quality complaints, e.g. "cited the
+  wrong paper") are never written, since they describe the answer, not the
+  user. Reuses `MemoryService.remember_extracted()` (the same convergence
+  point the explicit-trigger and interest-promotion write paths already use)
+  and `score_importance()` for the importance score — no new classifier or
+  scoring logic was built. Best-effort: a memory-write failure never fails
+  feedback submission.
+
+**Second same-day follow-up (2026-08-12): staleness/supersession, closing
+open question 4.** `MemoryService.remember_extracted()`'s dedup was
+exact-content-match only, so two USER preferences that mean the same thing
+in different words -- or that flatly contradict each other ("prefers
+concise answers" then later "prefers detailed answers") -- both persisted
+as separate rows forever, with no supersession. Fixed with a second tier,
+USER-type only, that runs when the exact-match check misses: a new
+`PreferenceSupersessionService` (`app/ai/memory/policy/supersession.py`,
+same cheap-bounded-LLM-call pattern as `CommentClassificationService`/
+`WebSearchNecessityService`/`MemoryExtractionService`, Groq-primary/
+OpenAI-fallback via the existing `_cheap_memory_providers()` composition)
+compares the new statement against the owner's existing USER preferences
+(via `UserMemoryService.list_preferences()`) and asks which one, if any,
+it replaces. A match updates that row in place (`UserMemoryService.update()`)
+instead of creating a second row -- the "latest version wins" resolution,
+not a soft-delete/superseded-flag scheme, so no new column or read-path
+filtering was needed. Fails closed to "no supersession" (create a new row)
+on any classification failure, out-of-range index, or when
+`settings.memory_preference_supersession_enabled` is off (default on).
+Scoped to `remember_extracted()`'s three inferred write paths (explicit
+trigger, interest promotion, feedback) only -- the direct `POST /memory`
+API and `research/service.py`'s raw-turn SESSION write are untouched,
+since an explicit, deliberate API call to create a memory should create
+one, not silently overwrite another.
+
+**Bug found and fixed while verifying owner-scoping (2026-08-12):**
+`GET /memory/context` (`app/api/v1/memory.py`, `MemoryContextResponse` in
+`app/schemas/memory.py`) was never updated when `user_memories` was added to
+`MemoryContext` — the prompt-injection path (Chat/Research) picked it up for
+free via the shared `format_memory_context()` helper, but this direct API
+view of the assembled context silently kept omitting USER preferences from
+its JSON response. Fixed: `MemoryContextResponse` gained a `user_memories`
+field, the route now populates it. Covered by
+`tests/api/test_memory.py` (new file — no test existed for this route at
+all before).
+
+**Deliberately declined, by explicit user instruction (2026-08-12):**
+- **Routing/behavior injection** (open question 1's second option) — user
+  decided not to make `RoutingService` memory-aware ("no need memory to
+  routing strategy"). Not just deferred pending a decision; this option is
+  closed unless revisited later by explicit request.
+- **Settings-UI overlap** (open question 5) — not resolved; this pass treats
+  all captured USER memory content as safe to surface as prompt text
+  regardless of which preferences might eventually move to an explicit
+  settings page.

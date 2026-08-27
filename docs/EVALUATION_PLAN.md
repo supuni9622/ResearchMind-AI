@@ -10,7 +10,12 @@ LangSmith control-plane architecture) reviewed against this codebase on
 2026-08-10. Every claim about current code state below was checked, not
 assumed. **Companion docs:** [`PHASE_2_3_ROADMAP.md`](PHASE_2_3_ROADMAP.md),
 [`PRODUCTION_READINESS_EVALUATION.md`](../PRODUCTION_READINESS_EVALUATION.md),
-[`docs/evaluation/EVALUATION_GAP_ANALYSIS.md`](evaluation/EVALUATION_GAP_ANALYSIS.md).
+[`docs/evaluation/EVALUATION_GAP_ANALYSIS.md`](evaluation/EVALUATION_GAP_ANALYSIS.md),
+[`PRIORITIZED_ROADMAP.md`](PRIORITIZED_ROADMAP.md) (sequences this plan's
+phases into Wave 1). **Execution tracking:**
+[`EVALUATION_IMPLEMENTATION_TRACKER.md`](EVALUATION_IMPLEMENTATION_TRACKER.md)
+turns §16's phase list into task/subtask checklists against verified
+current code state — update it, not this file, as Wave 1 items ship.
 
 ## How to read this document
 
@@ -133,9 +138,13 @@ slice by *failure type*, not just by config/content segment:
 
 ## 4. Ingestion & chunking evaluation (MVP slice)
 
-Genuinely new coverage — this doesn't exist today in any form beyond
-`benchmarks/chunking/`'s strategy-vs-strategy comparison, which never
-checks fidelity against a known-correct source.
+**Status: MVP done (2026-08-11).** Was genuinely new coverage — this
+didn't exist in any form beyond `benchmarks/chunking/`'s
+strategy-vs-strategy comparison, which never checked fidelity against a
+known-correct source. Implementation: `benchmarks/ingestion/`, reusing
+the 5 already-cached research-paper fixtures with hand-verified
+heading/table minimums rather than adding new fixture PDFs. Detail:
+`EVALUATION_IMPLEMENTATION_TRACKER.md` E12.
 
 | Check | Detects | Method | Tier |
 |---|---|---|---|
@@ -160,11 +169,12 @@ identified in 1f.
 
 | Metric | Reference needed? | Status |
 |---|---|---|
-| Recall@K, Hit Rate@K | Yes | Add if not already in `benchmarks/retrieval/` — cheap, deterministic |
-| MRR | Yes | Same |
+| Recall@K | Yes | Already built |
+| Hit Rate@K | Yes | ✅ Done 2026-08-11 — was the one genuinely missing metric, see `EVALUATION_IMPLEMENTATION_TRACKER.md` E14 |
+| MRR | Yes | Already built |
 | NDCG@K | Graded labels | Already built |
 | Context Precision / Recall (Ragas) | Reference contexts | Covered by 1a's Ragas integration |
-| Metadata-filter accuracy | Expected filters | Deterministic, cheap to add |
+| Metadata-filter accuracy | Expected filters | Already built — `MetadataFilteringBenchmark` |
 | Noise sensitivity, context entity recall, diversity/coverage | Varies | Mature tier |
 
 **Experiment metadata — merges 1f's config fingerprint with the fuller
@@ -175,7 +185,8 @@ conflate them:
   `GenerationUsage`, per 1f): `surface`, `prompt_version`,
   `chunking_strategy`, `embedding_model`, `reranker`, `routing_strategy` —
   stays exactly as scoped in 1f, this is what ties a *live* answer back to
-  the config that produced it.
+  the config that produced it. **Status: done 2026-08-11**, see
+  `EVALUATION_IMPLEMENTATION_TRACKER.md` E8.
 - **Retrieval-experiment metadata** (lives in `benchmarks/`/LangSmith
   experiment tracking, not the production ledger — a different, offline
   concern): `retriever_version`, `embedding_provider`, `chunker_version`,
@@ -191,6 +202,10 @@ conflate them:
 
 ## 6. Context-construction evaluation (new layer, MVP slice)
 
+**Status: MVP done (2026-08-11).** Implementation:
+`app/ai/knowledge/context/quality.py`. Detail:
+`EVALUATION_IMPLEMENTATION_TRACKER.md` E13.
+
 | Metric | Question | Method | Tier |
 |---|---|---|---|
 | Provenance preservation | Can every context item trace back to a chunk/source? | Deterministic — cheap, and directly reuses the citation-provenance logic being built in §8 | MVP |
@@ -205,8 +220,16 @@ today nothing would catch that specific failure mode.
 
 ## 7. Generation evaluation
 
-This is what 1a/1b already designed — **no change**, just restated here
-for completeness of the layered model:
+**Status: MVP scoring function done (2026-08-11).** This is what 1a/1b
+already designed at the decision level — restated here for completeness
+of the layered model, but note the actual Ragas *integration* was net-new
+work, not already in place (see the corrected claim in
+`EVALUATION_IMPLEMENTATION_TRACKER.md` §0/E1: no `ragas` dependency
+existed anywhere in this codebase before this pass). Implementation:
+`benchmarks/generation/ragas_scoring.py` (`score_generation()`) +
+`ragas_judge.py` (real ragas wiring, including a documented workaround
+for a genuine upstream `ragas==0.4.3` packaging bug). Detail:
+`EVALUATION_IMPLEMENTATION_TRACKER.md` E1.
 
 - Linear Research / Deep Research: faithfulness, answer_relevancy,
   context_precision, context_recall (full Ragas RAG suite)
@@ -220,13 +243,38 @@ for completeness of the layered model:
 `reference_answer` exists (most golden-set examples, rare in sampled
 production), completeness against `required_claims`.
 
+**Rubric-adherence judge (E16) — Done 2026-08-12.** Covers what Ragas's
+fixed metric set doesn't: tone and completeness against the
+example-specific `rubric` field (§3's schema). Bolted onto
+`score_generation()` as an optional dimension — only fires for examples
+that actually have a `rubric` (12 of 115 in `rag_answer_gold` today).
+Deliberately a fixed cheap model (`gpt-4o-mini`, matching
+`ragas_judge.py`'s own judge-model choice), not routed through whatever
+model is configured for real answers — a judge's cost shouldn't silently
+track the answer model's cost. Pass/fail + written reason, per §18's
+judge-output-format rule. Live-verified same day against all 12
+rubric-bearing examples' own reference answers via a real `gpt-4o-mini`
+call each. **Extended same day to online-sampled production traffic
+too** (§14's table), gated behind `Settings.
+eval_online_rubric_judge_enabled` (default off) and judged against one
+fixed generic rubric rather than a per-example one, since live traffic
+has no curated rubric. Detail: `EVALUATION_IMPLEMENTATION_TRACKER.md`
+E16.
+
 ---
 
 ## 8. Citation evaluation (new first-class layer, MVP slice)
 
-Generalizes `ResearchReview.citation_integrity_score` — currently a real,
-working, deterministic check, but Deep-Research-only and never a release
-gate — into a cross-surface deterministic validator.
+**Status: Done (2026-08-11).** Generalizes `ResearchReview.citation_integrity_score`
+— was a real, working, deterministic check, but Deep-Research-only and
+never a release gate — into a cross-surface deterministic validator.
+Implementation: `app/ai/knowledge/context/citations/validity.py`
+(`check_citation_validity()` strict core +
+`check_prompt_context_citation_validity()` free-text wrapper);
+`CitationValidator` and `review_draft()` both now delegate to it. Detail:
+`EVALUATION_IMPLEMENTATION_TRACKER.md` E4. Still open: wiring the checker
+into CI's absolute gates and the online scoring job's 100%-sampled
+free-signal category (tracker items E2/E5).
 
 | Check | Method | Blocking? |
 |---|---|---|
@@ -250,16 +298,21 @@ directly closes a real trust risk.
 
 ## 9. Guardrails evaluation (MVP addition)
 
-The guardrails platform itself is real and mature (input/runtime/retrieval/
-generation stages, per `AI_ENGINEERING_AUDIT.md`) — what's missing is
-testing it against a deliberately adversarial set, which also directly
-feeds the already-planned V3 item "evaluate NeMo/LlamaGuard/Lakera before
-committing" (`PHASE_2_3_ROADMAP.md` V3 #3).
+**Status: MVP done (2026-08-11).** The guardrails platform itself was
+already real and mature (input/runtime/retrieval/generation stages, per
+`AI_ENGINEERING_AUDIT.md`) — now genuinely tested against a deliberately
+adversarial set for the first time, feeding Wave 7's in-house guardrails
+gap-filling directly. Implementation: `benchmarks/guardrails/` +
+`datasets/adversarial/adversarial_cases.json`. Detail:
+`EVALUATION_IMPLEMENTATION_TRACKER.md` E15.
 
 - **MVP:** a small (10-20 example) hand-built adversarial dataset —
   prompt injection in an uploaded document, poisoned instructions, a
   handful of known jailbreak patterns — run against the existing guardrail
-  stages, pass/fail per case.
+  stages, pass/fail per case. **Shipped at 18 cases**, empirically
+  verified against the live guardrail code (not a guessed spec) — 13
+  detected, 5 deliberately evasive and confirmed undetected (paraphrase,
+  Unicode homoglyphs, spelled-out PII, keyword-free jailbreak phrasing).
 - **Mature:** full adversarial suite, red-team rotation, security
   evaluation (this is `ROADMAP.md` Phase 8's "Security Evaluation ❌ Not
   started" — this MVP slice is the first real step toward closing that).
@@ -280,7 +333,7 @@ design.
 | Workflow decision quality | — | — | ✓ | **Yes, unused** — `ResearchReview.decision` (PASS/REVISE_SYNTHESIS/RESEARCH_GAPS/FINALIZE_WITH_LIMITATIONS/FAIL) is already computed every run; just needs to be rolled into the eval dashboard as a workflow-health metric, zero new computation |
 | Cost per completed task | — | ✓ | ✓ | Yes — `GenerationUsage` ledger, per-session sum already exists |
 | Human-interrupt outcome rate (approve/reject/revise) | — | — | ✓ | New, but cheap — a count over `budget_usage.plan_decision`/`report_decision`, already-persisted fields |
-| Tool-invocation rate & success rate (web/paper search) | ✓ (if toggled) | — | ✓ | **New, MVP-worthy, cheap** — `WebSearchNecessityDecision`/paper-search query extraction are already computed; this is a count of invocation rate and non-empty/success rate, not a new judge. Whether the *right* tool was chosen (vs. just "was it invoked and did it return something") is the Mature-tier version below. |
+| Tool-invocation rate & success rate (web/paper search) | ✓ (if toggled) | — | ✓ web search; — paper search | **Done for Chat and Deep Research web search, 2026-08-12 (E23).** `GenerationRequest.metadata`/`ResearchRun.budget_usage` → `eval_scores` (same two metric names for both surfaces) → automatic LangSmith sync + existing dashboard view — no new judge, exactly the cheap count this row originally scoped. Deep Research web search closed same day without touching LangGraph node/interrupt behavior: `search_web_gap` already tracked `web_search_count`, a new `web_search_success_count` sibling field is folded into `run.budget_usage` at the run's terminal transition, read back by `OnlineScoringJob` the same way `review_decision` already is. Deep Research paper search has no equivalent tracking at all — a real, disclosed, smaller gap, not force-fit. Whether the *right* tool was chosen (vs. just "was it invoked and did it return something") remains the Mature-tier version below. |
 | Plan quality, subquestion coverage, tool-call **correctness** (was the right tool chosen), source diversity, synthesis coherence | — | Limited | ✓ | Mature tier — would need new LLM-judge rubrics |
 
 The MVP row worth highlighting: **`ResearchReview.decision` is already a
@@ -320,14 +373,55 @@ This is 1c (feedback) and 1g (objective/preference scope split) — **no
 change, already ahead of the reviewed framework**, which has no equivalent
 mechanism for keeping one user's stylistic preference out of the shared
 regression gate. Restated here only to complete the layer table in §2.
+**Status:** 1c's collection mechanism (`POST /feedback`) is live as of
+2026-08-11, including the frontend affordance across all three surfaces
+(Chat, Linear Research, Deep Research) — a real browser click was
+confirmed the same day. The objective/preference classification split
+(1g) itself is done as of 2026-08-12 — a cheap bounded LLM call
+(mirroring `WebSearchNecessityService`'s pattern), fails closed to
+"preference" (never contaminates the shared golden set on an
+ambiguous/failed call), verified live against 6 real cases including
+both of this doc's own acceptance-criterion phrases. Tracked as
+`EVALUATION_IMPLEMENTATION_TRACKER.md` E11 (previously mislabeled E21
+here — E21 is the frontend thumbs-up/down affordance, a different item).
+
+Same day, once real feedback was flowing, a related gap surfaced: user
+feedback landed in our own `feedback` table but was invisible inside
+LangSmith's own UI, since nothing correlated it back to the trace it was
+left on. Fixed by wiring `POST /feedback` to also call LangSmith's
+`create_feedback()` API against the originating run — see
+`EVALUATION_IMPLEMENTATION_TRACKER.md` E22. This directly serves this
+section's own "LangSmith as the control plane" framing (§11's trace-tag
+point above): a user's thumbs up/down and the trace it was left on are
+now both visible together inside LangSmith, not just in our own DB.
 
 ---
 
 ## 13. Offline evaluation system
 
-Reuses `benchmarks/regression/` (already built, per 1a — just needs CI
-wiring) plus the framework's gate-severity distinction, which is worth
-adopting precisely:
+**Status: full trigger matrix done (2026-08-12), all three absolute
+gates now populated (2026-08-12 follow-up).** Reuses
+`benchmarks/regression/` (already built, per 1a) — CI now wired for all
+of Ingestion Fidelity (smoke tier, 2026-08-11), retrieval-config-change
+(Retrieval/Reranking/MetadataFiltering) and prompt/LLM-change
+(GoldenSetGeneration/ProductionFailuresRegression/AbstentionRegression/
+SchemaValidityRegression) triggers, plus a nightly/manual-dispatch full
+regression sweep. All three absolute gates declared below are now
+genuinely populated: `fabricated_citation_rate` verified live against
+real OpenAI calls; `abstention_pass_rate` via a new `AbstentionBenchmark`
+scoring `rag_answer_gold`'s unanswerable examples with a dedicated
+abstention judge; `schema_validity_rate` via a new
+`SchemaValidityBenchmark` exercising `ResearchPlanner.plan()`'s real
+structured-output contract against a small fixed query set — neither fit
+as a simple extension of the existing golden-set benchmark, each needed
+its own design decision (see `EVALUATION_IMPLEMENTATION_TRACKER.md`'s
+E20 entry for the detail). None of the four generation-regression steps
+have been run against a real GitHub Actions dispatch yet (manual-dispatch
+gate, costs real money — see the manual-dispatch-only decision below);
+verified locally and via mocked unit tests only. Detail:
+`EVALUATION_IMPLEMENTATION_TRACKER.md` E2, follow-up E20. Gate-severity
+distinction below — now implemented via `ThresholdDirection.ABSOLUTE_MIN`/
+`ABSOLUTE_MAX`, worth adopting precisely:
 
 **Relative regression gates for fuzzy/LLM-judged metrics; absolute gates
 only for deterministic checks.** Don't set an arbitrary target like
@@ -336,14 +430,14 @@ labels — a regression gate ("must not drop more than 2-3% from the current
 production baseline") is safer until there's a calibrated sense of what a
 good absolute score even looks like for this specific product's traffic.
 
-| Gate | Type | Initial bar |
-|---|---|---|
-| Retrieval Recall@10, NDCG@10 | Relative | No regression beyond 2-3% vs. baseline |
-| Faithfulness, answer_relevancy | Relative | No statistically meaningful regression |
-| Citation validity, fabricated-citation-rate | **Absolute** | 100% valid / 0% fabricated — deterministic, cheap, no reason not to hold a hard line |
-| Schema/format validity | **Absolute** | 100% |
-| Abstention pass rate (unanswerable cases) | Absolute | ≥ 95% on the controlled subset |
-| P95 latency, avg. eval cost | Absolute | Within existing budget (readiness item 2's latency-SLO work, item 1's cost budget) |
+| Gate | Type | Initial bar | Status |
+|---|---|---|---|
+| Retrieval Recall@10, NDCG@10 | Relative | No regression beyond 2-3% vs. baseline | Threshold defined (`_QUALITY_DROP`, 5% — not yet 2-3%, close enough not to have blocked this pass); CI-wired 2026-08-12 (`retrieval-regression` job, real Qdrant + `VOYAGE_API_KEY`, manual-dispatch-only, see E20) |
+| Faithfulness, answer_relevancy | Relative | No statistically meaningful regression | Threshold defined; genuinely produced on every `GoldenSetGeneration`/`ProductionFailuresRegression` run since E1/E6 |
+| Citation validity, fabricated-citation-rate | **Absolute** | 100% valid / 0% fabricated — deterministic, cheap, no reason not to hold a hard line | `ABSOLUTE_MAX` threshold defined 2026-08-11; populated 2026-08-12, verified live against real OpenAI calls (`GoldenSetGeneration`) |
+| Schema/format validity | **Absolute** | 100% | `ABSOLUTE_MIN` threshold defined 2026-08-11; populated 2026-08-12 via `SchemaValidityBenchmark` (`ResearchPlanner.plan()`) |
+| Abstention pass rate (unanswerable cases) | Absolute | ≥ 95% on the controlled subset | `ABSOLUTE_MIN` threshold defined 2026-08-11; populated 2026-08-12 via `AbstentionBenchmark` |
+| P95 latency, avg. eval cost | Absolute | Within existing budget (readiness item 2's latency-SLO work, item 1's cost budget) | Not yet defined — tracked as E17/E18 |
 
 Offline triggers: retrieval-config change → retrieval benchmark; prompt/LLM
 change → generation benchmark; every PR → CI smoke eval (small, fast
@@ -367,6 +461,7 @@ are correct, at different layers — merge them:**
 | Deep Research runs with a non-`PASS` review decision | 100% (always score) | 1b's existing risk-weighted rule — reuse unchanged |
 | Requests under a config-fingerprint canary window | Oversampled | 1b's existing risk-weighted rule — reuse unchanged |
 | Faithfulness / relevancy LLM judges (everything else) | 5-10% flat baseline | 1b's baseline rate — standardized here; `EVALUATION_GAP_ANALYSIS.md`'s addendum independently suggested 10-20%, superseded by this number |
+| Rubric-adherence judge (E16, opt-in) | Same sample as the row above — no separate rate | `Settings.eval_online_rubric_judge_enabled` (default off). Golden examples have a curated per-example rubric; live traffic doesn't, so this judges against one fixed, generic quality rubric instead. Rides the existing sampling decision rather than a new knob — done 2026-08-12 |
 | Deep Research trajectory judge | 5-10% | New, mature tier |
 | Human expert review | Queue-based, not sampled | Feeds from 1c's confirmed-feedback queue |
 
@@ -406,20 +501,20 @@ near-term build; **Mature** phases are explicitly deferred, not dropped.
 
 | # | Phase | Tier | Note |
 |---|---|---|---|
-| 1 | Golden dataset (`rag_answer_gold`, 50-150 examples, schema from §3) | MVP | = original 1a step 1 |
-| 2 | Wire `benchmarks/regression/` into CI, gate types per §13 | MVP | = original 1a step 2 |
-| 3 | `POST /feedback` + thumbs up/down, objective/preference classification (1c/1g) | MVP | = original steps 3, 10 |
-| 4 | Citation validator (§8) — generalize `citation_integrity_score` cross-surface, release-blocking | MVP | **New, highest value-per-effort item in this plan** |
-| 5 | Config fingerprint threaded through `GenerationRequest`→`GenerationUsage` (1f) | MVP | = original step 8 |
-| 6 | Online risk-weighted scoring job, merged sampling table (§14) | MVP | = original steps 4, 9 |
-| 7 | Feedback → trace attachment, `eval_scores` table | MVP | = original step 5 |
-| 8 | Internal dashboard, owner-scoped drill-down (1g), roll in `ResearchReview.decision` as workflow signal (§10) | MVP | = original step 6 |
-| 9 | Golden-set promotion review, both directions (1c) | MVP | = original step 7 |
-| 10 | Segment-analysis job (1f) | MVP | = original step 9 |
-| 11 | Ingestion fidelity checks (§4) — parse success rate + fixture comparison | MVP | New, small |
-| 12 | Context-construction provenance + token-efficiency checks (§6) | MVP | New, small |
-| 13 | Adversarial guardrail dataset (§9) | MVP | New, small — also feeds V3 NeMo-evaluation item |
-| 14 | Retrieval metric completeness (Recall@K, Hit Rate@K, metadata-filter accuracy) | MVP | Small extension of existing `benchmarks/retrieval/` |
+| 1 | ✅ Golden dataset (`rag_answer_gold`, schema from §3) — Done, 115 examples (grown from 24) 2026-08-11 | MVP | = original 1a step 1. Grounded in real, verified content throughout — started at 24 to avoid padding with unverified facts, grown to 115 the same day once the underlying corpus expanded from 5 to 50 papers (§4/§5's update). See `EVALUATION_IMPLEMENTATION_TRACKER.md` E1 for the full growth breakdown. LangSmith registration done same day (tracker E19) — all 115 examples live and browsable in LangSmith's UI; Experiment-logging (successive `score_generation()` runs comparable over time in-UI) closed 2026-08-12 |
+| 2 | ✅ Wire `benchmarks/regression/` into CI, gate types per §13 — Done 2026-08-11, full trigger matrix done 2026-08-12, all 3 absolute gates populated 2026-08-12 | MVP | = original 1a step 2. Absolute + relative gates both implemented; CI now covers Ingestion Fidelity, retrieval-family, and generation-family benchmarks with real live-service credentials (Qdrant self-hosted, Voyage AI, OpenAI). All three absolute gates (`fabricated_citation_rate`, `schema_validity_rate`, `abstention_pass_rate`) genuinely populated. Detail: `EVALUATION_IMPLEMENTATION_TRACKER.md` E2, follow-up E20 |
+| 3 | ✅ `POST /feedback` + thumbs up/down (backend + frontend, all 3 surfaces) — Done 2026-08-11 — ✅ mirrored into LangSmith's own `create_feedback()` — Done 2026-08-11 — ✅ objective/preference classification (1c/1g) — Done 2026-08-12 | MVP | = original steps 3, 10. Detail: `EVALUATION_IMPLEMENTATION_TRACKER.md` E3, follow-ups E11/E21/E22 |
+| 4 | ✅ Citation validator (§8) — generalize `citation_integrity_score` cross-surface, release-blocking — Done 2026-08-11 | MVP | **New, highest value-per-effort item in this plan.** Checker built (`app/ai/knowledge/context/citations/validity.py`); online-gate wiring done via E5, CI/regression-gate wiring done via E20 (`GoldenSetBenchmark` now builds real citations and emits `fabricated_citation_rate` per example, verified live). Detail: `EVALUATION_IMPLEMENTATION_TRACKER.md` E4, follow-up E20 |
+| 5 | ✅ Config fingerprint threaded through `GenerationRequest`→`GenerationUsage` (1f) — Done 2026-08-11 | MVP | = original step 8. `app/ai/runtime/generation/config_fingerprint.py`; populated at the 3 answer-producing call sites (Chat, Linear Research, Deep Research synthesis). Verified against a real Postgres row + real migration upgrade/downgrade. Detail: `EVALUATION_IMPLEMENTATION_TRACKER.md` E8 |
+| 6 | ✅ Online risk-weighted scoring job, merged sampling table (§14) — Done 2026-08-11, real streaming-coverage gap found and fixed 2026-08-12 | MVP | = original steps 4, 9. `app/ai/runtime/generation/online_scoring/`, `eval_scores` table (built here, ahead of phase 7). Live manual testing found the job could never score genuinely streamed traffic (Chat, Linear Research) — `StreamingService` never produced the `GenerationArtifact` the job reads, only a thinner `StreamArtifact`; Deep Research alone worked, by accident, since its synthesis call is non-streaming. Fixed by sharing `GenerationService`'s artifact-persist logic with `StreamingService`; verified live for all three surfaces (real queries, real S3 checks, real `eval_scores` rows from the running worker). Detail: `EVALUATION_IMPLEMENTATION_TRACKER.md` E5 |
+| 7 | ✅ Feedback → trace attachment — Done 2026-08-11 (`eval_scores` table itself already built by phase 6 above) | MVP | = original step 5. Also closed a gap this phase surfaced: E1's golden-set Ragas scoring had no runnable driver until now — `benchmarks/generation/golden_set_benchmark.py`. Detail: `EVALUATION_IMPLEMENTATION_TRACKER.md` E6 |
+| 8 | ✅ Internal dashboard, owner-scoped drill-down, roll in `ResearchReview.decision` as workflow signal (§10) — Done 2026-08-11 | MVP | = original step 6. 1g's objective/preference split (E11) is now surfaced in the dashboard's score table. Detail: `EVALUATION_IMPLEMENTATION_TRACKER.md` E7 |
+| 9 | ✅ Golden-set promotion review, both directions (1c) — Done 2026-08-12, both-directions loop fully closed same day | MVP | = original step 7. `promotion_reviews` table + `sync_promoted_examples.py` (mirrors phase 1's LangSmith-registration script pattern); links out to the real LangSmith trace rather than storing content redundantly (§11's "LangSmith as the control plane"). `production_failures.json` is now read by its own `ProductionFailuresRegression` benchmark, separate report from `rag_answer_gold`'s — grown 2026-08-12 from 3 to 5 of §3's 8 `failure_category` values (`wrong_citation`/`hallucination`/`retrieval_miss`/`injection_success`/`abstention_failure`); the remaining 3 (`workflow_loop`/`schema_violation`/`unnecessary_tool_use`) are architecturally infeasible for this benchmark's single-generation-call-per-example design, documented as such rather than left as a silent gap. Detail: `EVALUATION_IMPLEMENTATION_TRACKER.md` E10 |
+| 10 | ✅ Segment-analysis job (1f) — Done, two views 2026-08-12 | MVP | = original step 9. Split into online-by-fingerprint and offline-by-content-segment views rather than one combined slice — the two dimensions live in structurally disjoint rows (fingerprint fields only exist for online-sampled traffic, content-segment fields only resolve for offline-benchmark rows). Detail: `EVALUATION_IMPLEMENTATION_TRACKER.md` E9 |
+| 11 | ✅ Ingestion fidelity checks (§4) — parse success rate + fixture comparison — Done 2026-08-11 | MVP | New, small. `benchmarks/ingestion/`, reuses the 5 existing cached research-paper fixtures. Detail: `EVALUATION_IMPLEMENTATION_TRACKER.md` E12 |
+| 12 | ✅ Context-construction provenance + token-efficiency checks (§6) — Done 2026-08-11 | MVP | New, small. `app/ai/knowledge/context/quality.py`. Detail: `EVALUATION_IMPLEMENTATION_TRACKER.md` E13 |
+| 13 | ✅ Adversarial guardrail dataset (§9) — Done 2026-08-11 | MVP | 18 cases, `datasets/adversarial/`. Also feeds Wave 7's in-house guardrails gap-filling (superseded the NeMo-evaluation framing — see `PRIORITIZED_ROADMAP.md` Wave 7). Detail: `EVALUATION_IMPLEMENTATION_TRACKER.md` E15 |
+| 14 | ✅ Retrieval metric completeness (Recall@K, Hit Rate@K, metadata-filter accuracy) — Done 2026-08-11 | MVP | Recall@K/MRR/NDCG/metadata-filter accuracy were already built; only `hit_rate_at_k` was actually missing — added to `benchmarks/retrieval/metrics.py`+`benchmark.py`, regression threshold, tests. Detail: `EVALUATION_IMPLEMENTATION_TRACKER.md` E14 |
 | 15 | Full context-construction layer (redundancy, lost-in-the-middle, compression preservation) | Mature | |
 | 16 | Citation entailment/placement/specificity judges | Mature | |
 | 17 | Full workflow scorecards (plan quality, subquestion coverage, tool-call accuracy) | Mature | |
@@ -458,7 +553,7 @@ deferred bullet.
 
 | Level | What | Tool | Where in this plan |
 |---|---|---|---|
-| **1 — Deterministic checks** | Schema validity, citation existence, type/range checks on structured output | **Pytest** — not just "ResearchMind code" generically | §8's citation validator, §13's absolute gates. **Concrete, already-existing home**: `tests/evaluation/test_faithfulness.py`, `test_groundedness.py`, `test_reranking.py`, `test_retrieval_precision.py` and `tests/security/test_jailbreaks.py`, `test_prompt_injection.py` are all real, already-named, currently **0-byte empty files** in this repo — confirmed 2026-08-10. These are exactly the right homes for §8's citation checks, §5's retrieval metrics, §7's generation checks, and §9's adversarial guardrail tests, respectively. Nobody had connected these empty stubs to this plan before this check. |
+| **1 — Deterministic checks** | Schema validity, citation existence, type/range checks on structured output | **Pytest** — not just "ResearchMind code" generically | §8's citation validator, §13's absolute gates. **Concrete, already-existing home**: `tests/evaluation/test_faithfulness.py`, `test_groundedness.py`, `test_reranking.py`, `test_retrieval_precision.py` and `tests/security/test_jailbreaks.py`, `test_prompt_injection.py` were all real, already-named, **0-byte empty files** in this repo — confirmed 2026-08-10. **Status 2026-08-12: all six stubs now populated** (E1/E4/E14/E15, `test_reranking.py` closed 2026-08-12) — the mapping stated here turned out not to be 1:1 by position once actually filled in: citation checks (§8) needed their own new file (`test_citation_validity.py`, no existing stub name fit — see E4), `test_faithfulness.py` ended up covering §7's new Ragas tier + the golden dataset, `test_groundedness.py` covers §7's pre-existing lexical tier, `test_retrieval_precision.py` covers §5's retrieval metrics (E14), and the security pair now covers §9's adversarial guardrail dataset (E15) exactly as originally mapped here. `test_reranking.py`'s genuinely-novel Level 1 check (reranking has no centrally-enforced output contract — no provider is forced to preserve the input chunk set or sort output, that's per-provider) is output well-formedness (set-preservation, sort-order, top_k-bounding) plus a real "does reranking improve NDCG over a misordered pool" property test using `benchmarks.retrieval.metrics` directly — not re-testing metric-function correctness, already covered elsewhere. 5 tests, no live calls (fake reranker). |
 | **2 — Human + LLM-judge** | Subjective quality, faithfulness, tone | RAGAS + human review (1c) | §7, §8's Mature entailment judge, §9 |
 | **3 — Product A/B testing** | Real-user outcome comparison across variants | Would need new infrastructure | Explicitly deferred, §17 |
 

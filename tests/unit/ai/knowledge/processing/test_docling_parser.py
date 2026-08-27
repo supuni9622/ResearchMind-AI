@@ -5,6 +5,22 @@ import pytest
 from app.ai.knowledge.processing.enums import DocumentFormat
 from app.ai.knowledge.processing.interfaces import ParseRequest
 from app.ai.knowledge.processing.parsers.docling import DoclingParser
+from docling.datamodel.base_models import InputFormat
+from docling.datamodel.pipeline_options import PdfPipelineOptions
+
+
+def test_docling_parser_enables_ocr_for_scanned_pages():
+    """Regression: OCR was off (`do_ocr=False`), so a scanned/image-only
+    PDF page had no extractable text layer and silently parsed to
+    near-empty content instead of erroring -- invisible to retrieval
+    with no signal anything was wrong."""
+
+    parser = DoclingParser()
+
+    pipeline_options = parser._converter.format_to_options[InputFormat.PDF].pipeline_options
+
+    assert isinstance(pipeline_options, PdfPipelineOptions)
+    assert pipeline_options.do_ocr is True
 
 
 @pytest.mark.asyncio

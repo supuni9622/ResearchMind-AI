@@ -45,7 +45,10 @@ async def test_task_retrieval_scopes_owner_and_bounds_checkpoint_evidence() -> N
 
     query = retrieval.search_hybrid.await_args.kwargs["query"]
     assert query.top_k == 8
-    assert query.filters["owner_id"] == str(owner_id)
+    # owner_id lives on the dedicated, required RetrievalQuery.owner_id
+    # field, never trusted from caller-supplied filters -- the spoofed
+    # "untrusted" value in filters above is inert.
+    assert query.owner_id == str(owner_id)
     assert result.status is ResearchTaskStatus.COMPLETED
     assert len(result.evidence[0].excerpt) == 500
     assert result.citation_ids == ["c1"]

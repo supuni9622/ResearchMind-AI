@@ -460,6 +460,180 @@
           "refId": "A"
         }
       ]
+    },
+    {
+      "id": 14,
+      "type": "timeseries",
+      "title": "Created, updated, superseded",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 48 },
+      "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] },
+      "targets": [
+        { "expr": "sum(rate(researchmind_memory_created_total[15m]))", "legendFormat": "created", "refId": "A" },
+        { "expr": "sum(rate(researchmind_memory_updated_total[15m]))", "legendFormat": "updated", "refId": "B" },
+        { "expr": "sum(rate(researchmind_memory_superseded_total[15m]))", "legendFormat": "superseded", "refId": "C" }
+      ]
+    },
+    {
+      "id": 15,
+      "type": "timeseries",
+      "title": "Postgres rows by type and scope",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 56 },
+      "fieldConfig": { "defaults": { "unit": "short", "min": 0 }, "overrides": [] },
+      "targets": [
+        { "expr": "researchmind_memory_storage_rows", "legendFormat": "{{type}} / {{scope}}", "refId": "A" }
+      ]
+    },
+    {
+      "id": 16,
+      "type": "timeseries",
+      "title": "Postgres table and index bytes",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 56 },
+      "fieldConfig": { "defaults": { "unit": "bytes", "min": 0 }, "overrides": [] },
+      "targets": [
+        { "expr": "researchmind_memory_storage_bytes", "legendFormat": "{{kind}}", "refId": "A" }
+      ]
+    },
+    {
+      "id": 17,
+      "type": "timeseries",
+      "title": "Qdrant points and index drift",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 64 },
+      "fieldConfig": { "defaults": { "unit": "short", "min": 0 }, "overrides": [] },
+      "targets": [
+        { "expr": "researchmind_memory_vector_points", "legendFormat": "Qdrant points", "refId": "A" },
+        { "expr": "researchmind_memory_vector_drift", "legendFormat": "{{kind}}", "refId": "B" }
+      ]
+    },
+    {
+      "id": 18,
+      "type": "timeseries",
+      "title": "Oldest Postgres row age by type",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 64 },
+      "fieldConfig": { "defaults": { "unit": "s", "min": 0 }, "overrides": [] },
+      "targets": [
+        { "expr": "researchmind_memory_storage_oldest_age_seconds", "legendFormat": "{{type}}", "refId": "A" }
+      ]
+    },
+    {
+      "id": 19,
+      "type": "timeseries",
+      "title": "Rows per owner/project distribution",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 72 },
+      "fieldConfig": { "defaults": { "unit": "short", "min": 0 }, "overrides": [] },
+      "targets": [
+        { "expr": "researchmind_memory_storage_distribution", "legendFormat": "{{dimension}} {{quantile}}", "refId": "A" }
+      ]
+    },
+    {
+      "id": 20,
+      "type": "stat",
+      "title": "Lifecycle last success age",
+      "gridPos": { "h": 8, "w": 6, "x": 12, "y": 72 },
+      "fieldConfig": { "defaults": { "unit": "s", "min": 0 }, "overrides": [] },
+      "targets": [
+        { "expr": "time() - researchmind_memory_lifecycle_last_success_timestamp_seconds", "refId": "A" }
+      ]
+    },
+    {
+      "id": 21,
+      "type": "stat",
+      "title": "Inventory last success age",
+      "gridPos": { "h": 8, "w": 6, "x": 18, "y": 72 },
+      "fieldConfig": { "defaults": { "unit": "s", "min": 0 }, "overrides": [] },
+      "targets": [
+        { "expr": "time() - researchmind_memory_inventory_last_success_timestamp_seconds", "refId": "A" }
+      ]
+    },
+    {
+      "id": 22,
+      "type": "timeseries",
+      "title": "Lifecycle examined, deleted, failed",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 80 },
+      "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] },
+      "targets": [
+        { "expr": "sum(rate(researchmind_memory_lifecycle_examined_total[1h]))", "legendFormat": "examined", "refId": "A" },
+        { "expr": "sum(rate(researchmind_memory_lifecycle_deleted_total[1h]))", "legendFormat": "deleted", "refId": "B" },
+        { "expr": "sum(rate(researchmind_memory_lifecycle_failed_total[1h]))", "legendFormat": "failed", "refId": "C" }
+      ]
+    },
+    {
+      "id": 23,
+      "type": "timeseries",
+      "title": "Memory context tokens selected and dropped",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 80 },
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+      "targets": [
+        { "expr": "sum(rate(researchmind_memory_context_tokens_selected_sum[15m]))", "legendFormat": "selected tokens/s", "refId": "A" },
+        { "expr": "sum(rate(researchmind_memory_context_tokens_dropped_sum[15m]))", "legendFormat": "dropped tokens/s", "refId": "B" }
+      ]
+    },
+    {
+      "id": 24,
+      "type": "timeseries",
+      "title": "Omitted memory items by type",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 88 },
+      "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] },
+      "targets": [
+        { "expr": "sum by (type) (rate(researchmind_memory_context_items_omitted_total[15m]))", "legendFormat": "{{type}}", "refId": "A" }
+      ]
+    },
+    {
+      "id": 25,
+      "type": "timeseries",
+      "title": "Memory write throttles",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 88 },
+      "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] },
+      "targets": [
+        { "expr": "sum by (operation) (rate(researchmind_memory_mutation_rejected_total[15m]))", "legendFormat": "public {{operation}}", "refId": "A" },
+        { "expr": "sum(rate(researchmind_memory_extraction_rate_limited_total[15m]))", "legendFormat": "extraction", "refId": "B" }
+      ]
+    },
+    {
+      "id": 26,
+      "type": "timeseries",
+      "title": "Consolidation outcomes",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 96 },
+      "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] },
+      "targets": [
+        { "expr": "sum by (action) (rate(researchmind_memory_consolidation_outcomes_total[1h]))", "legendFormat": "{{action}}", "refId": "A" }
+      ]
+    },
+    {
+      "id": 27,
+      "type": "timeseries",
+      "title": "Memory utility and harm trend",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 96 },
+      "fieldConfig": { "defaults": { "unit": "short", "min": 0, "max": 1 }, "overrides": [] },
+      "datasource": { "type": "postgres", "uid": "researchmind-postgres" },
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "researchmind-postgres" },
+          "format": "time_series",
+          "rawSql": "SELECT $__timeGroupAlias(created_at, '1h'), metric_name, avg(score) AS avg_score FROM eval_scores WHERE $__timeFilter(created_at) AND metric_name IN ('memory_utility', 'irrelevant_memory_harm', 'memory_user_signal') AND score IS NOT NULL GROUP BY 1, metric_name ORDER BY 1",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 28,
+      "type": "timeseries",
+      "title": "Governance erasure outcomes",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 104 },
+      "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] },
+      "targets": [
+        { "expr": "sum by (outcome, stage) (rate(researchmind_memory_governance_jobs_total[1h]))", "legendFormat": "{{outcome}} · {{stage}}", "refId": "A" }
+      ]
+    },
+    {
+      "id": 29,
+      "type": "timeseries",
+      "title": "Governance erasure duration",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 104 },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "targets": [
+        { "expr": "histogram_quantile(0.95, sum(rate(researchmind_memory_governance_duration_seconds_bucket[1h])) by (le, outcome))", "legendFormat": "P95 {{outcome}}", "refId": "A" }
+      ]
     }
-  ]
+  ],
+  "description": "Memory scale, lifecycle health, context pressure, write safety, consolidation, drift, and utility. Storage inventory is emitted by the memory lifecycle worker on port 8011."
 }

@@ -15,6 +15,7 @@ from app.ai.memory.observability.metrics import (
     EXTRACTION_EVALUATED,
     EXTRACTION_FAILED,
     EXTRACTION_LATENCY,
+    EXTRACTION_RATE_LIMITED,
     EXTRACTION_REQUESTED,
     EXTRACTION_SKIPPED,
     EXTRACTION_SUCCEEDED,
@@ -31,6 +32,7 @@ from app.ai.memory.services.memory_service import MemoryService
 from app.core.settings import settings
 from app.infrastructure.metrics.interfaces import MetricsRecorder
 from app.infrastructure.metrics.noop import NoOpMetricsRecorder
+from app.infrastructure.rate_limiting import ValkeyRateLimiter
 
 logger = structlog.get_logger()
 
@@ -48,6 +50,9 @@ class MemoryExtractionOrchestrator:
         self._extractor = extractor
         self._policy = MemoryExtractionPolicy()
         self._idempotency_client = idempotency_client
+        self._rate_limiter = (
+            ValkeyRateLimiter(idempotency_client) if idempotency_client is not None else None
+        )
         self._metrics = metrics or NoOpMetricsRecorder()
         self._interest_promotion = interest_promotion or RepeatedInterestPromotionService(
             idempotency_client
@@ -60,6 +65,8 @@ class MemoryExtractionOrchestrator:
             promoted_topics = await self._interest_promotion.promoted_topics(
                 owner_id=event.owner_id,
                 session_id=event.session_id,
+                scope_type=event.scope_type,
+                project_id=event.project_id,
                 user_message=event.user_message,
             )
             if promoted_topics:
@@ -88,8 +95,20 @@ class MemoryExtractionOrchestrator:
                 reasons=decision.reasons,
             )
             return MemoryExtractionOutcome(decision=decision, skipped_count=1)
+        if not await self._within_extraction_quota(event):
+            self._metrics.increment(metric=EXTRACTION_RATE_LIMITED)
+            self._metrics.increment(metric=EXTRACTION_SKIPPED)
+            logger.warning(
+                "memory.extraction.rate_limited",
+                owner_id=str(event.owner_id),
+                runtime=event.runtime,
+                limit=settings.memory_extraction_rate_limit_requests,
+                window_seconds=settings.memory_extraction_rate_limit_window_seconds,
+            )
+            return MemoryExtractionOutcome(decision=decision, skipped_count=1)
+        scope_key = "personal" if event.project_id is None else f"project:{event.project_id}"
         key = (
-            f"memory:extraction:{event.owner_id}:{event.runtime}:"
+            f"memory:extraction:{event.owner_id}:{scope_key}:{event.runtime}:"
             f"{event.turn_id}:{settings.memory_extraction_policy_version}"
         )
         claimed = False
@@ -151,6 +170,8 @@ class MemoryExtractionOrchestrator:
                 record, status = await self._memory.remember_extracted(
                     owner_id=event.owner_id,
                     type=item.type,
+                    scope_type=event.scope_type,
+                    project_id=event.project_id,
                     content=item.content,
                     importance_score=item.importance,
                     metadata={
@@ -163,6 +184,8 @@ class MemoryExtractionOrchestrator:
                     outcome.created_count += 1
                 elif status == "duplicate":
                     outcome.duplicate_count += 1
+                    outcome.updated_count += 1
+                elif status == "superseded":
                     outcome.updated_count += 1
                 else:
                     outcome.skipped_count += 1
@@ -197,3 +220,27 @@ class MemoryExtractionOrchestrator:
                 operation=EXTRACTION_LATENCY,
                 duration_ms=(perf_counter() - started) * 1000,
             )
+
+    async def _within_extraction_quota(self, event: MemoryTurnEvent) -> bool:
+        """Fail open when Valkey is unavailable; skip only on a positive denial."""
+
+        if self._rate_limiter is None:
+            return True
+        try:
+            decision = await self._rate_limiter.check(
+                key=(
+                    f"memory_extraction:{event.owner_id}:"
+                    f"{event.scope_type.value}:{event.project_id or 'personal'}"
+                ),
+                limit=settings.memory_extraction_rate_limit_requests,
+                window_seconds=settings.memory_extraction_rate_limit_window_seconds,
+            )
+            return decision.allowed
+        except Exception as exc:
+            logger.warning(
+                "memory.extraction.rate_limit_unavailable",
+                owner_id=str(event.owner_id),
+                error_type=type(exc).__name__,
+                error=str(exc),
+            )
+            return True

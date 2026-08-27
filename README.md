@@ -51,7 +51,7 @@ ResearchMind lets you upload documents, chat with them, and escalate any questio
 
 ## Project Status
 
-Active development. The backend (`apps/api`) is well past scaffolding — retrieval, generation, Deep Research, memory, guardrails, and observability are all implemented and covered by a real test suite (~1,160+ tests). See `docs/project/01-current-state.md` and `docs/adrs/` for the detailed, up-to-date build log.
+Active development. The backend (`apps/api`) is well past scaffolding — retrieval, generation, Deep Research, memory, guardrails, and observability are all implemented and covered by a real test suite (1,700+ unit tests). See `docs/project/01-current-state.md` and `docs/adrs/` for the detailed, up-to-date build log.
 
 ---
 
@@ -66,7 +66,7 @@ Active development. The backend (`apps/api`) is well past scaffolding — retrie
 | **Generation runtime** | Multi-provider (Groq, others) with routing strategies, 3-tier semantic caching, schema/hallucination/runtime validation, and a guardrails layer (input/retrieval/generation/runtime stages) that can warn, block, escalate, or trigger regeneration |
 | **Memory** | Session, user, semantic, and research memory (Valkey + PostgreSQL + Qdrant), injected into prompts and extracted from completed turns |
 | **Web search & MCP** | Tavily web search (shared by Chat and Deep Research, approval-gated in Deep Research); MCP client to the [Research Intelligence MCP server](https://github.com/supuni9622/research-intelligence-mcp) (paper search) — run it locally, see below |
-| **Observability** | Structured logs (`structlog`, request-id correlated), LangSmith tracing per generation, Prometheus + Grafana (4 dashboards, 5 alert rules) — see `docs/monitoring/` |
+| **Observability** | Structured logs (`structlog`, request-id correlated), LangSmith tracing per generation, Prometheus + Grafana (5 dashboards, 12 alert rules) — see `docs/monitoring/` |
 | **Evaluation & benchmarking** | Deterministic groundedness/hallucination detection live in production; offline engineering benchmarks for chunking/embeddings/retrieval/reranking/generation with regression detection — see `docs/evaluation/` |
 | **Auth** | AWS Cognito Hosted UI, JWT-validated on every protected request |
 
@@ -285,6 +285,26 @@ python -m apps.worker.research_runtime_main
 
 This process runs `RESEARCH_RUNTIME_WORKER_CONCURRENCY` (default `1`) concurrent claim lanes, each with its own DB session. The Postgres outbox (`SELECT ... FOR UPDATE SKIP LOCKED`) also makes it safe to run multiple copies of this same process/container for true horizontal scaling — both knobs compose.
 
+Online evaluation scoring worker (EVALUATION_PLAN.md §14):
+
+```bash
+python -m apps.worker.eval_scoring_main
+```
+
+Durable-memory lifecycle worker (report-only by default):
+
+```bash
+python -m apps.worker.memory_lifecycle_main
+```
+
+Run one replica per environment. It wakes daily by default, uses a Valkey
+singleton lock, and applies bounded type-specific retention policies. Inspect
+dry-run metrics/logs before setting `MEMORY_LIFECYCLE_DRY_RUN=false`. It also
+publishes bounded PostgreSQL/Qdrant inventory and drift gauges at
+`http://localhost:8011/metrics` for the Memory Runtime dashboard and alerts.
+
+Polls for recently-completed Chat/Linear Research/Deep Research generations, runs the free citation-validity check on all of them, and runs the Ragas LLM-judge suite on a risk-weighted sample (guardrail-flagged and non-`PASS`-reviewed requests always, a configurable flat baseline otherwise — see the `eval_online_*` settings). Requires `OPENAI_API_KEY` to score judge metrics; without it, the worker still runs and scores citation validity only.
+
 **From now on: whenever you change a model, run `uv run alembic revision --autogenerate -m "..."`, read the generated file, then `./scripts/dev.sh` as usual.**
 
 ---
@@ -310,6 +330,59 @@ It's expected to be reachable at `MCP_PAPERS_SERVER_URL` (default `http://127.0.
 | http://localhost:8000/docs | Swagger UI |
 | http://localhost:8000/redoc | ReDoc |
 | http://localhost:6333/dashboard | Qdrant Dashboard |
+
+---
+
+## Full Stack via Docker Compose
+
+Steps 1–5 above still apply (clone, `.env`), but instead of running the API
+and each worker directly on the host (steps 6–10), `docker compose up -d --build`
+runs the entire platform as containers — Postgres, Valkey, Qdrant, the
+semantic-cache Redis, the API, all four workers, the Next.js frontend, and
+Prometheus/Grafana:
+
+```bash
+cp .env.example .env   # fill in provider API keys, Cognito, AWS as usual
+docker compose up -d --build
+```
+
+`docker-compose.yml` builds two images from `docker/`:
+
+- `docker/backend.Dockerfile` — one shared image for the API and every
+  `apps/worker/*_main.py` process (they're one uv-managed project with a
+  single dependency set; workers import directly from `app.*`). The `api`,
+  `worker-processing`, `worker-research-runtime`, `worker-eval-scoring`, and
+  `worker-memory-lifecycle` services all build from it and differ only in
+  their `command:`.
+- `docker/web.Dockerfile` — a multi-stage Next.js `output: "standalone"`
+  build for `apps/web`.
+
+A one-shot `migrate` service runs `alembic upgrade head` before the API and
+workers start (`depends_on: condition: service_completed_successfully`), so
+migrations never race a hot-reloading dev server the way running them inside
+`uvicorn --reload` would. `DATABASE_URL`/`VALKEY_URL`/`QDRANT_URL` are
+overridden in Compose to the service names (`postgres`, `valkey`, `qdrant`)
+regardless of what `.env` has for host-run development; every other setting
+(provider keys, AWS/Cognito, feature flags) still comes from `.env` via
+`env_file`. Prometheus scrapes `api:8000`, `worker-research-runtime:8010`, and
+`worker-memory-lifecycle:8011` by service name instead of
+`host.docker.internal`.
+
+```bash
+docker compose ps                 # see every service and its health state
+docker compose logs -f api        # tail one service
+docker compose down                # stop everything, keep volumes
+docker compose up -d --build       # rebuild after a code change
+```
+
+Open the same URLs as above, plus the frontend at http://localhost:3000.
+
+This is the local/dev-parity path, not the production deployment target.
+Production is AWS ECS Fargate + RDS + ElastiCache; see
+[`docs/todo/aws-ecs-fargate-production-deployment.md`](docs/todo/aws-ecs-fargate-production-deployment.md)
+for that plan's decided direction and open questions, and
+[`docs/deployment/production.md`](docs/deployment/production.md) for the
+memory-lifecycle worker's production rollout procedure.
 
 ---
 
@@ -459,6 +532,22 @@ Only use `docker compose down -v` when you want a completely clean slate (e.g. r
 
 ## Benchmark reports running
 
+The full engineering-benchmark suite is 8 benchmarks. Retrieval,
+Metadata Filtering, Reranking, and Golden-set Generation are also what
+the CI workflow's `retrieval-regression`/`generation-regression` jobs
+run — but that workflow is manual-dispatch-only (GitHub → Actions →
+Continuous Integration → Run workflow → check "Run retrieval + ...
+regression checks"; it makes real Voyage AI/OpenAI calls, so it never
+runs automatically on push/PR). The commands below are the same checks,
+runnable locally without touching GitHub Actions at all. Purely local/offline
+(no API keys, no external services): **Chunking**, **Ingestion
+Fidelity**. Need a reachable Qdrant + `VOYAGE_API_KEY`: **Retrieval**,
+**Metadata Filtering**, **Reranking**. Need at least one configured LLM
+provider: **Generation** (lexical, no LLM judge — cheap). Need
+`OPENAI_API_KEY` specifically: **Embeddings** (partial — degrades to
+just the local `sentence_transformers` candidate without it),
+**Golden-set Generation** (real Ragas judge — the expensive one).
+
 1. Chunking
 ```
 uv run python -m benchmarks.runner chunking --dataset benchmarks/datasets/research-papers --output benchmarks/chunking/reports
@@ -466,7 +555,26 @@ uv run python -m benchmarks.runner chunking --dataset benchmarks/datasets/resear
 # optionally: --output benchmarks/chunking/reports
 ```
 
-2. Retrieval (dense vs. sparse vs. hybrid)
+2. Ingestion fidelity (parse success rate + heading/table preservation)
+```
+uv run python -m benchmarks.runner IngestionFidelity --dataset benchmarks/datasets/research-papers
+```
+Fully offline like Chunking — no Qdrant, no API keys. Reuses the cached
+research-paper fixtures with hand-verified heading/table minimums.
+Report written to `benchmarks/reports/ingestionfidelity/`.
+
+3. Embeddings (Sentence Transformers vs. Voyage AI vs. OpenAI)
+```
+uv run python -m benchmarks.runner Embeddings --dataset benchmarks/datasets/research-papers
+```
+Chunks each document once, then times every registered embedding
+provider against identical chunks. One provider erroring (e.g. no
+`VOYAGE_API_KEY`/`OPENAI_API_KEY` configured) doesn't abort the report —
+that candidate just records the error and the rest still run, including
+the always-available local `sentence_transformers` candidate. Report
+written to `benchmarks/reports/embeddings/`.
+
+4. Retrieval (dense vs. sparse vs. hybrid)
 ```
 uv run python -m benchmarks.runner retrieval --dataset benchmarks/datasets/research-papers
 ```
@@ -475,7 +583,7 @@ Builds a dedicated `benchmark_retrieval` Qdrant collection from the
 benchmark corpus (dropped and recreated on every run, so it never
 touches production data), then evaluates dense (Voyage AI), sparse
 (SPLADE), and hybrid (Reciprocal Rank Fusion of dense + sparse)
-retrieval against the 20-query ground truth set in
+retrieval against the 160-query ground truth set in
 `benchmarks/datasets/research-papers/retrieval_queries.json`, reporting
 Recall@5/10/20, Precision@5/10, MRR, and avg/P95/P99 latency per ADR-020.
 Requires a reachable Qdrant instance and a configured Voyage AI API key,
@@ -483,46 +591,130 @@ and makes real embedding API calls — unlike the chunking benchmark, it
 is not a purely offline/local run. Report written to
 `benchmarks/reports/retrieval/`.
 
-**Current results (5 documents, 20 queries) are not conclusive, and RRF
-did not improve anything on this dataset.** Dense, sparse, and hybrid
-all hit Recall@5/10/20 = 1.0 and Precision@5/10 = 0.2/0.1 identically.
-Hybrid's MRR (0.925) was actually slightly *lower* than both dense
-(0.95) and sparse (0.975) alone, and its latency (~324ms avg) is
-dominated by the dense leg since hybrid still pays the Voyage API call
-plus local sparse inference plus fusion overhead. This is exactly the
-outcome ADR-020's Decision Gate warns about: with only 5 topically
-distinct documents, every query has one obviously-correct answer, so
-there's no ranking ambiguity for RRF to actually resolve — fusing two
-retrievers that already agree can only add latency, not lift. See the
-TODO below; this does **not** mean Hybrid is a dead end, it means this
-dataset can't yet tell us whether it is.
+**Current results (50 documents, 160 queries) show real differentiation,
+and RRF now earns its latency cost.** With the corpus grown from 5 to 50
+topically-overlapping papers and the query set from 20 to 160 (across
+`semantic`/`exact_keyword`/`acronym`/`code_entity` categories, see
+`retrieval_queries.json`), the flat Recall@5/10/20 = 1.0 ceiling from the
+old 5-document run is gone — dense, sparse, and hybrid now actually
+separate:
+
+| Candidate | Recall@5 | Hit Rate@5 | MRR | Avg Latency |
+|---|---|---|---|---|
+| Dense (Voyage AI) | 0.9667 | 0.975 | 0.942 | 359ms |
+| Sparse (SPLADE) | 0.9906 | 0.9938 | 0.9677 | 12ms |
+| Hybrid (RRF) | **0.9953** | **1.0** | 0.9615 | 423ms |
+
+Per-category Recall@10 (`notes.recall_at_10_by_category` in the report)
+shows *why*: dense is the weak link specifically on `acronym` queries
+(0.9615, vs. 1.0 for both sparse and hybrid) — exactly the failure mode
+ADR-020 predicted dense embeddings would have. Hybrid is tied-best or
+outright best in every category (semantic 0.9888, the other three all
+1.0), which is the first real evidence on this dataset that RRF fusion
+is pulling its weight rather than just adding latency on top of two
+retrievers that already agree. Sparse alone is worth noting too — it's
+essentially as accurate as hybrid at ~30x lower latency (12ms vs 423ms),
+worth a real tradeoff discussion before defaulting to hybrid everywhere.
 
 ### TODO: Improve the retrieval benchmark dataset
 
-- **Increase documents:** 5 → 20-50. A 5-document corpus makes it
-  trivial to find the right document regardless of retrieval strategy.
-- **Increase queries:** 20 → 100.
-- **Add harder query categories** — the current set is too easy:
-  - *Semantic, no lexical overlap* — e.g. "How can retrieval systems
-    improve factual grounding?" where the source document never uses
-    the phrase "factual grounding." Dense should win.
-  - *Exact/rare acronym* — e.g. "BM42." Sparse should win.
-  - *Multi-hop* — e.g. "Compare sparse and dense retrieval tradeoffs."
-    Both retrievers may struggle; useful for spotting real weaknesses.
-  - *Broad/architectural* — e.g. "Explain modern RAG architectures."
-    Dense should dominate.
-- **Most important improvement: move to chunk-level relevance**
-  (`relevant_chunk_ids` instead of `relevant_documents`, per
+- [x] ~~Increase documents: 5 → 20-50~~ — done, 50 papers.
+- [x] ~~Increase queries: 20 → 100~~ — done, 160 (exceeds target).
+- [x] ~~Add harder query categories~~ — done: `semantic` (67),
+      `exact_keyword` (44), `acronym` (26), `code_entity` (23). No
+      explicit `multi-hop` category yet (queries needing evidence
+      combined across documents) — the categories above are all
+      single-document-answerable.
+- **Still open — move to chunk-level relevance** (`relevant_chunk_ids`
+  instead of `relevant_documents`, per
   `docs/architecture/retrieval-benchmarking-strategy.md`'s Dataset
-  Format v2). Document-level relevance inflates scores whenever a query
-  has only a handful of candidate documents to choose from, exactly
-  what's happening now.
+  Format v2). Queries still resolve to whole documents, not the specific
+  chunk that answers them, so Precision@5/10 (still ~0.2/0.1 — a lot of
+  "correct" hits per query are same-document coincidence, not genuine
+  precision) remains a weaker signal than Recall/NDCG/MRR above.
 
 **Hybrid Retrieval (RRF fusion) is now implemented** (`/api/v1/retrieve/hybrid`,
-`RetrievalService.search_hybrid`), so this is no longer a build decision —
-it's a tuning question. The dataset improvements above are what's needed
-to find out whether RRF actually helps in this system, and if so, under
-which query categories.
+`RetrievalService.search_hybrid`) and — per the table above — is now the
+best or tied-best performer in every query category on a dataset that
+can actually distinguish the three strategies. The remaining open item
+is chunk-level relevance, which would make Precision@5/10 a meaningful
+metric instead of a document-collision artifact.
+
+5. Metadata filtering (owner-scoped retrieval isolation)
+```
+uv run python -m benchmarks.runner MetadataFiltering --dataset benchmarks/datasets/research-papers
+```
+Same Qdrant + Voyage AI requirements as Retrieval above, against a
+separate `benchmark_metadata_filtering` collection. Validates that
+`owner_id` filtering actually isolates results (recall/precision/leakage
+rate for filtered vs. unfiltered candidates) — this is the readiness-P0
+guarantee behind the Qdrant search API's required `owner_id` parameter,
+checked empirically rather than just by type signature. Report written
+to `benchmarks/reports/metadatafiltering/`.
+
+6. Reranking (hybrid alone vs. CrossEncoder vs. Voyage AI reranker)
+```
+uv run python -m benchmarks.runner Reranking --dataset benchmarks/datasets/research-papers
+```
+Same Qdrant + Voyage AI requirements as Retrieval above, against a
+separate `benchmark_reranking` collection. Reranks the same hybrid
+candidate pool per query with a free local CrossEncoder and the paid
+Voyage AI reranker, reporting Recall@5/MRR/NDCG@5/latency for all three
+so a real quality-vs-latency-vs-cost tradeoff is visible, not assumed.
+Report written to `benchmarks/reports/reranking/`.
+
+7. Generation (lexical, cross-provider comparison — CI-smoke tier)
+```
+uv run python -m benchmarks.runner Generation --dataset benchmarks/datasets/research-papers
+```
+Scores every configured `GenerationProvider` (Groq/OpenAI/Claude/Gemini/
+Ollama — whichever have credentials) against `generation_queries.json`
+using deterministic lexical-overlap metrics (faithfulness, groundedness,
+relevance, completeness, citation accuracy, hallucination rate) — no LLM
+judge, so this is cheap enough for every-PR CI, unlike Golden-set
+Generation below. Report written to `benchmarks/reports/generation/`.
+
+8. Golden-set generation (real Ragas judge, release-candidate tier)
+```
+uv run python -m benchmarks.runner GoldenSetGeneration --dataset datasets/golden
+```
+
+Runs `rag_answer_gold`'s 101 answerable examples (of 115 total — the other 14 are deliberately-unanswerable `expected_behavior != answer` cases, excluded since Ragas quality scoring doesn't apply to a refusal) through a live generation call, then scores each with the real Ragas judge suite (faithfulness/answer_relevancy/context_precision/context_recall). Chat-workflow examples additionally skip the citation instruction/check (E20) — Chat is intentionally citation-free in production, unlike Linear/Deep Research. Requires `OPENAI_API_KEY` — the benchmark isn't even registered without one (see `benchmarks/factory.py`), since a missing key would otherwise break every other benchmark's registry construction. Expensive by design (a real generation call plus up to 4 real Ragas judge calls per example) — meant for the release-candidate tier (EVALUATION_PLAN.md §13), not every-PR CI. Report written to `benchmarks/reports/goldensetgeneration/`.
+
+Evaluates against an ordered provider **fallback chain** (default: OpenAI, falling back to Claude per example on failure), not every registered provider — a real Groq run hit a daily-token-limit 429 partway through a 115-example pass, which would have poisoned the whole run under the old one-candidate-per-provider design. Produces exactly one candidate (named `openai+claude`) reflecting whichever provider actually answered each example, not one candidate per provider — cross-provider comparison is `GenerationBenchmark`'s job, not this one's.
+
+Examples run **concurrently**, bounded by `max_concurrency` (default 5) — standard practice for bulk I/O-bound LLM evaluation, independent of the fallback-chain fix above (concurrency doesn't change total token consumption, so it wouldn't by itself have prevented that daily-limit 429; it's purely a throughput improvement on top of it).
+
+Catch a regression against the last committed report:
+```
+uv run python -m benchmarks.runner GoldenSetGeneration --dataset datasets/golden --check-regression
+```
+Compares this run against the previously stored `benchmarks/reports/goldensetgeneration/report.json` and exits non-zero if faithfulness/answer_relevancy/etc. dropped beyond the threshold in `benchmarks/regression/thresholds.py`. Also wired into CI as `generation-regression` (E20) — manual-dispatch-only (real OpenAI cost), see the note at the top of this section — or run it locally before a release that touches prompts, retrieval, or the model catalog.
+
+To persist this run's per-example scores into the `eval_scores` table (EVALUATION_PLAN.md §14/§16 phase 6/7, so a specific golden-set example's score trend is queryable alongside online/human-feedback signals), run as an explicit second step:
+```
+uv run python -m benchmarks.generation.persist_golden_set_scores --report benchmarks/reports/goldensetgeneration/report.json
+```
+
+Deliberately a separate script, not a flag on `benchmarks/runner.py`: the generic runner needs no database for any other benchmark, and this keeps that property true for all of them.
+
+9. Sync confirmed promotion-review examples into the dataset files (EVALUATION_PLAN.md §3/§15, tracker E10)
+```
+uv run python -m benchmarks.generation.sync_promoted_examples
+```
+
+The eval dashboard's Promotion Review tab writes confirmed thumbs-up/flagged-failure reviews into a `promotion_reviews` Postgres table only — never directly into the checked-in dataset files. This script reads every `status=confirmed, synced=false` row, appends "good" promotions to `datasets/golden/rag_answer_gold.json` (new `p<N>`-prefixed IDs) and "failure" promotions to `datasets/production_failures/production_failures.json` (new `pf<N>`-prefixed IDs, tagged with their `failure_category`), then marks each row synced. Same two-step pattern as `persist_golden_set_scores.py` above, for the same reason: every change to a version-controlled dataset file stays a normal, reviewable git diff instead of a live API mutation.
+
+10. Production-failures regression (real Ragas judge, release-candidate tier)
+```
+uv run python -m benchmarks.runner ProductionFailuresRegression --dataset datasets/production_failures --check-regression
+```
+
+Closes E10's "both directions" loop for real: previously, a confirmed failure landed in `production_failures.json` (via the command above) but nothing ever re-ran it. Same machinery as `GoldenSetGeneration` above (provider fallback chain, real Ragas judge, citation-validity check), applied to `production_failures.json` instead, and reported under its own name/directory (`benchmarks/reports/productionfailuresregression/`) so its regression baseline answers a narrower question — *do previously-confirmed failures stay fixed?* — rather than blending into `rag_answer_gold`'s aggregate trend, where a newly-promoted failure could look like a regression that never happened.
+
+Only runs `failure_category in {wrong_citation, hallucination, retrieval_miss}` examples — the three categories that actually fit an "answerable, Ragas-scored" check. The other five (`abstention_failure`, `workflow_loop`, `schema_violation`, `injection_success`, `unnecessary_tool_use`) need a different kind of check that doesn't exist yet (did it abstain / stay within N iterations / validate the schema / refuse the injection / skip the tool call), so scoring them here would check the wrong thing rather than the regression they actually represent — deliberately excluded rather than force-fit. They're still written to `production_failures.json` by the sync script above, just not yet exercised by this benchmark.
+
+Starts empty (no failures confirmed yet) and self-completes as real ones get promoted and synced — safe to run unconditionally, including at zero examples (no real calls made). Also wired into CI as a second step of `generation-regression` (manual-dispatch-only, same as `GoldenSetGeneration`) — see the note at the top of this section.
 
 ---
 
@@ -617,7 +809,7 @@ graphify apps/  # or point it at any subfolder
 ### Monitoring dashboards
 
 ```bash
-docker compose up -d prometheus grafana
+docker compose up -d postgres prometheus grafana
 ```
 
 | Service | URL | Credentials |
@@ -626,6 +818,6 @@ docker compose up -d prometheus grafana
 | Prometheus | http://localhost:9090 | — |
 | Raw metrics exposition | http://localhost:8000/metrics | — |
 
-Dashboards, datasource, and alert rules are all auto-provisioned from `infra/observability/` — nothing to click together by hand. Four dashboards ship under the **ResearchMind** folder: Overview, Generation Runtime, Research Tools, Memory Runtime. See `docs/monitoring/grafana.md` and `docs/runbooks/prometheus-grafana-observability.md` for the full panel/alert reference.
+Dashboards, datasources, and alert rules are all auto-provisioned from `infra/observability/` — nothing to click together by hand. Five dashboards ship under the **ResearchMind** folder: Overview, Generation Runtime, Research Tools, Memory Runtime, and Eval Scores (queries `eval_scores` directly via a Postgres datasource, not PromQL — online avg score/pass rate by metric, offline golden-set avg score by metric, score volume by source). See `docs/monitoring/grafana.md` and `docs/runbooks/prometheus-grafana-observability.md` for the full panel/alert reference.
 
 ![grafana dashboard](docs/images/image-10.png)

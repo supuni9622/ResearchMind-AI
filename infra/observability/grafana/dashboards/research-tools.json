@@ -405,6 +405,40 @@
           "refId": "A"
         }
       ]
+    },
+    {
+      "id": 13,
+      "type": "timeseries",
+      "title": "Deep Research review decisions",
+      "description": "ResearchReview.decision per review cycle -- fires on every review, including loop-back RESEARCH_GAPS/REVISE_SYNTHESIS cycles, not just the terminal decision a run ends on.",
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 48
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum by (decision) (rate(researchmind_research_review_decisions_total[5m])) * 60",
+          "refId": "A",
+          "legendFormat": "{{decision}}"
+        }
+      ]
     }
   ]
 }

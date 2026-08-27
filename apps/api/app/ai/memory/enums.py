@@ -18,6 +18,11 @@ class MemoryType(StrEnum):
     SEMANTIC = "semantic"
 
 
+class MemoryScopeType(StrEnum):
+    PERSONAL = "personal"
+    PROJECT = "project"
+
+
 class MemoryOperation(StrEnum):
     """
     PRD §12/§13 API surface. Used for logging and metrics labeling

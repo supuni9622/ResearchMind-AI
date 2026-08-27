@@ -26,7 +26,6 @@ function MetricTile({
 
 export function SourcePanel({ turn }: { turn: ResearchTurn | null }) {
   const done = turn?.stage === 'done';
-
   return (
     <aside className="w-80 flex-shrink-0 border-l border-ink-600 bg-ink-900/50 h-full overflow-y-auto scrollbar-thin">
       <div className="px-5 py-4 border-b border-ink-700">

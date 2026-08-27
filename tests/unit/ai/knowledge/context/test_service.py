@@ -138,7 +138,7 @@ def _make_retrieval_result(
     statistics: RetrievalStatistics | None = None,
 ) -> RetrievalResult:
     return RetrievalResult(
-        query=RetrievalQuery(query="what is rag?"),
+        query=RetrievalQuery(query="what is rag?", owner_id="owner-1"),
         execution=RetrievalExecution(),
         statistics=statistics,
         chunks=chunks,

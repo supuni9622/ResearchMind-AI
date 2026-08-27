@@ -74,11 +74,7 @@ class _FakeRetrievalService:
         self.received_queries: list[RetrievalQuery] = []
 
     def _filtered_chunks(self, query: RetrievalQuery) -> list[RetrievedChunk]:
-        owner_id = query.filters.get("owner_id")
-
-        chunks = self._chunks
-        if owner_id:
-            chunks = [chunk for chunk in chunks if chunk.owner_id == owner_id]
+        chunks = [chunk for chunk in self._chunks if chunk.owner_id == query.owner_id]
 
         return chunks[: query.top_k]
 
@@ -184,7 +180,7 @@ def test_retrieval_is_scoped_to_the_authenticated_user(
     assert body["chunks"][0]["filename"] == "owner-1-report.pdf"
 
     forwarded_query = fake_retrieval_service.received_queries[-1]
-    assert forwarded_query.filters == {"owner_id": _OWNER_1_ID}
+    assert forwarded_query.owner_id == _OWNER_1_ID
 
 
 @pytest.mark.parametrize(
@@ -215,5 +211,11 @@ def test_client_supplied_owner_id_filter_is_ignored(
     assert body["total_chunks"] == 1
     assert body["chunks"][0]["filename"] == "owner-1-report.pdf"
 
+    # The spoofed owner_id passed through `filters` above survives
+    # unchanged in the dict, but is inert: the real scope comes from
+    # RetrievalQuery.owner_id (the authenticated user), which no
+    # provider ever reads out of `filters`.
     forwarded_query = fake_retrieval_service.received_queries[-1]
-    assert forwarded_query.filters == {"owner_id": _OWNER_1_ID}
+    assert forwarded_query.owner_id == _OWNER_1_ID
+    assert forwarded_query.filters == {"owner_id": _OWNER_2_ID}
+    assert forwarded_query.filters == {"owner_id": _OWNER_2_ID}

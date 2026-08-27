@@ -244,7 +244,9 @@ Memory retrieval (session/semantic/research, best-effort)
   |
   v
 Retrieve (RetrievalService) + build context (ContextBuilderService)
-  -> chunks, citations, sources
+  -> dense+sparse candidates; metadata branch only with explicit filters
+  -> expanded-pool rerank + absolute relevance gate
+  -> zero or more chunks, citations, sources
   |
   v
 GenerationRequest:
@@ -268,6 +270,13 @@ Return ResearchOutcome (answer, citations, sources, duration_ms)
 This is genuinely a **single generation call** per request — plan → retrieve →
 generate → done. There is no planning step, no multi-wave decomposition, no
 review loop. "Linear" is accurate.
+
+**Relevance behavior fixed 2026-08-17:** owner scoping is no longer treated as
+a metadata match that scrolls arbitrary user chunks into RRF. Voyage reranking
+now evaluates the expanded candidate pool, its actual score is preserved, and
+`RETRIEVAL_RERANK_SCORE_THRESHOLD` (default `0.2`) removes weak matches. An
+unrelated corpus can therefore yield zero sources, and the frontend displays
+the absolute score rather than normalizing the best weak result to 100%.
 
 ### Performance
 

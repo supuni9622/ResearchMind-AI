@@ -53,6 +53,32 @@ def recall_at_k(
     return len(retrieved_at_k & relevant_filenames) / len(relevant_filenames)
 
 
+def hit_rate_at_k(
+    retrieved_filenames: list[str],
+    relevant_filenames: set[str],
+    k: int,
+) -> float:
+    """
+    Binary hit/no-hit: 1.0 if at least one relevant document appears in
+    the top-k retrieved documents, 0.0 otherwise.
+
+    Distinct from `recall_at_k`, which reports the *fraction* of all
+    relevant documents found. Hit Rate answers "did the user get
+    anything useful at all," which matters most for query sets where
+    each query has only one or two relevant documents -- there,
+    `recall_at_k` and `hit_rate_at_k` diverge little, but for
+    multi-relevant-document queries Hit Rate is the more forgiving,
+    "was this retrieval useless" signal.
+    """
+
+    if not relevant_filenames or k <= 0:
+        return 0.0
+
+    retrieved_at_k = set(_ranked_unique_documents(retrieved_filenames)[:k])
+
+    return 1.0 if retrieved_at_k & relevant_filenames else 0.0
+
+
 def precision_at_k(
     retrieved_filenames: list[str],
     relevant_filenames: set[str],

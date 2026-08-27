@@ -1,0 +1,112 @@
+{
+  "id": null,
+  "uid": "researchmind-eval-scores",
+  "title": "ResearchMind Eval Scores",
+  "tags": ["researchmind", "evaluation"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "5m",
+  "time": {
+    "from": "now-30d",
+    "to": "now"
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "Online avg score by metric",
+      "description": "Online-sampled eval_scores (E5), averaged per metric_name in 1h buckets. Faithfulness/answer_relevancy/citation_validity/etc.",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "fieldConfig": {
+        "defaults": { "unit": "short", "min": 0, "max": 1 },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom" },
+        "tooltip": { "mode": "multi" }
+      },
+      "datasource": { "type": "postgres", "uid": "researchmind-postgres" },
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "researchmind-postgres" },
+          "format": "time_series",
+          "rawSql": "SELECT $__timeGroupAlias(created_at, '1h'), metric_name, avg(score) AS avg_score FROM eval_scores WHERE $__timeFilter(created_at) AND source = 'online_sampled' AND score IS NOT NULL GROUP BY 1, metric_name ORDER BY 1",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Online pass rate by metric",
+      "description": "Share of online-sampled eval_scores rows with passed = true, per metric_name, 1h buckets.",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "fieldConfig": {
+        "defaults": { "unit": "percentunit", "min": 0, "max": 1 },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom" },
+        "tooltip": { "mode": "multi" }
+      },
+      "datasource": { "type": "postgres", "uid": "researchmind-postgres" },
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "researchmind-postgres" },
+          "format": "time_series",
+          "rawSql": "SELECT $__timeGroupAlias(created_at, '1h'), metric_name, avg(passed::int) AS pass_rate FROM eval_scores WHERE $__timeFilter(created_at) AND source = 'online_sampled' AND passed IS NOT NULL GROUP BY 1, metric_name ORDER BY 1",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "Offline (golden-set) avg score by metric",
+      "description": "GoldenSetBenchmark run history (E6), averaged per metric_name in 1h buckets -- each point is roughly one benchmark run, not continuous production traffic.",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "fieldConfig": {
+        "defaults": { "unit": "short", "min": 0, "max": 1 },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom" },
+        "tooltip": { "mode": "multi" }
+      },
+      "datasource": { "type": "postgres", "uid": "researchmind-postgres" },
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "researchmind-postgres" },
+          "format": "time_series",
+          "rawSql": "SELECT $__timeGroupAlias(created_at, '1h'), metric_name, avg(score) AS avg_score FROM eval_scores WHERE $__timeFilter(created_at) AND source = 'offline_benchmark' AND score IS NOT NULL GROUP BY 1, metric_name ORDER BY 1",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Score volume by source",
+      "description": "Row count per eval_scores.source (online_sampled / offline_benchmark / human_feedback), 1d buckets -- a volume/coverage check, not a quality metric.",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "fieldConfig": {
+        "defaults": { "unit": "short" },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom" },
+        "tooltip": { "mode": "multi" }
+      },
+      "datasource": { "type": "postgres", "uid": "researchmind-postgres" },
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "researchmind-postgres" },
+          "format": "time_series",
+          "rawSql": "SELECT $__timeGroupAlias(created_at, '1d'), source, count(*) AS row_count FROM eval_scores WHERE $__timeFilter(created_at) GROUP BY 1, source ORDER BY 1",
+          "refId": "A"
+        }
+      ]
+    }
+  ]
+}

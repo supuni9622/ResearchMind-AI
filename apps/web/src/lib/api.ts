@@ -36,6 +36,10 @@ export interface UserProfile {
   avatar_url: string | null;
   provider: string;
   verified: boolean;
+  // Presentation only -- drives whether the sidebar shows the internal
+  // eval dashboard link. The real access gate is server-side, checked
+  // fresh on every /api/v1/eval-dashboard/* request (E7).
+  eval_dashboard_access: boolean;
 }
 
 export type DocumentUploadStatus = 'pending' | 'uploading' | 'completed' | 'failed';
@@ -87,6 +91,83 @@ export interface GenerationUsageSummary {
   memory_extraction_cost_per_100_turns: number;
 }
 
+export type MemoryType = 'session' | 'user' | 'semantic' | 'research';
+
+export interface MemoryRecord {
+  id: string;
+  scope_type: 'personal' | 'project';
+  project_id: string | null;
+  type: MemoryType;
+  content: string;
+  source: string | null;
+  confidence: number | null;
+  origin: 'explicit' | 'inferred';
+  last_used_at: string | null;
+  editable: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface MemoryListResponse {
+  memories: MemoryRecord[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+export interface MemoryListParams {
+  search?: string;
+  source?: string;
+  type?: MemoryType[];
+  scope_type?: 'personal' | 'project';
+  project_id?: string;
+  created_from?: string;
+  created_to?: string;
+  updated_from?: string;
+  updated_to?: string;
+  origin?: 'explicit' | 'inferred';
+  limit?: number;
+  offset?: number;
+}
+
+export interface MemoryScopeSettings {
+  scope_type: 'personal' | 'project';
+  project_id: string | null;
+  capture_enabled: boolean;
+  retrieval_enabled: boolean;
+  inherit_personal_memory: boolean;
+  retention_enabled: boolean;
+}
+
+export interface MemoryProject {
+  id: string;
+  name: string;
+  role: string;
+}
+
+export interface MemoryDeletionPreview {
+  confirmation_token: string;
+  affected_count: number;
+  scope_type: 'personal' | 'project';
+  project_id: string | null;
+  expires_at: string;
+  immediate_erasure: boolean;
+}
+
+export interface MemoryGovernanceJob {
+  id: string;
+  scope_type: 'personal' | 'project';
+  project_id: string | null;
+  status: 'pending' | 'running' | 'completed' | 'failed';
+  requested_count: number;
+  deleted_postgres: number;
+  deleted_qdrant: number;
+  deleted_valkey: number;
+  deleted_artifacts: number;
+  failure_stage: string | null;
+  completed_at: string | null;
+}
+
 export type InfrastructureServiceStatus = 'healthy' | 'unhealthy';
 
 export interface HealthStatus {
@@ -110,6 +191,7 @@ export interface Citation {
   citation_id: string;
   filename: string;
   document_id: string;
+  score: number;
   page_numbers: number[];
   heading: string | null;
   heading_path: string[];
@@ -144,6 +226,8 @@ export interface ResearchSessionResponse {
   answer: string;
   citations: Citation[];
   sources: ResearchSource[];
+  generation_id: string | null;
+  memory_used: boolean;
   created_at: string;
 }
 
@@ -184,6 +268,10 @@ export interface ResearchReportDownloadResponse {
   research_run_id: string;
   download_url: string;
   expires_in_seconds: number;
+  /** E21: read from the persisted final-report.json artifact; null for
+   * reports persisted before this field existed. */
+  generation_id: string | null;
+  memory_used: boolean;
 }
 
 // Matches `app/ai/runtime/research/planner/models.py::ResearchComplexity`.
@@ -288,6 +376,8 @@ export interface DeepResearchDraftReview {
   citation_integrity_score: number;
   completeness_score: number;
   limitations: string[];
+  model_quality_score: number | null;
+  gap_questions: string[];
 }
 
 // Matches `app/schemas/research.py::ResearchDraftResponse`.
@@ -342,6 +432,7 @@ export interface DeepResearchPendingPlan {
   tasks: DeepResearchPendingPlanTask[];
   evidence: DeepResearchPendingPlanEvidence;
   citations: DeepResearchDraftCitation[];
+  socratic_question: string | null;
 }
 
 // Matches `app/schemas/research.py::ResearchPendingWebSearchResponse` -- the
@@ -392,6 +483,215 @@ export interface RuntimeStreamEvent {
 
 // Alias kept for call sites that specifically mean "a research stream event".
 export type ResearchStreamEvent = RuntimeStreamEvent;
+
+// Matches `app/models/enums.py::FeedbackRating`/`FeedbackSurface` (E21,
+// EVALUATION_PLAN.md §16 phase 3).
+export type FeedbackRating = 'up' | 'down';
+export type FeedbackSurface = 'chat' | 'linear_research' | 'deep_research';
+export type MemoryFeedbackSignal = 'helped' | 'wrong';
+
+export interface FeedbackResponse {
+  id: string;
+  generation_id: string;
+  surface: FeedbackSurface;
+  rating: FeedbackRating;
+  comment: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+// Internal eval dashboard (E7, EVALUATION_PLAN.md §16 phase 8). Every
+// route behind this is gated server-side by an email allowlist
+// (`settings.eval_dashboard_admin_emails`) -- a non-allowlisted caller
+// gets a 403 `ApiError`, handled by the page itself, not hidden here.
+export interface EvalScore {
+  id: string;
+  generation_id: string | null;
+  metric_name: string;
+  score: number | null;
+  passed: boolean | null;
+  reason: string | null;
+  source: string;
+  sample_category: string | null;
+  dataset_example_id: string | null;
+  comment_classification: string | null;
+  created_at: string;
+}
+
+export interface EvalScoreListResponse {
+  items: EvalScore[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+export interface OwnerSummary {
+  owner_id: string;
+  email: string;
+  username: string | null;
+  score_count: number;
+}
+
+export interface OwnerListResponse {
+  items: OwnerSummary[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+export interface ReviewDecisionDistribution {
+  owner_id: string;
+  counts: Record<string, number>;
+}
+
+export interface OfflineExampleSummary {
+  dataset_example_id: string;
+  score_count: number;
+  latest_run_at: string;
+}
+
+export interface OfflineExampleListResponse {
+  items: OfflineExampleSummary[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+// Engineering benchmarks (chunking/embeddings/retrieval/reranking/
+// generation-provider-comparison) -- read-only, straight off
+// `benchmarks/reports/*/report.json`. No history/trends: just whatever
+// each benchmark's last local run produced. GoldenSetGeneration/
+// ProductionFailuresRegression are excluded from this endpoint (see
+// OfflineExampleSummary above for their dedicated per-example view) --
+// but `offlineSummary()` below surfaces their *aggregate* metrics
+// (e.g. rubric_adherence) using this same shape, since the per-example
+// view has no place to show that number.
+export interface BenchmarkCandidateResult {
+  name: string;
+  version: string | null;
+  metrics: Record<string, number | string | boolean>;
+  notes: Record<string, unknown>;
+}
+
+export interface BenchmarkReportResult {
+  benchmark_name: string;
+  generated_at: string;
+  dataset: { name: string; document_count: number };
+  metadata: {
+    git_commit: string | null;
+    branch: string | null;
+    dataset_version: string;
+    model_versions: Record<string, string>;
+    benchmark_version: string;
+    timestamp: string;
+  };
+  candidates: BenchmarkCandidateResult[];
+  summary: Record<string, unknown>;
+}
+
+// Segment analysis (E9) -- two dimensions, because that's genuinely what
+// the data supports: online-sampled rows can be grouped by a
+// GenerationUsage config-fingerprint field (prompt_version etc.), since
+// only those rows have a generation_usage row to join against.
+// Offline-benchmark rows have no fingerprint, but do have a
+// dataset_example_id resolvable to the golden set's query_type/
+// difficulty/workflow -- a different join, a different tab.
+export type FingerprintField =
+  | 'surface'
+  | 'prompt_version'
+  | 'chunking_strategy'
+  | 'embedding_model'
+  | 'reranker'
+  | 'routing_strategy';
+
+export type ContentSegmentField = 'query_type' | 'difficulty' | 'workflow' | 'failure_category';
+
+export interface FingerprintSegmentAggregate {
+  fingerprint_value: string | null;
+  count: number;
+  avg_score: number | null;
+  pass_rate: number | null;
+}
+
+export interface FingerprintSegmentAnalysisResponse {
+  metric_name: string;
+  fingerprint_field: string;
+  items: FingerprintSegmentAggregate[];
+}
+
+export interface ContentSegmentAggregate {
+  segment_value: string;
+  count: number;
+  avg_score: number | null;
+  pass_rate: number | null;
+}
+
+export interface ContentSegmentAnalysisResponse {
+  metric_name: string;
+  segment_field: string;
+  items: ContentSegmentAggregate[];
+}
+
+// Promotion review (E10) -- the closing step of the offline-gates ->
+// deploy -> traces -> free checks -> sampled judges -> review queue ->
+// confirmed promotion -> re-run-in-CI loop (EVALUATION_PLAN.md §15).
+// This app never stores/replays the original question/answer/context
+// (see PromotionReview's own backend docstring for why) -- a reviewer
+// reads the real content via the LangSmith trace link, then fills in
+// this form by hand.
+export type PromotionDirection = 'good' | 'failure';
+
+// Which unreviewed-candidate list to fetch -- distinct from
+// PromotionDirection (what a *confirmed* row becomes): 'preference' never
+// becomes its own dataset, it's thumbs-down feedback E11 classified
+// 'preference' rather than 'objective', surfaced separately so a reviewer
+// can override the classifier instead of it vanishing from the queue.
+export type PromotionCandidateView = PromotionDirection | 'preference';
+
+export interface PromotionCandidate {
+  source: string;
+  owner_id: string;
+  generation_id: string;
+  reason: string;
+  created_at: string;
+}
+
+export interface PromotionCandidateListResponse {
+  items: PromotionCandidate[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+export type PromotionQueryType = 'factual' | 'synthesis' | 'comparison' | 'exploratory' | 'unanswerable';
+export type PromotionDifficulty = 'easy' | 'medium' | 'hard';
+export type PromotionWorkflow = 'chat' | 'linear_research' | 'deep_research';
+export type PromotionFailureCategory =
+  | 'wrong_citation'
+  | 'hallucination'
+  | 'retrieval_miss'
+  | 'unnecessary_tool_use'
+  | 'abstention_failure'
+  | 'workflow_loop'
+  | 'schema_violation'
+  | 'injection_success';
+
+export interface ConfirmPromotionPayload {
+  source: string;
+  direction: PromotionDirection;
+  owner_id: string;
+  generation_id: string;
+  question: string;
+  reference_answer: string;
+  contexts: string[];
+  reference_context_ids: string[];
+  expected_citation_ids: string[];
+  query_type: PromotionQueryType;
+  difficulty: PromotionDifficulty;
+  workflow: PromotionWorkflow;
+  rubric?: string | null;
+  failure_category?: PromotionFailureCategory | null;
+}
 
 export const PROVIDER_OPTIONS: { value: GenerationProvider | 'auto'; label: string }[] = [
   { value: 'auto', label: 'Auto' },
@@ -583,6 +883,95 @@ export const api = {
   usage: {
     summary: () => request<GenerationUsageSummary>('/api/v1/usage/summary'),
   },
+  memory: {
+    projects: () => request<MemoryProject[]>('/api/v1/memory/projects'),
+    exportScope: (scopeType: 'personal' | 'project', projectId?: string) => {
+      const query = new URLSearchParams({ scope_type: scopeType });
+      if (projectId) query.set('project_id', projectId);
+      return request<Record<string, unknown>>(`/api/v1/memory/export?${query.toString()}`);
+    },
+    previewDeletion: (
+      scopeType: 'personal' | 'project',
+      projectId: string | undefined,
+      memoryIds: string[] | null,
+      signal?: AbortSignal
+    ) => request<MemoryDeletionPreview>('/api/v1/memory/deletion/preview', {
+      method: 'POST',
+      signal,
+      body: JSON.stringify({
+        scope_type: scopeType,
+        project_id: projectId ?? null,
+        memory_ids: memoryIds,
+      }),
+    }),
+    executeDeletion: (confirmationToken: string) =>
+      request<MemoryGovernanceJob>('/api/v1/memory/deletion/jobs', {
+        method: 'POST',
+        body: JSON.stringify({ confirmation_token: confirmationToken }),
+      }),
+    getDeletionJob: (jobId: string) =>
+      request<MemoryGovernanceJob>(`/api/v1/memory/deletion/jobs/${jobId}`),
+    retryDeletion: (jobId: string) =>
+      request<MemoryGovernanceJob>(`/api/v1/memory/deletion/jobs/${jobId}/retry`, {
+        method: 'POST',
+      }),
+    list: (params: MemoryListParams = {}) => {
+      const query = new URLSearchParams();
+      if (params.search) query.set('search', params.search);
+      if (params.source) query.set('source', params.source);
+      params.type?.forEach((memoryType) => query.append('type', memoryType));
+      if (params.scope_type) query.set('scope_type', params.scope_type);
+      if (params.project_id) query.set('project_id', params.project_id);
+      if (params.created_from) query.set('created_from', params.created_from);
+      if (params.created_to) query.set('created_to', params.created_to);
+      if (params.updated_from) query.set('updated_from', params.updated_from);
+      if (params.updated_to) query.set('updated_to', params.updated_to);
+      if (params.origin) query.set('origin', params.origin);
+      query.set('limit', String(params.limit ?? 10));
+      query.set('offset', String(params.offset ?? 0));
+      return request<MemoryListResponse>(`/api/v1/memory?${query.toString()}`);
+    },
+    update: (memory: MemoryRecord, content: string) => {
+      const query = new URLSearchParams({ scope_type: memory.scope_type });
+      if (memory.project_id) query.set('project_id', memory.project_id);
+      return request<MemoryRecord>(`/api/v1/memory/${memory.id}?${query.toString()}`, {
+        method: 'PUT',
+        body: JSON.stringify({ type: memory.type, content }),
+      });
+    },
+    delete: (memory: MemoryRecord) => {
+      const query = new URLSearchParams({ scope_type: memory.scope_type });
+      if (memory.project_id) query.set('project_id', memory.project_id);
+      return request<void>(`/api/v1/memory/${memory.id}?${query.toString()}`, {
+        method: 'DELETE',
+      });
+    },
+    getSettings: (scopeType: 'personal' | 'project', projectId?: string) => {
+      const query = new URLSearchParams({ scope_type: scopeType });
+      if (projectId) query.set('project_id', projectId);
+      return request<MemoryScopeSettings>(`/api/v1/memory/settings?${query.toString()}`);
+    },
+    updateSettings: (settings: Omit<MemoryScopeSettings, 'retention_enabled'>) =>
+      request<MemoryScopeSettings>('/api/v1/memory/settings', {
+        method: 'PUT',
+        body: JSON.stringify(settings),
+      }),
+    move: (
+      memoryId: string,
+      source: { scope_type: 'personal' | 'project'; project_id: string | null },
+      destination: { scope_type: 'personal' | 'project'; project_id: string | null }
+    ) =>
+      request<MemoryRecord>(`/api/v1/memory/${memoryId}/move`, {
+        method: 'POST',
+        body: JSON.stringify({
+          source_scope_type: source.scope_type,
+          source_project_id: source.project_id,
+          scope_type: destination.scope_type,
+          project_id: destination.project_id,
+          confirmed: true,
+        }),
+      }),
+  },
   chat: {
     stream: streamChat,
     listConversations: (cursor?: string) =>
@@ -646,6 +1035,7 @@ export const api = {
           include_domains: options.includeDomains ?? [],
           exclude_domains: options.excludeDomains ?? [],
           paper_suggestions_enabled: options.paperSuggestionsEnabled ?? false,
+          socratic_challenger_enabled: true,
         }),
       }),
     approveProposal: (proposalId: string) =>
@@ -675,13 +1065,20 @@ export const api = {
       request<DeepResearchDraft>(`/api/v1/research/runs/${runId}/draft`),
     getPlan: (runId: string) =>
       request<DeepResearchPendingPlan>(`/api/v1/research/runs/${runId}/plan`),
-    submitPlanDecision: (runId: string, approved: boolean, reason?: string, editedGoal?: string) =>
+    submitPlanDecision: (
+      runId: string,
+      approved: boolean,
+      reason?: string,
+      editedGoal?: string,
+      socraticResponse?: string
+    ) =>
       request<DeepResearchRun>(`/api/v1/research/runs/${runId}/plan-decision`, {
         method: 'POST',
         body: JSON.stringify({
           approved,
           reason: reason ?? null,
           edited_plan: editedGoal ? { rewritten_goal: editedGoal } : null,
+          socratic_response: socraticResponse || null,
         }),
       }),
     getReportDownload: (runId: string) =>
@@ -733,5 +1130,142 @@ export const api = {
       }
       return res.json() as Promise<Document>;
     },
+  },
+
+  feedback: {
+    // Idempotent server-side (upsert on (owner_id, generation_id)) --
+    // resubmitting for the same generation_id updates the existing
+    // rating/comment rather than erroring, so re-clicking is safe.
+    submit: (
+      generationId: string,
+      surface: FeedbackSurface,
+      rating: FeedbackRating,
+      comment?: string
+    ) =>
+      request<FeedbackResponse>('/api/v1/feedback', {
+        method: 'POST',
+        body: JSON.stringify({
+          generation_id: generationId,
+          surface,
+          rating,
+          comment: comment ?? null,
+        }),
+      }),
+    submitMemory: (
+      generationId: string,
+      surface: FeedbackSurface,
+      signal: MemoryFeedbackSignal
+    ) =>
+      request('/api/v1/feedback/memory', {
+        method: 'POST',
+        body: JSON.stringify({ generation_id: generationId, surface, signal }),
+      }),
+  },
+
+  evalDashboard: {
+    listOwners: (params?: { search?: string; limit?: number; offset?: number }) => {
+      const query = new URLSearchParams();
+      if (params?.search) query.set('search', params.search);
+      if (params?.limit !== undefined) query.set('limit', String(params.limit));
+      if (params?.offset !== undefined) query.set('offset', String(params.offset));
+      const qs = query.toString();
+      return request<OwnerListResponse>(`/api/v1/eval-dashboard/owners${qs ? `?${qs}` : ''}`);
+    },
+    listScores: (
+      ownerId: string,
+      params?: { metricName?: string; source?: string; limit?: number; offset?: number }
+    ) => {
+      const query = new URLSearchParams({ owner_id: ownerId });
+      if (params?.metricName) query.set('metric_name', params.metricName);
+      if (params?.source) query.set('source', params.source);
+      if (params?.limit !== undefined) query.set('limit', String(params.limit));
+      if (params?.offset !== undefined) query.set('offset', String(params.offset));
+      return request<EvalScoreListResponse>(`/api/v1/eval-dashboard/scores?${query.toString()}`);
+    },
+    reviewDecisions: (ownerId: string) =>
+      request<ReviewDecisionDistribution>(
+        `/api/v1/eval-dashboard/review-decisions?owner_id=${ownerId}`
+      ),
+    // Offline (golden-set benchmark) results -- deliberately separate
+    // from listOwners/listScores above: offline rows have no owner_id
+    // (they score a fixed dataset example, not a live generation), so
+    // they can never appear in the owner-scoped endpoints.
+    listOfflineExamples: (params?: { search?: string; limit?: number; offset?: number }) => {
+      const query = new URLSearchParams();
+      if (params?.search) query.set('search', params.search);
+      if (params?.limit !== undefined) query.set('limit', String(params.limit));
+      if (params?.offset !== undefined) query.set('offset', String(params.offset));
+      const qs = query.toString();
+      return request<OfflineExampleListResponse>(
+        `/api/v1/eval-dashboard/offline-examples${qs ? `?${qs}` : ''}`
+      );
+    },
+    listOfflineScores: (params?: {
+      datasetExampleId?: string;
+      metricName?: string;
+      limit?: number;
+      offset?: number;
+    }) => {
+      const query = new URLSearchParams();
+      if (params?.datasetExampleId) query.set('dataset_example_id', params.datasetExampleId);
+      if (params?.metricName) query.set('metric_name', params.metricName);
+      if (params?.limit !== undefined) query.set('limit', String(params.limit));
+      if (params?.offset !== undefined) query.set('offset', String(params.offset));
+      const qs = query.toString();
+      return request<EvalScoreListResponse>(
+        `/api/v1/eval-dashboard/offline-scores${qs ? `?${qs}` : ''}`
+      );
+    },
+    listBenchmarkReports: () =>
+      request<BenchmarkReportResult[]>('/api/v1/eval-dashboard/benchmark-reports'),
+    offlineSummary: () =>
+      request<BenchmarkReportResult[]>('/api/v1/eval-dashboard/offline-summary'),
+    segmentAnalysisOnline: (params: { metricName: string; fingerprintField: FingerprintField }) => {
+      const query = new URLSearchParams({
+        metric_name: params.metricName,
+        fingerprint_field: params.fingerprintField,
+      });
+      return request<FingerprintSegmentAnalysisResponse>(
+        `/api/v1/eval-dashboard/segment-analysis/online?${query.toString()}`
+      );
+    },
+    segmentAnalysisOffline: (params: { metricName: string; segmentField: ContentSegmentField }) => {
+      const query = new URLSearchParams({
+        metric_name: params.metricName,
+        segment_field: params.segmentField,
+      });
+      return request<ContentSegmentAnalysisResponse>(
+        `/api/v1/eval-dashboard/segment-analysis/offline?${query.toString()}`
+      );
+    },
+  },
+
+  promotionReview: {
+    listCandidates: (params: {
+      direction: PromotionCandidateView;
+      limit?: number;
+      offset?: number;
+    }) => {
+      const query = new URLSearchParams({ direction: params.direction });
+      if (params.limit !== undefined) query.set('limit', String(params.limit));
+      if (params.offset !== undefined) query.set('offset', String(params.offset));
+      return request<PromotionCandidateListResponse>(
+        `/api/v1/eval-dashboard/promotion-review/candidates?${query.toString()}`
+      );
+    },
+    traceUrl: (generationId: string) =>
+      request<{ trace_url: string | null }>(
+        `/api/v1/eval-dashboard/promotion-review/trace-url?generation_id=${generationId}`
+      ),
+    reject: (payload: { source: string; owner_id: string; generation_id: string }) =>
+      request('/api/v1/eval-dashboard/promotion-review/reject', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      }),
+    confirm: (payload: ConfirmPromotionPayload) =>
+      request('/api/v1/eval-dashboard/promotion-review/confirm', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      }),
   },
 };

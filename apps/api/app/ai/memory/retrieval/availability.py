@@ -7,7 +7,7 @@ from uuid import UUID
 import structlog
 from redis.asyncio import Redis
 
-from app.ai.memory.enums import MemoryType
+from app.ai.memory.enums import MemoryScopeType, MemoryType
 from app.ai.memory.storage.postgres_store import PostgresMemoryStore
 from app.core.settings import settings
 from app.infrastructure.metrics.interfaces import MetricsRecorder
@@ -29,8 +29,14 @@ class DurableMemoryAvailabilityService:
         self._client = client
         self._metrics = metrics or NoOpMetricsRecorder()
 
-    async def has_durable_memory(self, *, owner_id: UUID) -> bool:
-        key = self._key(owner_id)
+    async def has_durable_memory(
+        self,
+        *,
+        owner_id: UUID,
+        scope_type: MemoryScopeType = MemoryScopeType.PERSONAL,
+        project_id: UUID | None = None,
+    ) -> bool:
+        key = self._key(owner_id, scope_type, project_id)
         if settings.memory_durable_availability_cache_enabled and self._client is not None:
             try:
                 cached = await self._client.get(key)
@@ -43,6 +49,8 @@ class DurableMemoryAvailabilityService:
             available = await self._store.exists_for_owner(
                 owner_id=owner_id,
                 memory_types=_DURABLE_TYPES,
+                scope_type=scope_type,
+                project_id=project_id,
             )
         except Exception as exc:
             # An unavailable availability store must not hide Session memory
@@ -66,14 +74,25 @@ class DurableMemoryAvailabilityService:
                 logger.warning("memory.availability.cache_write_failed", owner_id=str(owner_id))
         return available
 
-    async def invalidate(self, *, owner_id: UUID) -> None:
+    async def invalidate(
+        self,
+        *,
+        owner_id: UUID,
+        scope_type: MemoryScopeType = MemoryScopeType.PERSONAL,
+        project_id: UUID | None = None,
+    ) -> None:
         if self._client is None:
             return
         try:
-            await self._client.delete(self._key(owner_id))
+            await self._client.delete(self._key(owner_id, scope_type, project_id))
         except Exception:
             logger.warning("memory.availability.cache_invalidate_failed", owner_id=str(owner_id))
 
     @staticmethod
-    def _key(owner_id: UUID) -> str:
-        return f"memory:durable-exists:{owner_id}"
+    def _key(
+        owner_id: UUID,
+        scope_type: MemoryScopeType,
+        project_id: UUID | None,
+    ) -> str:
+        scope = "personal" if scope_type == MemoryScopeType.PERSONAL else f"project:{project_id}"
+        return f"memory:durable-exists:{owner_id}:{scope}"

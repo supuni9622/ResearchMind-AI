@@ -249,3 +249,81 @@ export function RefreshIcon({ className, size = 14 }: IconProps) {
     </svg>
   );
 }
+
+interface RatingIconProps extends IconProps {
+  /** Filled/solid when the user has already left this rating (E21). */
+  filled?: boolean;
+}
+
+export function ThumbsUpIcon({ className, size = 14, filled = false }: RatingIconProps) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 14 14"
+      fill={filled ? 'currentColor' : 'none'}
+      aria-hidden
+      className={className}
+    >
+      <path
+        d="M5 6l2.5-4c.6 0 1.2.5 1.2 1.2v2.3H11a1 1 0 0 1 1 1.2l-.9 4A1 1 0 0 1 10.1 12H5V6z"
+        stroke="currentColor"
+        strokeWidth="1.1"
+        strokeLinejoin="round"
+      />
+      <path d="M5 6v6H3.3a.8.8 0 0 1-.8-.8V6.8a.8.8 0 0 1 .8-.8H5z" stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+export function ThumbsDownIcon({ className, size = 14, filled = false }: RatingIconProps) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 14 14"
+      fill={filled ? 'currentColor' : 'none'}
+      aria-hidden
+      className={className}
+    >
+      <path
+        d="M9 8l-2.5 4c-.6 0-1.2-.5-1.2-1.2V8.5H3a1 1 0 0 1-1-1.2l.9-4A1 1 0 0 1 3.9 2H9v6z"
+        stroke="currentColor"
+        strokeWidth="1.1"
+        strokeLinejoin="round"
+      />
+      <path d="M9 8V2h1.7a.8.8 0 0 1 .8.8v4.4a.8.8 0 0 1-.8.8H9z" stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+export function MicIcon({ className, size = 14 }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 14 14" {...base} className={className}>
+      <rect x="5" y="1.5" width="4" height="7" rx="2" stroke="currentColor" strokeWidth="1.25" />
+      <path
+        d="M3 7.5A4 4 0 0 0 7 11.5A4 4 0 0 0 11 7.5"
+        stroke="currentColor"
+        strokeWidth="1.25"
+        strokeLinecap="round"
+      />
+      <path d="M7 11.5V13" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+export function MicOffIcon({ className, size = 14 }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 14 14" {...base} className={className}>
+      <rect x="5" y="1.5" width="4" height="7" rx="2" stroke="currentColor" strokeWidth="1.25" />
+      <path
+        d="M3 7.5A4 4 0 0 0 7 11.5A4 4 0 0 0 11 7.5"
+        stroke="currentColor"
+        strokeWidth="1.25"
+        strokeLinecap="round"
+      />
+      <path d="M7 11.5V13" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" />
+      <path d="M1.5 1.5L12.5 12.5" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" />
+    </svg>
+  );
+}

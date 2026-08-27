@@ -10,7 +10,7 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID, uuid4
 
-from app.ai.memory.enums import MemoryType
+from app.ai.memory.enums import MemoryScopeType, MemoryType
 from app.ai.memory.models import MemoryRecord
 from app.ai.memory.storage.valkey_store import ValkeySessionStore
 
@@ -29,6 +29,8 @@ class SessionMemoryService:
         *,
         owner_id: UUID,
         session_id: UUID,
+        scope_type: MemoryScopeType = MemoryScopeType.PERSONAL,
+        project_id: UUID | None = None,
         content: str,
         importance_score: float,
         metadata: dict[str, Any] | None = None,
@@ -38,6 +40,8 @@ class SessionMemoryService:
         record = MemoryRecord(
             id=uuid4(),
             owner_id=owner_id,
+            scope_type=scope_type,
+            project_id=project_id,
             type=MemoryType.SESSION,
             content=content,
             metadata={**(metadata or {}), _SESSION_ID_KEY: str(session_id)},
@@ -55,14 +59,23 @@ class SessionMemoryService:
         *,
         owner_id: UUID,
         memory_id: UUID,
+        scope_type: MemoryScopeType = MemoryScopeType.PERSONAL,
+        project_id: UUID | None = None,
     ) -> MemoryRecord | None:
-        return await self._store.get(owner_id=owner_id, memory_id=memory_id)
+        return await self._store.get(
+            owner_id=owner_id,
+            memory_id=memory_id,
+            scope_type=scope_type,
+            project_id=project_id,
+        )
 
     async def get_context(
         self,
         *,
         owner_id: UUID,
         session_id: UUID,
+        scope_type: MemoryScopeType = MemoryScopeType.PERSONAL,
+        project_id: UUID | None = None,
         limit: int = 20,
     ) -> list[MemoryRecord]:
         """Most recent messages/state for `session_id`, oldest first."""
@@ -70,6 +83,8 @@ class SessionMemoryService:
         return await self._store.get_recent(
             owner_id=owner_id,
             session_id=session_id,
+            scope_type=scope_type,
+            project_id=project_id,
             limit=limit,
         )
 
@@ -78,11 +93,18 @@ class SessionMemoryService:
         *,
         owner_id: UUID,
         memory_id: UUID,
+        scope_type: MemoryScopeType = MemoryScopeType.PERSONAL,
+        project_id: UUID | None = None,
         content: str | None = None,
         metadata: dict[str, Any] | None = None,
         importance_score: float | None = None,
     ) -> MemoryRecord | None:
-        existing = await self.recall(owner_id=owner_id, memory_id=memory_id)
+        existing = await self.recall(
+            owner_id=owner_id,
+            memory_id=memory_id,
+            scope_type=scope_type,
+            project_id=project_id,
+        )
 
         if existing is None:
             return None
@@ -108,5 +130,12 @@ class SessionMemoryService:
         *,
         owner_id: UUID,
         memory_id: UUID,
+        scope_type: MemoryScopeType = MemoryScopeType.PERSONAL,
+        project_id: UUID | None = None,
     ) -> bool:
-        return await self._store.delete(owner_id=owner_id, memory_id=memory_id)
+        return await self._store.delete(
+            owner_id=owner_id,
+            memory_id=memory_id,
+            scope_type=scope_type,
+            project_id=project_id,
+        )

@@ -6,6 +6,7 @@ import { isWebCitation, type ResearchTurn } from '@/features/research/types';
 import { AlertIcon, ClockIcon, LayersIcon, NetworkIcon } from '@/components/ui/icons';
 import { Markdown } from '@/components/ui/markdown';
 import { StreamingStatus } from '@/features/research/components/streaming-status';
+import { FeedbackControl } from '@/components/ui/feedback-control';
 
 /** Shared with `DeepResearchBlock` for rendering a rejected report's
  * answer the same way a Linear Research turn's is rendered -- markdown
@@ -103,6 +104,7 @@ export function ResearchBlock({
                 <span className="font-mono text-[10px]">{turn.chunkCount} passages searched</span>
               </span>
             )}
+            <FeedbackControl generationId={turn.generationId} surface="linear_research" memoryUsed={turn.memoryUsed} />
             <button
               disabled
               title="Report generation is coming soon"

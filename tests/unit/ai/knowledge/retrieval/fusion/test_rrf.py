@@ -38,7 +38,7 @@ def _make_chunk(chunk_id: uuid.UUID | None = None) -> RetrievedChunk:
 
 def _make_result(chunks: list[RetrievedChunk]) -> RetrievalResult:
     return RetrievalResult(
-        query=RetrievalQuery(query="rag"),
+        query=RetrievalQuery(query="rag", owner_id="owner-1"),
         execution=RetrievalExecution(),
         chunks=chunks,
     )

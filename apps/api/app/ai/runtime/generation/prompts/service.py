@@ -205,7 +205,7 @@ class PromptService(
                 return "gpt-5-mini"
 
             case GenerationProvider.GROQ:
-                return "llama-3.3-70b-versatile"
+                return "openai/gpt-oss-120b"
 
             case GenerationProvider.CLAUDE:
                 return "claude-sonnet-5"

@@ -56,10 +56,22 @@ class RegressionDetector:
                 current_value = candidate.metrics.get(metric_name)
                 previous_value = previous_candidate.metrics.get(metric_name)
 
-                if not isinstance(current_value, (int, float)) or not isinstance(
-                    previous_value, (int, float)
-                ):
+                if not isinstance(current_value, (int, float)):
                     continue
+
+                is_absolute = threshold.direction in (
+                    ThresholdDirection.ABSOLUTE_MIN,
+                    ThresholdDirection.ABSOLUTE_MAX,
+                )
+
+                if not isinstance(previous_value, (int, float)):
+                    # Absolute gates apply regardless of whether a
+                    # baseline value exists yet (e.g. the first run that
+                    # ever emits this metric) -- relative gates have
+                    # nothing to compare against without one.
+                    if not is_absolute:
+                        continue
+                    previous_value = current_value
 
                 issue = self._check(
                     candidate_name=candidate.name,
@@ -134,6 +146,38 @@ class RegressionDetector:
                     f"{metric_name} increased from {previous_value:.2f} to "
                     f"{current_value:.2f} (allowed relative increase: "
                     f"{threshold.threshold:.0%})."
+                ),
+            )
+
+        elif threshold.direction == ThresholdDirection.ABSOLUTE_MIN:
+            if current_value < threshold.threshold:
+                return RegressionIssue(
+                    candidate=candidate_name,
+                    metric=metric_name,
+                    previous_value=previous_value,
+                    current_value=current_value,
+                    threshold=threshold.threshold,
+                    message=(
+                        f"{metric_name} is {current_value:.4f}, below the required "
+                        f"floor of {threshold.threshold:.4f} (previous run: "
+                        f"{previous_value:.4f})."
+                    ),
+                )
+
+        elif (
+            threshold.direction == ThresholdDirection.ABSOLUTE_MAX
+            and current_value > threshold.threshold
+        ):
+            return RegressionIssue(
+                candidate=candidate_name,
+                metric=metric_name,
+                previous_value=previous_value,
+                current_value=current_value,
+                threshold=threshold.threshold,
+                message=(
+                    f"{metric_name} is {current_value:.4f}, above the allowed "
+                    f"ceiling of {threshold.threshold:.4f} (previous run: "
+                    f"{previous_value:.4f})."
                 ),
             )
 

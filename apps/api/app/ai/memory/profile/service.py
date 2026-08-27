@@ -8,10 +8,11 @@ preferences are looked up by owner, not searched semantically.
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any
 from uuid import UUID
 
-from app.ai.memory.enums import MemoryType
+from app.ai.memory.enums import MemoryScopeType, MemoryType
 from app.ai.memory.models import MemoryRecord
 from app.ai.memory.storage.postgres_store import PostgresMemoryStore
 
@@ -23,16 +24,27 @@ class UserMemoryService:
     ) -> None:
         self._store = store
 
+    async def count_scope(
+        self, *, owner_id: UUID, scope_type: MemoryScopeType, project_id: UUID | None
+    ) -> int:
+        return await self._store.count_scope(
+            owner_id=owner_id, scope_type=scope_type, project_id=project_id
+        )
+
     async def remember(
         self,
         *,
         owner_id: UUID,
+        scope_type: MemoryScopeType = MemoryScopeType.PERSONAL,
+        project_id: UUID | None = None,
         content: str,
         importance_score: float,
         metadata: dict[str, Any] | None = None,
     ) -> MemoryRecord:
         return await self._store.create(
             owner_id=owner_id,
+            scope_type=scope_type,
+            project_id=project_id,
             memory_type=MemoryType.USER,
             content=content,
             importance_score=importance_score,
@@ -44,24 +56,122 @@ class UserMemoryService:
         *,
         owner_id: UUID,
         memory_id: UUID,
+        scope_type: MemoryScopeType = MemoryScopeType.PERSONAL,
+        project_id: UUID | None = None,
     ) -> MemoryRecord | None:
-        return await self._store.get(owner_id=owner_id, memory_id=memory_id)
+        return await self._store.get(
+            owner_id=owner_id,
+            memory_id=memory_id,
+            scope_type=scope_type,
+            project_id=project_id,
+        )
 
     async def list_preferences(
         self,
         *,
         owner_id: UUID,
+        scope_type: MemoryScopeType = MemoryScopeType.PERSONAL,
+        project_id: UUID | None = None,
         limit: int = 100,
     ) -> list[MemoryRecord]:
         return await self._store.list_by_type(
             owner_id=owner_id,
             memory_type=MemoryType.USER,
+            scope_type=scope_type,
+            project_id=project_id,
             limit=limit,
         )
 
-    async def find_exact_content(self, *, owner_id: UUID, content: str) -> MemoryRecord | None:
+    async def list_preferences_page(
+        self,
+        *,
+        owner_id: UUID,
+        scope_type: MemoryScopeType = MemoryScopeType.PERSONAL,
+        project_id: UUID | None = None,
+        search: str | None = None,
+        source: str | None = None,
+        limit: int = 20,
+        offset: int = 0,
+    ) -> tuple[list[MemoryRecord], int]:
+        return await self._store.list_page_by_type(
+            owner_id=owner_id,
+            memory_type=MemoryType.USER,
+            scope_type=scope_type,
+            project_id=project_id,
+            search=search,
+            source=source,
+            limit=limit,
+            offset=offset,
+        )
+
+    async def list_management_page(
+        self,
+        *,
+        owner_id: UUID,
+        memory_types: list[MemoryType] | None,
+        scope_type: MemoryScopeType,
+        project_id: UUID | None,
+        search: str | None = None,
+        source: str | None = None,
+        created_from: datetime | None = None,
+        created_to: datetime | None = None,
+        updated_from: datetime | None = None,
+        updated_to: datetime | None = None,
+        origin: str | None = None,
+        limit: int = 20,
+        offset: int = 0,
+    ) -> tuple[list[MemoryRecord], int]:
+        """Management read path for every canonical durable memory type."""
+
+        return await self._store.list_page(
+            owner_id=owner_id,
+            memory_types=memory_types,
+            scope_type=scope_type,
+            project_id=project_id,
+            search=search,
+            source=source,
+            created_from=created_from,
+            created_to=created_to,
+            updated_from=updated_from,
+            updated_to=updated_to,
+            origin=origin,
+            limit=limit,
+            offset=offset,
+        )
+
+    async def find_preference_candidates(
+        self,
+        *,
+        owner_id: UUID,
+        scope_type: MemoryScopeType,
+        project_id: UUID | None,
+        preference_key: str,
+        search_terms: list[str],
+        limit: int,
+    ) -> list[MemoryRecord]:
+        return await self._store.list_user_preference_candidates(
+            owner_id=owner_id,
+            scope_type=scope_type,
+            project_id=project_id,
+            preference_key=preference_key,
+            search_terms=search_terms,
+            limit=limit,
+        )
+
+    async def find_exact_content(
+        self,
+        *,
+        owner_id: UUID,
+        content: str,
+        scope_type: MemoryScopeType = MemoryScopeType.PERSONAL,
+        project_id: UUID | None = None,
+    ) -> MemoryRecord | None:
         return await self._store.find_exact_content(
-            owner_id=owner_id, memory_type=MemoryType.USER, content=content
+            owner_id=owner_id,
+            memory_type=MemoryType.USER,
+            content=content,
+            scope_type=scope_type,
+            project_id=project_id,
         )
 
     async def update(
@@ -69,6 +179,8 @@ class UserMemoryService:
         *,
         owner_id: UUID,
         memory_id: UUID,
+        scope_type: MemoryScopeType = MemoryScopeType.PERSONAL,
+        project_id: UUID | None = None,
         content: str | None = None,
         metadata: dict[str, Any] | None = None,
         importance_score: float | None = None,
@@ -76,6 +188,8 @@ class UserMemoryService:
         return await self._store.update(
             owner_id=owner_id,
             memory_id=memory_id,
+            scope_type=scope_type,
+            project_id=project_id,
             content=content,
             metadata=metadata,
             importance_score=importance_score,
@@ -86,5 +200,12 @@ class UserMemoryService:
         *,
         owner_id: UUID,
         memory_id: UUID,
+        scope_type: MemoryScopeType = MemoryScopeType.PERSONAL,
+        project_id: UUID | None = None,
     ) -> bool:
-        return await self._store.delete(owner_id=owner_id, memory_id=memory_id)
+        return await self._store.delete(
+            owner_id=owner_id,
+            memory_id=memory_id,
+            scope_type=scope_type,
+            project_id=project_id,
+        )

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from typing import Any
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
 import pytest
@@ -24,6 +24,7 @@ from app.ai.runtime.research.synthesis.service import (
     ResearchSynthesisService,
 )
 from app.ai.runtime.research.workflows.multi_wave_research import compile_multi_wave_research_graph
+from app.infrastructure.metrics.research import RESEARCH_REVIEW_DECISIONS_TOTAL
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.types import Command
 
@@ -35,6 +36,71 @@ async def _approve_plan(graph: object, config: dict[str, Any]) -> dict[str, Any]
     approval, same shape as approving the report-approval interrupt."""
 
     return await graph.ainvoke(Command(resume={"decision": "approved"}), config=config)  # type: ignore[attr-defined,no-any-return]
+
+
+@pytest.mark.asyncio
+async def test_socratic_challenger_pauses_with_question_and_remembers_response() -> None:
+    run_id, owner_id = uuid4(), uuid4()
+    retrieval = AsyncMock()
+    retrieval.execute_task.return_value = ResearchTaskResult(
+        task_id="initial", status=ResearchTaskStatus.COMPLETED
+    )
+    writer = AsyncMock(spec=ResearchEvidenceArtifactWriter)
+    writer.write.return_value = "artifacts/research-runs/evidence.json"
+    synthesis = AsyncMock(spec=ResearchSynthesisService)
+    synthesis.synthesize.return_value = ResearchDraft(
+        title="Report",
+        abstract="Abstract.",
+        methodology="Methodology.",
+        findings=[ResearchDraftSection(heading="Finding", content="Grounded finding.")],
+        discussion="Discussion.",
+        conclusion="Conclusion.",
+    )
+    final_writer = AsyncMock(spec=ResearchFinalReportArtifactWriter)
+    remember = AsyncMock()
+    challenge = AsyncMock(return_value="What assumption would most change this conclusion?")
+    graph = compile_multi_wave_research_graph(
+        checkpointer=InMemorySaver(),
+        task_retrieval=retrieval,
+        evidence_writer=writer,
+        synthesis=synthesis,
+        final_report_writer=final_writer,
+        socratic_challenge=challenge,
+        remember_socratic_response=remember,
+    )
+    config = {"configurable": {"thread_id": str(run_id)}}
+    paused = await graph.ainvoke(
+        {
+            "research_run_id": str(run_id),
+            "owner_id": str(owner_id),
+            "plan": {"goal": "q", "complexity": "moderate"},
+            "waves": [[ResearchPlanTask(task_id="initial", question="q").model_dump(mode="json")]],
+            "filters": {},
+            "top_k": 5,
+            "task_results": {},
+            "socratic_challenger_enabled": True,
+        },
+        config=config,
+    )
+
+    payload = paused["__interrupt__"][0].value
+    assert payload["socratic_question"] == "What assumption would most change this conclusion?"
+    resumed = await graph.ainvoke(
+        Command(
+            resume={
+                "decision": "approved",
+                "socratic_response": "The result depends on selection bias.",
+            }
+        ),
+        config=config,
+    )
+
+    assert resumed["socratic_response"] == "The result depends on selection bias."
+    remember.assert_awaited_once_with(
+        "What assumption would most change this conclusion?",
+        "The result depends on selection bias.",
+    )
+    assert resumed["__interrupt__"][0].value["kind"] == "report_approval"
 
 
 @pytest.mark.asyncio
@@ -64,12 +130,14 @@ async def test_multi_wave_graph_waits_for_dependencies_before_aggregation() -> N
         report_ref="artifacts/research-runs/final-report.json",
         pdf_ref="artifacts/research-runs/final-report.pdf",
     )
+    metrics = MagicMock()
     graph = compile_multi_wave_research_graph(
         checkpointer=InMemorySaver(),
         task_retrieval=retrieval,
         evidence_writer=writer,
         synthesis=synthesis,
         final_report_writer=final_report_writer,
+        metrics=metrics,
     )
     first = ResearchPlanTask(task_id="first", question="first")
     parallel = ResearchPlanTask(task_id="parallel", question="parallel")
@@ -110,6 +178,10 @@ async def test_multi_wave_graph_waits_for_dependencies_before_aggregation() -> N
     assert synthesis.synthesize.await_count == 1
     assert result["final_report_pdf_ref"].endswith("final-report.pdf")
     assert final_report_writer.write.await_count == 1
+    metrics.increment.assert_any_call(
+        metric=RESEARCH_REVIEW_DECISIONS_TOTAL,
+        labels={"decision": "pass"},
+    )
 
 
 @pytest.mark.asyncio
@@ -157,6 +229,7 @@ async def test_multi_wave_graph_runs_one_targeted_gap_retrieval_then_finalizes_l
         report_ref="artifacts/research-runs/final-report.json",
         pdf_ref="artifacts/research-runs/final-report.pdf",
     )
+    metrics = MagicMock()
     graph = compile_multi_wave_research_graph(
         checkpointer=InMemorySaver(),
         task_retrieval=retrieval,
@@ -164,6 +237,7 @@ async def test_multi_wave_graph_runs_one_targeted_gap_retrieval_then_finalizes_l
         synthesis=synthesis,
         final_report_writer=final_report_writer,
         reviewer=reviewer,
+        metrics=metrics,
     )
     initial = ResearchPlanTask(task_id="initial", question="initial")
     config = {"configurable": {"thread_id": str(run_id)}}
@@ -187,6 +261,22 @@ async def test_multi_wave_graph_runs_one_targeted_gap_retrieval_then_finalizes_l
     assert result["plan_version"] == 2
     assert synthesis.synthesize.await_count == 2
     assert result["review"]["decision"] == ReviewDecision.FINALIZE_WITH_LIMITATIONS.value
+    # Fires on every review cycle, not just the terminal decision -- both
+    # loop-back RESEARCH_GAPS reviews are recorded even though the run
+    # itself ultimately finalizes with limitations, a decision the
+    # `review()` node itself never sees from `reviewer.review()`.
+    assert (
+        metrics.increment.call_args_list.count(
+            (
+                (),
+                {
+                    "metric": RESEARCH_REVIEW_DECISIONS_TOTAL,
+                    "labels": {"decision": "research_gaps"},
+                },
+            )
+        )
+        == 2
+    )
 
 
 @pytest.mark.asyncio

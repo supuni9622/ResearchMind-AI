@@ -3,6 +3,27 @@
 **Reviewed:** 2026-08-05  
 **Scope:** Offline benchmarks, datasets, metrics, regression controls, runtime signals, tests, API integration, and CI
 
+**Historical, mostly superseded (2026-08-12 note, not a 2026-08-05
+correction).** This document's own point-in-time findings below are kept
+as-is for the record — this note only says what changed since. Every P0
+gap this doc identified (no end-to-end golden QA, no CI evaluation gate,
+tiny single-domain dataset, lexical-only generation proxies, no
+citation/schema/abstention gates) and every "Missing" row in the
+Evaluation Coverage table (end-to-end RAG, safety/security, human/product
+quality, evaluation API/dashboard) has since shipped — see
+[`EVALUATION_PLAN.md`](../EVALUATION_PLAN.md) for the current design and
+[`EVALUATION_IMPLEMENTATION_TRACKER.md`](../EVALUATION_IMPLEMENTATION_TRACKER.md)
+for verified current status of every item (E1-E23 as of 2026-08-12). The
+"Final implementation plan" section at the bottom of this file already
+carries its own, earlier (2026-08-10) supersession note for the same
+reason — this banner extends that same fact to the rest of the document,
+which had no equivalent notice even though it's just as out of date in
+substance. One genuine gap this pass' cross-doc audit found — not
+something this 2026-08-05 doc called out either — was `EVALUATION_PLAN.md`
+§10's "tool-invocation rate & success rate" metric, never previously
+tracked at all; built same day for Chat as E23 (Deep Research/Linear
+Research explicitly excluded, see that item's own entry).
+
 ## Executive assessment
 
 | Area | Assessment | Evidence |
@@ -33,9 +54,9 @@
 |---|---|---|---|
 | Chunking | Partial | Counts and average/minimum/maximum chunk sizes, words, and token estimates. | No coherence, boundary quality, semantic preservation, or downstream retrieval impact. |
 | Embeddings | Partial | Latency, throughput, dimensions, and output counts. | No similarity quality or downstream retrieval comparison by embedding model. |
-| Retrieval | Implemented | Recall@5/10/20, Precision@5/10, MRR, NDCG@5/10, latency, and category slices. | Only 20 queries over five documents; binary document-level relevance and saturated scores. |
+| Retrieval | Implemented | Recall@5/10/20, Precision@5/10, MRR, NDCG@5/10, latency, and category slices. | 160 queries over 50 documents (up from 20/5, 2026-08-11) — no longer saturated, but still binary document-level relevance, not chunk-level. |
 | Metadata filtering | Implemented | Retrieval metrics and leakage rate for filtered and unfiltered candidates. | No adversarial or multi-tenant stress dataset. |
-| Reranking | Implemented | Recall@5, MRR, NDCG@5, and latency across baseline, CrossEncoder, and Voyage. | Uses the same small, saturated dataset and has no graded relevance. |
+| Reranking | Implemented | Recall@5, MRR, NDCG@5, and latency across baseline, CrossEncoder, and Voyage. | Uses the same 50-document/160-query corpus as Retrieval above (no longer saturated) but still has no graded relevance. |
 | Generation | Partial | Lexical faithfulness, groundedness, relevance, completeness, citation accuracy, hallucination proxy, latency, and cost. | Word overlap can mis-score paraphrases, contradictions, and unsupported claims. |
 | Ingestion pipeline | Partial | Stage latency, throughput, memory, artifact size, vector counts, and success rate. | Excludes upload/PDF parsing and does not measure answer quality. |
 | End-to-end RAG/research | Missing | None. | No query → retrieval → synthesis → citation-correctness golden evaluation. |

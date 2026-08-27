@@ -5,7 +5,7 @@ from __future__ import annotations
 from app.ai.runtime.research.planner.models import ResearchComplexity, ResearchPlan
 from app.ai.runtime.research.planner.policies import ResearchPlanningPolicy
 
-PLANNER_PROMPT_VERSION = "research-planner-v2"
+PLANNER_PROMPT_VERSION = "research-planner-v3"
 
 
 def _task_budget_line() -> str:
@@ -41,18 +41,25 @@ so pick the lowest complexity that still covers the request, and never pad `task
 what the request actually needs.
 
 Also set `rewritten_goal`: a self-contained restatement of the request that resolves
-pronouns, implicit references, or shorthand (e.g. "compare it with X") using any background
-memory supplied below, so the goal reads correctly without that memory attached. If no
-background memory is supplied or none of it is relevant, set `rewritten_goal` to the
-request verbatim."""
+pronouns, implicit references, or shorthand (e.g. "compare it with X", "conduct a literature
+review" with the topic left implicit) using the prior conversation and any background memory
+supplied below, so the goal reads correctly without either attached. If neither is supplied
+or nothing supplied is relevant, set `rewritten_goal` to the request verbatim."""
 
 
-def planner_user_prompt(*, query: str, memory_context: str | None = None) -> str:
+def planner_user_prompt(
+    *,
+    query: str,
+    memory_context: str | None = None,
+    transcript: str | None = None,
+) -> str:
     memory_block = f"\n\n{memory_context}\n" if memory_context else ""
+    transcript_block = f"\n\nPrior conversation so far:\n{transcript}\n" if transcript else ""
     return (
         "Plan this research request. Keep it within the supplied schema and within the "
         "task budget for the complexity you choose."
         f"{memory_block}"
+        f"{transcript_block}"
         f"\n\nRequest: {query}"
     )
 

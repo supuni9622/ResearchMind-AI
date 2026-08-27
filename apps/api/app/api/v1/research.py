@@ -104,6 +104,12 @@ RESEARCH_RUN_EVENTS_MAX_STREAM_DURATION_SECONDS = 1800
 
 
 def _session_response(research_session: ResearchSession) -> ResearchSessionResponse:
+    runtime_metadata = research_session.runtime_metadata or {}
+    raw_generation_id = runtime_metadata.get("generation_id")
+    try:
+        generation_id = UUID(str(raw_generation_id)) if raw_generation_id else None
+    except (TypeError, ValueError):
+        generation_id = None
     return ResearchSessionResponse(
         research_id=research_session.id,
         conversation_id=research_session.conversation_id,
@@ -111,6 +117,8 @@ def _session_response(research_session: ResearchSession) -> ResearchSessionRespo
         answer=research_session.answer,
         citations=research_session.citations,
         sources=research_session.sources,
+        generation_id=generation_id,
+        memory_used=bool(runtime_metadata.get("memory_used", False)),
         created_at=research_session.created_at,
     )
 
@@ -601,6 +609,7 @@ async def get_research_run_plan(
             for item in pending.evidence.evidence
             if item.citation_id is not None
         ],
+        socratic_question=pending.socratic_question,
     )
 
 
@@ -633,6 +642,7 @@ async def submit_research_plan_decision(
             edited_goal=(
                 payload.edited_plan.rewritten_goal if payload.edited_plan is not None else None
             ),
+            socratic_response=payload.socratic_response,
         )
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
@@ -789,6 +799,8 @@ async def get_research_run_draft(
             citation_integrity_score=pending.review.citation_integrity_score,
             completeness_score=pending.review.completeness_score,
             limitations=pending.review.limitations,
+            model_quality_score=pending.review.model_quality_score,
+            gap_questions=pending.review.gap_questions,
         ),
     )
 
@@ -893,17 +905,20 @@ async def get_research_report_download(
     current_user: User = Depends(get_current_user),
     report_downloads: ResearchReportDownloadService = Depends(get_research_report_download_service),
 ) -> ResearchReportDownloadResponse:
-    download_url = await report_downloads.get_download_url(
+    download = await report_downloads.get_download_url(
         research_run_id=research_run_id,
         owner_id=current_user.id,
     )
-    if download_url is None:
+    if download is None:
         raise NotFoundException(
             message=f"Research report for run '{research_run_id}' was not found."
         )
     return ResearchReportDownloadResponse(
         research_run_id=research_run_id,
-        download_url=download_url,
+        download_url=download.download_url,
+        expires_in_seconds=ResearchReportDownloadService.EXPIRES_IN_SECONDS,
+        generation_id=download.generation_id,
+        memory_used=download.memory_used,
     )
 
 

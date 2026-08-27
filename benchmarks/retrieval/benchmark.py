@@ -46,6 +46,7 @@ from benchmarks.retrieval.dataset import (
 )
 from benchmarks.retrieval.indexer import BenchmarkRetrievalIndexer
 from benchmarks.retrieval.metrics import (
+    hit_rate_at_k,
     ndcg_at_k,
     precision_at_k,
     recall_at_k,
@@ -57,6 +58,10 @@ from benchmarks.retrieval.metrics import (
 # touch production data.
 BENCHMARK_COLLECTION_NAME = "benchmark_retrieval"
 
+# Matches BenchmarkRetrievalIndexer's default owner_id fallback when no
+# owner_ids_by_document_id mapping is supplied.
+BENCHMARK_OWNER_ID = "benchmark"
+
 # Chunks retrieved per query. Large enough to compute Recall@20 in a
 # single search call per candidate (see ADR-020).
 TOP_K = 20
@@ -65,6 +70,7 @@ TOP_K = 20
 RECALL_KS = (5, 10, 20)
 PRECISION_KS = (5, 10)
 NDCG_KS = (5, 10)
+HIT_RATE_KS = (5, 10)
 
 QUERY_DATASET_FILENAME = "retrieval_queries.json"
 
@@ -174,6 +180,7 @@ class RetrievalBenchmark(Benchmark):
                 query=RetrievalQuery(
                     query=query_text,
                     top_k=top_k,
+                    owner_id=BENCHMARK_OWNER_ID,
                 ),
                 query_vector=query_vector,
             )
@@ -194,6 +201,7 @@ class RetrievalBenchmark(Benchmark):
                 query=RetrievalQuery(
                     query=query_text,
                     top_k=top_k,
+                    owner_id=BENCHMARK_OWNER_ID,
                 ),
                 sparse_query=sparse_query,
             )
@@ -211,6 +219,7 @@ class RetrievalBenchmark(Benchmark):
         candidate_query = RetrievalQuery(
             query=query_text,
             top_k=top_k * 2,
+            owner_id=BENCHMARK_OWNER_ID,
         )
 
         with Timer() as timer:
@@ -256,6 +265,7 @@ class RetrievalBenchmark(Benchmark):
         recall_scores: dict[int, list[float]] = {k: [] for k in RECALL_KS}
         precision_scores: dict[int, list[float]] = {k: [] for k in PRECISION_KS}
         ndcg_scores: dict[int, list[float]] = {k: [] for k in NDCG_KS}
+        hit_rate_scores: dict[int, list[float]] = {k: [] for k in HIT_RATE_KS}
         reciprocal_ranks: list[float] = []
         latencies_ms: list[float] = []
         recall_at_10_by_category: dict[str, list[float]] = {}
@@ -283,6 +293,11 @@ class RetrievalBenchmark(Benchmark):
                 for k in NDCG_KS:
                     ndcg_scores[k].append(
                         ndcg_at_k(retrieved_filenames, relevant, k),
+                    )
+
+                for k in HIT_RATE_KS:
+                    hit_rate_scores[k].append(
+                        hit_rate_at_k(retrieved_filenames, relevant, k),
                     )
 
                 reciprocal_ranks.append(
@@ -315,6 +330,9 @@ class RetrievalBenchmark(Benchmark):
 
         for k in NDCG_KS:
             metrics[f"ndcg_at_{k}"] = average(ndcg_scores[k])
+
+        for k in HIT_RATE_KS:
+            metrics[f"hit_rate_at_{k}"] = average(hit_rate_scores[k])
 
         metrics["mrr"] = average(reciprocal_ranks)
         metrics["avg_latency_ms"] = round(average(latencies_ms), 2)

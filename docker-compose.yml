@@ -1,3 +1,18 @@
+x-backend-image: &backend-image
+  build:
+    context: .
+    dockerfile: docker/backend.Dockerfile
+
+# DATABASE_URL/VALKEY_URL/QDRANT_URL in .env point at localhost for
+# host-run processes; every containerized backend service overrides them to
+# the Compose service names instead. Everything else (provider API keys,
+# AWS credentials, feature flags) still comes from .env via `env_file`.
+x-backend-env: &backend-env
+  DATABASE_URL: postgresql+psycopg://researchmind:researchmind@postgres:5432/researchmind
+  VALKEY_URL: redis://valkey:6379/0
+  QDRANT_URL: http://qdrant:6333
+  SEMANTIC_CACHE_REDIS_URL: redis://semantic-cache:6379
+
 services:
 
   postgres:
@@ -63,22 +78,149 @@ services:
     volumes:
       - semantic_cache_data:/data
 
+  migrate:
+    <<: *backend-image
+    container_name: researchmind-migrate
+    env_file:
+      - .env
+    environment:
+      <<: *backend-env
+    command: ["alembic", "upgrade", "head"]
+    depends_on:
+      - postgres
+
+  api:
+    <<: *backend-image
+    container_name: researchmind-api
+
+    restart: unless-stopped
+
+    env_file:
+      - .env
+    environment:
+      <<: *backend-env
+
+    ports:
+      - "8000:8000"
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_started
+      valkey:
+        condition: service_started
+      qdrant:
+        condition: service_started
+
+  worker-processing:
+    <<: *backend-image
+    container_name: researchmind-worker-processing
+
+    restart: unless-stopped
+
+    env_file:
+      - .env
+    environment:
+      <<: *backend-env
+
+    command: ["python", "-m", "apps.worker.main"]
+
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  worker-research-runtime:
+    <<: *backend-image
+    container_name: researchmind-worker-research-runtime
+
+    restart: unless-stopped
+
+    env_file:
+      - .env
+    environment:
+      <<: *backend-env
+
+    command: ["python", "-m", "apps.worker.research_runtime_main"]
+
+    ports:
+      - "8010:8010"
+
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  worker-eval-scoring:
+    <<: *backend-image
+    container_name: researchmind-worker-eval-scoring
+
+    restart: unless-stopped
+
+    env_file:
+      - .env
+    environment:
+      <<: *backend-env
+
+    command: ["python", "-m", "apps.worker.eval_scoring_main"]
+
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  worker-memory-lifecycle:
+    <<: *backend-image
+    container_name: researchmind-worker-memory-lifecycle
+
+    restart: unless-stopped
+
+    env_file:
+      - .env
+    environment:
+      <<: *backend-env
+
+    command: ["python", "-m", "apps.worker.memory_lifecycle_main"]
+
+    ports:
+      - "8011:8011"
+
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  web:
+    build:
+      context: .
+      dockerfile: docker/web.Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+    container_name: researchmind-web
+
+    restart: unless-stopped
+
+    ports:
+      - "3000:3000"
+
+    depends_on:
+      api:
+        condition: service_healthy
+
   prometheus:
     image: prom/prometheus:v3.1.0
     container_name: researchmind-prometheus
 
-    #
-    # Scrapes the API's /metrics endpoint (prometheus_grafana_
-    # observability_prd.md). There is no `api` service in this compose
-    # file -- the API runs on the host via uvicorn -- so
-    # prometheus.yml points at `host.docker.internal`, Docker Desktop's
-    # host gateway, instead of a Compose service name.
-    #
+    # Scrapes the API and worker /metrics endpoints
+    # (prometheus_grafana_observability_prd.md) by Compose service name --
+    # api:8000, worker-research-runtime:8010, worker-memory-lifecycle:8011 --
+    # now that all three run as Compose services rather than on the host.
 
     restart: unless-stopped
-
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
 
     command:
       - "--config.file=/etc/prometheus/prometheus.yml"
@@ -92,6 +234,14 @@ services:
 
     ports:
       - "${PROMETHEUS_PORT:-9090}:9090"
+
+    depends_on:
+      api:
+        condition: service_healthy
+      worker-research-runtime:
+        condition: service_started
+      worker-memory-lifecycle:
+        condition: service_started
 
   grafana:
     image: grafana/grafana:11.4.0
@@ -114,6 +264,7 @@ services:
 
     depends_on:
       - prometheus
+      - postgres
 
 volumes:
 

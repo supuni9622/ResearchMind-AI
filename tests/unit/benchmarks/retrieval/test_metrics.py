@@ -13,6 +13,9 @@ Covers:
 - NDCG@K is 1.0 when relevant documents occupy the top ranks (matching
   the ideal ordering), drops when a relevant document is pushed down in
   rank, and is more sensitive to ordering than recall/precision
+- Hit Rate@K is a binary "was anything relevant retrieved at all,"
+  distinct from Recall@K's fractional "what share of all relevant
+  documents was found"
 """
 
 from __future__ import annotations
@@ -20,6 +23,7 @@ from __future__ import annotations
 import pytest
 
 from benchmarks.retrieval.metrics import (
+    hit_rate_at_k,
     ndcg_at_k,
     precision_at_k,
     recall_at_k,
@@ -135,3 +139,43 @@ def test_ndcg_at_k_with_zero_k_is_zero() -> None:
 
 def test_ndcg_at_k_returns_zero_when_nothing_relevant_retrieved() -> None:
     assert ndcg_at_k(["x.pdf", "y.pdf"], {"a.pdf"}, k=5) == 0.0
+
+
+def test_hit_rate_at_k_is_one_when_any_relevant_document_is_retrieved() -> None:
+    retrieved = ["x.pdf", "a.pdf", "y.pdf"]
+    relevant = {"a.pdf", "b.pdf"}
+
+    assert hit_rate_at_k(retrieved, relevant, k=3) == 1.0
+
+
+def test_hit_rate_at_k_is_zero_when_nothing_relevant_retrieved() -> None:
+    retrieved = ["x.pdf", "y.pdf"]
+    relevant = {"a.pdf"}
+
+    assert hit_rate_at_k(retrieved, relevant, k=2) == 0.0
+
+
+def test_hit_rate_at_k_only_credits_documents_within_the_window() -> None:
+    retrieved = ["x.pdf", "y.pdf", "z.pdf", "a.pdf"]
+    relevant = {"a.pdf"}
+
+    assert hit_rate_at_k(retrieved, relevant, k=3) == 0.0
+    assert hit_rate_at_k(retrieved, relevant, k=4) == 1.0
+
+
+def test_hit_rate_at_k_does_not_reward_finding_more_than_one_relevant_document() -> None:
+    # Unlike recall_at_k, hit_rate_at_k is binary -- finding both
+    # relevant documents scores the same as finding just one.
+    retrieved = ["a.pdf", "b.pdf"]
+    relevant = {"a.pdf", "b.pdf"}
+
+    assert hit_rate_at_k(retrieved, relevant, k=2) == 1.0
+    assert hit_rate_at_k(retrieved, relevant, k=2) == hit_rate_at_k(retrieved[:1], relevant, k=2)
+
+
+def test_hit_rate_at_k_with_no_relevant_documents_is_zero() -> None:
+    assert hit_rate_at_k(["a.pdf"], set(), k=5) == 0.0
+
+
+def test_hit_rate_at_k_with_zero_k_is_zero() -> None:
+    assert hit_rate_at_k(["a.pdf"], {"a.pdf"}, k=0) == 0.0

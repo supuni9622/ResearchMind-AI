@@ -59,6 +59,26 @@ def test_research_observability_persists_permanently() -> None:
     assert service.should_persist(ArtifactRuntime.RESEARCH, ArtifactCategory.OBSERVABILITY) is True
 
 
+def test_research_generation_persists_permanently() -> None:
+    """
+    Regression (Evaluation Platform Gap 1): Linear Research explicitly
+    tags every answer-producing GenerationRequest
+    `artifact_runtime=ArtifactRuntime.RESEARCH` (research/service.py),
+    but without an explicit (RESEARCH, GENERATION) rule this silently
+    fell back to NEVER -- the online scoring job (E5) could never score
+    a single Linear Research generation, since it depends on this
+    exact artifact existing.
+    """
+
+    service = ArtifactPolicyService()
+
+    assert (
+        service.resolve_policy(ArtifactRuntime.RESEARCH, ArtifactCategory.GENERATION)
+        is ArtifactPolicy.PERMANENT
+    )
+    assert service.should_persist(ArtifactRuntime.RESEARCH, ArtifactCategory.GENERATION) is True
+
+
 def test_custom_rules_override_defaults() -> None:
     service = ArtifactPolicyService(
         rules=[

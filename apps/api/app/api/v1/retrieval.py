@@ -22,7 +22,6 @@ from app.dependencies.retrieval import (
 )
 from app.models.user import User
 from app.schemas.retrieval import (
-    BaseRetrieveRequest,
     DenseRetrieveRequest,
     HybridRetrieveRequest,
     RetrievedChunkResponse,
@@ -31,22 +30,17 @@ from app.schemas.retrieval import (
 )
 
 
-def _scoped_filters(
-    request: BaseRetrieveRequest,
+def _scoped_owner_id(
     current_user: User,
-) -> dict[str, object]:
+) -> str:
     """
-    Scope retrieval filters to the authenticated user.
-
-    owner_id is always overridden by the authenticated user's id, never
-    trusted from the request body -- otherwise a caller could pass
-    another user's owner_id and read their documents.
+    owner_id always comes from the authenticated user, never from the
+    request body -- otherwise a caller could pass another user's
+    owner_id and read their documents. `RetrievalQuery.owner_id` is a
+    required field, so it must always be threaded through explicitly.
     """
 
-    return {
-        **request.filters,
-        "owner_id": str(current_user.id),
-    }
+    return str(current_user.id)
 
 
 router = APIRouter(
@@ -75,7 +69,8 @@ async def retrieve(
         query=RetrievalQuery(
             query=request.query,
             top_k=request.top_k,
-            filters=_scoped_filters(request, current_user),
+            filters=request.filters,
+            owner_id=_scoped_owner_id(current_user),
         ),
     )
 
@@ -121,7 +116,8 @@ async def retrieve_sparse(
         query=RetrievalQuery(
             query=request.query,
             top_k=request.top_k,
-            filters=_scoped_filters(request, current_user),
+            filters=request.filters,
+            owner_id=_scoped_owner_id(current_user),
         ),
     )
 
@@ -173,7 +169,8 @@ async def retrieve_hybrid(
         query=RetrievalQuery(
             query=request.query,
             top_k=request.top_k,
-            filters=_scoped_filters(request, current_user),
+            filters=request.filters,
+            owner_id=_scoped_owner_id(current_user),
         ),
     )
 

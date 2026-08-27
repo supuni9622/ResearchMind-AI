@@ -4,11 +4,18 @@ from collections.abc import AsyncGenerator
 from datetime import UTC, datetime
 from time import perf_counter
 from typing import Any
+from uuid import UUID, uuid4
 
 import structlog
 from app.ai.artifacts.enums import (
     ArtifactCategory,
     ArtifactRuntime,
+)
+from app.ai.artifacts.generation.persist import (
+    persist_generation_artifact,
+)
+from app.ai.artifacts.generation.writers import (
+    GenerationArtifactWriter,
 )
 from app.ai.artifacts.policies.service import (
     ArtifactPolicyService,
@@ -60,6 +67,9 @@ from app.ai.runtime.generation.observability.service import (
 from app.ai.runtime.generation.registry import (
     GenerationRegistry,
 )
+from app.ai.runtime.generation.routing.enums import (
+    RoutingStrategy,
+)
 from app.ai.runtime.generation.service import (
     GenerationService,
 )
@@ -104,6 +114,7 @@ class StreamingService:
         event_adapter: ProviderEventAdapterInterface,
         caching_service: CachingService | None = None,
         artifact_writer: StreamArtifactWriter | None = None,
+        generation_artifact_writer: GenerationArtifactWriter | None = None,
         artifact_policy_service: ArtifactPolicyService | None = None,
         metrics_service: GenerationMetricsService | None = None,
         observability_service: ObservabilityService | None = None,
@@ -115,6 +126,18 @@ class StreamingService:
         self._event_adapter = event_adapter
         self._caching_service = caching_service
         self._artifact_writer = artifact_writer
+        self._generation_artifact_writer = generation_artifact_writer
+        """
+        Persists a full `GenerationArtifact` (category `GENERATION`) from
+        the same `GenerationResult` a stream assembles, alongside the
+        `StreamArtifact` `artifact_writer` above persists (category
+        `STREAM`, a thin events/timeline/metrics record with no request/
+        response content). Without this, the online-scoring job (E5) --
+        which reads `GenerationArtifact` specifically -- could never
+        score any surface's real streamed traffic, only non-streaming
+        answer-producing calls. `None` skips it, same opt-in shape as
+        every other artifact writer here.
+        """
         self._artifact_policy_service = artifact_policy_service
 
         self._metrics_service = metrics_service or GenerationMetricsService()
@@ -148,6 +171,16 @@ class StreamingService:
         provider: GenerationProvider | None = None,
     ) -> AsyncGenerator[StreamEvent, None]:
 
+        # `None` here (not `request.routing_strategy`) is the accurate
+        # config-fingerprint value when `provider` was given explicitly --
+        # routing was bypassed entirely, so no strategy actually resolved
+        # anything. Only set when routing genuinely ran, mirroring
+        # `GenerationService._generate_with_routing()`'s
+        # `result.statistics.routing_strategy = decision.strategy`.
+        routing_strategy_used: RoutingStrategy | None = None
+        if provider is None:
+            routing_strategy_used = request.routing_strategy or RoutingStrategy.AUTO
+
         resolved_provider = provider or self._generation_service.resolve_streaming_provider(
             request,
         )
@@ -165,6 +198,16 @@ class StreamingService:
             )
 
             if cache_result.hit:
+                # The same id already persisted (or about to be persisted,
+                # just below) to `GenerationUsage` for this replay -- the
+                # frontend's `POST /feedback` needs whichever id actually
+                # ended up in that table, not a freshly-minted one that
+                # would silently not match any row.
+                replay_generation_id = (
+                    cache_result.generation_result.generation_id
+                    if cache_result.generation_result is not None
+                    else uuid4()
+                )
                 if self._usage_service is not None and cache_result.generation_result is not None:
                     # A replay is a completed user request but incurs no new
                     # provider spend. Preserve the original output/tokens
@@ -191,14 +234,18 @@ class StreamingService:
                     content=cache_result.generation_result.content
                     if cache_result.generation_result
                     else "",
+                    generation_id=replay_generation_id,
                 ):
                     yield event
                 return
 
+        generation_id = uuid4()
         async for event in self._stream_live(
             request=request,
             provider=resolved_provider,
             generation_provider_config_model=generation_provider.config.model_name,
+            routing_strategy=routing_strategy_used,
+            generation_id=generation_id,
         ):
             yield event
 
@@ -212,6 +259,7 @@ class StreamingService:
         request: GenerationRequest,
         cache_result_level: Any,
         content: str,
+        generation_id: UUID,
     ) -> AsyncGenerator[StreamEvent, None]:
 
         logger.info(
@@ -228,6 +276,7 @@ class StreamingService:
                     level=cache_result_level,
                     replayed=True,
                 ).model_dump(mode="json"),
+                "generation_id": str(generation_id),
             },
         )
 
@@ -253,6 +302,8 @@ class StreamingService:
         request: GenerationRequest,
         provider: GenerationProvider,
         generation_provider_config_model: str,
+        routing_strategy: RoutingStrategy | None,
+        generation_id: UUID,
     ) -> AsyncGenerator[StreamEvent, None]:
 
         content_parts: list[str] = []
@@ -269,6 +320,7 @@ class StreamingService:
                     "provider": provider.value,
                     "model": generation_provider_config_model,
                     "runtime": (request.runtime.value if request.runtime else None),
+                    "owner_id": (str(request.owner_id) if request.owner_id else None),
                     "streamed": True,
                 },
             ) as trace_handle:
@@ -284,6 +336,18 @@ class StreamingService:
                         session_id=request.session_id,
                         request_id=request.request_id,
                     )
+                    # Stamped onto every event (not just a final one) so the
+                    # frontend can read it off whichever event it happens to
+                    # be tracking as "the" response -- e.g. the last TOKEN
+                    # event -- without needing a dedicated terminal event
+                    # type. Matches the id `_build_stream_result()` below
+                    # gives the persisted `GenerationUsage` row, so
+                    # `POST /feedback` always references a real row.
+                    event.metadata = {
+                        **event.metadata,
+                        "generation_id": str(generation_id),
+                        "memory_used": bool(request.metadata.get("injected_memory_ids")),
+                    }
                     emitted_events.append(event)
 
                     yield event
@@ -334,6 +398,9 @@ class StreamingService:
             model=generation_provider_config_model,
             content="".join(content_parts),
             latency_ms=(perf_counter() - started) * 1000,
+            routing_strategy=routing_strategy,
+            generation_id=generation_id,
+            langsmith_run_id=trace_handle.run_id,
         )
 
         result = await self._generation_service.score_completed_stream(
@@ -357,6 +424,14 @@ class StreamingService:
                 events=emitted_events,
                 started_at=started_at,
                 completed_at=completed_at,
+            )
+
+        if self._generation_artifact_writer is not None:
+            await persist_generation_artifact(
+                request=request,
+                result=result,
+                artifact_writer=self._generation_artifact_writer,
+                artifact_policy_service=self._artifact_policy_service,
             )
 
         snapshot = self._metrics_service.record(
@@ -437,6 +512,9 @@ class StreamingService:
         model: str,
         content: str,
         latency_ms: float,
+        routing_strategy: RoutingStrategy | None,
+        generation_id: UUID,
+        langsmith_run_id: UUID | None,
     ) -> GenerationResult:
         """
         Best-effort statistics: today's provider `stream()` implementations
@@ -463,6 +541,8 @@ class StreamingService:
         )
 
         return GenerationResult(
+            generation_id=generation_id,
+            langsmith_run_id=langsmith_run_id,
             request=request,
             execution=GenerationExecution(
                 completed_at=datetime.now(UTC),
@@ -470,6 +550,7 @@ class StreamingService:
             statistics=GenerationStatistics(
                 provider=provider,
                 model=model,
+                routing_strategy=routing_strategy,
                 latency_ms=latency_ms,
                 prompt_tokens=prompt_tokens,
                 completion_tokens=completion_tokens,

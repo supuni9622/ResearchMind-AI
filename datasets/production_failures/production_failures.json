@@ -1,0 +1,5 @@
+{
+  "version": "1.0",
+  "notes": "production_failures (EVALUATION_PLAN.md §3, E10). Auto-sourced from real production incidents via the promotion-review queue -- not hand-written, unlike rag_answer_gold. Same GoldenExample schema, different provenance: every example here started as a real confirmed thumbs-down or an online-flagged generation, reviewed by a human, and tagged with a failure_category. Kept as a separate dataset rather than merged into rag_answer_gold so query_type/workflow-based reporting on the hand-curated set isn't skewed by incident-driven examples -- see EVALUATION_PLAN.md §3's dataset table for the full reasoning. Written to by benchmarks/generation/sync_promoted_examples.py, never by hand.",
+  "examples": []
+}

@@ -58,12 +58,14 @@ class RetrievalService:
         sparse_query_embedding_service: (SparseQueryEmbeddingService),
         fusion_service: (RetrievalFusionService),
         reranking_service=None,
+        rerank_score_threshold: float | None = None,
     ) -> None:
         self._registry = registry
         self._query_embedding_service = query_embedding_service
         self._sparse_query_embedding_service = sparse_query_embedding_service
         self._fusion_service = fusion_service
         self._reranking_service = reranking_service
+        self._rerank_score_threshold = rerank_score_threshold
 
     async def search(
         self,
@@ -378,7 +380,10 @@ class RetrievalService:
             dense=dense_result,
             sparse=sparse_result,
             metadata=metadata_result,
-            top_k=query.top_k,
+            # Let the cross-encoder judge the expanded candidate pool. Fusing
+            # down to the requested top_k first made reranking unable to
+            # recover a relevant candidate ranked sixth or later.
+            top_k=retrieval_query.top_k,
         )
 
         rerank_latency_ms: float | None = None
@@ -408,7 +413,14 @@ class RetrievalService:
             rerank_latency_ms = (perf_counter() - rerank_started) * 1000
             reranker_provider = RerankingProvider.VOYAGE_AI.value
 
-            result.chunks = [chunk.chunk for chunk in reranked.chunks]
+            result.chunks = [
+                entry.chunk.model_copy(update={"score": entry.rerank_score})
+                for entry in reranked.chunks
+                if self._rerank_score_threshold is None
+                or entry.rerank_score >= self._rerank_score_threshold
+            ]
+        else:
+            result.chunks = result.chunks[: query.top_k]
 
         duration_ms = (perf_counter() - started) * 1000
 

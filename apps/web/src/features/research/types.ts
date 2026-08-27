@@ -42,6 +42,13 @@ export function isWebCitation(citationId: string): boolean {
   return citationId.startsWith('W');
 }
 
+/** The backend exposes the final cross-encoder relevance score. Never scale
+ * against the best item in the same result set: doing so labels even a very
+ * weak best match as 100% relevant. */
+export function relevanceScorePercent(score: number): number {
+  return Math.round(Math.max(0, Math.min(1, score)) * 100);
+}
+
 /**
  * Client-side view of where one Deep Research turn sits:
  * `plan_review` (awaiting approve/cancel, before a run exists at all) ->
@@ -106,6 +113,10 @@ export interface DeepResearchTurn {
   /** Fetched once `stage` reaches `report_review` -- the draft the approve/reject decision is about. */
   draft: DeepResearchDraft | null;
   reportDownloadUrl: string | null;
+  /** From `getReportDownload`'s response (E21) -- required to submit
+   * feedback on a completed, approved report. */
+  generationId?: string;
+  memoryUsed?: boolean;
   /** Set instead of `reportDownloadUrl` when the report was rejected but still published as a plain answer. */
   linearAnswer: DeepResearchLinearAnswer | null;
   /** Populated from `research_related_papers_completed`'s metadata, if the
@@ -130,6 +141,10 @@ export interface ResearchTurn {
   durationMs?: number;
   provider?: GenerationProvider;
   createdAt: string;
+  /** From the stream's `generation_id` metadata (E21) -- required to
+   * submit feedback; absent until the first event carrying it arrives. */
+  generationId?: string;
+  memoryUsed?: boolean;
 }
 
 /**

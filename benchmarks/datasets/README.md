@@ -113,6 +113,13 @@ Future benchmark collections may include:
 - Climate reports
 - Medical literature
 
+The `memory/v1` collection is synthetic rather than document-based. Its
+ground-truth file covers exact/semantic recall, contradictory and stale memory,
+no-relevant-memory behavior, owner/project isolation, and stored
+prompt-injection shapes. Runtime retrieval output belongs in a separate result
+file matching `benchmarks.memory.results.MemoryCandidateResults`; never add
+production user memory text to this repository.
+
 ---
 
 # Dataset Structure

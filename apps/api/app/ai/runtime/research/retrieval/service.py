@@ -78,7 +78,8 @@ class ResearchTaskRetrievalService:
                 query=RetrievalQuery(
                     query=task.question,
                     top_k=min(top_k, self.MAX_TASK_TOP_K),
-                    filters={**filters, "owner_id": str(owner_id)},
+                    filters=filters,
+                    owner_id=str(owner_id),
                 ),
             )
             context = await self._context_builder.build(retrieval, query=task.question)

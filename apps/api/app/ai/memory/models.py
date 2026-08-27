@@ -13,9 +13,9 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from app.ai.memory.enums import MemoryType
+from app.ai.memory.enums import MemoryScopeType, MemoryType
 
 
 class MemoryRecord(BaseModel):
@@ -24,6 +24,10 @@ class MemoryRecord(BaseModel):
     id: UUID
 
     owner_id: UUID
+
+    scope_type: MemoryScopeType = MemoryScopeType.PERSONAL
+
+    project_id: UUID | None = None
 
     type: MemoryType
 
@@ -37,6 +41,14 @@ class MemoryRecord(BaseModel):
 
     updated_at: datetime
 
+    @model_validator(mode="after")
+    def validate_scope(self) -> MemoryRecord:
+        if self.scope_type == MemoryScopeType.PROJECT and self.project_id is None:
+            raise ValueError("project_id is required for project-scoped memory")
+        if self.scope_type == MemoryScopeType.PERSONAL and self.project_id is not None:
+            raise ValueError("project_id must be empty for personal memory")
+        return self
+
 
 class MemorySearchRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -45,11 +57,23 @@ class MemorySearchRequest(BaseModel):
 
     owner_id: UUID
 
+    scope_type: MemoryScopeType = MemoryScopeType.PERSONAL
+
+    project_id: UUID | None = None
+
     memory_types: list[MemoryType] = Field(
         default_factory=lambda: list(MemoryType),
     )
 
     top_k: int = Field(default=10, ge=1, le=100)
+
+    @model_validator(mode="after")
+    def validate_scope(self) -> MemorySearchRequest:
+        if self.scope_type == MemoryScopeType.PROJECT and self.project_id is None:
+            raise ValueError("project_id is required for project-scoped search")
+        if self.scope_type == MemoryScopeType.PERSONAL and self.project_id is not None:
+            raise ValueError("project_id must be empty for personal search")
+        return self
 
 
 class MemorySearchResult(BaseModel):
@@ -62,13 +86,13 @@ class MemorySearchResult(BaseModel):
 
 class MemoryContext(BaseModel):
     """PRD §10 -- the bundle a consumer (chat, research, agent) pulls
-    to ground a single turn. Deliberately excludes `user_memories`: the
-    PRD's own model omits it, since preferences apply globally rather
-    than needing to be assembled per-turn."""
+    to ground a single turn."""
 
     model_config = ConfigDict(extra="forbid")
 
     session_memories: list[MemoryRecord] = Field(default_factory=list)
+
+    user_memories: list[MemoryRecord] = Field(default_factory=list)
 
     semantic_memories: list[MemoryRecord] = Field(default_factory=list)
 

@@ -63,6 +63,7 @@ def make_citation(
         citation_id=citation_id,
         filename="sky.pdf",
         document_id=_DOCUMENT_ID,
+        score=0.9,
         chunk_ids=chunk_ids or [],
     )
 

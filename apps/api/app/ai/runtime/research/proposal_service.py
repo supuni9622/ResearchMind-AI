@@ -6,9 +6,10 @@ from typing import Any, cast
 from uuid import UUID, uuid4
 
 import structlog
+from langchain_core.messages import HumanMessage
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.ai.memory.services.formatting import format_memory_context
+from app.ai.memory.services.formatting import FormattedMemoryContext, format_memory_context_with_ids
 from app.ai.memory.services.memory_service import MemoryService
 from app.ai.runtime.generation.enums import GenerationProvider
 from app.ai.runtime.generation.orchestration.interfaces import GenerationRuntimeInterface
@@ -23,6 +24,7 @@ from app.core.settings import settings
 from app.models.research_proposal import ResearchProposal
 from app.repositories.research_proposal import ResearchProposalRepository
 from app.repositories.research_run_dispatch import ResearchRunDispatchRepository
+from app.services.research_conversation import ResearchConversationService
 
 logger = structlog.get_logger()
 
@@ -44,6 +46,7 @@ class ResearchProposalService:
         self._runs = run_service or ResearchRunService(session)
         self._dispatches = ResearchRunDispatchRepository(session)
         self._memory = memory_service
+        self._conversations = ResearchConversationService(session)
 
     async def propose(
         self,
@@ -86,15 +89,22 @@ class ResearchProposalService:
             session_id=conversation_id or proposal.id,
             query=query,
         )
+        transcript = await self._load_transcript(conversation_id=conversation_id, owner_id=owner_id)
         plan = await self._planner.plan(
             query=query,
             owner_id=owner_id,
             research_run_id=proposal.id,
             provider=provider,
             routing_strategy=routing_strategy,
-            memory_context=memory_context,
+            memory_context=memory_context.text,
+            injected_memory_ids=[str(item) for item in memory_context.memory_ids],
+            transcript=transcript,
         )
         proposal.plan = plan.model_dump(mode="json")
+        proposal.request = {
+            **proposal.request,
+            "injected_memory_ids": [str(item) for item in memory_context.memory_ids],
+        }
         proposal.status = ResearchProposalStatus.AWAITING_APPROVAL.value
         await self._session.commit()
         logger.info(
@@ -103,7 +113,8 @@ class ResearchProposalService:
             owner_id=str(owner_id),
             complexity=plan.complexity.value,
             task_count=len(plan.tasks),
-            memory_context_used=bool(memory_context),
+            memory_context_used=bool(memory_context.memory_ids),
+            transcript_used=bool(transcript),
         )
         return proposal
 
@@ -135,13 +146,16 @@ class ResearchProposalService:
             session_id=session_id,
             query=query,
         )
+        transcript = await self._load_transcript(conversation_id=conversation_id, owner_id=owner_id)
         plan = await self._planner.plan(
             query=query,
             owner_id=owner_id,
             research_run_id=session_id,
             provider=provider,
             routing_strategy=routing_strategy,
-            memory_context=memory_context,
+            memory_context=memory_context.text,
+            injected_memory_ids=[str(item) for item in memory_context.memory_ids],
+            transcript=transcript,
         )
         if plan.complexity == ResearchComplexity.SIMPLE:
             logger.info(
@@ -163,6 +177,7 @@ class ResearchProposalService:
                     "filters": filters,
                     "provider": provider.value if provider else None,
                     "routing_strategy": routing_strategy.value if routing_strategy else None,
+                    "injected_memory_ids": [str(item) for item in memory_context.memory_ids],
                 },
                 plan=plan.model_dump(mode="json"),
             )
@@ -174,9 +189,37 @@ class ResearchProposalService:
             owner_id=str(owner_id),
             complexity=plan.complexity.value,
             task_count=len(plan.tasks),
-            memory_context_used=bool(memory_context),
+            memory_context_used=bool(memory_context.memory_ids),
+            transcript_used=bool(transcript),
         )
         return plan, proposal
+
+    async def _load_transcript(
+        self,
+        *,
+        conversation_id: UUID | None,
+        owner_id: UUID,
+    ) -> str | None:
+        """Prior Linear Research turns in this conversation, folded into the
+        planner's prompt the same way `ResearchService._format_transcript`
+        folds them for a Linear Research follow-up -- without this, a
+        Deep Research request made mid-conversation (e.g. "conduct a
+        literature review" right after asking about earthquakes) has no
+        way to resolve what the request is actually about, since Deep
+        Research planning never saw the earlier turns."""
+
+        if conversation_id is None:
+            return None
+        history = await self._conversations.load_history(
+            conversation_id=conversation_id,
+            owner_id=owner_id,
+        )
+        if not history:
+            return None
+        return "\n".join(
+            f"{'User' if isinstance(message, HumanMessage) else 'Assistant'}: {message.content}"
+            for message in history
+        )
 
     async def _retrieve_memory_context(
         self,
@@ -184,13 +227,13 @@ class ResearchProposalService:
         owner_id: UUID,
         session_id: UUID,
         query: str,
-    ) -> str | None:
+    ) -> FormattedMemoryContext:
         """Best-effort (PRD §9's Runtime Memory Injection Pipeline): a memory
         outage must never block plan creation, so every failure here is
         caught and logged rather than raised."""
 
         if self._memory is None:
-            return None
+            return FormattedMemoryContext(text=None, memory_ids=())
         try:
             context = await self._memory.get_context(
                 owner_id=owner_id,
@@ -203,8 +246,8 @@ class ResearchProposalService:
                 owner_id=str(owner_id),
                 error_type=type(exc).__name__,
             )
-            return None
-        return format_memory_context(context)
+            return FormattedMemoryContext(text=None, memory_ids=())
+        return format_memory_context_with_ids(context)
 
     async def get_for_owner(self, *, proposal_id: UUID, owner_id: UUID) -> ResearchProposal | None:
         return await self._repository.get_by_id_for_owner(

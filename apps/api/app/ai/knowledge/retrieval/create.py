@@ -122,4 +122,5 @@ def create_retrieval_service() -> RetrievalService:
         sparse_query_embedding_service=(create_sparse_query_embedding_service()),
         fusion_service=(create_fusion_service()),
         reranking_service=(create_reranking_service()),
+        rerank_score_threshold=settings.retrieval_rerank_score_threshold,
     )

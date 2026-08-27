@@ -41,6 +41,7 @@ class Settings(BaseSettings):
     database_url: str = Field(...)
     valkey_url: str = Field(...)
     qdrant_url: str = Field(...)
+    qdrant_api_key: str | None = None
     qdrant_collection_name: str = "researchmind_knowledge"
 
     # ==========================================================================
@@ -48,6 +49,13 @@ class Settings(BaseSettings):
     # ==========================================================================
 
     frontend_url: str = "http://localhost:3000"
+
+    @property
+    def frontend_urls(self) -> list[str]:
+        """CORS allow-list. frontend_url may be a comma-separated list
+        (e.g. local dev + deployed Amplify domain both need access to the
+        same backend)."""
+        return [origin.strip() for origin in self.frontend_url.split(",") if origin.strip()]
 
     # ==========================================================================
     # AI Services
@@ -75,7 +83,7 @@ class Settings(BaseSettings):
 
     gemini_model: str = "gemini-2.5-flash"
 
-    groq_model: str = "llama-3.3-70b-versatile"
+    groq_model: str = "openai/gpt-oss-120b"
 
     ollama_model: str = "gemma4:12b"
 
@@ -143,6 +151,9 @@ class Settings(BaseSettings):
     cross_encoder_model: str = "BAAI/bge-reranker-base"
 
     voyage_reranker_model: str = "rerank-2"
+    # Cross-encoder relevance gate for knowledge retrieval. RRF scores are
+    # rank-only and cannot distinguish a weak best match from a strong one.
+    retrieval_rerank_score_threshold: float = 0.2
 
     # ==========================================================================
     # Runtime Caching Platform
@@ -217,9 +228,66 @@ class Settings(BaseSettings):
     memory_session_state_storage_enabled: bool = True
     memory_context_deduplication_enabled: bool = True
     memory_context_session_max_items: int = 5
+    memory_context_user_max_items: int = 5
     memory_context_semantic_max_items: int = 5
     memory_context_research_max_items: int = 5
-    memory_context_item_max_characters: int = 500
+    # One coordinated budget for the complete rendered memory block. The
+    # evidence/output reserves are applied when a caller supplies the selected
+    # model's context window; otherwise the explicit memory cap still bounds
+    # every runtime deterministically.
+    memory_context_total_token_budget: int = 1_200
+    memory_context_reserved_evidence_tokens: int = 4_000
+    memory_context_reserved_output_tokens: int = 2_000
+    memory_context_session_token_share: int = 300
+    memory_context_user_token_share: int = 300
+    memory_context_semantic_token_share: int = 300
+    memory_context_research_token_share: int = 300
+    # Staleness/supersession fix (Wave 2 follow-up): before persisting a new
+    # inferred USER preference, check whether it replaces an existing one on
+    # the same topic (e.g. "prefers detailed answers" replacing "prefers
+    # concise answers") rather than piling up as a second, contradictory row.
+    memory_preference_supersession_enabled: bool = True
+    memory_preference_candidate_limit: int = 20
+    memory_preference_recent_fallback_limit: int = 5
+    memory_preference_typed_confidence_threshold: float = Field(default=0.85, ge=0.0, le=1.0)
+    # Public memory mutations use separate owner-scoped buckets so read/search
+    # traffic and background extraction never consume the user's API budget.
+    memory_write_rate_limit_requests: int = 30
+    memory_write_rate_limit_window_seconds: int = 60
+    memory_delete_rate_limit_requests: int = 10
+    memory_delete_rate_limit_window_seconds: int = 60
+    # Background extraction is the provider-cost circuit breaker. It is
+    # deliberately hourly and fail-open: a Valkey outage must not break the
+    # answer flow, while a confirmed over-quota owner skips the LLM call.
+    memory_extraction_rate_limit_requests: int = 60
+    memory_extraction_rate_limit_window_seconds: int = 60 * 60
+    memory_extraction_max_memories_per_turn: int = 5
+    memory_api_content_max_characters: int = 10_000
+    memory_api_metadata_max_bytes: int = 16_384
+    memory_api_metadata_max_depth: int = 6
+    memory_scope_max_durable_records: int = 10_000
+    memory_deletion_confirmation_ttl_seconds: int = 300
+    memory_reconciliation_repair_enabled: bool = False
+    # Durable-memory lifecycle worker. It starts report-only so operators can
+    # inspect real distributions before enabling deletion.
+    memory_lifecycle_enabled: bool = True
+    memory_lifecycle_dry_run: bool = True
+    memory_lifecycle_interval_seconds: int = 60 * 60 * 24
+    memory_lifecycle_lock_ttl_seconds: int = 60 * 30
+    memory_lifecycle_batch_size: int = 500
+    memory_lifecycle_user_stale_after_days: int = 365
+    memory_lifecycle_user_max_importance: float = 0.1
+    memory_lifecycle_semantic_stale_after_days: int = 90
+    memory_lifecycle_semantic_max_importance: float = 0.3
+    memory_lifecycle_research_stale_after_days: int = 180
+    memory_lifecycle_research_max_importance: float = 0.2
+    # M8 starts disabled/report-only. Enable only after reviewing candidate
+    # decisions against the M6 benchmark and a human-labeled staging sample.
+    memory_consolidation_enabled: bool = False
+    memory_consolidation_dry_run: bool = True
+    memory_consolidation_batch_size: int = 50
+    memory_consolidation_candidate_limit: int = 5
+    memory_consolidation_similarity_threshold: float = 0.88
 
     # Chat history is paginated for replay. Model context receives recent turns
     # verbatim and a deterministic, persisted summary of older turns; this
@@ -308,6 +376,17 @@ class Settings(BaseSettings):
     web_search_decision_openai_model: str = "gpt-5-mini"
     web_search_decision_claude_model: str = "claude-haiku-4-5"
 
+    # Dedicated cheap-tier models for the feedback-comment objective/
+    # preference classification call only (E11, EVALUATION_PLAN.md §12/
+    # 1g) -- same isolation rationale as `web_search_decision_*` above,
+    # and the same `gpt-5-mini` choice over `gpt-5-nano` for the same
+    # structured-output-reliability reason, not yet independently
+    # reconfirmed for this specific call but treated as the safer default
+    # given the identical schema shape. See
+    # `app.ai.runtime.generation.comment_classification.create`.
+    comment_classification_openai_model: str = "gpt-5-mini"
+    comment_classification_claude_model: str = "claude-haiku-4-5"
+
     # Research Intelligence MCP Platform (paper search over MCP streamable-http,
     # prds/3. mcp_server_setup.md). `mcp_papers_server_url` absent degrades
     # `PaperSearchService.available` to `False` rather than raising -- mirrors
@@ -335,6 +414,56 @@ class Settings(BaseSettings):
     memory_importance_threshold: float = 0.1
 
     # ==========================================================================
+    # Voice-on-Chat POC (docs/todo/voice-chat-poc-implementation-plan.md)
+    # ==========================================================================
+    # Default-off. `WS /chat/voice` is the only code path that reads any of
+    # these -- `WS /chat/ws`, `/chat/stream`, Linear Research, and Deep
+    # Research never do, so this section cannot change their behavior
+    # regardless of value. `deepgram_api_key`/`elevenlabs_api_key`/
+    # `elevenlabs_voice_id` absent degrades the relevant provider factory to
+    # `None` rather than raising, same "unconfigured deployment never
+    # crashes" convention as `tavily_api_key`/`mcp_papers_server_url` above.
+    voice_enabled: bool = False
+    deepgram_api_key: str | None = None
+    elevenlabs_api_key: str | None = None
+    # No default: ElevenLabs voice IDs are account-specific (the free-tier
+    # voice library varies per account), so silently defaulting to a voice
+    # ID that may not resolve for this account is worse than failing closed
+    # via `create_voice_tts_provider()` returning `None`. Set this from the
+    # "Voices" tab of your own ElevenLabs dashboard.
+    elevenlabs_voice_id: str | None = None
+    deepgram_model: str = "nova-3"
+    deepgram_sample_rate: int = 16000
+    # Milliseconds of trailing silence Deepgram waits before marking a
+    # transcript `is_final` -- this is what ends a voice turn server-side,
+    # there is no explicit client "stop talking" message in this protocol.
+    deepgram_endpointing_ms: int = 300
+    elevenlabs_model_id: str = "eleven_flash_v2_5"
+    elevenlabs_output_format: str = "mp3_44100_128"
+    voice_stt_connect_timeout_seconds: float = 10.0
+    voice_tts_connect_timeout_seconds: float = 10.0
+    # Barge-in (interrupting a still-playing response) -- energy-based
+    # voice-activity detection over incoming audio during playback, not a
+    # second live Deepgram connection (cheaper, one fewer concurrent
+    # vendor session per turn).
+    #
+    # Default OFF, not on: confirmed live (2026-08-27) that the original
+    # 800.0/3-chunk defaults were tuned for nothing but a guess, and were
+    # low enough that ordinary microphone room noise -- present the whole
+    # time since the mic stays open for the entire response, not just
+    # while the user is actually talking -- falsely triggered an
+    # "interrupt" on essentially every turn, aborting generation before
+    # any answer arrived. A false interrupt breaking the core "ask,
+    # get an answer" path is a much worse failure than losing this one
+    # stretch feature, so this defaults off until real tuning happens.
+    # The threshold below is also raised well above the old default in
+    # case it's re-enabled, but is still an untuned starting guess, not a
+    # calibrated value -- see the plan doc's T11.
+    voice_barge_in_enabled: bool = False
+    voice_barge_in_rms_threshold: float = 4000.0
+    voice_barge_in_consecutive_chunks: int = 5
+
+    # ==========================================================================
     # Prometheus / Grafana Observability (prometheus_grafana_observability_prd.md)
     # ==========================================================================
 
@@ -344,6 +473,21 @@ class Settings(BaseSettings):
     prometheus_include_runtime_metrics: bool = True
     prometheus_include_process_metrics: bool = True
     prometheus_include_platform_metrics: bool = True
+
+    research_runtime_worker_metrics_port: int = 8010
+    """E17 follow-up (`EVALUATION_IMPLEMENTATION_TRACKER.md`): unlike the
+    API, `apps/worker/research_runtime_main.py` runs as its own OS
+    process with its own private `PrometheusMetricRegistry` (one
+    `CollectorRegistry` per process, see `registry.py`'s own docstring)
+    -- there's no shared ASGI app to mount `/metrics` on, so it needs its
+    own dedicated exposition port, scraped as a separate Prometheus
+    target. Confirmed live (2026-08-12) that a metric recorded by this
+    worker (a real Deep Research run's duration) never reached the API's
+    own `/metrics/`, which is the only scrape target that existed before
+    this. Port `8001` was the first choice but is already bound by the
+    `research-intelligence-mcp-mcp-1` Docker container on this machine
+    -- confirmed via `lsof` before picking `8010`, not guessed."""
+    memory_lifecycle_worker_metrics_port: int = 8011
 
     grafana_admin_user: str = "admin"
     grafana_admin_password: str = "admin"
@@ -360,7 +504,12 @@ class Settings(BaseSettings):
             raise ValueError("prometheus_metrics_path must begin with '/'.")
         return value
 
-    @field_validator("grafana_port", "prometheus_port")
+    @field_validator(
+        "grafana_port",
+        "prometheus_port",
+        "research_runtime_worker_metrics_port",
+        "memory_lifecycle_worker_metrics_port",
+    )
     @classmethod
     def _validate_port_range(cls, value: int) -> int:
         if not (0 < value < 65536):
@@ -380,6 +529,91 @@ class Settings(BaseSettings):
         if not value.strip():
             raise ValueError("prometheus_retention_time must not be empty.")
         return value
+
+    # ==========================================================================
+    # Online Evaluation Scoring (EVALUATION_PLAN.md §14, E5)
+    # ==========================================================================
+
+    eval_online_baseline_sample_rate: float = 0.075
+    """Flat baseline sample rate for LLM-judge scoring on requests that
+    aren't guardrail-flagged, non-PASS-reviewed, or in a canary window --
+    EVALUATION_PLAN.md §14's 5-10% baseline, defaulting to the midpoint."""
+
+    eval_online_canary_oversample_rate: float = 0.5
+    eval_online_canary_prompt_version: str | None = None
+    """When set, generations tagged with this `prompt_version` are
+    oversampled at `eval_online_canary_oversample_rate` instead of the
+    flat baseline -- EVALUATION_PLAN.md §14's "config-fingerprint canary
+    window" row. Deliberately simple for this MVP pass: a single
+    prompt_version string to watch, not a full canary-deployment/traffic-
+    splitting system (out of scope, see PRIORITIZED_ROADMAP.md's 1f note
+    on deferred live A/B traffic splitting)."""
+
+    eval_online_batch_size: int = 25
+    eval_online_poll_interval_seconds: float = 30.0
+    eval_online_lookback_hours: float = 24.0
+    """How far back `list_unscored_since()` looks on each tick -- bounds
+    the anti-join scan; a generation older than this that somehow never
+    got scored stays unscored rather than being picked up on every poll
+    forever."""
+
+    eval_online_rubric_judge_enabled: bool = False
+    """E16 follow-up -- extends the rubric-adherence judge (previously
+    golden-set-only, since only curated examples have a per-example
+    `rubric`) to online-sampled production traffic, judged against one
+    fixed, generic quality rubric instead (see `online_scoring/job.py`'s
+    `_GENERIC_ONLINE_RUBRIC`). Default off: this is a genuinely new,
+    ongoing LLM-call cost on top of the existing Ragas suite, even though
+    it rides the same risk-weighted sample -- an operator should opt in
+    deliberately, not get it silently enabled by an unrelated deploy."""
+
+    memory_online_utility_judge_enabled: bool = False
+    """Run the M7 memory-utility judge on sampled generations that actually
+    injected memory. Disabled by default because it adds one model call to the
+    existing online-evaluation sample; explicit user feedback remains active."""
+
+    @field_validator(
+        "eval_online_baseline_sample_rate",
+        "eval_online_canary_oversample_rate",
+    )
+    @classmethod
+    def _validate_sample_rate(cls, value: float) -> float:
+        if not (0.0 <= value <= 1.0):
+            raise ValueError("Sample rates must be between 0.0 and 1.0.")
+        return value
+
+    # ==========================================================================
+    # Internal Eval Dashboard (EVALUATION_PLAN.md §16 phase 8, E7)
+    # ==========================================================================
+
+    eval_dashboard_admin_emails: str = ""
+    """
+    Comma-separated allowlist of user emails permitted to view the
+    internal eval dashboard (`GET /api/v1/eval-dashboard/*`). Plain
+    `str`, not `list[str]`: pydantic-settings would otherwise require
+    JSON-array syntax (`["a@b.com"]`) in `.env`, which is less ergonomic
+    than a comma-separated value for an operator to set. Empty by
+    default -- no one has access until this is explicitly configured.
+    Deliberately a settings-based allowlist, not a `User.is_admin`
+    column: this is internal engineering tooling, not a customer-facing
+    feature, and a real RBAC column with no admin-management UI to set
+    it would be more schema/scope than the need justifies today.
+    """
+
+    def eval_dashboard_admin_email_set(self) -> set[str]:
+        return {
+            email.strip().lower()
+            for email in self.eval_dashboard_admin_emails.split(",")
+            if email.strip()
+        }
+
+    def is_eval_dashboard_admin(self, email: str) -> bool:
+        """Single source of truth for the allowlist check -- shared by
+        `require_eval_dashboard_access` (the real gate, every
+        `/eval-dashboard/*` request) and `GET /auth/me` (presentation
+        only, drives whether the frontend shows the nav link)."""
+
+        return email.strip().lower() in self.eval_dashboard_admin_email_set()
 
 
 settings = Settings()  # pyright: ignore[reportCallIssue]

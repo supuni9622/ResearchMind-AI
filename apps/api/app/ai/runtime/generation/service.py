@@ -6,11 +6,10 @@ from uuid import uuid4
 
 import structlog
 from app.ai.artifacts.enums import (
-    ArtifactCategory,
     ArtifactRuntime,
 )
-from app.ai.artifacts.generation.builders import (
-    GenerationArtifactBuilder,
+from app.ai.artifacts.generation.persist import (
+    persist_generation_artifact,
 )
 from app.ai.artifacts.generation.writers import (
     GenerationArtifactWriter,
@@ -285,6 +284,19 @@ class GenerationService:
         """
 
         return self._tracer
+
+    @property
+    def artifact_writer(
+        self,
+    ) -> GenerationArtifactWriter | None:
+        """
+        Exposes this service's `GenerationArtifactWriter` (may be `None`),
+        so `StreamingService` persists a `GenerationArtifact` from a
+        streamed result through the same writer `generate()` uses rather
+        than composing a second one.
+        """
+
+        return self._artifact_writer
 
     # ==========================================================
     # Public
@@ -605,6 +617,7 @@ class GenerationService:
                 decision=decision,
                 used_fallback=attempt > 0,
             )
+            result.statistics.routing_strategy = decision.strategy
 
             return result
 
@@ -947,6 +960,20 @@ class GenerationService:
                     "provider": provider.value,
                     "model": generation_provider.config.model_name,
                     "runtime": (request.runtime.value if request.runtime else None),
+                    "owner_id": (str(request.owner_id) if request.owner_id else None),
+                    # Config fingerprint (EVALUATION_PLAN.md §5, §11) --
+                    # populated only for answer-producing generations, see
+                    # `config_fingerprint.py`. Keeps "LangSmith as the
+                    # control plane" able to slice traces by the config
+                    # that produced them without leaving its own UI.
+                    "surface": request.surface,
+                    "prompt_version": request.prompt_version,
+                    "chunking_strategy": request.chunking_strategy,
+                    "embedding_model": request.embedding_model,
+                    "reranker": request.reranker,
+                    "routing_strategy": (
+                        request.routing_strategy.value if request.routing_strategy else None
+                    ),
                 },
             ) as trace_handle:
                 result = (
@@ -967,6 +994,7 @@ class GenerationService:
                     completion_tokens=result.statistics.completion_tokens,
                     total_tokens=result.statistics.total_tokens,
                 )
+                result.langsmith_run_id = trace_handle.run_id
         except GenerationError:
             raise
         except Exception as exc:
@@ -1443,47 +1471,21 @@ class GenerationService:
         result: GenerationResult,
     ) -> None:
         """
-        Best-effort (Artifact Platform PRD §24): a storage hiccup while
-        persisting the artifact must not fail a generation that already
-        succeeded -- `GenerationArtifactWriter.write()` itself re-raises
-        on failure (see its own logging), so that's caught and downgraded
-        to an `artifacts.generation.failed` event here instead of
-        propagating. Mirrors `GuardrailService._persist_artifact`.
+        Mirrors `GuardrailService._persist_artifact`. Shared with
+        `StreamingService` (`persist.py`) so a streamed answer-producing
+        call persists the exact same `GenerationArtifact` shape a
+        non-streamed one does, not just a `StreamArtifact` -- see
+        `persist.py`'s own module docstring for why that gap mattered.
         """
 
         assert self._artifact_writer is not None
 
-        artifact_runtime = request.artifact_runtime or ArtifactRuntime.CHAT
-
-        if self._artifact_policy_service is not None and not (
-            self._artifact_policy_service.should_persist(
-                artifact_runtime,
-                ArtifactCategory.GENERATION,
-            )
-        ):
-            logger.debug(
-                "artifacts.generation.skipped",
-                generation_id=str(result.generation_id),
-                runtime=artifact_runtime.value,
-            )
-            return
-
-        try:
-            artifact = GenerationArtifactBuilder().build(
-                result=result,
-            )
-
-            await self._artifact_writer.write(
-                artifact,
-            )
-        except Exception as exc:
-            logger.warning(
-                "artifacts.generation.failed",
-                generation_id=str(result.generation_id),
-                reason="artifact_persistence_failed",
-                error_type=type(exc).__name__,
-                error=str(exc),
-            )
+        await persist_generation_artifact(
+            request=request,
+            result=result,
+            artifact_writer=self._artifact_writer,
+            artifact_policy_service=self._artifact_policy_service,
+        )
 
     @staticmethod
     def _validate(

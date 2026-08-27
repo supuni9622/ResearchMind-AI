@@ -46,6 +46,7 @@ from app.core.settings import settings
 from app.db.session import SessionFactory, get_db
 from app.dependencies.context import get_context_builder
 from app.dependencies.generation import get_generation_runtime, get_streaming_service
+from app.dependencies.generation_usage import get_generation_usage_repository
 from app.dependencies.memory import (
     get_memory_extraction_service,
     get_memory_service,
@@ -54,6 +55,7 @@ from app.dependencies.memory import (
 from app.dependencies.retrieval import get_retrieval_service
 from app.dependencies.upload import get_document_storage
 from app.infrastructure.storage.interfaces import DocumentStorage
+from app.repositories.generation_usage import GenerationUsageRepository
 from app.repositories.research import ResearchRepository
 from app.repositories.research_proposal import ResearchProposalRepository
 from app.repositories.research_run import ResearchRunRepository
@@ -194,11 +196,14 @@ def get_paper_query_extraction_service() -> PaperQueryExtractionService:
 
 def get_research_report_download_service(
     runs: ResearchRunRepository = Depends(get_research_run_repository),
+    generation_usage: GenerationUsageRepository = Depends(get_generation_usage_repository),
     storage: DocumentStorage = Depends(get_document_storage),
 ) -> ResearchReportDownloadService:
     """Authorize short-lived download URLs without exposing storage keys."""
 
-    return ResearchReportDownloadService(runs=runs, storage=storage)
+    return ResearchReportDownloadService(
+        runs=runs, generation_usage=generation_usage, storage=storage
+    )
 
 
 def get_research_service(
@@ -274,4 +279,5 @@ async def get_research_runtime_execution_service(
             web_search_necessity=web_search_necessity,
             paper_search=paper_search,
             paper_query_extraction=paper_query_extraction,
+            metrics=get_metrics_recorder(),
         )

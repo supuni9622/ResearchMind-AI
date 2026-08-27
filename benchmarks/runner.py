@@ -16,6 +16,7 @@ from pathlib import Path
 
 from benchmarks.common.report_generator import BenchmarkReportGenerator
 from benchmarks.factory import create_benchmark_registry
+from benchmarks.generation.golden_set_benchmark import PER_EXAMPLE_SCORES_NOTE_KEY
 from benchmarks.models.report import BenchmarkReport
 from benchmarks.regression.detector import RegressionDetector
 from benchmarks.regression.report_generator import RegressionReportGenerator
@@ -103,6 +104,17 @@ async def main() -> None:
 
     print(f"Benchmark completed: {benchmark.name}")
     print(f"Reports written to: {output_directory}")
+
+    if any(PER_EXAMPLE_SCORES_NOTE_KEY in candidate.notes for candidate in report.candidates):
+        report_path = output_directory / "report.json"
+        print(
+            "Per-example scores available in this report — run "
+            "`python -m benchmarks.generation.persist_golden_set_scores "
+            f"--report {report_path}` to make them queryable in the eval dashboard, and "
+            "`python -m benchmarks.generation.langsmith_experiment "
+            f"--report {report_path}` to log it as a LangSmith Experiment comparable "
+            "against prior runs (needs the dataset already registered via langsmith_sync.py)."
+        )
 
     if not args.check_regression:
         return

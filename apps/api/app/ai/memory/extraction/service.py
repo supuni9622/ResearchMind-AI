@@ -31,6 +31,7 @@ from app.ai.memory.models import ExtractedMemory
 from app.ai.runtime.generation.enums import GenerationProvider, ResponseFormat
 from app.ai.runtime.generation.models import GenerationRequest
 from app.ai.runtime.generation.orchestration.interfaces import GenerationRuntimeInterface
+from app.core.settings import settings
 
 logger = structlog.get_logger()
 
@@ -55,7 +56,7 @@ Score `importance` in [0.0, 1.0]: trivial acknowledgements are near 0, strong ex
 preferences or significant findings are near 1.
 
 Return a valid JSON object matching the requested schema.
-Return zero memories when nothing durable is worth keeping.
+Return at most 5 memories. Return zero memories when nothing durable is worth keeping.
 This is the common case, not the exception."""
 
 
@@ -178,6 +179,6 @@ class MemoryExtractionService:
                 type=item.type,
                 importance=max(0.0, min(1.0, item.importance)),
             )
-            for item in batch.memories
+            for item in batch.memories[: settings.memory_extraction_max_memories_per_turn]
             if item.type != MemoryType.SESSION
         ]

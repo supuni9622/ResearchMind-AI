@@ -64,7 +64,7 @@ def make_retrieval_result(
     resolved_chunks = chunks if chunks is not None else [make_retrieved_chunk()]
 
     return RetrievalResult(
-        query=RetrievalQuery(query=query, top_k=10, filters={}),
+        query=RetrievalQuery(query=query, top_k=10, filters={}, owner_id="owner-1"),
         execution=RetrievalExecution(operation=RetrievalOperation.SEARCH),
         statistics=RetrievalStatistics(
             provider=RetrievalProvider.QDRANT,
@@ -103,11 +103,13 @@ def make_citation(
     citation_id: str = "c1",
     document_id: UUID | None = None,
     filename: str = "paper.pdf",
+    score: float = 0.9,
 ) -> Citation:
     return Citation(
         citation_id=citation_id,
         filename=filename,
         document_id=document_id or uuid4(),
+        score=score,
     )
 
 

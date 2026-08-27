@@ -1,0 +1,19 @@
+# Copy to terraform.tfvars (gitignored) and adjust if the defaults in
+# variables.tf don't match your account. Most of these already match the
+# values Phase 0 validation confirmed for this project's AWS account --
+# see docs/deployment/07-phase0-validation-findings.md.
+
+aws_region          = "us-east-1"
+availability_zones  = ["us-east-1a", "us-east-1b"]
+
+s3_bucket_name   = "researchmind-ai-documents-dev"
+sqs_queue_names  = ["ResearchMind-Processing", "ResearchMind-Processing-DLQ"]
+
+# Phase 4 -- no defaults, must be set explicitly (see AWS_Deployment.md
+# section 32's manual TODO):
+backend_image_tag = "bc623c6" # existing tag in the researchmind-backend ECR repo
+qdrant_url        = ""        # Qdrant Cloud cluster URL, e.g. https://xxxx.us-east-1.aws.cloud.qdrant.io:6333
+
+# Phase 8 -- optional, defaults to "" (alarms/dashboard still get created,
+# just nobody subscribed):
+# alarm_email = "you@example.com"

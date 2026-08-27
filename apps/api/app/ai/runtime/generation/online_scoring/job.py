@@ -1,0 +1,510 @@
+"""
+Online scoring job (E5, EVALUATION_PLAN.md §14/§16 phase 6).
+
+Pulls recently-completed, answer-producing generations
+(`GenerationUsage.surface` set), runs the free deterministic citation
+check on all of them, and runs the Ragas LLM-judge suite on the subset
+`decide_sampling()` selects. Persists one `eval_scores` row per metric.
+
+**E16 follow-up (2026-08-12):** optionally also runs the rubric-adherence
+judge on that same sampled subset, gated by `Settings.
+eval_online_rubric_judge_enabled` (default off -- a genuinely new,
+ongoing LLM-call cost). Golden-set examples have a curated per-example
+`rubric`; a live production generation has no such thing, so this judges
+against one fixed, generic quality rubric instead
+(`_GENERIC_ONLINE_RUBRIC` below) rather than inventing a per-request
+rubric. Deliberately rides the *existing* sampling decision rather than
+adding a second, separately-tuned rate -- one more check within "LLM
+judges run on the sampled subset" (§14), not a new cost-control knob to
+reason about.
+
+Deliberately does not import anything from repo-root `benchmarks/`: that
+package is offline/CI tooling, one-directional today (`benchmarks/`
+imports `app/`, never the reverse -- confirmed empirically, no existing
+counter-example anywhere in this codebase), and this job is production
+runtime code. `ScoreGenerationFn`/`_GenerationScoreReportLike` below are
+local structural Protocols matching `benchmarks.generation.ragas_scoring.
+score_generation`/`GenerationScoreReport`'s real shape -- the concrete
+function and a real judge (`benchmarks.generation.ragas_scoring.
+score_generation`, `benchmarks.generation.ragas_judge.
+build_openai_ragas_judge()`) are wired in only at the process entrypoint
+(`apps/worker/eval_scoring_main.py`), which is allowed to cross that
+boundary the way `bootstrap/worker.py` already wires concrete
+infrastructure into other workers.
+"""
+
+from __future__ import annotations
+
+import random
+from collections.abc import Awaitable, Callable, Sequence
+from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
+from typing import Protocol
+from uuid import UUID
+
+import structlog
+from app.ai.artifacts.exceptions import ArtifactNotFoundError
+from app.ai.artifacts.generation.readers import GenerationArtifactReader
+from app.ai.knowledge.context.citations.validity import check_prompt_context_citation_validity
+from app.ai.memory.services.formatting import extract_memory_context_text
+from app.ai.observability.providers.langsmith.eval_score_sync import sync_eval_score
+from app.ai.runtime.generation.online_scoring.sampling import (
+    OnlineScoringConfig,
+    decide_sampling,
+)
+from app.models.enums import EvalScoreSource
+from app.models.eval_score import EvalScore
+from app.models.generation_usage import GenerationUsage
+from app.models.research_run import ResearchRun
+from app.repositories.eval_score import EvalScoreRepository
+from app.repositories.generation_usage import GenerationUsageRepository
+from app.repositories.research_run import ResearchRunRepository
+
+logger = structlog.get_logger()
+
+
+@dataclass(frozen=True)
+class _GenerationUsageSnapshot:
+    """Fields needed after per-row commits expire the queried ORM batch."""
+
+    generation_id: UUID
+    owner_id: UUID
+    surface: str | None
+    session_id: UUID | None
+    guardrail_final_action: str | None
+    prompt_version: str | None
+    injected_memory_ids: tuple[UUID, ...]
+
+    @classmethod
+    def from_row(cls, row: GenerationUsage) -> _GenerationUsageSnapshot:
+        return cls(
+            generation_id=row.generation_id,
+            owner_id=row.owner_id,
+            surface=row.surface,
+            session_id=row.session_id,
+            guardrail_final_action=row.guardrail_final_action,
+            prompt_version=row.prompt_version,
+            injected_memory_ids=tuple(row.injected_memory_ids or ()),
+        )
+
+
+class _MetricCheckResultLike(Protocol):
+    """
+    Declared as read-only `@property` members, not plain attributes --
+    mypy checks plain `Protocol` attributes invariantly, which would
+    reject the structurally-compatible-but-not-identical real
+    `benchmarks.generation.ragas_scoring.MetricCheckResult` (and any test
+    fake). Properties are checked covariantly instead, matching the exact
+    workaround already documented in `ragas_scoring.py`'s own
+    `GenerationJudge` Protocol.
+    """
+
+    @property
+    def metric(self) -> str: ...
+
+    @property
+    def score(self) -> float: ...
+
+    @property
+    def passed(self) -> bool: ...
+
+    @property
+    def reason(self) -> str: ...
+
+
+class _GenerationScoreReportLike(Protocol):
+    @property
+    def checks(self) -> Sequence[_MetricCheckResultLike]: ...
+
+
+ScoreGenerationFn = Callable[..., Awaitable[_GenerationScoreReportLike]]
+"""Structurally: `async def(*, question, answer, contexts, reference,
+judge, rubric=None, rubric_judge=None) -> _GenerationScoreReportLike`."""
+
+
+class _MemoryUtilityScoreLike(Protocol):
+    @property
+    def utility(self) -> float: ...
+
+    @property
+    def relevant(self) -> bool: ...
+
+    @property
+    def harmful(self) -> bool: ...
+
+
+class MemoryUtilityJudge(Protocol):
+    async def evaluate(
+        self, *, question: str, answer: str, memory_context: str
+    ) -> _MemoryUtilityScoreLike: ...
+
+
+TOOL_INVOCATION_METRIC_NAMES = (
+    "web_search_invoked",
+    "web_search_success",
+    "paper_search_invoked",
+    "paper_search_success",
+)
+"""E23 (`EVALUATION_PLAN.md` §10, tool-invocation rate & success rate) --
+set on `GenerationRequest.metadata` by whichever call site actually ran
+the tool (today: `api/v1/chat.py`'s `_build_request`, the only caller
+that threads this through -- Linear Research/Deep Research generations
+never carry these keys at all). Absent entirely, not a `False` row, for
+a Chat turn where the corresponding toggle was off -- "was it invoked"
+is only a meaningful question once the tool was eligible this turn, same
+"don't bucket not-applicable under a bogus value" principle
+`segment_analysis.py`'s `failure_category` slice uses. `*_success` is
+itself only present when `*_invoked` was `True` -- success is meaningless
+to ask about a tool that never ran."""
+
+_GENERIC_ONLINE_RUBRIC = (
+    "The answer directly addresses the question asked, is appropriately "
+    "complete for its complexity (neither padded nor missing an obvious "
+    "part of the question), and does not hedge or caveat unnecessarily "
+    "when the retrieved evidence actually supports a direct answer."
+)
+"""E16 follow-up -- online generations have no per-example curated
+`rubric` like golden-set examples do, so this is one fixed, generic
+quality rubric applied uniformly instead of inventing a per-request one.
+Only used when `Settings.eval_online_rubric_judge_enabled` is set."""
+
+
+class OnlineScoringJob:
+    def __init__(
+        self,
+        *,
+        generation_usage_repository: GenerationUsageRepository,
+        eval_score_repository: EvalScoreRepository,
+        research_run_repository: ResearchRunRepository,
+        artifact_reader: GenerationArtifactReader,
+        config: OnlineScoringConfig,
+        commit: Callable[[], Awaitable[None]],
+        rollback: Callable[[], Awaitable[None]],
+        score_generation_fn: ScoreGenerationFn | None = None,
+        judge: object | None = None,
+        rubric_judge: object | None = None,
+        memory_utility_judge: MemoryUtilityJudge | None = None,
+        batch_size: int = 25,
+        lookback_hours: float = 24.0,
+        rng: random.Random | None = None,
+        now: Callable[[], datetime] | None = None,
+    ) -> None:
+        self._generation_usage_repository = generation_usage_repository
+        self._eval_score_repository = eval_score_repository
+        self._research_run_repository = research_run_repository
+        self._artifact_reader = artifact_reader
+        self._config = config
+        self._commit = commit
+        self._rollback = rollback
+        self._score_generation_fn = score_generation_fn
+        self._judge = judge
+        self._rubric_judge = rubric_judge
+        self._memory_utility_judge = memory_utility_judge
+        """`None` unless `Settings.eval_online_rubric_judge_enabled` was
+        set at composition time (see `apps/worker/eval_scoring_main.py`)
+        -- same opt-in shape as `judge`/`score_generation_fn` above, not
+        a new pattern."""
+        self._batch_size = batch_size
+        self._lookback_hours = lookback_hours
+        self._rng = rng or random.Random()
+        self._now = now or (lambda: datetime.now(UTC))
+
+    async def run_once(self) -> int:
+        """Score up to `batch_size` unscored generations. Returns how many
+        were processed (not how many were sampled for judges) -- `0` means
+        the caller should back off before polling again."""
+
+        since = self._now() - timedelta(hours=self._lookback_hours)
+        candidates = await self._generation_usage_repository.list_unscored_since(
+            since=since,
+            limit=self._batch_size,
+        )
+
+        # Keep error-reporting identifiers outside the transaction lifecycle.
+        # A failed flush/commit or rollback expires ORM instances; touching an
+        # expired attribute from this synchronous logging expression makes
+        # SQLAlchemy attempt implicit async I/O and masks the real failure with
+        # MissingGreenlet.
+        snapshots = [_GenerationUsageSnapshot.from_row(row) for row in candidates]
+
+        for row in snapshots:
+            try:
+                await self._score_one(row)
+                await self._commit()
+            except Exception:
+                logger.exception(
+                    "online_scoring_job.row_failed",
+                    generation_id=str(row.generation_id),
+                )
+                await self._rollback()
+
+        return len(candidates)
+
+    async def _score_one(self, row: _GenerationUsageSnapshot) -> None:
+        log = logger.bind(generation_id=str(row.generation_id), surface=row.surface)
+
+        research_run = await self._deep_research_run_for(row)
+        if research_run is not None and research_run.completed_at is None:
+            # Found via a real live Deep Research run (2026-08-12): the
+            # run's terminal-transition write (review_decision,
+            # web_search_invoked/success in budget_usage) hasn't
+            # happened yet -- the synthesis generation this row
+            # represents finishes well before the *run* does (report
+            # approval, review, and the related-papers step all come
+            # after). Scoring now would still write citation_validity
+            # unconditionally below, and `list_unscored_since()`'s
+            # anti-join treats *any* `ONLINE_SAMPLED` row as "already
+            # scored" -- so the web-search signal would never get a
+            # second chance to be written once that happens. Wait for
+            # the run to actually finish; this row stays a legitimate
+            # unscored candidate on the next poll (bounded by
+            # `list_unscored_since()`'s lookback window, same as any
+            # other not-yet-ready row).
+            log.debug("online_scoring_job.deep_research_run_not_terminal_yet")
+            return
+
+        budget_usage: dict[str, object] = (
+            (research_run.budget_usage or {}) if research_run is not None else {}
+        )
+        review_decision = self._review_decision_from(budget_usage)
+        sampling_decision = decide_sampling(
+            guardrail_final_action=row.guardrail_final_action,
+            review_decision=review_decision,
+            prompt_version=row.prompt_version,
+            config=self._config,
+            random_value=self._rng.random(),
+        )
+
+        try:
+            artifact = await self._artifact_reader.read(row.generation_id)
+        except ArtifactNotFoundError:
+            # Best-effort artifact persistence (Artifact Platform PRD §24)
+            # means a completed generation can legitimately have no
+            # artifact to score. Left unscored rather than retried
+            # forever: it ages out of `list_unscored_since()`'s lookback
+            # window on its own.
+            log.warning("online_scoring_job.artifact_missing")
+            return
+
+        # Looked up once per generation, not once per metric -- reused
+        # below for every sync_eval_score() call this row produces.
+        langsmith_run_id = await self._generation_usage_repository.get_langsmith_run_id(
+            row.generation_id
+        )
+
+        citation_report = check_prompt_context_citation_validity(
+            content=artifact.response.content,
+            prompt_context=artifact.request.prompt_context,
+        )
+        failed_reasons = [check.reason for check in citation_report.checks if not check.passed]
+        citation_score = await self._eval_score_repository.record(
+            owner_id=row.owner_id,
+            generation_id=row.generation_id,
+            metric_name="citation_validity",
+            score=1.0 - citation_report.fabricated_citation_rate,
+            passed=citation_report.valid,
+            reason="; ".join(failed_reasons) if failed_reasons else "all citation checks passed",
+            source=EvalScoreSource.ONLINE_SAMPLED.value,
+            sample_category=sampling_decision.category.value,
+        )
+        self._sync_to_langsmith(langsmith_run_id, citation_score)
+
+        for metric_name in TOOL_INVOCATION_METRIC_NAMES:
+            if metric_name not in artifact.request.metadata:
+                continue
+            invoked_or_succeeded = bool(artifact.request.metadata[metric_name])
+            tool_score = await self._eval_score_repository.record(
+                owner_id=row.owner_id,
+                generation_id=row.generation_id,
+                metric_name=metric_name,
+                score=1.0 if invoked_or_succeeded else 0.0,
+                passed=invoked_or_succeeded,
+                reason=None,
+                source=EvalScoreSource.ONLINE_SAMPLED.value,
+                sample_category=sampling_decision.category.value,
+            )
+            self._sync_to_langsmith(langsmith_run_id, tool_score)
+
+        # Deep Research follow-up (E23): same two metric names as the Chat
+        # loop above, sourced from `ResearchRun.budget_usage` instead of
+        # `GenerationRequest.metadata` -- one run's web search spans many
+        # LangGraph node calls, not one generation's metadata dict. Same
+        # `metric_name`s means the dashboard's existing free-text filter
+        # shows both surfaces together, sliceable by `surface`.
+        for metric_name, invoked_or_succeeded in self._web_search_signal_from(budget_usage).items():
+            tool_score = await self._eval_score_repository.record(
+                owner_id=row.owner_id,
+                generation_id=row.generation_id,
+                metric_name=metric_name,
+                score=1.0 if invoked_or_succeeded else 0.0,
+                passed=invoked_or_succeeded,
+                reason=None,
+                source=EvalScoreSource.ONLINE_SAMPLED.value,
+                sample_category=sampling_decision.category.value,
+            )
+            self._sync_to_langsmith(langsmith_run_id, tool_score)
+
+        if not sampling_decision.should_score_judges:
+            log.debug("online_scoring_job.judges_skipped", reason=sampling_decision.reason)
+            return
+
+        memory_context = extract_memory_context_text(artifact.request.prompt_context.context)
+        if (
+            row.injected_memory_ids
+            and memory_context is not None
+            and self._memory_utility_judge is not None
+        ):
+            memory_result = await self._memory_utility_judge.evaluate(
+                question=artifact.request.user_prompt,
+                answer=artifact.response.content,
+                memory_context=memory_context,
+            )
+            memory_score = await self._eval_score_repository.record(
+                owner_id=row.owner_id,
+                generation_id=row.generation_id,
+                metric_name="memory_utility",
+                score=memory_result.utility,
+                passed=memory_result.relevant and not memory_result.harmful,
+                reason=(
+                    "memory harmful"
+                    if memory_result.harmful
+                    else "memory relevant"
+                    if memory_result.relevant
+                    else "memory irrelevant"
+                ),
+                source=EvalScoreSource.ONLINE_SAMPLED.value,
+                sample_category=sampling_decision.category.value,
+            )
+            self._sync_to_langsmith(langsmith_run_id, memory_score)
+            harm_score = await self._eval_score_repository.record(
+                owner_id=row.owner_id,
+                generation_id=row.generation_id,
+                metric_name="irrelevant_memory_harm",
+                score=1.0 if memory_result.harmful else 0.0,
+                passed=not memory_result.harmful,
+                reason="memory harm classification",
+                source=EvalScoreSource.ONLINE_SAMPLED.value,
+                sample_category=sampling_decision.category.value,
+            )
+            self._sync_to_langsmith(langsmith_run_id, harm_score)
+
+        if self._score_generation_fn is None or self._judge is None:
+            log.debug("online_scoring_job.no_judge_configured", reason=sampling_decision.reason)
+            return
+
+        contexts = [chunk.content for chunk in artifact.request.prompt_context.chunks]
+        try:
+            report = await self._score_generation_fn(
+                question=artifact.request.user_prompt,
+                answer=artifact.response.content,
+                contexts=contexts,
+                reference=None,
+                judge=self._judge,
+                # E16 follow-up: rubric/rubric_judge default to None on
+                # score_generation()'s own side when self._rubric_judge is
+                # None (not wired at composition time), so this is a no-op
+                # there -- no separate enabled-check needed here.
+                rubric=(_GENERIC_ONLINE_RUBRIC if self._rubric_judge is not None else None),
+                rubric_judge=self._rubric_judge,
+            )
+        except Exception as exc:
+            # Optional LLM judges must not roll back the deterministic citation
+            # and tool scores already computed above, nor leave this generation
+            # eligible for an infinite retry loop. Store only the exception
+            # class; provider messages may contain prompt fragments.
+            error_type = type(exc).__name__
+            log.warning("online_scoring_job.judge_failed", error_type=error_type)
+            failure_score = await self._eval_score_repository.record(
+                owner_id=row.owner_id,
+                generation_id=row.generation_id,
+                metric_name="online_judge_execution",
+                score=0.0,
+                passed=False,
+                reason=f"judge failed: {error_type}",
+                source=EvalScoreSource.ONLINE_SAMPLED.value,
+                sample_category=sampling_decision.category.value,
+            )
+            self._sync_to_langsmith(langsmith_run_id, failure_score)
+            return
+        for check in report.checks:
+            judge_score = await self._eval_score_repository.record(
+                owner_id=row.owner_id,
+                generation_id=row.generation_id,
+                metric_name=check.metric,
+                score=check.score,
+                passed=check.passed,
+                reason=check.reason,
+                source=EvalScoreSource.ONLINE_SAMPLED.value,
+                sample_category=sampling_decision.category.value,
+            )
+            self._sync_to_langsmith(langsmith_run_id, judge_score)
+
+    def _sync_to_langsmith(self, run_id: UUID | None, eval_score: EvalScore | None) -> None:
+        """
+        No-op when tracing wasn't configured for this generation
+        (`run_id is None` -- matches `FeedbackService`'s same check
+        before calling `sync_user_feedback`) or when `record()` no-op'd
+        on a conflict (`eval_score is None` -- nothing new to mirror).
+        `sync_eval_score()` itself is already best-effort/never-raises,
+        this just supplies the two required, possibly-missing inputs.
+        """
+
+        if run_id is None or eval_score is None:
+            return
+
+        sync_eval_score(
+            run_id=run_id,
+            eval_score_id=eval_score.id,
+            metric_name=eval_score.metric_name,
+            score=eval_score.score,
+            reason=eval_score.reason,
+        )
+
+    async def _deep_research_run_for(self, row: _GenerationUsageSnapshot) -> ResearchRun | None:
+        """Single lookup backing the terminal-status gate in `_score_one()`
+        plus `_review_decision_from()`/`_web_search_signal_from()` below --
+        `ResearchRun.id` is tagged as `session_id` on `GenerationRequest`
+        by the synthesis call (see `runtime/research/synthesis/service.py`).
+        `None` for Chat/Linear Research rows, which have no backing run at
+        all. **Follow-up (2026-08-12), consolidated from two separate
+        fetches** (`_review_decision_for`/`_web_search_signal_for`,
+        deliberately kept separate at the time as a lower-risk tradeoff):
+        `_score_one()` now needs `run.completed_at` *before* deciding
+        whether to score at all, so a single shared fetch stopped being
+        optional -- see `_score_one()`'s own comment for why."""
+
+        if row.surface != "deep_research" or row.session_id is None:
+            return None
+
+        return await self._research_run_repository.get_by_id_for_owner(
+            run_id=row.session_id,
+            owner_id=row.owner_id,
+        )
+
+    @staticmethod
+    def _review_decision_from(budget_usage: dict[str, object]) -> str | None:
+        """Deep Research's `ResearchReview.decision` lives in `ResearchRun.
+        budget_usage["review_decision"]` (see `execution.py`). Empty dict
+        (from `_score_one()`, for Chat/Linear Research rows or a missing
+        run) correctly yields `None` -- no review step for either."""
+
+        decision = budget_usage.get("review_decision")
+        return decision if isinstance(decision, str) else None
+
+    @staticmethod
+    def _web_search_signal_from(budget_usage: dict[str, object]) -> dict[str, bool]:
+        """Deep Research's `web_search_invoked`/`web_search_success` live
+        in the same `budget_usage` dict (see `execution.py`'s
+        `_web_search_signal()`). Empty for Chat/Linear Research rows --
+        Chat sets the same two metric names directly on
+        `GenerationRequest.metadata` instead (see the loop above); Linear
+        Research has no web/paper search wiring at all."""
+
+        signal: dict[str, bool] = {}
+        invoked = budget_usage.get("web_search_invoked")
+        if isinstance(invoked, bool):
+            signal["web_search_invoked"] = invoked
+        success = budget_usage.get("web_search_success")
+        if isinstance(success, bool):
+            signal["web_search_success"] = success
+        return signal

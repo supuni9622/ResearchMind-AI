@@ -9,6 +9,7 @@ from uuid import UUID
 import structlog
 from redis.asyncio import Redis
 
+from app.ai.memory.enums import MemoryScopeType
 from app.core.settings import settings
 
 logger = structlog.get_logger()
@@ -69,6 +70,8 @@ class RepeatedInterestPromotionService:
         owner_id: UUID,
         session_id: UUID,
         user_message: str,
+        scope_type: MemoryScopeType = MemoryScopeType.PERSONAL,
+        project_id: UUID | None = None,
     ) -> list[str]:
         if not settings.memory_interest_promotion_enabled or self._client is None:
             return []
@@ -80,7 +83,7 @@ class RepeatedInterestPromotionService:
         try:
             pipeline = self._client.pipeline(transaction=False)
             for topic in topics:
-                key = self._key(owner_id, topic)
+                key = self._key(owner_id, scope_type, project_id, topic)
                 pipeline.sadd(key, str(session_id))
                 pipeline.scard(key)
                 pipeline.expire(key, settings.memory_interest_promotion_ttl_seconds)
@@ -110,7 +113,7 @@ class RepeatedInterestPromotionService:
             claim_pipeline = self._client.pipeline(transaction=False)
             for topic in candidates:
                 claim_pipeline.set(
-                    self._claim_key(owner_id, topic),
+                    self._claim_key(owner_id, scope_type, project_id, topic),
                     "1",
                     ex=settings.memory_interest_promotion_ttl_seconds,
                     nx=True,
@@ -139,15 +142,27 @@ class RepeatedInterestPromotionService:
         return promoted
 
     @staticmethod
-    def _key(owner_id: UUID, topic: str) -> str:
+    def _key(
+        owner_id: UUID,
+        scope_type: MemoryScopeType,
+        project_id: UUID | None,
+        topic: str,
+    ) -> str:
         # Topic text must not be exposed in operational Redis keys.
         digest = blake2b(topic.encode(), digest_size=12).hexdigest()
-        return f"memory:interest-sessions:{owner_id}:{digest}"
+        scope = "personal" if scope_type == MemoryScopeType.PERSONAL else f"project:{project_id}"
+        return f"memory:interest-sessions:{owner_id}:{scope}:{digest}"
 
     @staticmethod
-    def _claim_key(owner_id: UUID, topic: str) -> str:
+    def _claim_key(
+        owner_id: UUID,
+        scope_type: MemoryScopeType,
+        project_id: UUID | None,
+        topic: str,
+    ) -> str:
         digest = blake2b(topic.encode(), digest_size=12).hexdigest()
-        return f"memory:interest-promoted:{owner_id}:{digest}"
+        scope = "personal" if scope_type == MemoryScopeType.PERSONAL else f"project:{project_id}"
+        return f"memory:interest-promoted:{owner_id}:{scope}:{digest}"
 
 
 def _topic_tokens(message: str) -> list[str]:

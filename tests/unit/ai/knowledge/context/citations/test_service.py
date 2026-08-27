@@ -6,7 +6,7 @@ Covers:
 - Each chunk produces one Citation, numbered "S1", "S2", ... in order
 - The generated citation_id is also written back onto the source chunk
 - Citation fields are mapped from the chunk (filename, document_id,
-  page_numbers, heading, heading_path)
+  score, page_numbers, heading, heading_path)
 - chunk_ids falls back to [chunk.chunk_id] when the chunk wasn't
   produced by an adjacent-merge (merged_chunk_ids empty), and uses
   merged_chunk_ids when it was
@@ -38,7 +38,7 @@ async def test_build_writes_the_citation_id_back_onto_the_chunk() -> None:
 
 
 async def test_build_maps_citation_fields_from_the_chunk() -> None:
-    chunk = make_context_chunk(filename="paper.pdf")
+    chunk = make_context_chunk(filename="paper.pdf", score=0.87)
     chunk.page_numbers = [3, 4]
     chunk.heading = "Results"
     chunk.heading_path = ["Body", "Results"]
@@ -48,6 +48,7 @@ async def test_build_maps_citation_fields_from_the_chunk() -> None:
     citation = result.citations[0]
     assert citation.filename == "paper.pdf"
     assert citation.document_id == chunk.document_id
+    assert citation.score == 0.87
     assert citation.page_numbers == [3, 4]
     assert citation.heading == "Results"
     assert citation.heading_path == ["Body", "Results"]

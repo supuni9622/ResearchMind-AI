@@ -56,6 +56,13 @@ class ChatWebSearchOutcome(BaseModel):
     events: list[StreamEvent] = Field(default_factory=list)
     context_text: str | None = None
     sources: list[ChatWebSource] = Field(default_factory=list)
+    invoked: bool = False
+    """True once the necessity check decided a search was needed and the
+    call was actually attempted -- distinct from `context_text is None`,
+    which is also true when the toggle was off/unavailable (never
+    attempted) or the necessity check said no (correctly skipped, not a
+    failure). E23 (`EVALUATION_PLAN.md` §10) reads this to distinguish
+    "not eligible this turn" from "eligible but found nothing usable"."""
 
 
 def _format_web_context(references: list[ResearchEvidenceReference]) -> str:
@@ -147,7 +154,7 @@ async def run_chat_web_search(
                 metadata={"label": "Web search returned nothing usable"},
             )
         )
-        return ChatWebSearchOutcome(events=events)
+        return ChatWebSearchOutcome(events=events, invoked=True)
 
     sources = [
         ChatWebSource(
@@ -172,4 +179,5 @@ async def run_chat_web_search(
         events=events,
         context_text=_format_web_context(references),
         sources=sources,
+        invoked=True,
     )

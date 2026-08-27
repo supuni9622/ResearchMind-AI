@@ -16,10 +16,19 @@ change? Every architectural claim below was checked against the current
 code, not assumed.
 
 **For execution order, see [`PRIORITIZED_ROADMAP.md`](PRIORITIZED_ROADMAP.md)
-(2026-08-10)** — the value×ease-ranked build sequence, including one
+(reconciled 2026-08-17)** — the value×ease-ranked build sequence, including one
 disclosed deviation from this document's §8 sequencing (the Socratic
 Challenger node is pulled forward on ease grounds, with an MVP
 simplification noted there).
+
+For memory implementation status and acceptance criteria, use
+[`MEMORY_PLATFORM_PRIORITIZED_TASKS.md`](MEMORY_PLATFORM_PRIORITIZED_TASKS.md),
+not this directional document. M0-M2 and M4-M16 are implemented, with M3
+rollout and the documented M6-M10 staging/calibration gates still pending;
+M13's Personal/Project management UI is live. M5's isolation foundation is
+complete. Its
+personal/project scope is the prerequisite boundary for Project-scoped memory and
+complements the broader Project and typed-object model below.
 
 ---
 
@@ -209,10 +218,10 @@ it answers "how close are we" precisely, component by component.
 
 | V2/V3 item (from `PHASE_2_3_ROADMAP.md`) | North Star relevance | Recommended change |
 |---|---|---|
-| V2 #3 — Project-based workspace | **This item *is* the seed of `Research Project`.** Originally scoped narrowly: project memory + document set + doc mentioning. | **Scope expansion, not replacement.** Design the `Project` schema from day one with room for typed sub-objects and research paths — even if the canvas UI comes later — so this isn't rebuilt twice. |
+| V2 #3 — Project-based workspace | **This item *is* the seed of `Research Project`.** Originally scoped narrowly: project memory + document set + doc mentioning. M5 now supplies a minimal Project/membership and memory-isolation foundation. | **Scope expansion, not replacement.** Extend the Project schema with room for typed sub-objects and research paths, then pass its server-authorized context into the completed M5 memory boundary. |
 | V2 #6 — Graph RAG setup | **Directly the substrate for Knowledge Cartographer / Evidence Graph relations** (`SUPPORTED_BY`, `RELATED_TO`, `CONTRADICTS`, `INSPIRED_BY`, `GENERATED`). | **Reframe, don't change scope.** Same engineering effort as before, but now justified by a concrete consumer instead of "better retrieval" in the abstract. Sequence it alongside #3, not independently. |
 | V2 #5 — Interruption capability, traceability, cost visibility | The `interrupt()` mechanism this item hardens is **literally the foundation of the Socratic-pause mechanism.** | No scope change. Just don't let it get deprioritized as "just approval gates" — it's the load-bearing primitive for the whole human-AI dialogue loop. |
-| V2 #2 — User-profile memory (read-side wiring) | Superficially adjacent to `HumanInsight`, but **a different concept** — global preferences vs. per-project interpretations. Per §5/§6 above, don't merge them. | No change — proceed as already scoped in [`docs/todo/user-memory-profile-injection-gap.md`](todo/user-memory-profile-injection-gap.md), just don't let it absorb `HumanInsight`'s responsibilities later. |
+| V2 #2 — User-profile memory | Superficially adjacent to `HumanInsight`, but **a different concept** — personal/global preferences vs. per-project interpretations. Per §5/§6 above, don't merge them. | M0-M2 and M4-M16 are implemented, including Personal/Project controls and governance. Complete M3 rollout evidence and M6-M10 calibration; do not let USER memory absorb `HumanInsight` responsibilities. |
 | Part 1 — Evaluation Platform | Unaffected structurally. A future evaluation dimension ("did the Socratic question actually provoke better thinking? was AI/human provenance kept clean?") follows naturally once these objects exist, but isn't a v1 requirement. | No change now. |
 | V3 — Vision | Minor relevance uptick — a canvas with diagrams/images in evidence benefits from vision support more than a chat-only product would. | No urgency change, but worth remembering when Vision is eventually scoped. |
 | V3 — Voice, NeMo Guardrails, OCR, worker-evaluator | Orthogonal — none of these are blocked by or blocking the North Star. | No change. (Voice arguably drops slightly in priority: the North Star is a fundamentally visual/written thinking experience, not voice-first.) |

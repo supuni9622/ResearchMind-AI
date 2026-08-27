@@ -46,6 +46,11 @@ def create_streaming_service() -> StreamingService:
         event_adapter=get_event_adapter(),
         caching_service=create_caching_service(),
         artifact_writer=create_stream_artifact_writer(),
+        # Reuses generation_service's own GenerationArtifactWriter (same
+        # instance generate() persists non-streamed results through)
+        # rather than composing a second one -- matches this file's
+        # existing registry/metrics_service/tracer sharing pattern above.
+        generation_artifact_writer=generation_service.artifact_writer,
         artifact_policy_service=get_artifact_policy_service(),
         metrics_service=generation_service.metrics_service,
         observability_service=generation_service.observability_service,

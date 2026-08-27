@@ -76,6 +76,18 @@ class UnauthorizedException(AppException):
         )
 
 
+class ForbiddenException(AppException):
+    def __init__(
+        self,
+        message: str = "You do not have access to this resource.",
+    ):
+        super().__init__(
+            message=message,
+            code="FORBIDDEN",
+            status_code=status.HTTP_403_FORBIDDEN,
+        )
+
+
 class RateLimitExceededException(AppException):
     def __init__(
         self,

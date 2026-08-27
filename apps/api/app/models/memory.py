@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
 
-from sqlalchemy import Float, ForeignKey, Text
+from sqlalchemy import Boolean, CheckConstraint, DateTime, Float, ForeignKey, Index, Integer, Text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -35,12 +36,24 @@ class Memory(TimestampMixin, Base):
         primary_key=True,
         default=uuid.uuid4,
     )
-
     owner_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("users.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
+    )
+
+    scope_type: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+        default="personal",
+        server_default="personal",
+    )
+
+    project_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("projects.id", ondelete="CASCADE"),
+        nullable=True,
     )
 
     type: Mapped[str] = mapped_column(
@@ -65,3 +78,113 @@ class Memory(TimestampMixin, Base):
         nullable=False,
         default=0.0,
     )
+
+    __table_args__ = (
+        CheckConstraint(
+            "(scope_type = 'personal' AND project_id IS NULL) OR "
+            "(scope_type = 'project' AND project_id IS NOT NULL)",
+            name="ck_memories_scope_project",
+        ),
+        Index(
+            "ix_memories_owner_scope_project_type",
+            "owner_id",
+            "scope_type",
+            "project_id",
+            "type",
+        ),
+    )
+
+
+class MemoryScopeSetting(TimestampMixin, Base):
+    """Owner-controlled behavior for one authorized memory scope.
+
+    Capture controls automatic extraction only. Retrieval controls runtime
+    prompt injection. Neither setting deletes or hides existing records from
+    the management API, and lifecycle retention continues independently.
+    """
+
+    __tablename__ = "memory_scope_settings"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    owner_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    scope_type: Mapped[str] = mapped_column(Text, nullable=False)
+    project_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("projects.id", ondelete="CASCADE"), nullable=True
+    )
+    capture_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    retrieval_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    inherit_personal_memory: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+
+    __table_args__ = (
+        CheckConstraint(
+            "(scope_type = 'personal' AND project_id IS NULL) OR "
+            "(scope_type = 'project' AND project_id IS NOT NULL)",
+            name="ck_memory_scope_settings_scope_project",
+        ),
+        Index(
+            "uq_memory_scope_settings_personal",
+            "owner_id",
+            unique=True,
+            postgresql_where=project_id.is_(None),
+        ),
+        Index(
+            "uq_memory_scope_settings_project",
+            "owner_id",
+            "project_id",
+            unique=True,
+            postgresql_where=project_id.is_not(None),
+        ),
+        Index("ix_memory_scope_settings_owner_scope", "owner_id", "scope_type", "project_id"),
+    )
+
+
+class MemoryDeletionConfirmation(TimestampMixin, Base):
+    """Short-lived, single-use server-side authorization for erasure."""
+
+    __tablename__ = "memory_deletion_confirmations"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    owner_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    token_hash: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
+    scope_type: Mapped[str] = mapped_column(Text, nullable=False)
+    project_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("projects.id", ondelete="CASCADE"), nullable=True
+    )
+    memory_ids: Mapped[list[str] | None] = mapped_column(JSONB, nullable=True)
+    expected_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    consumed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class MemoryGovernanceJob(TimestampMixin, Base):
+    """Content-free audit and retry state for an immediate erasure request."""
+
+    __tablename__ = "memory_governance_jobs"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    owner_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    confirmation_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("memory_deletion_confirmations.id"),
+        nullable=False,
+        unique=True,
+    )
+    scope_type: Mapped[str] = mapped_column(Text, nullable=False)
+    project_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("projects.id", ondelete="SET NULL"), nullable=True
+    )
+    status: Mapped[str] = mapped_column(Text, nullable=False, default="pending")
+    requested_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    deleted_postgres: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    deleted_qdrant: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    deleted_valkey: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    deleted_artifacts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    failure_stage: Mapped[str | None] = mapped_column(Text, nullable=True)
+    failure_detail: Mapped[str | None] = mapped_column(Text, nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

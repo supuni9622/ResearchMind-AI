@@ -19,7 +19,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.ai.knowledge.context.citations.models import Citation
 from app.ai.knowledge.context.interfaces import ContextBuilderInterface
 from app.ai.knowledge.retrieval.service import RetrievalService
-from app.ai.memory.services.formatting import format_memory_context
+from app.ai.memory.enums import MemoryType
+from app.ai.memory.services.formatting import FormattedMemoryContext, format_memory_context_with_ids
 from app.ai.memory.services.memory_service import MemoryService
 from app.ai.research.models import ResearchOutcome, ResearchSource
 from app.ai.research.service import ResearchService
@@ -48,6 +49,7 @@ from app.ai.runtime.research.review import ResearchReview, ResearchReviewService
 from app.ai.runtime.research.review_artifact import ResearchReviewArtifactWriter
 from app.ai.runtime.research.run_service import ResearchRunService
 from app.ai.runtime.research.service import ResearchRuntimeService
+from app.ai.runtime.research.socratic import SocraticChallengerService
 from app.ai.runtime.research.synthesis.service import ResearchSynthesisService
 from app.ai.runtime.research.types import (
     ResearchRunStatus,
@@ -59,6 +61,9 @@ from app.ai.runtime.research.workflows.multi_wave_research import compile_multi_
 from app.ai.tools.paper_search.service import PaperSearchService
 from app.ai.tools.web_search.service import WebSearchService
 from app.core.settings import settings
+from app.infrastructure.metrics.interfaces import MetricsRecorder
+from app.infrastructure.metrics.noop import NoOpMetricsRecorder
+from app.infrastructure.metrics.research import RESEARCH_RUN_DURATION
 from app.infrastructure.storage.interfaces import DocumentStorage
 from app.models.research_run import ResearchRun
 from app.repositories.generation_usage import GenerationUsageRepository
@@ -112,6 +117,7 @@ class ResearchRuntimeExecutionService:
         web_search_necessity: WebSearchNecessityService | None = None,
         paper_search: PaperSearchService | None = None,
         paper_query_extraction: PaperQueryExtractionService | None = None,
+        metrics: MetricsRecorder | None = None,
     ) -> None:
         self._session = session
         self._research_service = research_service
@@ -126,6 +132,7 @@ class ResearchRuntimeExecutionService:
         self._web_search_necessity = web_search_necessity
         self._paper_search = paper_search
         self._paper_query_extraction = paper_query_extraction
+        self._metrics = metrics or NoOpMetricsRecorder()
         self._runs = ResearchRunService(session)
         self._research_sessions = ResearchRepository(session)
         self._proposals = ResearchProposalRepository(session)
@@ -269,6 +276,10 @@ class ResearchRuntimeExecutionService:
                     paper_suggestions_enabled=bool(
                         request.get("paper_suggestions_enabled") or False
                     ),
+                    socratic_challenger_enabled=bool(
+                        request.get("socratic_challenger_enabled") or False
+                    ),
+                    injected_memory_ids=list(request.get("injected_memory_ids") or []),
                 )
         except ResearchReportRejectedError as exc:
             # A genuine user rejection no longer raises this -- it routes to
@@ -441,6 +452,7 @@ class ResearchRuntimeExecutionService:
             transition_run(run, target=ResearchRunStatus.REVIEWING, phase="compatibility_review")
             transition_run(run, target=ResearchRunStatus.SYNTHESIZING, phase="persisted_answer")
             transition_run(run, target=ResearchRunStatus.COMPLETED, phase="complete")
+        self._record_run_duration(run)
         await self._session.commit()
 
     async def _execute_compatibility_bridge(
@@ -534,6 +546,39 @@ class ResearchRuntimeExecutionService:
             web_search_necessity=self._web_search_necessity,
             paper_search=self._paper_search,
             paper_query_extraction=self._paper_query_extraction,
+            metrics=self._metrics,
+            socratic_challenge=lambda goal, evidence: SocraticChallengerService(
+                generation_runtime
+            ).generate(
+                goal=goal,
+                evidence=evidence,
+                owner_id=run.owner_id,
+                research_run_id=run.id,
+            ),
+            remember_socratic_response=(
+                lambda question, response: self._remember_socratic_response(
+                    run=run, question=question, response=response
+                )
+            ),
+        )
+
+    async def _remember_socratic_response(
+        self, *, run: ResearchRun, question: str, response: str
+    ) -> None:
+        """Persist the researcher's answer as the Wave-2 plain RESEARCH note."""
+
+        if self._memory is None:
+            return
+        await self._memory.remember(
+            owner_id=run.owner_id,
+            type=MemoryType.RESEARCH,
+            content=f"Socratic question: {question}\nResearcher response: {response}",
+            metadata={
+                "source": "socratic_challenger",
+                "research_run_id": str(run.id),
+                "prompt_version": "socratic-challenger-v1",
+            },
+            importance_score=0.8,
         )
 
     async def _execute_v1_graph(
@@ -553,25 +598,32 @@ class ResearchRuntimeExecutionService:
         web_search_include_domains: list[str] | None = None,
         web_search_exclude_domains: list[str] | None = None,
         paper_suggestions_enabled: bool = False,
+        socratic_challenger_enabled: bool = False,
+        injected_memory_ids: list[str] | None = None,
     ) -> ResearchOutcome | None:
         generation_runtime, retrieval, context_builder, storage = self._v1_graph_dependencies()
 
         started = perf_counter()
+        memory_context = await self._retrieve_memory_context(
+            owner_id=owner_id,
+            session_id=conversation_id or run.id,
+            query=query,
+        )
+        execution_memory_ids = [str(item) for item in memory_context.memory_ids]
+        if execution_memory_ids:
+            injected_memory_ids = execution_memory_ids
         if plan is None:
             planner = ResearchPlanner(generation_runtime)
-            memory_context = await self._retrieve_memory_context(
-                owner_id=owner_id,
-                session_id=conversation_id or run.id,
-                query=query,
-            )
             plan = await planner.plan(
                 query=query,
                 owner_id=owner_id,
                 research_run_id=run.id,
                 provider=provider,
                 routing_strategy=routing_strategy,
-                memory_context=memory_context,
+                memory_context=memory_context.text,
+                injected_memory_ids=[str(item) for item in memory_context.memory_ids],
             )
+            injected_memory_ids = [str(item) for item in memory_context.memory_ids]
         validate_plan(plan)
         transition_run(run, target=ResearchRunStatus.RESEARCHING, phase="task_retrieval")
         await self._session.commit()
@@ -619,6 +671,9 @@ class ResearchRuntimeExecutionService:
                     "web_search_exclude_domains": web_search_exclude_domains or [],
                     "web_search_count": 0,
                     "paper_suggestions_enabled": paper_suggestions_enabled,
+                    "socratic_challenger_enabled": socratic_challenger_enabled,
+                    "injected_memory_ids": injected_memory_ids or [],
+                    "memory_context": memory_context.text,
                 }
             try:
                 result = await asyncio.wait_for(
@@ -900,6 +955,7 @@ class ResearchRuntimeExecutionService:
             "gap_research_count": result.get("gap_research_count", 0),
             "plan_version": result.get("plan_version", 1),
             "review_artifact_refs": result.get("review_artifact_refs", []),
+            **self._web_search_signal(result),
         }
         transition_run(run, target=ResearchRunStatus.REVIEWING, phase="deterministic_review")
         transition_run(run, target=ResearchRunStatus.SYNTHESIZING, phase="persist_runtime_report")
@@ -914,6 +970,7 @@ class ResearchRuntimeExecutionService:
             owner_id=owner_id,
             conversation_id=conversation_id,
             duration_ms=(perf_counter() - started) * 1000,
+            memory_used=bool(result.get("injected_memory_ids")),
         )
 
     @staticmethod
@@ -1002,13 +1059,13 @@ class ResearchRuntimeExecutionService:
         owner_id: UUID,
         session_id: UUID,
         query: str,
-    ) -> str | None:
+    ) -> FormattedMemoryContext:
         """Best-effort, mirrors `ResearchProposalService._retrieve_memory_context`:
         this fallback path only runs when a plan wasn't already proposed/approved
         (the `execute()` compatibility path), so it needs the same injection."""
 
         if self._memory is None:
-            return None
+            return FormattedMemoryContext(text=None, memory_ids=())
         try:
             context = await self._memory.get_context(
                 owner_id=owner_id,
@@ -1021,8 +1078,8 @@ class ResearchRuntimeExecutionService:
                 owner_id=str(owner_id),
                 error_type=type(exc).__name__,
             )
-            return None
-        return format_memory_context(context)
+            return FormattedMemoryContext(text=None, memory_ids=())
+        return format_memory_context_with_ids(context)
 
     async def _is_cancellation_requested(self, run_id: UUID) -> bool:
         return await self._runs.is_cancellation_requested(run_id=run_id)
@@ -1052,12 +1109,54 @@ class ResearchRuntimeExecutionService:
             duration_ms=duration_ms,
         )
 
+    @staticmethod
+    def _web_search_signal(result: dict[str, Any]) -> dict[str, object]:
+        """E23 follow-up (`EVALUATION_PLAN.md` §10): mirrors Chat's
+        `web_search_invoked`/`web_search_success` semantics exactly --
+        only written at all when web search was genuinely eligible for
+        this run (`WebSearchMode` not `DISABLED`), and `web_search_success`
+        only set when `web_search_invoked` is `True` (success is
+        meaningless for a run that never searched). Folded into
+        `run.budget_usage` here so `OnlineScoringJob` can read it back
+        with the exact same single-row lookup already used for
+        `review_decision` -- no new event-aggregation query needed."""
+
+        mode = result.get("web_search_mode") or WebSearchMode.DISABLED.value
+        if mode == WebSearchMode.DISABLED.value:
+            return {}
+        invoked = result.get("web_search_count", 0) > 0
+        signal: dict[str, object] = {"web_search_invoked": invoked}
+        if invoked:
+            signal["web_search_success"] = result.get("web_search_success_count", 0) > 0
+        return signal
+
+    def _record_run_duration(self, run: ResearchRun) -> None:
+        """E17 follow-up: end-to-end run duration, `completed_at -
+        started_at` -- includes human-approval wait time by design (that's
+        a real part of "how long did this run take," not noise to strip
+        out), so this uses its own metric/bucket set
+        (`RESEARCH_RUN_DURATION`/`DEEP_RESEARCH_RUN_BUCKETS`), not
+        `RESEARCH_DURATION` (Chat/Linear Research's single-turn, seconds-
+        scale latency). Called from every terminal-transition path
+        (`_complete_run`, `_mark_terminal`, `_mark_failed`) right after
+        `transition_run()` sets `run.completed_at` -- best-effort, a
+        metrics failure must never break run completion itself."""
+
+        if run.started_at is None or run.completed_at is None:
+            return
+        try:
+            duration_ms = (run.completed_at - run.started_at).total_seconds() * 1000
+            self._metrics.record_duration(operation=RESEARCH_RUN_DURATION, duration_ms=duration_ms)
+        except Exception:
+            logger.exception("research_runtime.duration_metric_failed", run_id=str(run.id))
+
     async def _mark_terminal(
         self, run: ResearchRun, status: ResearchRunStatus, reason: str
     ) -> None:
         try:
             transition_run(run, target=status, phase="terminal")
             run.terminal_reason = reason
+            self._record_run_duration(run)
             await self._session.commit()
         except Exception:
             await self._session.rollback()
@@ -1078,6 +1177,7 @@ class ResearchRuntimeExecutionService:
                 "message": str(exc)[:500],
                 "recorded_at": datetime.now(UTC).isoformat(),
             }
+            self._record_run_duration(run)
             await self._session.commit()
         except Exception:
             await self._session.rollback()

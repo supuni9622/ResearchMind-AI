@@ -33,7 +33,11 @@ from app.ai.memory.enums import MemoryType
 from app.ai.memory.extraction.orchestrator import MemoryExtractionOrchestrator
 from app.ai.memory.extraction.service import MemoryExtractionService
 from app.ai.memory.policy.models import MemoryTurnEvent
-from app.ai.memory.services.formatting import format_memory_context, with_memory_context
+from app.ai.memory.services.formatting import (
+    FormattedMemoryContext,
+    format_memory_context_with_ids,
+    with_memory_context,
+)
 from app.ai.memory.services.memory_service import MemoryService
 from app.ai.memory.session.state_updater import (
     SessionStateUpdaterService,
@@ -44,6 +48,7 @@ from app.ai.runtime.events.enums import CoreEventType, EventCategory
 from app.ai.runtime.events.models import StreamEvent
 from app.ai.runtime.events.research.models import ResearchEventType
 from app.ai.runtime.generation.caching.enums import CacheRuntime
+from app.ai.runtime.generation.config_fingerprint import config_fingerprint_kwargs
 from app.ai.runtime.generation.enums import GenerationProvider
 from app.ai.runtime.generation.models import GenerationRequest, StreamEventType
 from app.ai.runtime.generation.orchestration.interfaces import GenerationRuntimeInterface
@@ -159,7 +164,7 @@ class ResearchService:
                 owner_id=owner_id,
             )
 
-            memory_context_text = await self._retrieve_memory_context(
+            memory_context = await self._retrieve_memory_context(
                 owner_id=owner_id,
                 session_id=session_id,
                 query=query,
@@ -176,7 +181,7 @@ class ResearchService:
             request = GenerationRequest(
                 prompt_context=with_memory_context(
                     context_result.prompt_context,
-                    memory_context_text,
+                    memory_context.text,
                 ),
                 user_prompt=self._format_transcript(history, query),
                 owner_id=owner_id,
@@ -186,6 +191,12 @@ class ResearchService:
                 cache_runtime=CacheRuntime.RESEARCH,
                 runtime=RuntimeType.RESEARCH,
                 artifact_runtime=ArtifactRuntime.RESEARCH,
+                metadata={"injected_memory_ids": [str(item) for item in memory_context.memory_ids]}
+                if memory_context.memory_ids
+                else {},
+                **config_fingerprint_kwargs(
+                    surface="linear_research", prompt_version="linear-research-v1"
+                ),
             )
 
             result = await self._generation_runtime.execute(request, provider=provider)
@@ -307,7 +318,7 @@ class ResearchService:
             owner_id=owner_id,
         )
 
-        memory_context_text = await self._retrieve_memory_context(
+        memory_context = await self._retrieve_memory_context(
             owner_id=owner_id,
             session_id=session_id,
             query=query,
@@ -337,7 +348,7 @@ class ResearchService:
         request = GenerationRequest(
             prompt_context=with_memory_context(
                 context_result.prompt_context,
-                memory_context_text,
+                memory_context.text,
             ),
             user_prompt=self._format_transcript(history, query),
             stream=True,
@@ -348,6 +359,12 @@ class ResearchService:
             cache_runtime=CacheRuntime.RESEARCH,
             runtime=RuntimeType.RESEARCH,
             artifact_runtime=ArtifactRuntime.RESEARCH,
+            metadata={"injected_memory_ids": [str(item) for item in memory_context.memory_ids]}
+            if memory_context.memory_ids
+            else {},
+            **config_fingerprint_kwargs(
+                surface="linear_research", prompt_version="linear-research-v1"
+            ),
         )
 
         content_parts: list[str] = []
@@ -442,6 +459,7 @@ class ResearchService:
         owner_id: UUID,
         conversation_id: UUID | None,
         duration_ms: float,
+        memory_used: bool = False,
     ) -> ResearchOutcome:
         """Persist a reviewed runtime draft before invoking memory extraction.
 
@@ -466,7 +484,12 @@ class ResearchService:
             answer=answer,
             citations=citations,
             sources=sources,
-            runtime_metadata={"runtime": "research_runtime_v1", "report_title": draft.title},
+            runtime_metadata={
+                "runtime": "research_runtime_v1",
+                "report_title": draft.title,
+                "generation_id": str(draft.generation_id) if draft.generation_id else None,
+                "memory_used": memory_used,
+            },
         )
         await self._extract_and_store_memory(
             owner_id=owner_id,
@@ -498,7 +521,7 @@ class ResearchService:
         session_id: UUID,
         query: str,
         transcript: str | None = None,
-    ) -> str | None:
+    ) -> FormattedMemoryContext:
         """
         Memory retrieval, ahead of knowledge retrieval (Request ->
         Memory Retrieval -> Knowledge Retrieval -> ... per the platform's
@@ -507,7 +530,7 @@ class ResearchService:
         """
 
         if self._memory is None:
-            return None
+            return FormattedMemoryContext(text=None, memory_ids=())
 
         try:
             context = await self._memory.get_context(
@@ -525,9 +548,9 @@ class ResearchService:
                 error_type=type(exc).__name__,
                 error=str(exc),
             )
-            return None
+            return FormattedMemoryContext(text=None, memory_ids=())
 
-        return format_memory_context(context)
+        return format_memory_context_with_ids(context)
 
     async def _extract_and_store_memory(
         self,
@@ -626,15 +649,16 @@ class ResearchService:
         owner_id: UUID,
     ) -> RetrievalQuery:
         """
-        `owner_id` is always overridden by the authenticated caller, never
-        trusted from request-supplied filters -- mirrors
-        `api/v1/retrieval.py::_scoped_filters`.
+        `owner_id` always comes from the authenticated caller, never from
+        request-supplied filters -- mirrors
+        `api/v1/retrieval.py::_scoped_owner_id`.
         """
 
         return RetrievalQuery(
             query=query,
             top_k=top_k,
-            filters={**filters, "owner_id": str(owner_id)},
+            filters=filters,
+            owner_id=str(owner_id),
         )
 
     async def _retrieve_and_build_context(
@@ -742,6 +766,7 @@ class ResearchService:
                         citation_id=item.citation_id,
                         filename=item.filename,
                         document_id=document_id,
+                        score=item.score,
                         chunk_ids=[chunk_id],
                     )
                 )

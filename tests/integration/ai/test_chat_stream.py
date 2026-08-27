@@ -410,6 +410,23 @@ def test_stream_chat_generates_a_title_only_once_per_conversation(
     assert len(generation_service.requests) == 1
 
 
+def test_stream_chat_uses_first_question_when_title_model_fails(
+    client: TestClient,
+    fakes: tuple[_FakeStreamingService, _FakeConversationService, _FakeGenerationService],
+) -> None:
+    _, conversation_service, generation_service = fakes
+    generation_service.generate = AsyncMock(side_effect=RuntimeError("model unavailable"))  # type: ignore[method-assign]
+    app.dependency_overrides[get_current_user] = _fake_user
+
+    try:
+        response = client.post("/api/v1/chat/stream", json={"user_prompt": "first turn"})
+    finally:
+        del app.dependency_overrides[get_current_user]
+
+    assert response.status_code == 200
+    assert conversation_service.titles == ["What are applications of RAG"]
+
+
 def test_stream_chat_persists_a_provider_completed_event(
     client: TestClient,
     fakes: tuple[_FakeStreamingService, _FakeConversationService, _FakeGenerationService],

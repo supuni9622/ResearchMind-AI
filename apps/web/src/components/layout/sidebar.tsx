@@ -61,7 +61,32 @@ const NAV_ITEMS = [
       </svg>
     ),
   },
+  {
+    href: '/memory',
+    label: 'Memory',
+    title: 'Review and manage what ResearchMind remembers about you',
+    icon: (
+      <svg width="15" height="15" viewBox="0 0 15 15" fill="none" aria-hidden="true">
+        <path d="M7.5 1.5a3 3 0 0 0-3 3v.2A2.75 2.75 0 0 0 3 9.75c0 1.52 1.23 2.75 2.75 2.75H7.5v-11zM7.5 3.25h1.75a2.25 2.25 0 0 1 1.58 3.85A2.75 2.75 0 0 1 10 12.5H7.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    ),
+  },
 ] as const;
+
+// Not part of NAV_ITEMS: only shown when the authenticated user's email
+// is on settings.eval_dashboard_admin_emails (server-decided, via
+// user.eval_dashboard_access on GET /auth/me) -- see Sidebar below.
+const EVAL_DASHBOARD_NAV_ITEM = {
+  href: '/eval-dashboard',
+  label: 'Eval Dashboard',
+  title: 'Internal — owner-scoped eval_scores drill-down',
+  icon: (
+    <svg width="15" height="15" viewBox="0 0 15 15" fill="none" aria-hidden="true">
+      <path d="M2 12.5V7M7.5 12.5V2M13 12.5V9" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+      <path d="M1.5 12.5h12" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+    </svg>
+  ),
+} as const;
 
 function LogoMark() {
   return (
@@ -77,6 +102,10 @@ export function Sidebar() {
   const pathname = usePathname();
   const { user, logout } = useAuth();
 
+  const navItems = user?.eval_dashboard_access
+    ? [...NAV_ITEMS, EVAL_DASHBOARD_NAV_ITEM]
+    : NAV_ITEMS;
+
   return (
     <aside className="w-52 flex-shrink-0 border-r border-ink-600 bg-ink-900 flex flex-col min-h-screen">
       <div className="px-4 py-4 border-b border-ink-600">
@@ -90,7 +119,7 @@ export function Sidebar() {
 
       <nav className="flex-1 px-2 py-3">
         <ul className="space-y-0.5" role="list">
-          {NAV_ITEMS.map(({ href, label, title, icon }) => {
+          {navItems.map(({ href, label, title, icon }) => {
             const active =
               pathname === href || pathname.startsWith(`${href}/`);
             return (

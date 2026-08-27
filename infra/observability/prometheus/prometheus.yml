@@ -9,12 +9,32 @@ scrape_configs:
   - job_name: researchmind-api
     metrics_path: /metrics
     static_configs:
-      # The API runs on the host (uvicorn, outside Docker Compose --
-      # there is no `api` service in docker-compose.yml), so Prometheus
-      # (which does run in Compose) reaches it via Docker Desktop's
-      # host gateway rather than a Compose service name. If the API is
-      # ever containerized under a service named `api`, change this to
-      # `api:8000` and add `depends_on: api: condition: service_healthy`
-      # to the `prometheus` service in docker-compose.yml.
+      # Targets the `api` Compose service (docker-compose.yml) now that the
+      # API runs as a container rather than on the host via a bare
+      # `uvicorn` process.
       - targets:
-          - host.docker.internal:8000
+          - api:8000
+
+  # E17 follow-up (2026-08-12): apps/worker/research_runtime_main.py runs as
+  # its own OS process with its own private Prometheus registry -- confirmed
+  # live that a metric it records (Deep Research run duration) never reached
+  # the API's own /metrics above, since the two processes' registries are
+  # entirely separate in-memory objects. Targets the `worker-research-runtime`
+  # Compose service; port matches
+  # Settings.research_runtime_worker_metrics_port's default (8010, not 8001 --
+  # that port is already bound by the research-intelligence-mcp Docker
+  # container on this machine, confirmed via lsof).
+  - job_name: researchmind-research-runtime-worker
+    metrics_path: /metrics
+    static_configs:
+      - targets:
+          - worker-research-runtime:8010
+
+  # Memory lifecycle/consolidation/inventory metrics are emitted by their own
+  # worker process and therefore require a distinct scrape target: the
+  # `worker-memory-lifecycle` Compose service.
+  - job_name: researchmind-memory-lifecycle-worker
+    metrics_path: /metrics
+    static_configs:
+      - targets:
+          - worker-memory-lifecycle:8011

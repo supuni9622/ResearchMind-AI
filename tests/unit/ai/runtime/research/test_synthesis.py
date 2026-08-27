@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock
 from uuid import uuid4
 
 import pytest
+from app.ai.artifacts.enums import ArtifactRuntime
 from app.ai.runtime.generation.caching.enums import CacheRuntime
 from app.ai.runtime.research.evidence import ResearchEvidenceBundle
 from app.ai.runtime.research.retrieval.models import ResearchEvidenceReference
@@ -36,7 +37,9 @@ def _evidence() -> ResearchEvidenceBundle:
 @pytest.mark.asyncio
 async def test_synthesis_uses_structured_generation_and_accepts_known_citations() -> None:
     runtime = AsyncMock()
-    runtime.execute.return_value = SimpleNamespace(parsed_output=_draft(citation_ids=["c1"]))
+    runtime.execute.return_value = SimpleNamespace(
+        parsed_output=_draft(citation_ids=["c1"]), generation_id=uuid4()
+    )
     draft = await ResearchSynthesisService(runtime).synthesize(
         goal="q", evidence=_evidence(), owner_id=uuid4(), research_run_id=uuid4()
     )
@@ -52,7 +55,9 @@ async def test_synthesis_is_never_cached_under_the_shared_research_answer_namesp
     run's evidence bundle. See PRODUCT_FLOWS_AND_GAPS.md Loophole D1."""
 
     runtime = AsyncMock()
-    runtime.execute.return_value = SimpleNamespace(parsed_output=_draft(citation_ids=["c1"]))
+    runtime.execute.return_value = SimpleNamespace(
+        parsed_output=_draft(citation_ids=["c1"]), generation_id=uuid4()
+    )
     await ResearchSynthesisService(runtime).synthesize(
         goal="q", evidence=_evidence(), owner_id=uuid4(), research_run_id=uuid4()
     )
@@ -62,10 +67,50 @@ async def test_synthesis_is_never_cached_under_the_shared_research_answer_namesp
 
 
 @pytest.mark.asyncio
+async def test_synthesis_tags_the_request_for_the_research_artifact_policy() -> None:
+    """Regression (Evaluation Platform Gap 1): previously unset, which
+    only got persisted by an accidental fallback to ArtifactRuntime.CHAT
+    -- explicit now that a (RESEARCH, GENERATION) policy rule exists."""
+
+    runtime = AsyncMock()
+    runtime.execute.return_value = SimpleNamespace(
+        parsed_output=_draft(citation_ids=["c1"]), generation_id=uuid4()
+    )
+    await ResearchSynthesisService(runtime).synthesize(
+        goal="q", evidence=_evidence(), owner_id=uuid4(), research_run_id=uuid4()
+    )
+    request = runtime.execute.await_args.args[0]
+    assert request.artifact_runtime == ArtifactRuntime.RESEARCH
+
+
+@pytest.mark.asyncio
+async def test_synthesis_correlates_planner_memory_with_the_final_generation() -> None:
+    runtime = AsyncMock()
+    runtime.execute.return_value = SimpleNamespace(
+        parsed_output=_draft(citation_ids=["c1"]), generation_id=uuid4()
+    )
+    memory_id = uuid4()
+
+    await ResearchSynthesisService(runtime).synthesize(
+        goal="q",
+        evidence=_evidence(),
+        owner_id=uuid4(),
+        research_run_id=uuid4(),
+        injected_memory_ids=[str(memory_id)],
+        memory_context="Background memory from prior turns:\n- Prefers comparison tables",
+    )
+
+    request = runtime.execute.await_args.args[0]
+    assert request.metadata["injected_memory_ids"] == [str(memory_id)]
+    assert request.prompt_context.context.startswith("Background memory from prior turns")
+    assert "[c1] a.pdf: e" in request.prompt_context.context
+
+
+@pytest.mark.asyncio
 async def test_synthesis_rejects_invented_citation_ids() -> None:
     runtime = AsyncMock()
     runtime.execute.return_value = SimpleNamespace(
-        parsed_output=_draft(citation_ids=["invented"]).model_dump()
+        parsed_output=_draft(citation_ids=["invented"]).model_dump(), generation_id=uuid4()
     )
     with pytest.raises(ResearchSynthesisError, match="unknown citation"):
         await ResearchSynthesisService(runtime).synthesize(

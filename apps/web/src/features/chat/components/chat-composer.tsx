@@ -2,8 +2,17 @@
 
 import { useRef } from 'react';
 import type { GenerationProvider } from '@/lib/api';
-import { BookIcon, NetworkIcon } from '@/components/ui/icons';
+import type { VoiceChatStatus } from '@/features/chat/use-chat';
+import { BookIcon, MicIcon, MicOffIcon, NetworkIcon } from '@/components/ui/icons';
 import { useProviderOptions } from '@/hooks/use-provider-options';
+
+const VOICE_STATUS_LABEL: Record<VoiceChatStatus, string> = {
+  idle: 'Voice',
+  connecting: 'Connecting…',
+  listening: 'Listening…',
+  speaking: 'Speaking…',
+  error: 'Voice error',
+};
 
 export function ChatComposer({
   value,
@@ -16,6 +25,11 @@ export function ChatComposer({
   onWebSearchEnabledChange,
   paperSearchEnabled,
   onPaperSearchEnabledChange,
+  voiceStatus,
+  voiceError,
+  voiceDraftTranscript,
+  onStartVoice,
+  onStopVoice,
 }: {
   value: string;
   onChange: (v: string) => void;
@@ -27,9 +41,15 @@ export function ChatComposer({
   onWebSearchEnabledChange: (v: boolean) => void;
   paperSearchEnabled: boolean;
   onPaperSearchEnabledChange: (v: boolean) => void;
+  voiceStatus: VoiceChatStatus;
+  voiceError: string | null;
+  voiceDraftTranscript: string;
+  onStartVoice: () => void;
+  onStopVoice: () => void;
 }) {
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const providerOptions = useProviderOptions();
+  const voiceActive = voiceStatus !== 'idle' && voiceStatus !== 'error';
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -47,6 +67,14 @@ export function ChatComposer({
         }}
         className="max-w-2xl mx-auto"
       >
+        {(voiceActive || voiceDraftTranscript || voiceError) && (
+          <div className="mb-1.5 px-1 flex items-center justify-between font-mono text-[10px]">
+            <span className={voiceError ? 'text-red-400' : 'text-sage-400'}>
+              {voiceError ?? VOICE_STATUS_LABEL[voiceStatus]}
+              {voiceDraftTranscript ? ` — "${voiceDraftTranscript}"` : ''}
+            </span>
+          </div>
+        )}
         <div className="flex gap-2.5 items-end">
           <div className="flex-1 relative">
             <textarea
@@ -61,6 +89,19 @@ export function ChatComposer({
               style={{ fieldSizing: 'content' } as React.CSSProperties}
             />
           </div>
+          <button
+            type="button"
+            title={voiceActive ? 'Stop voice' : 'Talk to the assistant (T13 — unverified in a real browser yet)'}
+            disabled={loading && !voiceActive}
+            onClick={() => (voiceActive ? onStopVoice() : onStartVoice())}
+            className={`flex-shrink-0 w-9 h-9 rounded-xl flex items-center justify-center transition-colors duration-150 disabled:cursor-not-allowed disabled:opacity-40 ${
+              voiceActive
+                ? 'bg-red-500/90 hover:bg-red-500 text-stone-100'
+                : 'bg-ink-800 border border-ink-600 text-stone-400 hover:text-stone-200'
+            }`}
+          >
+            {voiceActive ? <MicOffIcon size={14} /> : <MicIcon size={14} />}
+          </button>
           <button
             type="submit"
             disabled={!value.trim() || loading}

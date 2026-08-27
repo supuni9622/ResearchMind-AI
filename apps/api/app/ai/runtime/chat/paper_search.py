@@ -57,6 +57,12 @@ class ChatPaperSearchOutcome(BaseModel):
     events: list[StreamEvent] = Field(default_factory=list)
     context_text: str | None = None
     sources: list[ChatPaperSource] = Field(default_factory=list)
+    invoked: bool = False
+    """True once the search call was actually attempted -- paper search
+    has no necessity gate (unlike web search, the toggle itself is the
+    only gate), so this is True whenever `enabled` and the service is
+    available. See `ChatWebSearchOutcome.invoked`'s docstring for why
+    this is tracked separately from `context_text is None`."""
 
 
 def _format_paper_context(items: list[PaperSearchResultItem]) -> str:
@@ -136,7 +142,7 @@ async def run_chat_paper_search(
                 metadata={"label": "Paper search returned nothing usable"},
             )
         )
-        return ChatPaperSearchOutcome(events=events)
+        return ChatPaperSearchOutcome(events=events, invoked=True)
 
     sources = [
         ChatPaperSource(title=item.title, authors=item.authors, year=item.year, url=item.url)
@@ -157,4 +163,5 @@ async def run_chat_paper_search(
         events=events,
         context_text=_format_paper_context(items),
         sources=sources,
+        invoked=True,
     )

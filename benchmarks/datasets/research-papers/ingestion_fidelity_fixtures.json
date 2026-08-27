@@ -1,0 +1,36 @@
+{
+  "version": "1.0",
+  "notes": "Hand-verified minimum heading/table counts, confirmed 2026-08-11 by reading each paper's real Docling markdown export directly (benchmarks/datasets/research-papers/paper-*/processed_document.json's `markdown` field). A regression below these minimums means Docling config, chunking strategy, or the canonical document schema changed in a way that lost real document structure -- not a hypothetical target, an observed floor.",
+  "fixtures": [
+    {
+      "document_dir": "paper-001",
+      "filename": "151__CRC.pdfrevised.pdf",
+      "expected_min_headings": 17,
+      "expected_min_tables": 3
+    },
+    {
+      "document_dir": "paper-002",
+      "filename": "LLM_RESEARCH.pdf",
+      "expected_min_headings": 70,
+      "expected_min_tables": 14
+    },
+    {
+      "document_dir": "paper-003",
+      "filename": "Noise_is_Signal_Density-Based_Outliers_as_Leading_.pdf",
+      "expected_min_headings": 31,
+      "expected_min_tables": 8
+    },
+    {
+      "document_dir": "paper-004",
+      "filename": "Loop_Engineering_Revised.pdf",
+      "expected_min_headings": 78,
+      "expected_min_tables": 16
+    },
+    {
+      "document_dir": "paper-005",
+      "filename": "data engineering .pdf",
+      "expected_min_headings": 35,
+      "expected_min_tables": 1
+    }
+  ]
+}

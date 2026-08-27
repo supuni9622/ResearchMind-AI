@@ -1,0 +1,6 @@
+# Copy to terraform.tfvars (gitignored). api_url has no default -- it's
+# ecs-demo's `api_https_url` output (the CloudFront domain, not the direct
+# ALB). Update and reapply whenever ecs-demo is destroyed/recreated.
+
+aws_region = "us-east-1"
+api_url    = "https://REPLACE_WITH_ecs-demo_api_https_url_output"

@@ -32,8 +32,36 @@ htmlcov/
 dist/
 build/
 
-# Local storage
-storage/
+# Local storage (root only; source packages may legitimately be named storage)
+/storage/
 
 # Large local media (hosted on YouTube instead, see README)
 docs/videos/
+
+# Terraform (.terraform.lock.hcl is intentionally NOT ignored -- commit it,
+# same as uv.lock/package-lock.json, for reproducible provider versions)
+**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+!*.tfvars.example
+crash.log
+crash.*.log
+
+# Raw source PDFs for benchmark datasets -- only processed_document.json
+# is a tracked dataset artifact, see benchmarks/datasets/README.md
+benchmarks/datasets/research-papers-sources/
+
+# Terraform
+**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+crash.log
+crash.*.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+.terraformrc
+terraform.rc

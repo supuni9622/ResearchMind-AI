@@ -11,10 +11,10 @@
 |---|---|
 | URL | http://localhost:3001 |
 | Credentials (local) | `admin` / `admin` (`GRAFANA_ADMIN_USER`/`GRAFANA_ADMIN_PASSWORD`) |
-| Datasource | Prometheus, auto-provisioned (`infra/observability/grafana/provisioning/datasources/prometheus.yml`) |
-| Start | `docker compose up -d prometheus grafana` |
+| Datasources | Prometheus (`.../datasources/prometheus.yml`) + Postgres (`.../datasources/postgres.yml`, for the Eval Scores dashboard below), both auto-provisioned |
+| Start | `docker compose up -d postgres prometheus grafana` |
 
-Dashboards, datasource, and alert rules are all provisioned from files under `infra/observability/` — not clicked together by hand.
+Dashboards, datasources, and alert rules are all provisioned from files under `infra/observability/` — not clicked together by hand.
 
 ## Dashboards (`infra/observability/grafana/dashboards/*.json`)
 
@@ -37,13 +37,31 @@ Dashboards, datasource, and alert rules are all provisioned from files under `in
 - Web searches over time / success-failure rate / P95 latency / results returned per search / selected-result ratio / failures by type
 - MCP tool requests by tool / failure rate / P95 latency / server health
 - Research runs by outcome / P95 duration
+- Deep Research review decisions (`ResearchReview.decision` — pass/finalize_with_limitations/research_gaps/revise_synthesis/fail — one series per decision, per review cycle)
 
 ### Memory Runtime
 
 - Memory-context request rate / durable-retrieval skip rate / durable memory available vs. empty
 - Semantic/research search rate / context & durable-search P95 latency
 - Extraction evaluated vs. skipped / request ratio / success-failure rate / empty extraction rate
-- Memories created vs. updated / duplicate-memory rate / extraction P95 latency
+- Memories created, updated, and superseded / duplicate-memory rate / extraction P95 latency
+- Absolute PostgreSQL rows by type/scope and table/index/total bytes
+- Qdrant point count, missing/orphan drift, oldest-row age, and bounded owner/project p50/p95/max distributions
+- Lifecycle and inventory freshness / examined, deleted, and failed outcomes
+- Selected/dropped context tokens, omitted items, mutation throttles, consolidation outcomes, and utility/feedback trends
+
+Storage inventory and lifecycle series are emitted by the separately running
+`apps.worker.memory_lifecycle_main` process on port `8011`. Prometheus labels
+contain only bounded aggregate dimensions; owner and project IDs are never labels.
+
+### Eval Scores (E17)
+
+The one dashboard querying Postgres directly instead of PromQL — `eval_scores` (E5/E6/E9) has no Prometheus representation.
+
+- Online avg score by metric, 1h buckets (`source = online_sampled`)
+- Online pass rate by metric, 1h buckets
+- Offline (golden-set) avg score by metric — one point per roughly-one-benchmark-run, not continuous traffic
+- Score-row volume by source (`online_sampled`/`offline_benchmark`/`human_feedback`), 1d buckets — a coverage check, not a quality metric
 
 ## What Grafana is not for
 

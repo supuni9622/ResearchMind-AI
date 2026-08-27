@@ -111,10 +111,10 @@ class VectorStoreProviderInterface(ABC):
         self,
         collection_name: str,
         *,
-        owner_id: str | None = None,
+        owner_id: str,
     ) -> int:
         """
-        Return the number of indexed vectors, optionally scoped to an owner.
+        Return the number of indexed vectors scoped to an owner.
         """
 
     @abstractmethod

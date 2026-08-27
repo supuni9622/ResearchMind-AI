@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import time
 from collections.abc import AsyncGenerator
 from datetime import datetime
+from typing import Any
 from uuid import UUID
 
 import structlog
@@ -10,6 +12,7 @@ from fastapi import (
     Depends,
     Query,
     WebSocket,
+    WebSocketDisconnect,
     status,
 )
 from fastapi.responses import StreamingResponse
@@ -33,12 +36,17 @@ from app.ai.memory.enums import MemoryType
 from app.ai.memory.extraction.orchestrator import MemoryExtractionOrchestrator
 from app.ai.memory.extraction.service import MemoryExtractionService
 from app.ai.memory.policy.models import MemoryTurnEvent
-from app.ai.memory.services.formatting import format_memory_context, with_memory_context
+from app.ai.memory.services.formatting import (
+    FormattedMemoryContext,
+    format_memory_context_with_ids,
+    with_memory_context,
+)
 from app.ai.memory.services.memory_service import MemoryService
 from app.ai.memory.session.state_updater import (
     SessionStateUpdaterService,
     distill_and_upsert_session_state,
 )
+from app.ai.observability.prometheus.create import get_metrics_recorder
 from app.ai.runtime.chat.paper_query import (
     PaperQueryExtractionService,
     create_paper_query_extraction_service,
@@ -48,6 +56,7 @@ from app.ai.runtime.chat.web_search import run_chat_web_search
 from app.ai.runtime.events.enums import CoreEventType
 from app.ai.runtime.events.models import StreamEvent
 from app.ai.runtime.generation.caching.enums import CachePolicy, CacheRuntime
+from app.ai.runtime.generation.config_fingerprint import config_fingerprint_kwargs
 from app.ai.runtime.generation.enums import GenerationProvider
 from app.ai.runtime.generation.models import GenerationRequest, StreamEventType
 from app.ai.runtime.generation.service import GenerationService
@@ -57,6 +66,9 @@ from app.ai.runtime.generation.streaming.transports.websocket import run_websock
 from app.ai.runtime.generation.validation.runtime.enums import RuntimeType
 from app.ai.runtime.research.web_search.create import create_web_search_necessity_service
 from app.ai.runtime.research.web_search.necessity import WebSearchNecessityService
+from app.ai.runtime.voice.create import create_voice_stt_provider, create_voice_tts_provider
+from app.ai.runtime.voice.response_stream import stream_voice_response
+from app.ai.runtime.voice.transcription import collect_voice_turn_transcript
 from app.ai.tools.paper_search.create import create_paper_search_service
 from app.ai.tools.paper_search.service import PaperSearchService
 from app.ai.tools.web_search.create import create_web_search_service
@@ -84,6 +96,7 @@ from app.dependencies.research import (
     get_web_search_service,
 )
 from app.exceptions.base import AppException, RateLimitExceededException
+from app.infrastructure.metrics.voice import VOICE_TURN_DURATION
 from app.infrastructure.rate_limiting import ValkeyRateLimiter
 from app.models.conversation import Conversation, Message
 from app.models.user import User
@@ -94,6 +107,7 @@ from app.schemas.chat import (
     ChatMessageResponse,
     ChatStreamRequest,
 )
+from app.schemas.voice import VoiceStreamRequest
 from app.services.conversation import ConversationService, PromptHistory
 
 logger = structlog.get_logger()
@@ -213,7 +227,7 @@ async def _retrieve_memory_context(
     conversation_id: UUID,
     query: str,
     transcript: str | None = None,
-) -> str | None:
+) -> FormattedMemoryContext:
     """
     Memory retrieval, ahead of generation (Runtime Memory Injection
     Pipeline -- mirrors `ResearchService._retrieve_memory_context`).
@@ -225,7 +239,7 @@ async def _retrieve_memory_context(
     """
 
     if memory_service is None:
-        return None
+        return FormattedMemoryContext(text=None, memory_ids=())
 
     try:
         context = await memory_service.get_context(
@@ -242,9 +256,9 @@ async def _retrieve_memory_context(
             error_type=type(exc).__name__,
             error=str(exc),
         )
-        return None
+        return FormattedMemoryContext(text=None, memory_ids=())
 
-    return format_memory_context(context)
+    return format_memory_context_with_ids(context)
 
 
 async def _extract_and_store_memory(
@@ -380,6 +394,8 @@ async def _build_request(
     prompt_history: PromptHistory,
     web_context_text: str | None = None,
     paper_context_text: str | None = None,
+    web_invoked: bool = False,
+    paper_invoked: bool = False,
 ) -> GenerationRequest:
     history = prompt_history.messages
     transcript = _format_transcript(
@@ -388,7 +404,7 @@ async def _build_request(
         prompt_history.summary,
     )
 
-    memory_context_text = await _retrieve_memory_context(
+    memory_context = await _retrieve_memory_context(
         memory_service=memory_service,
         owner_id=owner_id,
         conversation_id=conversation.id,
@@ -398,10 +414,32 @@ async def _build_request(
 
     prompt_context = with_memory_context(
         PromptContext(context="", chunks=[]),
-        memory_context_text,
+        memory_context.text,
     )
     prompt_context = _with_web_search_context(prompt_context, web_context_text)
     prompt_context = _with_paper_search_context(prompt_context, paper_context_text)
+
+    # E23 (EVALUATION_PLAN.md §10): recorded only when the toggle was on
+    # for this turn -- "invoked" is only a meaningful question once the
+    # tool was eligible. `OnlineScoringJob` reads these back off the
+    # persisted `GenerationArtifact.request.metadata` and emits
+    # `eval_scores` rows for them (same "free, 100%-sampled deterministic
+    # signal" path `citation_validity` already uses), which
+    # `_sync_to_langsmith` mirrors to LangSmith automatically -- no new
+    # wiring needed in either place.
+    tool_invocation_metadata: dict[str, Any] = {}
+    if memory_context.memory_ids:
+        tool_invocation_metadata["injected_memory_ids"] = [
+            str(memory_id) for memory_id in memory_context.memory_ids
+        ]
+    if payload.web_search_enabled:
+        tool_invocation_metadata["web_search_invoked"] = web_invoked
+        if web_invoked:
+            tool_invocation_metadata["web_search_success"] = web_context_text is not None
+    if payload.paper_search_enabled:
+        tool_invocation_metadata["paper_search_invoked"] = paper_invoked
+        if paper_invoked:
+            tool_invocation_metadata["paper_search_success"] = paper_context_text is not None
 
     return GenerationRequest(
         prompt_context=prompt_context,
@@ -419,6 +457,8 @@ async def _build_request(
         cache_runtime=CacheRuntime.CHAT,
         runtime=RuntimeType.CHAT,
         artifact_runtime=ArtifactRuntime.CHAT,
+        metadata=tool_invocation_metadata,
+        **config_fingerprint_kwargs(surface="chat", prompt_version="chat-v1"),
     )
 
 
@@ -484,6 +524,8 @@ async def _prepare_chat_generation(
         prompt_history=prompt_history,
         web_context_text=web_outcome.context_text,
         paper_context_text=paper_outcome.context_text,
+        web_invoked=web_outcome.invoked,
+        paper_invoked=paper_outcome.invoked,
     )
     return [*web_outcome.events, *paper_outcome.events], request
 
@@ -529,7 +571,7 @@ async def _generate_and_store_title(
     conversation_id: UUID,
     owner_id: UUID,
 ) -> None:
-    """Best-effort, Groq-only one-time title generation from the first question."""
+    """Best-effort one-time title generation with a model-independent fallback."""
 
     token = await conversation_service.claim_title_generation(
         conversation_id=conversation_id,
@@ -548,38 +590,43 @@ async def _generate_and_store_title(
             )
             return
 
-        result = await generation_service.generate(
-            provider=GenerationProvider.GROQ,
-            request=GenerationRequest(
-                prompt_context=PromptContext(context="", chunks=[]),
-                system_prompt=(
-                    "Write a concise title of at most eight words for the user's "
-                    "question below. Use only the question's explicit subject; do "
-                    "not infer a different subject or expand acronyms. Return only "
-                    "the title, with no quotation marks or ending punctuation."
+        try:
+            result = await generation_service.generate(
+                provider=GenerationProvider.GROQ,
+                request=GenerationRequest(
+                    prompt_context=PromptContext(context="", chunks=[]),
+                    system_prompt=(
+                        "Write a concise title of at most eight words for the user's "
+                        "question below. Use only the question's explicit subject; do "
+                        "not infer a different subject or expand acronyms. Return only "
+                        "the title, with no quotation marks or ending punctuation."
+                    ),
+                    user_prompt=f"First user question: {first_question}",
+                    owner_id=owner_id,
+                    conversation_id=conversation_id,
+                    # Reasoning-capable models may spend part of their completion
+                    # budget before producing visible answer text.
+                    max_tokens=128,
+                    temperature=0,
+                    cache_policy=CachePolicy.NEVER,
+                    metadata={"usage_category": "conversation_title"},
+                    artifact_runtime=ArtifactRuntime.CHAT,
                 ),
-                user_prompt=f"First user question: {first_question}",
-                owner_id=owner_id,
-                conversation_id=conversation_id,
-                max_tokens=24,
-                temperature=0,
-                cache_policy=CachePolicy.NEVER,
-                metadata={"usage_category": "conversation_title"},
-                artifact_runtime=ArtifactRuntime.CHAT,
-            ),
+            )
+            title = " ".join(result.content.strip().strip('"').split())[:255]
+        except Exception as exc:
+            logger.warning(
+                "chat.title_generation_model_failed",
+                conversation_id=str(conversation_id),
+                error_type=type(exc).__name__,
+            )
+            title = ""
+
+        await conversation_service.complete_title_generation(
+            conversation_id=conversation_id,
+            token=token,
+            title=title or _fallback_conversation_title(first_question),
         )
-        title = " ".join(result.content.strip().strip('"').split())[:255]
-        if title:
-            await conversation_service.complete_title_generation(
-                conversation_id=conversation_id,
-                token=token,
-                title=title,
-            )
-        else:
-            await conversation_service.release_title_generation(
-                conversation_id=conversation_id,
-                token=token,
-            )
     except Exception as exc:
         await conversation_service.release_title_generation(
             conversation_id=conversation_id,
@@ -591,6 +638,13 @@ async def _generate_and_store_title(
             error_type=type(exc).__name__,
             error=str(exc),
         )
+
+
+def _fallback_conversation_title(first_question: str) -> str:
+    """Derive a stable sidebar title when the optional title model fails."""
+
+    words = first_question.strip().split()[:8]
+    return " ".join(words).strip(" \t\r\n\"'.,!?;:")[:255] or "New chat"
 
 
 async def _chain_events(
@@ -980,5 +1034,215 @@ async def stream_chat_ws(
                     session_state_updater=session_state_updater,
                 ),
             )
+        finally:
+            await websocket.close()
+
+
+@router.websocket("/voice")
+async def stream_chat_voice(
+    websocket: WebSocket,
+    token: str,
+) -> None:
+    """
+    Voice counterpart to `WS /chat/ws` (docs/todo/voice-chat-poc-implementation-plan.md).
+    Deliberately a separate route, not a modification of `stream_chat_ws`
+    above: FastAPI dispatches WebSocket connections by path, so voice
+    traffic never enters that handler's code path and vice versa -- typed
+    chat is unaffected by this route's existence, behavior, or bugs.
+    Entirely dark unless `settings.voice_enabled` and both vendor
+    providers are configured.
+
+    Same auth/rate-limit/session/persistence pipeline as `stream_chat_ws`.
+    The only real difference is where `user_prompt` comes from (Deepgram
+    streaming STT instead of one JSON field) and an ElevenLabs streaming
+    TTS tap on the response -- the transcript is handed to the exact same
+    `_prepare_chat_generation`/`streaming_service.stream_generate`/
+    `_persist_on_complete` pipeline a typed message would use, so
+    guardrails, memory, and RAG retrieval all apply identically.
+
+    Protocol: connect, send one JSON text frame matching
+    `VoiceStreamRequest` (same fields as `ChatStreamRequest` minus
+    `user_prompt`), then stream raw 16kHz mono linear16 PCM audio as
+    binary frames. The server replies with `voice.transcript` JSON frames
+    as Deepgram produces interim/final results, then the same
+    `StreamEvent` JSON frames `/chat/ws` sends, interleaved with binary
+    TTS audio frames -- repeating per turn until the client disconnects.
+    """
+
+    await websocket.accept()
+
+    if not settings.voice_enabled:
+        await websocket.close(
+            code=status.WS_1008_POLICY_VIOLATION,
+            reason="Voice is not enabled.",
+        )
+        return
+
+    stt_provider = create_voice_stt_provider()
+    if stt_provider is None:
+        await websocket.close(
+            code=status.WS_1008_POLICY_VIOLATION,
+            reason="Voice speech-to-text is not configured.",
+        )
+        return
+
+    tts_provider = create_voice_tts_provider()
+
+    async with SessionFactory() as session:
+        try:
+            current_user = await authenticate_token(token, session)
+        except AppException as exc:
+            await websocket.close(
+                code=status.WS_1008_POLICY_VIOLATION,
+                reason=exc.message,
+            )
+            return
+
+        try:
+            await _check_chat_rate_limit(rate_limiter=get_rate_limiter(), owner_id=current_user.id)
+        except RateLimitExceededException as exc:
+            await websocket.close(
+                code=status.WS_1013_TRY_AGAIN_LATER,
+                reason=exc.message,
+            )
+            return
+
+        raw_handshake = await websocket.receive_text()
+
+        try:
+            handshake = VoiceStreamRequest.model_validate_json(raw_handshake)
+        except ValidationError as exc:
+            await websocket.close(
+                code=status.WS_1008_POLICY_VIOLATION,
+                reason=str(exc),
+            )
+            return
+
+        conversation_service = ConversationService(session)
+        streaming_service = get_streaming_service()
+        generation_service = get_generation_service()
+        conversation_artifact_writer = get_conversation_artifact_writer()
+        artifact_policy_service = get_artifact_policy_service_dependency()
+        # Same rationale as `stream_chat_ws` above for using the `build_*`
+        # factories instead of `Depends` -- this route manages its own
+        # `session` outside FastAPI's dependency graph.
+        memory_service = build_memory_service(session)
+        memory_extraction_service = build_memory_extraction_service()
+        session_state_updater = build_session_state_updater_service()
+        web_search = create_web_search_service()
+        web_search_necessity = create_web_search_necessity_service()
+        paper_search = create_paper_search_service()
+        paper_query_extraction = create_paper_query_extraction_service()
+
+        conversation = await conversation_service.get_or_create(
+            conversation_id=handshake.conversation_id,
+            owner_id=current_user.id,
+        )
+
+        await _persist_conversation_identity(
+            conversation_artifact_writer=conversation_artifact_writer,
+            conversation_id=conversation.id,
+            owner_id=conversation.owner_id,
+            title=conversation.title,
+            created_at=conversation.created_at,
+        )
+
+        try:
+            while True:
+                try:
+                    transcript = await collect_voice_turn_transcript(
+                        websocket=websocket,
+                        stt=stt_provider,
+                    )
+                except WebSocketDisconnect:
+                    raise
+                except Exception:
+                    # Symmetric with the generation-phase catch below: an
+                    # STT-phase failure (e.g. a Deepgram reconnect for
+                    # this turn erroring) must not silently kill the
+                    # whole session either -- see
+                    # docs/todo/voice-chat-poc-implementation-plan.md's
+                    # 2026-08-27 entries, where exactly this asymmetry
+                    # (generation covered, STT collection not) was found
+                    # live: the session survived a couple of turns then
+                    # died with no visible error.
+                    logger.exception("voice.chat.stt_phase_failed")
+                    await websocket.send_json(
+                        {"type": "error", "content": "Listening failed. Try again."},
+                    )
+                    continue
+
+                if transcript is None:
+                    break
+
+                turn_started_at = time.monotonic()
+
+                try:
+                    payload = ChatStreamRequest(
+                        user_prompt=transcript,
+                        conversation_id=conversation.id,
+                        provider=handshake.provider,
+                        web_search_enabled=handshake.web_search_enabled,
+                        paper_search_enabled=handshake.paper_search_enabled,
+                    )
+
+                    tool_events, request = await _prepare_chat_generation(
+                        payload=payload,
+                        conversation_service=conversation_service,
+                        conversation=conversation,
+                        owner_id=current_user.id,
+                        memory_service=memory_service,
+                        web_search=web_search,
+                        web_search_necessity=web_search_necessity,
+                        paper_search=paper_search,
+                        paper_query_extraction=paper_query_extraction,
+                    )
+
+                    events = _chain_events(
+                        tool_events,
+                        streaming_service.stream_generate(
+                            request=request,
+                            provider=payload.provider,
+                        ),
+                    )
+
+                    await stream_voice_response(
+                        websocket=websocket,
+                        events=_persist_on_complete(
+                            events=events,
+                            conversation_service=conversation_service,
+                            conversation_id=conversation.id,
+                            owner_id=current_user.id,
+                            user_prompt=payload.user_prompt,
+                            provider=payload.provider,
+                            conversation_artifact_writer=conversation_artifact_writer,
+                            artifact_policy_service=artifact_policy_service,
+                            generation_service=generation_service,
+                            memory_service=memory_service,
+                            memory_extraction_service=memory_extraction_service,
+                            session_state_updater=session_state_updater,
+                        ),
+                        tts=tts_provider,
+                    )
+                except Exception:
+                    # A turn failing must not leave the client's assistant
+                    # bubble frozen forever with no signal at all (see
+                    # docs/todo/voice-chat-poc-implementation-plan.md's
+                    # 2026-08-27 entries) -- surface it as a real `error`
+                    # frame and keep the connection open for the next
+                    # turn, rather than letting the exception propagate
+                    # and either crash the WS or hang silently.
+                    logger.exception("voice.chat.turn_failed")
+                    await websocket.send_json(
+                        {"type": "error", "content": "This turn failed. Try again."},
+                    )
+                    continue
+
+                get_metrics_recorder().record_duration(
+                    operation=VOICE_TURN_DURATION,
+                    duration_ms=(time.monotonic() - turn_started_at) * 1000,
+                )
+        except WebSocketDisconnect:
+            logger.info("voice.chat.client_disconnected")
         finally:
             await websocket.close()

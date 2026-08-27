@@ -1,127 +1,1321 @@
 {
   "version": "1.0",
   "relevance_level": "document",
-  "notes": "Document-level relevance judgments for the research-papers benchmark corpus. A chunk is treated as a hit for a query if its source document's filename appears in relevant_documents. Categories follow the Retrieval Evaluation v1 matrix: semantic, acronym, exact_keyword, code_entity.",
+  "notes": "Document-level relevance judgments for the research-papers benchmark corpus. A chunk is treated as a hit for a query if its source document's filename appears in relevant_documents. Categories follow the Retrieval Evaluation v1 matrix: semantic, acronym, exact_keyword, code_entity. q1-q20 cover the original 5-paper corpus (paper-001..005). q21-q160 (2026-08-11) cover the 45 papers added in paper-006..050, grouped into topic clusters (music/AI, mental health, cultural events, quantum computing, statistics education, climate change, personal finance, Sri Lanka language policy, seismic/tsunami, extraterrestrial life, misc/futurism) with cross-document queries wherever a question is genuinely answerable from multiple papers in the same cluster. Drafted by parallel research agents grounded directly in each paper's processed_document.json content, then verified programmatically: every retrieval_documents entry resolves to a real corpus filename.",
   "queries": [
     {
       "query_id": "q1",
       "query": "What are the main challenges practitioners face when preparing data for fine-tuning language models?",
       "category": "semantic",
-      "relevant_documents": ["data engineering .pdf"]
+      "relevant_documents": [
+        "data engineering .pdf"
+      ]
     },
     {
       "query_id": "q2",
       "query": "How can AI agent systems be governed to avoid unreliable or unbounded execution loops?",
       "category": "semantic",
-      "relevant_documents": ["Loop_Engineering_Revised.pdf"]
+      "relevant_documents": [
+        "Loop_Engineering_Revised.pdf"
+      ]
     },
     {
       "query_id": "q3",
       "query": "What recent advances and open challenges exist in the development of large language models?",
       "category": "semantic",
-      "relevant_documents": ["LLM_RESEARCH.pdf"]
+      "relevant_documents": [
+        "LLM_RESEARCH.pdf"
+      ]
     },
     {
       "query_id": "q4",
       "query": "How can researchers detect that a new job role is emerging in the labor market before it becomes formally recognized?",
       "category": "semantic",
-      "relevant_documents": ["Noise_is_Signal_Density-Based_Outliers_as_Leading_.pdf"]
+      "relevant_documents": [
+        "Noise_is_Signal_Density-Based_Outliers_as_Leading_.pdf"
+      ]
     },
     {
       "query_id": "q5",
       "query": "Why is early detection important for improving breast cancer outcomes in young women?",
       "category": "semantic",
-      "relevant_documents": ["151__CRC.pdfrevised.pdf"]
+      "relevant_documents": [
+        "151__CRC.pdfrevised.pdf"
+      ]
     },
     {
       "query_id": "q6",
       "query": "What is BSE?",
       "category": "acronym",
-      "relevant_documents": ["151__CRC.pdfrevised.pdf"]
+      "relevant_documents": [
+        "151__CRC.pdfrevised.pdf"
+      ]
     },
     {
       "query_id": "q7",
       "query": "What does EOS stand for in this research?",
       "category": "acronym",
-      "relevant_documents": ["Noise_is_Signal_Density-Based_Outliers_as_Leading_.pdf"]
+      "relevant_documents": [
+        "Noise_is_Signal_Density-Based_Outliers_as_Leading_.pdf"
+      ]
     },
     {
       "query_id": "q8",
       "query": "What is O*NET?",
       "category": "acronym",
-      "relevant_documents": ["Noise_is_Signal_Density-Based_Outliers_as_Leading_.pdf"]
+      "relevant_documents": [
+        "Noise_is_Signal_Density-Based_Outliers_as_Leading_.pdf"
+      ]
     },
     {
       "query_id": "q9",
       "query": "What does RAG stand for?",
       "category": "acronym",
-      "relevant_documents": ["LLM_RESEARCH.pdf"]
+      "relevant_documents": [
+        "LLM_RESEARCH.pdf"
+      ]
     },
     {
       "query_id": "q10",
       "query": "What does ReAct refer to in AI agent architectures?",
       "category": "acronym",
-      "relevant_documents": ["Loop_Engineering_Revised.pdf"]
+      "relevant_documents": [
+        "Loop_Engineering_Revised.pdf"
+      ]
     },
     {
       "query_id": "q11",
       "query": "Emergence-Density Inversion hypothesis",
       "category": "exact_keyword",
-      "relevant_documents": ["Noise_is_Signal_Density-Based_Outliers_as_Leading_.pdf"]
+      "relevant_documents": [
+        "Noise_is_Signal_Density-Based_Outliers_as_Leading_.pdf"
+      ]
     },
     {
       "query_id": "q12",
       "query": "structured PowerPoint-based educational intervention for breast self-examination",
       "category": "exact_keyword",
-      "relevant_documents": ["151__CRC.pdfrevised.pdf"]
+      "relevant_documents": [
+        "151__CRC.pdfrevised.pdf"
+      ]
     },
     {
       "query_id": "q13",
       "query": "Reflexion AutoGen LangGraph agent orchestration frameworks",
       "category": "exact_keyword",
-      "relevant_documents": ["Loop_Engineering_Revised.pdf"]
+      "relevant_documents": [
+        "Loop_Engineering_Revised.pdf"
+      ]
     },
     {
       "query_id": "q14",
       "query": "self-instruct synthetic data generation from documents",
       "category": "exact_keyword",
-      "relevant_documents": ["data engineering .pdf"]
+      "relevant_documents": [
+        "data engineering .pdf"
+      ]
     },
     {
       "query_id": "q15",
       "query": "Emerging Occupation Score Temporal Velocity Cross-Platform Convergence",
       "category": "exact_keyword",
-      "relevant_documents": ["Noise_is_Signal_Density-Based_Outliers_as_Leading_.pdf"]
+      "relevant_documents": [
+        "Noise_is_Signal_Density-Based_Outliers_as_Leading_.pdf"
+      ]
     },
     {
       "query_id": "q16",
       "query": "How do you use the Anthropic Python client to generate synthetic training examples?",
       "category": "code_entity",
-      "relevant_documents": ["data engineering .pdf"]
+      "relevant_documents": [
+        "data engineering .pdf"
+      ]
     },
     {
       "query_id": "q17",
       "query": "Microsoft Agent Framework successor to AutoGen",
       "category": "code_entity",
-      "relevant_documents": ["Loop_Engineering_Revised.pdf"]
+      "relevant_documents": [
+        "Loop_Engineering_Revised.pdf"
+      ]
     },
     {
       "query_id": "q18",
       "query": "Isolation Forest LOF GLOSH BERTrend baseline comparison",
       "category": "code_entity",
-      "relevant_documents": ["Noise_is_Signal_Density-Based_Outliers_as_Leading_.pdf"]
+      "relevant_documents": [
+        "Noise_is_Signal_Density-Based_Outliers_as_Leading_.pdf"
+      ]
     },
     {
       "query_id": "q19",
       "query": "chatGPT multimodal LLM benchmarking datasets",
       "category": "code_entity",
-      "relevant_documents": ["LLM_RESEARCH.pdf"]
+      "relevant_documents": [
+        "LLM_RESEARCH.pdf"
+      ]
     },
     {
       "query_id": "q20",
       "query": "paired t-test Fisher's exact test statistical analysis",
       "category": "code_entity",
-      "relevant_documents": ["151__CRC.pdfrevised.pdf"]
+      "relevant_documents": [
+        "151__CRC.pdfrevised.pdf"
+      ]
+    },
+    {
+      "query_id": "q21",
+      "query": "How has music genre recognition research engaged with critiques of its own methodology and validity?",
+      "category": "semantic",
+      "relevant_documents": [
+        "A CRITICAL SURVEY OF RESEARCH IN MUSIC GENRE RECOGNITION.pdf"
+      ]
+    },
+    {
+      "query_id": "q22",
+      "query": "What does MGR stand for in this survey of music classification research?",
+      "category": "acronym",
+      "relevant_documents": [
+        "A CRITICAL SURVEY OF RESEARCH IN MUSIC GENRE RECOGNITION.pdf"
+      ]
+    },
+    {
+      "query_id": "q23",
+      "query": "560 publications about music genre recognition",
+      "category": "exact_keyword",
+      "relevant_documents": [
+        "A CRITICAL SURVEY OF RESEARCH IN MUSIC GENRE RECOGNITION.pdf"
+      ]
+    },
+    {
+      "query_id": "q24",
+      "query": "How does the perception of AI musicians and performers relate to how people evaluate AI-generated music?",
+      "category": "semantic",
+      "relevant_documents": [
+        "AI and Music- How do listeners and artists perceive it? An Empirical Study toward the Attitude of Humans to AI Music..pdf"
+      ]
+    },
+    {
+      "query_id": "q25",
+      "query": "What does PREAMP stand for in this study of AI music perception?",
+      "category": "acronym",
+      "relevant_documents": [
+        "AI and Music- How do listeners and artists perceive it? An Empirical Study toward the Attitude of Humans to AI Music..pdf"
+      ]
+    },
+    {
+      "query_id": "q26",
+      "query": "anthropomorphism, capabilities, fear, prejudice, bias, and acceptability",
+      "category": "exact_keyword",
+      "relevant_documents": [
+        "AI and Music- How do listeners and artists perceive it? An Empirical Study toward the Attitude of Humans to AI Music..pdf"
+      ]
+    },
+    {
+      "query_id": "q27",
+      "query": "What methodology did this systematic review use to identify and select studies on music genre classification?",
+      "category": "semantic",
+      "relevant_documents": [
+        "Artificial Intelligence in Music Genre Classification- A Systematic Review of Techniques, Applications, and Emerging Trends.pdf"
+      ]
+    },
+    {
+      "query_id": "q28",
+      "query": "What does PRISMA stand for in this systematic review of music genre classification research?",
+      "category": "acronym",
+      "relevant_documents": [
+        "Artificial Intelligence in Music Genre Classification- A Systematic Review of Techniques, Applications, and Emerging Trends.pdf"
+      ]
+    },
+    {
+      "query_id": "q29",
+      "query": "taxonomy of state-of-the-art methodologies",
+      "category": "exact_keyword",
+      "relevant_documents": [
+        "Artificial Intelligence in Music Genre Classification- A Systematic Review of Techniques, Applications, and Emerging Trends.pdf"
+      ]
+    },
+    {
+      "query_id": "q30",
+      "query": "What is optimal differentiation and how does this study test for its presence within music genres?",
+      "category": "semantic",
+      "relevant_documents": [
+        "Exploring Music Genres_ A Study of Optimal Differentiation by Fea.pdf"
+      ]
+    },
+    {
+      "query_id": "q31",
+      "query": "140,000 unique tracks from Spotify",
+      "category": "exact_keyword",
+      "relevant_documents": [
+        "Exploring Music Genres_ A Study of Optimal Differentiation by Fea.pdf"
+      ]
+    },
+    {
+      "query_id": "q32",
+      "query": "What emotions did participants report feeling in association with jazz, reggae, and disco music?",
+      "category": "semantic",
+      "relevant_documents": [
+        "Investigating the impact of different music genres on emotions and motivation.pdf"
+      ]
+    },
+    {
+      "query_id": "q33",
+      "query": "nostalgia and happiness while listening to jazz music",
+      "category": "exact_keyword",
+      "relevant_documents": [
+        "Investigating the impact of different music genres on emotions and motivation.pdf"
+      ]
+    },
+    {
+      "query_id": "q34",
+      "query": "Which machine learning model achieved the highest accuracy for music genre classification in this study?",
+      "category": "semantic",
+      "relevant_documents": [
+        "Music Genre Classification- Training an AI model.pdf"
+      ]
+    },
+    {
+      "query_id": "q35",
+      "query": "Short-Time Fourier Transform, and the extraction of Mel Cepstral Coefficients (MFCCs)",
+      "category": "exact_keyword",
+      "relevant_documents": [
+        "Music Genre Classification- Training an AI model.pdf"
+      ]
+    },
+    {
+      "query_id": "q36",
+      "query": "Which music genres significantly reduced stress levels among university students, and which increased them?",
+      "category": "semantic",
+      "relevant_documents": [
+        "Music Genres and Stress Reduction- A Comparative Experimental Study with University Students.pdf"
+      ]
+    },
+    {
+      "query_id": "q37",
+      "query": "What does PSS stand for in this stress-reduction study?",
+      "category": "acronym",
+      "relevant_documents": [
+        "Music Genres and Stress Reduction- A Comparative Experimental Study with University Students.pdf"
+      ]
+    },
+    {
+      "query_id": "q38",
+      "query": "What is the GTZAN dataset and why is it prominent in music genre classification research?",
+      "category": "code_entity",
+      "relevant_documents": [
+        "A CRITICAL SURVEY OF RESEARCH IN MUSIC GENRE RECOGNITION.pdf",
+        "Artificial Intelligence in Music Genre Classification- A Systematic Review of Techniques, Applications, and Emerging Trends.pdf",
+        "Music Genre Classification- Training an AI model.pdf"
+      ]
+    },
+    {
+      "query_id": "q39",
+      "query": "What machine learning and deep learning techniques have been applied to music genre classification?",
+      "category": "semantic",
+      "relevant_documents": [
+        "A CRITICAL SURVEY OF RESEARCH IN MUSIC GENRE RECOGNITION.pdf",
+        "Artificial Intelligence in Music Genre Classification- A Systematic Review of Techniques, Applications, and Emerging Trends.pdf",
+        "Music Genre Classification- Training an AI model.pdf"
+      ]
+    },
+    {
+      "query_id": "q40",
+      "query": "How does listening to different genres of music affect people's emotional state or stress levels?",
+      "category": "semantic",
+      "relevant_documents": [
+        "Investigating the impact of different music genres on emotions and motivation.pdf",
+        "Music Genres and Stress Reduction- A Comparative Experimental Study with University Students.pdf"
+      ]
+    },
+    {
+      "query_id": "q41",
+      "query": "How do longitudinal care trajectories among cancer patients relate to their risk of mortality?",
+      "category": "semantic",
+      "relevant_documents": [
+        "Care Trajectories Are Linked to Mental Health and Mortality in Cancer Patients.pdf"
+      ]
+    },
+    {
+      "query_id": "q42",
+      "query": "What does HADS stand for?",
+      "category": "acronym",
+      "relevant_documents": [
+        "Care Trajectories Are Linked to Mental Health and Mortality in Cancer Patients.pdf"
+      ]
+    },
+    {
+      "query_id": "q43",
+      "query": "Post-Traumatic Symptom Scale (PTSS-10)",
+      "category": "exact_keyword",
+      "relevant_documents": [
+        "Care Trajectories Are Linked to Mental Health and Mortality in Cancer Patients.pdf"
+      ]
+    },
+    {
+      "query_id": "q44",
+      "query": "How does engagement in Dance Movement Therapy relate to stress and mental health compared to Indian classical dance practice?",
+      "category": "semantic",
+      "relevant_documents": [
+        "Impact of Dance and Movement on Stress and Mental Health.pdf"
+      ]
+    },
+    {
+      "query_id": "q45",
+      "query": "cortisol awakening response dance movement training",
+      "category": "exact_keyword",
+      "relevant_documents": [
+        "Impact of Dance and Movement on Stress and Mental Health.pdf"
+      ]
+    },
+    {
+      "query_id": "q46",
+      "query": "T-test and Pearson correlation coefficient statistical analysis",
+      "category": "code_entity",
+      "relevant_documents": [
+        "Impact of Dance and Movement on Stress and Mental Health.pdf"
+      ]
+    },
+    {
+      "query_id": "q47",
+      "query": "Why are traditional episodic neuropsychological assessments poorly suited to capturing the dynamic nature of ADHD?",
+      "category": "semantic",
+      "relevant_documents": [
+        "Position- AI Will Transform Neuropsychology Through Mental Health Digital Twins for Dynamic Mental Health Care, Especially for ADHD.pdf"
+      ]
+    },
+    {
+      "query_id": "q48",
+      "query": "What does MHDT stand for?",
+      "category": "acronym",
+      "relevant_documents": [
+        "Position- AI Will Transform Neuropsychology Through Mental Health Digital Twins for Dynamic Mental Health Care, Especially for ADHD.pdf"
+      ]
+    },
+    {
+      "query_id": "q49",
+      "query": "How does PsyCLIENT use conversational trajectory modeling to generate realistic simulated counseling clients?",
+      "category": "semantic",
+      "relevant_documents": [
+        "PsyCLIENT- Client Simulation via Conversational Trajectory Modeling for Trainee Practice and Model Evaluation in Mental Health Counseling.pdf"
+      ]
+    },
+    {
+      "query_id": "q50",
+      "query": "conversational trajectory modeling client profile behavior labels",
+      "category": "exact_keyword",
+      "relevant_documents": [
+        "PsyCLIENT- Client Simulation via Conversational Trajectory Modeling for Trainee Practice and Model Evaluation in Mental Health Counseling.pdf"
+      ]
+    },
+    {
+      "query_id": "q51",
+      "query": "BLEU ROUGE BERTScore LLM-as-a-judge evaluation baselines",
+      "category": "code_entity",
+      "relevant_documents": [
+        "PsyCLIENT- Client Simulation via Conversational Trajectory Modeling for Trainee Practice and Model Evaluation in Mental Health Counseling.pdf"
+      ]
+    },
+    {
+      "query_id": "q52",
+      "query": "How can persistent homology and topological features like loops and flares reveal patterns of stagnation versus growth in individual mental health journeys?",
+      "category": "semantic",
+      "relevant_documents": [
+        "The Topology of Recovery- Using Persistent Homology to Map Individual Mental Health Journeys in Online Communities.pdf"
+      ]
+    },
+    {
+      "query_id": "q53",
+      "query": "What does TDA stand for?",
+      "category": "acronym",
+      "relevant_documents": [
+        "The Topology of Recovery- Using Persistent Homology to Map Individual Mental Health Journeys in Online Communities.pdf"
+      ]
+    },
+    {
+      "query_id": "q54",
+      "query": "Semantic Recovery Velocity trauma center embedding space",
+      "category": "exact_keyword",
+      "relevant_documents": [
+        "The Topology of Recovery- Using Persistent Homology to Map Individual Mental Health Journeys in Online Communities.pdf"
+      ]
+    },
+    {
+      "query_id": "q55",
+      "query": "Random Forest classifiers 5-fold stratified cross-validation temporal holdout",
+      "category": "code_entity",
+      "relevant_documents": [
+        "The Topology of Recovery- Using Persistent Homology to Map Individual Mental Health Journeys in Online Communities.pdf"
+      ]
+    },
+    {
+      "query_id": "q56",
+      "query": "How do these studies move beyond static, single-snapshot assessments to model mental health as a dynamic process over time?",
+      "category": "semantic",
+      "relevant_documents": [
+        "Care Trajectories Are Linked to Mental Health and Mortality in Cancer Patients.pdf",
+        "Position- AI Will Transform Neuropsychology Through Mental Health Digital Twins for Dynamic Mental Health Care, Especially for ADHD.pdf",
+        "The Topology of Recovery- Using Persistent Homology to Map Individual Mental Health Journeys in Online Communities.pdf"
+      ]
+    },
+    {
+      "query_id": "q57",
+      "query": "Which standardized self-report psychometric instruments were used to measure participants' mental health or stress levels?",
+      "category": "semantic",
+      "relevant_documents": [
+        "Care Trajectories Are Linked to Mental Health and Mortality in Cancer Patients.pdf",
+        "Impact of Dance and Movement on Stress and Mental Health.pdf"
+      ]
+    },
+    {
+      "query_id": "q58",
+      "query": "How does strategic management contribute to sustainable relationships between local residents and tourists at cultural events?",
+      "category": "semantic",
+      "relevant_documents": [
+        "Cultural Events as a Strategy for Sustainable Relationships among Key Players.pdf"
+      ]
+    },
+    {
+      "query_id": "q59",
+      "query": "Umkhosi weLembe",
+      "category": "exact_keyword",
+      "relevant_documents": [
+        "Cultural Events as a Strategy for Sustainable Relationships among Key Players.pdf"
+      ]
+    },
+    {
+      "query_id": "q60",
+      "query": "purposive sampling thematic analysis face-to-face interviews",
+      "category": "code_entity",
+      "relevant_documents": [
+        "Cultural Events as a Strategy for Sustainable Relationships among Key Players.pdf"
+      ]
+    },
+    {
+      "query_id": "q61",
+      "query": "How can festivals and events function as spaces of authorised transgression from normal social conventions?",
+      "category": "semantic",
+      "relevant_documents": [
+        "Socio-cultural impacts of events- meanings, authorised transgression and social capital.pdf"
+      ]
+    },
+    {
+      "query_id": "q62",
+      "query": "authorised transgression liminal times and spaces",
+      "category": "exact_keyword",
+      "relevant_documents": [
+        "Socio-cultural impacts of events- meanings, authorised transgression and social capital.pdf"
+      ]
+    },
+    {
+      "query_id": "q63",
+      "query": "What methodological approaches have been used in the literature to measure the impacts of major cultural events and festivals?",
+      "category": "semantic",
+      "relevant_documents": [
+        "easuring the impact of major cultural events- a literature revie.pdf"
+      ]
+    },
+    {
+      "query_id": "q64",
+      "query": "Choice Experiments visitor utility South African National Arts Festival",
+      "category": "exact_keyword",
+      "relevant_documents": [
+        "easuring the impact of major cultural events- a literature revie.pdf"
+      ]
+    },
+    {
+      "query_id": "q65",
+      "query": "What non-economic, socio-cultural impacts do cultural events and festivals have on host communities and key stakeholders?",
+      "category": "semantic",
+      "relevant_documents": [
+        "Cultural Events as a Strategy for Sustainable Relationships among Key Players.pdf",
+        "Socio-cultural impacts of events- meanings, authorised transgression and social capital.pdf",
+        "easuring the impact of major cultural events- a literature revie.pdf"
+      ]
+    },
+    {
+      "query_id": "q66",
+      "query": "Why has research on cultural events historically focused on economic impact measurement rather than social or cultural impacts?",
+      "category": "semantic",
+      "relevant_documents": [
+        "Socio-cultural impacts of events- meanings, authorised transgression and social capital.pdf",
+        "easuring the impact of major cultural events- a literature revie.pdf"
+      ]
+    },
+    {
+      "query_id": "q67",
+      "query": "What is a qubit and how does it differ from a classical bit?",
+      "category": "semantic",
+      "relevant_documents": [
+        "Quantum Computing- A Game-Changer for Libraries and Information Centers .pdf",
+        "Quantum Computing- Principles and Applications .pdf",
+        "Quantum Computing- Vision and Challenges.pdf"
+      ]
+    },
+    {
+      "query_id": "q68",
+      "query": "How can quantum computing threaten or strengthen cryptographic security?",
+      "category": "semantic",
+      "relevant_documents": [
+        "Artificial intelligence and quantum computing white paper.pdf",
+        "Quantum Computing- A Game-Changer for Libraries and Information Centers .pdf",
+        "Quantum Computing- Principles and Applications .pdf",
+        "Quantum Computing- Vision and Challenges.pdf"
+      ]
+    },
+    {
+      "query_id": "q69",
+      "query": "Grover's algorithm for searching an unsorted database",
+      "category": "exact_keyword",
+      "relevant_documents": [
+        "Quantum Computing- A Game-Changer for Libraries and Information Centers .pdf",
+        "Quantum Computing- Principles and Applications .pdf"
+      ]
+    },
+    {
+      "query_id": "q70",
+      "query": "What does NISQ stand for in quantum computing?",
+      "category": "acronym",
+      "relevant_documents": [
+        "Artificial intelligence and quantum computing white paper.pdf",
+        "Quantum Computing- Vision and Challenges.pdf"
+      ]
+    },
+    {
+      "query_id": "q71",
+      "query": "quantum approximate optimization algorithm QAOA BILP-Q coalition formation",
+      "category": "code_entity",
+      "relevant_documents": [
+        "Artificial intelligence and quantum computing white paper.pdf"
+      ]
+    },
+    {
+      "query_id": "q72",
+      "query": "How can quantum computing enhance library and information center operations?",
+      "category": "semantic",
+      "relevant_documents": [
+        "Quantum Computing- A Game-Changer for Libraries and Information Centers .pdf"
+      ]
+    },
+    {
+      "query_id": "q73",
+      "query": "transforming libraries into more efficient and effective information hubs",
+      "category": "exact_keyword",
+      "relevant_documents": [
+        "Quantum Computing- A Game-Changer for Libraries and Information Centers .pdf"
+      ]
+    },
+    {
+      "query_id": "q74",
+      "query": "Qiskit IBM Q System One D-Wave 2000Q",
+      "category": "code_entity",
+      "relevant_documents": [
+        "Quantum Computing- Principles and Applications .pdf"
+      ]
+    },
+    {
+      "query_id": "q75",
+      "query": "What does QKD stand for and how does it achieve unbreakable security?",
+      "category": "acronym",
+      "relevant_documents": [
+        "Quantum Computing- Principles and Applications .pdf"
+      ]
+    },
+    {
+      "query_id": "q76",
+      "query": "What are the main obstacles to building large-scale, fault-tolerant quantum computers?",
+      "category": "semantic",
+      "relevant_documents": [
+        "Quantum Computing- Vision and Challenges.pdf"
+      ]
+    },
+    {
+      "query_id": "q77",
+      "query": "Variational Quantum Eigensolver VQE hybrid quantum-classical algorithm",
+      "category": "code_entity",
+      "relevant_documents": [
+        "Quantum Computing- Vision and Challenges.pdf"
+      ]
+    },
+    {
+      "query_id": "q78",
+      "query": "How is statistical significance evaluated in research involving probability and statistics?",
+      "category": "semantic",
+      "relevant_documents": [
+        "The impact of a training cycle on statistics and probability for future primary schoolteachers with a gender-focused approach within the framework of education for sustainable development.pdf",
+        "USE OF PROBABILITY IN STATISTICS- A STUDY.pdf"
+      ]
+    },
+    {
+      "query_id": "q79",
+      "query": "What methodology was used to train future primary school teachers in statistics and probability with a gender-focused, sustainability-oriented approach?",
+      "category": "semantic",
+      "relevant_documents": [
+        "The impact of a training cycle on statistics and probability for future primary schoolteachers with a gender-focused approach within the framework of education for sustainable development.pdf"
+      ]
+    },
+    {
+      "query_id": "q80",
+      "query": "didactic-mathematical knowledge and competencies model",
+      "category": "exact_keyword",
+      "relevant_documents": [
+        "The impact of a training cycle on statistics and probability for future primary schoolteachers with a gender-focused approach within the framework of education for sustainable development.pdf"
+      ]
+    },
+    {
+      "query_id": "q81",
+      "query": "Student's t-test Kolmogorov-Smirnov Shapiro-Wilk normality testing",
+      "category": "code_entity",
+      "relevant_documents": [
+        "The impact of a training cycle on statistics and probability for future primary schoolteachers with a gender-focused approach within the framework of education for sustainable development.pdf"
+      ]
+    },
+    {
+      "query_id": "q82",
+      "query": "What foundational probability concepts do data scientists need to understand, according to this paper?",
+      "category": "semantic",
+      "relevant_documents": [
+        "USE OF PROBABILITY IN STATISTICS- A STUDY.pdf"
+      ]
+    },
+    {
+      "query_id": "q83",
+      "query": "Addition and Multiplication Rules probability model sample space",
+      "category": "exact_keyword",
+      "relevant_documents": [
+        "USE OF PROBABILITY IN STATISTICS- A STUDY.pdf"
+      ]
+    },
+    {
+      "query_id": "q84",
+      "query": "What role has the Intergovernmental Panel on Climate Change (IPCC) played in climate change research and policy?",
+      "category": "semantic",
+      "relevant_documents": [
+        "report on climate change.pdf",
+        "understanding the global climate change.pdf"
+      ]
+    },
+    {
+      "query_id": "q85",
+      "query": "How is climate change expected to affect food security and agriculture in Africa?",
+      "category": "semantic",
+      "relevant_documents": [
+        "report on climate change.pdf"
+      ]
+    },
+    {
+      "query_id": "q86",
+      "query": "Clean Development Mechanism flexibility mechanisms Kyoto Protocol",
+      "category": "exact_keyword",
+      "relevant_documents": [
+        "report on climate change.pdf"
+      ]
+    },
+    {
+      "query_id": "q87",
+      "query": "What does CDM stand for in the context of the Kyoto Protocol?",
+      "category": "acronym",
+      "relevant_documents": [
+        "report on climate change.pdf"
+      ]
+    },
+    {
+      "query_id": "q88",
+      "query": "How does this paper use climate change as a context for teaching research skills to secondary school students?",
+      "category": "semantic",
+      "relevant_documents": [
+        "understanding the global climate change.pdf"
+      ]
+    },
+    {
+      "query_id": "q89",
+      "query": "constructivist ideas in interdisciplinary and project-based learning",
+      "category": "exact_keyword",
+      "relevant_documents": [
+        "understanding the global climate change.pdf"
+      ]
+    },
+    {
+      "query_id": "q90",
+      "query": "What kinds of problems do people discuss most often when seeking personal finance advice in the Reddit Personal Finance community?",
+      "category": "semantic",
+      "relevant_documents": [
+        "A Study of Personal Finance Practices. The Case of Online Discussions on Reddit .pdf"
+      ]
+    },
+    {
+      "query_id": "q91",
+      "query": "What does RAKE stand for in the keyword extraction methodology used to analyze Reddit finance discussions?",
+      "category": "acronym",
+      "relevant_documents": [
+        "A Study of Personal Finance Practices. The Case of Online Discussions on Reddit .pdf"
+      ]
+    },
+    {
+      "query_id": "q92",
+      "query": "user pains and jobs-to-be-done",
+      "category": "exact_keyword",
+      "relevant_documents": [
+        "A Study of Personal Finance Practices. The Case of Online Discussions on Reddit .pdf"
+      ]
+    },
+    {
+      "query_id": "q93",
+      "query": "How does exposure to mandatory high school financial literacy or mathematics education affect the debt outcomes of young adults?",
+      "category": "semantic",
+      "relevant_documents": [
+        "Financial Education and the Debt Behavior of the Young.pdf"
+      ]
+    },
+    {
+      "query_id": "q94",
+      "query": "What does NCEE stand for in the context of tracking state economic and financial literacy education requirements?",
+      "category": "acronym",
+      "relevant_documents": [
+        "Financial Education and the Debt Behavior of the Young.pdf"
+      ]
+    },
+    {
+      "query_id": "q95",
+      "query": "quarterly Equifax credit reports",
+      "category": "exact_keyword",
+      "relevant_documents": [
+        "Financial Education and the Debt Behavior of the Young.pdf"
+      ]
+    },
+    {
+      "query_id": "q96",
+      "query": "Does taking a personal finance course in college increase students' financial knowledge and improve their financial behaviors?",
+      "category": "semantic",
+      "relevant_documents": [
+        "Personal Financial Knowledge of College Students.pdf"
+      ]
+    },
+    {
+      "query_id": "q97",
+      "query": "MyUNiverse",
+      "category": "exact_keyword",
+      "relevant_documents": [
+        "Personal Financial Knowledge of College Students.pdf"
+      ]
+    },
+    {
+      "query_id": "q98",
+      "query": "ANOVA and T-tests for financial knowledge score differences",
+      "category": "code_entity",
+      "relevant_documents": [
+        "Personal Financial Knowledge of College Students.pdf"
+      ]
+    },
+    {
+      "query_id": "q99",
+      "query": "What factors affect personal financial management behaviour among lower-income people in Sri Lanka?",
+      "category": "semantic",
+      "relevant_documents": [
+        "Personal Financial Management Behaviour of Lower Income People in Batticaloa District.pdf"
+      ]
+    },
+    {
+      "query_id": "q100",
+      "query": "Manmunai North Divisional Secretariat area",
+      "category": "exact_keyword",
+      "relevant_documents": [
+        "Personal Financial Management Behaviour of Lower Income People in Batticaloa District.pdf"
+      ]
+    },
+    {
+      "query_id": "q101",
+      "query": "Cronbach's alpha reliability test",
+      "category": "code_entity",
+      "relevant_documents": [
+        "Personal Financial Management Behaviour of Lower Income People in Batticaloa District.pdf"
+      ]
+    },
+    {
+      "query_id": "q102",
+      "query": "What do these studies find about the general level of financial literacy or financial knowledge among the populations they study?",
+      "category": "semantic",
+      "relevant_documents": [
+        "A Study of Personal Finance Practices. The Case of Online Discussions on Reddit .pdf",
+        "Financial Education and the Debt Behavior of the Young.pdf",
+        "Personal Financial Knowledge of College Students.pdf",
+        "Personal Financial Management Behaviour of Lower Income People in Batticaloa District.pdf"
+      ]
+    },
+    {
+      "query_id": "q103",
+      "query": "What is the relationship between financial education, such as coursework or training, and financial behavior or outcomes?",
+      "category": "semantic",
+      "relevant_documents": [
+        "Financial Education and the Debt Behavior of the Young.pdf",
+        "Personal Financial Knowledge of College Students.pdf"
+      ]
+    },
+    {
+      "query_id": "q104",
+      "query": "Why did the 1956 Sinhala Only Act contribute to ethnic tension and civil war in Sri Lanka?",
+      "category": "semantic",
+      "relevant_documents": [
+        "LANGUAGE POLICY IN SRI LANKA CRITICAL JUNCTURES AND RESISTANCE FACTORS PREVENTING SUCCESSFUL IMPLEMENTATION.pdf"
+      ]
+    },
+    {
+      "query_id": "q105",
+      "query": "What does LTTE stand for in the context of the Sri Lankan civil war?",
+      "category": "acronym",
+      "relevant_documents": [
+        "LANGUAGE POLICY IN SRI LANKA CRITICAL JUNCTURES AND RESISTANCE FACTORS PREVENTING SUCCESSFUL IMPLEMENTATION.pdf"
+      ]
+    },
+    {
+      "query_id": "q106",
+      "query": "ethnic outbidding",
+      "category": "exact_keyword",
+      "relevant_documents": [
+        "LANGUAGE POLICY IN SRI LANKA CRITICAL JUNCTURES AND RESISTANCE FACTORS PREVENTING SUCCESSFUL IMPLEMENTATION.pdf"
+      ]
+    },
+    {
+      "query_id": "q107",
+      "query": "Critical Juncture Framework",
+      "category": "code_entity",
+      "relevant_documents": [
+        "LANGUAGE POLICY IN SRI LANKA CRITICAL JUNCTURES AND RESISTANCE FACTORS PREVENTING SUCCESSFUL IMPLEMENTATION.pdf"
+      ]
+    },
+    {
+      "query_id": "q108",
+      "query": "What psychological challenges do secondary ESL students face in Sri Lanka?",
+      "category": "semantic",
+      "relevant_documents": [
+        "Obstacles in second language acquisition- Linguistic, psychological, social, cultural, and pedagogical challenges with a focus on secondary ESL Education in Sri Lanka.pdf"
+      ]
+    },
+    {
+      "query_id": "q109",
+      "query": "English has a stress-timed rhythm while Sinhala and Tamil have syllable-timed rhythm",
+      "category": "exact_keyword",
+      "relevant_documents": [
+        "Obstacles in second language acquisition- Linguistic, psychological, social, cultural, and pedagogical challenges with a focus on secondary ESL Education in Sri Lanka.pdf"
+      ]
+    },
+    {
+      "query_id": "q110",
+      "query": "TBLT or CBI language teaching approaches",
+      "category": "code_entity",
+      "relevant_documents": [
+        "Obstacles in second language acquisition- Linguistic, psychological, social, cultural, and pedagogical challenges with a focus on secondary ESL Education in Sri Lanka.pdf"
+      ]
+    },
+    {
+      "query_id": "q111",
+      "query": "What did teachers and students think about using Sinhala versus English as the medium of instruction in Sri Lankan schools?",
+      "category": "semantic",
+      "relevant_documents": [
+        "STUDY ON MEDIUM OF INSTRUCTION, NATIONAL AND INTERNATIONAL LANGUAGES IN GENERAL EDUCATION IN SRI LANKA.pdf"
+      ]
+    },
+    {
+      "query_id": "q112",
+      "query": "What does CLIL stand for in the discussion of bilingual education methodology?",
+      "category": "acronym",
+      "relevant_documents": [
+        "STUDY ON MEDIUM OF INSTRUCTION, NATIONAL AND INTERNATIONAL LANGUAGES IN GENERAL EDUCATION IN SRI LANKA.pdf"
+      ]
+    },
+    {
+      "query_id": "q113",
+      "query": "Alternative Bilingual Schools Project",
+      "category": "exact_keyword",
+      "relevant_documents": [
+        "STUDY ON MEDIUM OF INSTRUCTION, NATIONAL AND INTERNATIONAL LANGUAGES IN GENERAL EDUCATION IN SRI LANKA.pdf"
+      ]
+    },
+    {
+      "query_id": "q114",
+      "query": "How does the language used in education relate to ethnic identity and national integration in Sri Lanka?",
+      "category": "semantic",
+      "relevant_documents": [
+        "LANGUAGE POLICY IN SRI LANKA CRITICAL JUNCTURES AND RESISTANCE FACTORS PREVENTING SUCCESSFUL IMPLEMENTATION.pdf",
+        "STUDY ON MEDIUM OF INSTRUCTION, NATIONAL AND INTERNATIONAL LANGUAGES IN GENERAL EDUCATION IN SRI LANKA.pdf"
+      ]
+    },
+    {
+      "query_id": "q115",
+      "query": "What role does teacher training play in the challenges facing English language education in Sri Lanka?",
+      "category": "semantic",
+      "relevant_documents": [
+        "Obstacles in second language acquisition- Linguistic, psychological, social, cultural, and pedagogical challenges with a focus on secondary ESL Education in Sri Lanka.pdf",
+        "STUDY ON MEDIUM OF INSTRUCTION, NATIONAL AND INTERNATIONAL LANGUAGES IN GENERAL EDUCATION IN SRI LANKA.pdf"
+      ]
+    },
+    {
+      "query_id": "q116",
+      "query": "How can machine learning and fragility analysis be combined to assess seismic vulnerability across an entire city's building stock rather than building by building?",
+      "category": "semantic",
+      "relevant_documents": [
+        "AI-Driven Seismic Vulnerability Assessment of Reinforced Concrete Buildings Using Machine Learning, Fragility Analysis, and GIS Integration.pdf"
+      ]
+    },
+    {
+      "query_id": "q117",
+      "query": "hybrid ML-fragility-GIS pipeline",
+      "category": "exact_keyword",
+      "relevant_documents": [
+        "AI-Driven Seismic Vulnerability Assessment of Reinforced Concrete Buildings Using Machine Learning, Fragility Analysis, and GIS Integration.pdf"
+      ]
+    },
+    {
+      "query_id": "q118",
+      "query": "Why is single-station earthquake early warning particularly valuable in subduction zones near populated coastlines?",
+      "category": "semantic",
+      "relevant_documents": [
+        "Detection of seismic signals by artificial intelligence.pdf"
+      ]
+    },
+    {
+      "query_id": "q119",
+      "query": "What does E3WS stand for?",
+      "category": "acronym",
+      "relevant_documents": [
+        "Detection of seismic signals by artificial intelligence.pdf"
+      ]
+    },
+    {
+      "query_id": "q120",
+      "query": "What does SASPe stand for?",
+      "category": "acronym",
+      "relevant_documents": [
+        "Detection of seismic signals by artificial intelligence.pdf"
+      ]
+    },
+    {
+      "query_id": "q121",
+      "query": "XGBoost ensemble model used for earthquake detection, P-phase picking, and source characterization in E3WS",
+      "category": "code_entity",
+      "relevant_documents": [
+        "Detection of seismic signals by artificial intelligence.pdf"
+      ]
+    },
+    {
+      "query_id": "q122",
+      "query": "What quantitative source parameters do seismologists estimate to characterize earthquakes for plate tectonics studies?",
+      "category": "semantic",
+      "relevant_documents": [
+        "EARTHQUAKE SOURCE MECHANISMS AND PLATE TECTONICS.pdf"
+      ]
+    },
+    {
+      "query_id": "q123",
+      "query": "Southern California Uplift",
+      "category": "exact_keyword",
+      "relevant_documents": [
+        "EARTHQUAKE SOURCE MECHANISMS AND PLATE TECTONICS.pdf"
+      ]
+    },
+    {
+      "query_id": "q124",
+      "query": "How can large language models be used to analyze public social media reactions to smartphone-based earthquake early warning alerts?",
+      "category": "semantic",
+      "relevant_documents": [
+        "Leveraging LLMs and Social Media to Understand User Perception of SmartphoneBased Earthquake Early Warnings.pdf"
+      ]
+    },
+    {
+      "query_id": "q125",
+      "query": "What does AEA stand for in Google's earthquake alert system?",
+      "category": "acronym",
+      "relevant_documents": [
+        "Leveraging LLMs and Social Media to Understand User Perception of SmartphoneBased Earthquake Early Warnings.pdf"
+      ]
+    },
+    {
+      "query_id": "q126",
+      "query": "timeliness is accuracy in the user's mind",
+      "category": "exact_keyword",
+      "relevant_documents": [
+        "Leveraging LLMs and Social Media to Understand User Perception of SmartphoneBased Earthquake Early Warnings.pdf"
+      ]
+    },
+    {
+      "query_id": "q127",
+      "query": "How can measurements of hydro-acoustic waves improve the speed and reliability of tsunami early warning systems?",
+      "category": "semantic",
+      "relevant_documents": [
+        "Tsunami Early Warning System based on Real-time Measurements of Hydro-acoustic Waves.pdf"
+      ]
+    },
+    {
+      "query_id": "q128",
+      "query": "What does TEWS stand for?",
+      "category": "acronym",
+      "relevant_documents": [
+        "Tsunami Early Warning System based on Real-time Measurements of Hydro-acoustic Waves.pdf"
+      ]
+    },
+    {
+      "query_id": "q129",
+      "query": "COMSOL Multiphysics finite element model of hydro-acoustic wave generation",
+      "category": "code_entity",
+      "relevant_documents": [
+        "Tsunami Early Warning System based on Real-time Measurements of Hydro-acoustic Waves.pdf"
+      ]
+    },
+    {
+      "query_id": "q130",
+      "query": "How have machine learning techniques been applied to earthquake-related engineering and monitoring problems, and which algorithms have proven most effective?",
+      "category": "semantic",
+      "relevant_documents": [
+        "AI-Driven Seismic Vulnerability Assessment of Reinforced Concrete Buildings Using Machine Learning, Fragility Analysis, and GIS Integration.pdf",
+        "Detection of seismic signals by artificial intelligence.pdf"
+      ]
+    },
+    {
+      "query_id": "q131",
+      "query": "How can real-time detection of precursor signals provide advance warning before the most damaging seismic or tsunami waves arrive?",
+      "category": "semantic",
+      "relevant_documents": [
+        "Detection of seismic signals by artificial intelligence.pdf",
+        "Leveraging LLMs and Social Media to Understand User Perception of SmartphoneBased Earthquake Early Warnings.pdf",
+        "Tsunami Early Warning System based on Real-time Measurements of Hydro-acoustic Waves.pdf"
+      ]
+    },
+    {
+      "query_id": "q132",
+      "query": "What do public opinion surveys reveal about people's beliefs regarding extraterrestrial life and government transparency about UFOs?",
+      "category": "semantic",
+      "relevant_documents": [
+        "Aliens- More Real Than Ever.pdf"
+      ]
+    },
+    {
+      "query_id": "q133",
+      "query": "Science of Aliens travelling exhibition",
+      "category": "exact_keyword",
+      "relevant_documents": [
+        "Aliens- More Real Than Ever.pdf"
+      ]
+    },
+    {
+      "query_id": "q134",
+      "query": "How might astronomers design an interstellar message so that it can be understood without relying on a shared language?",
+      "category": "semantic",
+      "relevant_documents": [
+        "Communication with Extraterrestrial Intelligence .pdf"
+      ]
+    },
+    {
+      "query_id": "q135",
+      "query": "What does 'Lincos' stand for?",
+      "category": "acronym",
+      "relevant_documents": [
+        "Communication with Extraterrestrial Intelligence .pdf"
+      ]
+    },
+    {
+      "query_id": "q136",
+      "query": "Project Ozma",
+      "category": "exact_keyword",
+      "relevant_documents": [
+        "Communication with Extraterrestrial Intelligence .pdf"
+      ]
+    },
+    {
+      "query_id": "q137",
+      "query": "What is the Fermi paradox and what are some proposed resolutions to it?",
+      "category": "semantic",
+      "relevant_documents": [
+        "Would Contact with Extraterrestrials Benefit or Harm Humanity? A Scenario Analysis.pdf"
+      ]
+    },
+    {
+      "query_id": "q138",
+      "query": "Zoo Hypothesis",
+      "category": "exact_keyword",
+      "relevant_documents": [
+        "Would Contact with Extraterrestrials Benefit or Harm Humanity? A Scenario Analysis.pdf"
+      ]
+    },
+    {
+      "query_id": "q139",
+      "query": "What does METI refer to?",
+      "category": "acronym",
+      "relevant_documents": [
+        "Would Contact with Extraterrestrials Benefit or Harm Humanity? A Scenario Analysis.pdf"
+      ]
+    },
+    {
+      "query_id": "q140",
+      "query": "What did NASA's planetary missions such as Viking, Voyager, and Pioneer reveal about the possibility of life elsewhere in our solar system?",
+      "category": "semantic",
+      "relevant_documents": [
+        "external life in universe.pdf"
+      ]
+    },
+    {
+      "query_id": "q141",
+      "query": "Voyager 2 spacecraft flyby of Neptune and its moon Triton",
+      "category": "code_entity",
+      "relevant_documents": [
+        "external life in universe.pdf"
+      ]
+    },
+    {
+      "query_id": "q142",
+      "query": "Where is everybody?",
+      "category": "exact_keyword",
+      "relevant_documents": [
+        "Communication with Extraterrestrial Intelligence .pdf",
+        "external life in universe.pdf"
+      ]
+    },
+    {
+      "query_id": "q143",
+      "query": "Why haven't humans detected any confirmed evidence of intelligent extraterrestrial life despite estimates that many stars could host life-supporting planets?",
+      "category": "semantic",
+      "relevant_documents": [
+        "Communication with Extraterrestrial Intelligence .pdf",
+        "Would Contact with Extraterrestrials Benefit or Harm Humanity? A Scenario Analysis.pdf",
+        "external life in universe.pdf"
+      ]
+    },
+    {
+      "query_id": "q144",
+      "query": "What physical or symbolic messages have humans sent into space in an attempt to communicate with extraterrestrial civilizations?",
+      "category": "semantic",
+      "relevant_documents": [
+        "Communication with Extraterrestrial Intelligence .pdf",
+        "external life in universe.pdf"
+      ]
+    },
+    {
+      "query_id": "q145",
+      "query": "What magnitude of change do experts predict AI will bring to human traits and behaviors by 2035?",
+      "category": "semantic",
+      "relevant_documents": [
+        "Being Human in 2035.pdf"
+      ]
+    },
+    {
+      "query_id": "q146",
+      "query": "Imagining the Digital Future Center",
+      "category": "exact_keyword",
+      "relevant_documents": [
+        "Being Human in 2035.pdf"
+      ]
+    },
+    {
+      "query_id": "q147",
+      "query": "How has interest in group research changed over time in Social Psychology Quarterly?",
+      "category": "semantic",
+      "relevant_documents": [
+        "CURRENT RESEARCH IN SOCIAL PSYCHOLOGY.pdf"
+      ]
+    },
+    {
+      "query_id": "q148",
+      "query": "What does EST stand for in this study of group research trends?",
+      "category": "acronym",
+      "relevant_documents": [
+        "CURRENT RESEARCH IN SOCIAL PSYCHOLOGY.pdf"
+      ]
+    },
+    {
+      "query_id": "q149",
+      "query": "index of interest in groups",
+      "category": "exact_keyword",
+      "relevant_documents": [
+        "CURRENT RESEARCH IN SOCIAL PSYCHOLOGY.pdf"
+      ]
+    },
+    {
+      "query_id": "q150",
+      "query": "Durbin-Watson statistic serial correlation residuals cubic regression",
+      "category": "code_entity",
+      "relevant_documents": [
+        "CURRENT RESEARCH IN SOCIAL PSYCHOLOGY.pdf"
+      ]
+    },
+    {
+      "query_id": "q151",
+      "query": "How do knowledge workers currently use large language models at work, and how do they want to use them in the future?",
+      "category": "semantic",
+      "relevant_documents": [
+        "Current and Future Use of Large Language Models for Knowledge Work.pdf"
+      ]
+    },
+    {
+      "query_id": "q152",
+      "query": "for creation, to find or work with information, to get advice, or for automation",
+      "category": "exact_keyword",
+      "relevant_documents": [
+        "Current and Future Use of Large Language Models for Knowledge Work.pdf"
+      ]
+    },
+    {
+      "query_id": "q153",
+      "query": "ChatGPT Bard GitHub CoPilot Zoom AI Companion",
+      "category": "code_entity",
+      "relevant_documents": [
+        "Current and Future Use of Large Language Models for Knowledge Work.pdf"
+      ]
+    },
+    {
+      "query_id": "q154",
+      "query": "What does this paper argue is the ultimate purpose of education for humanity's future?",
+      "category": "semantic",
+      "relevant_documents": [
+        "The Cornerstone of Human Future .pdf"
+      ]
+    },
+    {
+      "query_id": "q155",
+      "query": "Naturo-Humanistic sense of education",
+      "category": "exact_keyword",
+      "relevant_documents": [
+        "The Cornerstone of Human Future .pdf"
+      ]
+    },
+    {
+      "query_id": "q156",
+      "query": "What do leading scientists across disciplines see as pressing open questions for the future of human behaviour research?",
+      "category": "semantic",
+      "relevant_documents": [
+        "The future of human behaviour research.pdf"
+      ]
+    },
+    {
+      "query_id": "q157",
+      "query": "breaking down disciplinary silos",
+      "category": "exact_keyword",
+      "relevant_documents": [
+        "The future of human behaviour research.pdf"
+      ]
+    },
+    {
+      "query_id": "q158",
+      "query": "What concerns have experts and scholars raised about AI's impact on society and human life?",
+      "category": "semantic",
+      "relevant_documents": [
+        "Being Human in 2035.pdf",
+        "The future of human behaviour research.pdf"
+      ]
+    },
+    {
+      "query_id": "q159",
+      "query": "What are the key differences between the American anthropological and European choreological approaches to dance research?",
+      "category": "semantic",
+      "relevant_documents": [
+        "Theory and Methods in Dance Research- A European Approach to the Holistic Study of Dance.pdf"
+      ]
+    },
+    {
+      "query_id": "q160",
+      "query": "anthropological and choreological approaches",
+      "category": "exact_keyword",
+      "relevant_documents": [
+        "Theory and Methods in Dance Research- A European Approach to the Holistic Study of Dance.pdf"
+      ]
     }
   ]
 }

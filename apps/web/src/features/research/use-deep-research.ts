@@ -124,7 +124,13 @@ export function useDeepResearch(onConversationLearned?: (conversationId: string)
   const fetchReportDownload = useCallback(async (localId: string, runId: string) => {
     try {
       const download = await api.research.getReportDownload(runId);
-      setTurns((prev) => patchTurn(prev, localId, { reportDownloadUrl: download.download_url }));
+      setTurns((prev) =>
+        patchTurn(prev, localId, {
+          reportDownloadUrl: download.download_url,
+          generationId: download.generation_id ?? undefined,
+          memoryUsed: download.memory_used,
+        })
+      );
     } catch {
       // Best-effort: the completed-run card still renders correctly without
       // a download link -- the user can still see the report status.
@@ -185,6 +191,8 @@ export function useDeepResearch(onConversationLearned?: (conversationId: string)
       setTurns((prev) =>
         patchTurn(prev, localId, {
           linearAnswer: { answer: session.answer, citations: session.citations },
+          generationId: session.generation_id ?? undefined,
+          memoryUsed: session.memory_used,
         })
       );
     } catch {
@@ -359,9 +367,22 @@ export function useDeepResearch(onConversationLearned?: (conversationId: string)
   );
 
   const submitPlanDecision = useCallback(
-    async (localId: string, runId: string, approved: boolean, reason?: string, editedGoal?: string) => {
+    async (
+      localId: string,
+      runId: string,
+      approved: boolean,
+      reason?: string,
+      editedGoal?: string,
+      socraticResponse?: string
+    ) => {
       try {
-        const run = await api.research.submitPlanDecision(runId, approved, reason, editedGoal);
+        const run = await api.research.submitPlanDecision(
+          runId,
+          approved,
+          reason,
+          editedGoal,
+          socraticResponse
+        );
         // Optimistic, mirrors `submitReportDecision` -- the run is still
         // `awaiting_plan_approval` at this point (the worker hasn't resumed
         // the graph yet), so flip to `running` immediately rather than

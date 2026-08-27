@@ -2,15 +2,27 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
+from typing import TypedDict
 from uuid import UUID
 
-from sqlalchemy import func, select
+from sqlalchemy import cast, func, or_, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.types import Date
 
 from app.ai.runtime.generation.models import GenerationResult
+from app.models.enums import EvalScoreSource
+from app.models.eval_score import EvalScore
 from app.models.generation_usage import GenerationUsage
+from app.models.research_run import ResearchRun
+
+
+class ConversationUsageRollup(TypedDict):
+    conversation_id: UUID
+    total_cost_usd: float
+    total_requests: int
+    total_tokens: int
 
 
 class GenerationUsageRepository:
@@ -30,6 +42,7 @@ class GenerationUsageRepository:
             .values(
                 request_id=result.request.request_id,
                 generation_id=result.generation_id,
+                langsmith_run_id=result.langsmith_run_id,
                 owner_id=owner_id,
                 conversation_id=result.request.conversation_id,
                 session_id=result.request.session_id,
@@ -45,9 +58,108 @@ class GenerationUsageRepository:
                 estimated_cost_usd=statistics.estimated_cost_usd,
                 cache_hit=statistics.cache_hit,
                 streamed=statistics.streamed,
+                surface=result.request.surface,
+                prompt_version=result.request.prompt_version,
+                chunking_strategy=result.request.chunking_strategy,
+                embedding_model=result.request.embedding_model,
+                reranker=result.request.reranker,
+                routing_strategy=(
+                    statistics.routing_strategy.value if statistics.routing_strategy else None
+                ),
+                guardrail_final_action=(
+                    result.guardrails.final_action.value if result.guardrails is not None else None
+                ),
+                injected_memory_ids=[
+                    UUID(str(memory_id))
+                    for memory_id in result.request.metadata.get("injected_memory_ids", [])
+                ],
             )
             .on_conflict_do_nothing(index_elements=[GenerationUsage.request_id])
         )
+
+    async def get_langsmith_run_id(self, generation_id: UUID) -> UUID | None:
+        """
+        For `FeedbackService`'s LangSmith-feedback follow-up (E21): looks
+        up the run a user's feedback should attach to in LangSmith's own
+        UI. Returns `None` for a `generation_id` this table has no row
+        for, or whose row predates this column / has no configured trace
+        -- callers must treat that as "skip the LangSmith call," not an
+        error.
+        """
+
+        statement = select(GenerationUsage.langsmith_run_id).where(
+            GenerationUsage.generation_id == generation_id
+        )
+        return (await self._session.execute(statement)).scalars().first()
+
+    async def get_owned_generation(
+        self, *, owner_id: UUID, generation_id: UUID
+    ) -> GenerationUsage | None:
+        statement = select(GenerationUsage).where(
+            GenerationUsage.owner_id == owner_id,
+            GenerationUsage.generation_id == generation_id,
+        )
+        return (await self._session.execute(statement)).scalars().first()
+
+    async def list_unscored_since(
+        self,
+        *,
+        since: datetime,
+        limit: int,
+    ) -> list[GenerationUsage]:
+        """
+        Candidate rows for the online scoring job (E5, EVALUATION_PLAN.md
+        §14): answer-producing generations (`surface` is set -- internal
+        helper calls like planning/review/memory extraction have no
+        `surface` and are never scored) completed since `since` with no
+        `eval_scores` row yet from the online job. The `NOT EXISTS`
+        anti-join, rather than a separate cursor/watermark column, is
+        what makes this naturally exactly-once: a row that already has an
+        `ONLINE_SAMPLED` score (even a "not sampled, skip judges" one --
+        the job always writes at least the free citation-validity score)
+        stops being a candidate on the next poll without any extra
+        bookkeeping.
+        """
+
+        already_scored = (
+            select(EvalScore.generation_id)
+            .where(
+                EvalScore.generation_id == GenerationUsage.generation_id,
+                EvalScore.source == EvalScoreSource.ONLINE_SAMPLED.value,
+            )
+            .exists()
+        )
+        statement = (
+            select(GenerationUsage)
+            .where(
+                GenerationUsage.surface.is_not(None),
+                GenerationUsage.completed_at >= since,
+                ~already_scored,
+            )
+            .order_by(GenerationUsage.completed_at.asc())
+            .limit(limit)
+        )
+        result = await self._session.execute(statement)
+        return list(result.scalars().all())
+
+    async def daily_cost_totals(self, *, since: datetime) -> list[tuple[date, float]]:
+        """System-wide (not owner-scoped) cost per calendar day since `since`.
+
+        Feeds the cost-forecast rolling average (`app/services/cost_forecast.py`,
+        EVALUATION_IMPLEMENTATION_TRACKER.md E18) -- deliberately system-wide,
+        distinct from `summary_for_owner`'s per-user totals, since a burn-rate
+        projection is a product-level question, not a per-user one.
+        """
+
+        day_column = cast(GenerationUsage.completed_at, Date)
+        statement = (
+            select(day_column, func.sum(GenerationUsage.estimated_cost_usd))
+            .where(GenerationUsage.completed_at >= since)
+            .group_by(day_column)
+            .order_by(day_column)
+        )
+        rows = (await self._session.execute(statement)).all()
+        return [(row[0], float(row[1])) for row in rows]
 
     async def sum_cost_for_session(self, session_id: UUID) -> float:
         """Sum estimated cost recorded so far for one runtime session (e.g. a research run).
@@ -65,22 +177,30 @@ class GenerationUsageRepository:
         self,
         conversation_id: UUID,
         owner_id: UUID,
-    ) -> dict[str, UUID | float | int]:
+    ) -> ConversationUsageRollup:
         """Roll up cost/requests/tokens for every generation call tagged with
-        this conversation (Linear Research turns; Deep Research runs are
-        billed per-run under `session_id`, not `conversation_id`, so they
-        aren't included here). `owner_id` is a defense-in-depth scope, not
-        the only check -- callers must still verify the caller owns
-        `conversation_id` before invoking this.
+        this conversation: Linear Research turns (tagged `conversation_id`
+        directly) plus Deep Research runs belonging to it (tagged
+        `session_id = research_run.id` instead, since Deep Research bills
+        per-run -- see `ResearchPlanner.plan` et al.). `owner_id` is a
+        defense-in-depth scope, not the only check -- callers must still
+        verify the caller owns `conversation_id` before invoking this.
         """
 
+        run_ids = select(ResearchRun.id).where(
+            ResearchRun.conversation_id == conversation_id,
+            ResearchRun.owner_id == owner_id,
+        )
         statement = select(
             func.coalesce(func.sum(GenerationUsage.estimated_cost_usd), 0),
             func.count(GenerationUsage.id),
             func.coalesce(func.sum(GenerationUsage.total_tokens), 0),
         ).where(
-            GenerationUsage.conversation_id == conversation_id,
             GenerationUsage.owner_id == owner_id,
+            or_(
+                GenerationUsage.conversation_id == conversation_id,
+                GenerationUsage.session_id.in_(run_ids),
+            ),
         )
         cost, requests, tokens = (await self._session.execute(statement)).one()
         return {

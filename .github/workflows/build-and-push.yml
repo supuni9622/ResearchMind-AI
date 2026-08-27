@@ -1,0 +1,67 @@
+name: Build and Push Backend Image
+
+# One image, reused for the API and all four workers (AWS_Deployment.md
+# section 25) -- role is selected per ECS task via `command`, not a
+# separate image per process. Triggered only by changes to what actually
+# gets built into docker/backend.Dockerfile (see the paths filter below),
+# plus a manual dispatch for rebuilding an unchanged tree (e.g. after
+# fixing something outside those paths that still needs a fresh image).
+#
+# Deliberately does NOT deploy anything -- see deploy.yml. Terraform owns
+# infrastructure, this owns building/publishing the image, deploy.yml
+# owns pointing ECS at a specific tag. Keeping these separate matches
+# AWS_Deployment.md section 25's explicit instruction not to combine
+# every CI/CD concern into one workflow.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "apps/api/**"
+      - "apps/worker/**"
+      - "alembic/**"
+      - "alembic.ini"
+      - "benchmarks/**"
+      - "datasets/**"
+      - "pyproject.toml"
+      - "uv.lock"
+      - "README.md"
+      - "docker/backend.Dockerfile"
+      - ".dockerignore"
+  workflow_dispatch: {}
+
+permissions:
+  id-token: write # OIDC -- no long-lived AWS keys in GitHub secrets, see infra/terraform/environments/cicd
+  contents: read
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ECR_PUSH_ROLE_ARN }}
+          aws-region: us-east-1
+
+      - name: Log in to ECR
+        id: ecr-login
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push
+        env:
+          REGISTRY: ${{ steps.ecr-login.outputs.registry }}
+          REPOSITORY: researchmind-backend
+          # Immutable-tagged ECR repo (infra/terraform/modules/ecr) -- a
+          # real, traceable tag per push, never a reused "latest".
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          SHORT_SHA="${IMAGE_TAG:0:7}"
+          docker build -f docker/backend.Dockerfile -t "$REGISTRY/$REPOSITORY:$SHORT_SHA" .
+          docker push "$REGISTRY/$REPOSITORY:$SHORT_SHA"
+          echo "Pushed $REGISTRY/$REPOSITORY:$SHORT_SHA"
+          echo "image_tag=$SHORT_SHA" >> "$GITHUB_OUTPUT"
+        id: build

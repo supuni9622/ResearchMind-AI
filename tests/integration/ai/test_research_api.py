@@ -44,7 +44,10 @@ from app.ai.runtime.research.planner.models import (
     ResearchPlan,
     ResearchPlanTask,
 )
-from app.ai.runtime.research.report_download import ResearchReportDownloadService
+from app.ai.runtime.research.report_download import (
+    ResearchReportDownload,
+    ResearchReportDownloadService,
+)
 from app.ai.runtime.research.retrieval.models import ResearchEvidenceReference
 from app.ai.runtime.research.review import ResearchReview, ReviewDecision
 from app.ai.runtime.research.synthesis.models import ResearchDraft, ResearchDraftSection
@@ -92,7 +95,7 @@ def _outcome(*, query: str = "How does RAG work?") -> ResearchOutcome:
         query=query,
         answer="RAG retrieves relevant context before generating an answer.",
         citations=[
-            Citation(citation_id="c1", filename="paper.pdf", document_id=document_id),
+            Citation(citation_id="c1", filename="paper.pdf", document_id=document_id, score=0.9),
         ],
         sources=[
             ResearchSource(
@@ -140,7 +143,9 @@ class _FakeResearchService:
 
     async def citations_only(self, **kwargs) -> list[Citation]:
         self.citations_calls.append(kwargs)
-        return [Citation(citation_id="c1", filename="paper.pdf", document_id=uuid.uuid4())]
+        return [
+            Citation(citation_id="c1", filename="paper.pdf", document_id=uuid.uuid4(), score=0.9)
+        ]
 
 
 class _FakeResearchRepository:
@@ -213,7 +218,14 @@ class _FakeResearchRunService:
         return run
 
     async def record_plan_decision(
-        self, *, run_id, owner_id, approved, reason=None, edited_goal=None
+        self,
+        *,
+        run_id,
+        owner_id,
+        approved,
+        reason=None,
+        edited_goal=None,
+        socratic_response=None,
     ):
         run = self._runs.get(run_id)
         if run is None or run.owner_id != owner_id:
@@ -226,6 +238,8 @@ class _FakeResearchRunService:
         }
         if approved and edited_goal is not None:
             decision["edited_plan"] = {"rewritten_goal": edited_goal}
+        if approved and socratic_response is not None:
+            decision["socratic_response"] = socratic_response
         run.budget_usage = {**(run.budget_usage or {}), "plan_decision": decision}
         return run
 
@@ -308,6 +322,7 @@ def _pending_draft_snapshot() -> PendingDraftSnapshot:
             decision=ReviewDecision.PASS,
             citation_integrity_score=1.0,
             completeness_score=1.0,
+            model_quality_score=0.82,
         ),
     )
 
@@ -463,7 +478,11 @@ def test_final_report_download_returns_owner_scoped_presigned_url(
 ) -> None:
     report_downloads = AsyncMock(spec=ResearchReportDownloadService)
     run_id = uuid.uuid4()
-    report_downloads.get_download_url.return_value = "https://storage.test/report.pdf"
+    generation_id = uuid.uuid4()
+    report_downloads.get_download_url.return_value = ResearchReportDownload(
+        download_url="https://storage.test/report.pdf",
+        generation_id=generation_id,
+    )
     app.dependency_overrides[get_current_user] = _fake_user
     app.dependency_overrides[get_research_report_download_service] = lambda: report_downloads
 
@@ -474,7 +493,9 @@ def test_final_report_download_returns_owner_scoped_presigned_url(
         del app.dependency_overrides[get_research_report_download_service]
 
     assert response.status_code == 200
-    assert response.json()["download_url"] == "https://storage.test/report.pdf"
+    body = response.json()
+    assert body["download_url"] == "https://storage.test/report.pdf"
+    assert body["generation_id"] == str(generation_id)
     report_downloads.get_download_url.assert_awaited_once_with(
         research_run_id=run_id,
         owner_id=_OWNER_ID,
@@ -528,6 +549,11 @@ def test_get_research_run_draft_returns_the_pending_draft_with_resolved_citation
         }
     ]
     assert body["review"]["decision"] == "pass"
+    # The report's own self-declared limitations (`ResearchDraft.limitations`,
+    # distinct from the reviewer's `ResearchReview.limitations`).
+    assert body["limitations"] == ["Small sample size."]
+    assert body["review"]["model_quality_score"] == pytest.approx(0.82)
+    assert body["review"]["gap_questions"] == []
 
 
 def test_get_research_run_draft_returns_409_when_not_awaiting_approval(

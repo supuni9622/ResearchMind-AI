@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.runtime.research.types import ResearchRunStatus
@@ -94,3 +94,22 @@ class ResearchRunRepository:
             select(ResearchRun.cancellation_requested).where(ResearchRun.id == run_id)
         )
         return bool(result.scalar_one_or_none())
+
+    async def review_decision_counts_for_owner(self, owner_id: UUID) -> dict[str, int]:
+        """
+        Distribution of `ResearchReview.decision` (E7, EVALUATION_PLAN.md
+        §10/§16 phase 8) across one owner's Deep Research runs -- the same
+        value `execution.py` already writes to `budget_usage
+        ["review_decision"]`, aggregated here instead of read one run at a
+        time. Runs with no review decision yet (still in progress, or
+        predate this field) are excluded, not counted as a category.
+        """
+
+        decision = ResearchRun.budget_usage.op("->>")("review_decision")
+        statement = (
+            select(decision, func.count())
+            .where(ResearchRun.owner_id == owner_id, decision.is_not(None))
+            .group_by(decision)
+        )
+        rows = (await self._session.execute(statement)).all()
+        return {row[0]: row[1] for row in rows}

@@ -117,7 +117,7 @@ class VectorStoreService:
         *,
         provider: VectorStoreProvider,
         collection_name: str,
-        owner_id: str | None = None,
+        owner_id: str,
     ) -> int:
         """
         Return the number of indexed vectors.

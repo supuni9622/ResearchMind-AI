@@ -1,0 +1,29 @@
+{
+  "benchmark_name": "ProductionFailuresRegression",
+  "generated_at": "2026-08-12T04:49:42.778322Z",
+  "dataset": {
+    "name": "production_failures",
+    "document_count": 0
+  },
+  "metadata": {
+    "git_commit": "ec103c826f88e0d9f9cc56bb36ea5acc05359c77",
+    "branch": "researchmind-v2",
+    "dataset_version": "1.0",
+    "model_versions": {},
+    "benchmark_version": "1.0.0",
+    "timestamp": "2026-08-12T04:49:42.778256Z"
+  },
+  "candidates": [
+    {
+      "name": "openai+claude",
+      "version": null,
+      "metrics": {
+        "examples_evaluated": 0
+      },
+      "notes": {
+        "per_example_scores": []
+      }
+    }
+  ],
+  "summary": {}
+}

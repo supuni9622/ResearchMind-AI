@@ -1,4 +1,9 @@
 # Memory Platform Architecture
+
+> The prioritized implementation backlog for the remaining production,
+> evaluation, governance, and Projects-isolation work is maintained in
+> [`../MEMORY_PLATFORM_PRIORITIZED_TASKS.md`](../MEMORY_PLATFORM_PRIORITIZED_TASKS.md).
+
 Version: 1.0
 Status: Accepted
 Phase: 11.23
@@ -11,12 +16,98 @@ This doc describes the target design; the sections below have drifted from what 
 
 - **§6.3/§6.4/§19 Storage** — Semantic Memory is **Postgres (canonical) + Qdrant (search index)**, not Qdrant alone. Research Memory is **Postgres (canonical) + Qdrant (search index)**, not "PostgreSQL, S3, Qdrant" — S3 only holds a best-effort, platform-wide audit artifact for any `search()`/`get_context()` call, it is not a memory storage backend for any specific type.
 - **§7/§8 Internal Architecture / Folder Structure** — no `Classification Engine` or `Consolidation Engine` module exists; no `contracts/`, `providers/`, `registries/`, `factories/`, `scoring/`, `search/`, or `classification/` directories exist. See the corrected tree in §8.
-- **§13 Memory Lifecycle** — the hot → warm → cold → archive staging shown is aspirational. What's actually implemented: Valkey TTL (SESSION) and a callable-but-unscheduled stale-row sweep straight to delete (USER/SEMANTIC/RESEARCH) — no status field, no archive tier.
+- **§13 Memory Lifecycle** — the hot → warm → cold → archive staging shown is aspirational. What's actually implemented: Valkey TTL (SESSION) and a recurring, singleton-locked lifecycle worker for USER/SEMANTIC/RESEARCH that defaults to dry-run and deletes directly when explicitly enabled — no status field or archive tier.
 - **§14 Memory Consolidation** — not implemented at all (no code exists under any name).
 - **§16 Memory Extraction** — the example's `"type": "USER_PREFERENCE"` isn't a real `MemoryType` value (the enum is `session`/`user`/`research`/`semantic`); corrected to `"user"`. Extraction is not hypothetical — it's wired live into both Chat and Research.
 - **§20 Integration Points** — only the Chat integration is actually live. Research memory is wired directly into today's linear `ResearchService`, not into a "Planner" stage — no Research Runtime/Planner exists yet. Agent Runtime and Workspace Runtime don't exist.
-- **§21 Observability** — `memory_metrics.json` is not written anywhere; only `memory_context.json`/`memory_search.json` are real.
+- **§21 Observability** — `memory_metrics.json` is not written anywhere; operation
+  metrics are exported to Prometheus and M11 adds a scheduled aggregate inventory
+  for canonical rows/bytes, vector drift, age, and owner/project distributions.
 - **§22 Evaluation / §25 Exit Criteria** — no evaluation harness (Recall@K/Precision@K/etc.) exists; the exit-criteria checkmark for it was wrong.
+
+---
+
+# Implementation Status Corrections (2026-08-12)
+
+Four real changes landed since the 2026-07-19 pass above, plus one drift
+this pass found that predates all of them (Deep Research Runtime existing
+at all). Corrected in place in the relevant sections; summarized here:
+
+- **§6.2/§10/§12/§18 USER memory read side** — was write-only as of
+  2026-07-19 (captured, deduped, stored, but never read back into a
+  prompt). Now wired: `MemoryContext` gained a `user_memories` field,
+  `MemoryService.get_context()` fetches it unconditionally every turn
+  (uncached Postgres, same as session), and `format_memory_context()`
+  renders it as a "Durable user preferences" section. All four live
+  consumers (Chat, linear Research, and — see the Research Runtime
+  correction below — both Deep Research checkpoints) pick this up for
+  free through the shared formatting helpers. See
+  `docs/todo/user-memory-profile-injection-gap.md` "Resolution."
+- **New precedence rule** — the injected prompt text now explicitly
+  states that the current turn's instruction always wins over any
+  conflicting stored memory (prompt-text guidance, not code-enforced).
+- **New write path: feedback → USER memory** — `FeedbackService.submit()`
+  now writes a USER memory from a feedback comment, but only when the
+  existing E11 objective/preference classifier judges it `preference`
+  (never `objective` — those describe the answer, not the user). This is
+  a third creation source alongside §16's turn-extraction and §26.3's
+  interest promotion, all converging on the same `remember_extracted()`.
+- **New staleness/supersession tier** — §13's "User Preferences TTL:
+  Never" was previously absolute: two contradictory preferences (`prefers
+  concise` then later `prefers detailed`) both persisted forever as
+  separate rows. A new `PreferenceSupersessionService`
+  (`policy/supersession.py`, same cheap-bounded-LLM pattern as
+  extraction) now checks new USER preferences against existing ones and
+  updates in place on a match, instead of creating a second row. USER-only
+  — RESEARCH findings are additive facts, not preferences that flip.
+- **§20 Research Runtime — the "no Planner exists" correction from
+  2026-07-19 is itself now stale.** A real LangGraph-based Deep Research
+  Runtime (`app/ai/runtime/research/` — `planner/`, `decomposition/`,
+  `graph.py`, `checkpointing.py`) has since been built and is live,
+  separate from the linear `ResearchService` this doc originally
+  described. Both its proposal and execution stages call the same
+  `format_memory_context()`/`with_memory_context()` helpers Chat and
+  linear Research use — so memory is actually wired into **four** live
+  surfaces today, not the one this doc previously documented.
+
+A new §27 at the end of this document gives a from-scratch summary of
+every memory type, its TTL, and how it's prioritized at read time —
+written to answer "how does this compare to the generic
+working/short-term/episodic/semantic/procedural/long-term taxonomy" and
+"what actually decides ordering" directly, rather than requiring it be
+pieced together from the sections above.
+
+---
+
+# Implementation Status Corrections (2026-08-17)
+
+The M3 and M4 hardening tasks are implemented:
+
+- **Lifecycle execution (M3)** — `apps.worker.memory_lifecycle_main` runs the
+  stale-memory sweep on a configurable interval, uses a Valkey singleton lock,
+  applies per-type retention policies, isolates row failures, and exposes
+  registered Prometheus metrics on port `8011`. It defaults to dry-run; live
+  deletion remains a production rollout decision.
+- **Coordinated prompt budgeting (M4)** — memory formatting now uses one
+  coordinated total budget (default 1,200 tokens), per-type shares, and
+  evidence/output reserves. It keeps whole entries, reports omissions, and
+  allows unused capacity to flow to other memory types.
+- **Current sequence** — M0-M2 and M4-M16 are implemented; M3 operational
+  rollout and M6-M10 staging calibration/rollout gates remain. M9 uses a cheap
+  structured topic classifier to nominate scope-safe historical USER
+  preferences, while a conservative judge remains the only overwrite
+  authority. M10 adds versioned typed attributes and permits deterministic
+  replacement only for one unique, explicit, high-confidence controlled key;
+  custom/inferred/ambiguous cases retain the judge. The Project/workspace product must supply an authorized project
+  context before project traffic is activated.
+- **Memory management and governance (M12-M16 complete)** — `/memory` now provides a
+  safe scope-aware API for every canonical durable type, full management
+  filters, explicit audited edits, confirmed scope moves, independent
+  capture/retrieval/inheritance settings, and cross-tenant tests. The frontend
+  exposes Personal and authorized Project scopes with filtering, provenance,
+  edit review, scoped export, and server-confirmed selected/full-scope erasure.
+  Destructive governance requires migration `c8d9e0f1a2b3`; prompt delimiters,
+  quotas, cross-store reconciliation, and failure contracts complete M16.
 
 ---
 
@@ -196,6 +287,20 @@ Storage:
 
 PostgreSQL
 
+**Read side wired (2026-08-12).** Through 2026-07-19 this type was
+write-only — captured and stored, never read back into a prompt. It is
+now included in `MemoryContext`/`get_context()` and rendered into every
+injected prompt as a "Durable user preferences" section, framed as a
+default the current turn's explicit instruction can override — not a
+hard rule the model must always follow. See §27 for how it's ordered
+against the other three types.
+
+**Three write sources, not one:** §16's LLM turn-extraction, §26.3's
+repeated-interest promotion, and (new) feedback comments the E11
+objective/preference classifier judges `preference` — a factual
+(`objective`) comment about the answer's correctness is never written
+here. All three converge on `MemoryService.remember_extracted()`.
+
 ---
 
 # 6.3 Semantic Memory
@@ -334,6 +439,8 @@ Memory Search
       ↓
 Session Retrieval
       ↓
+User Retrieval        (added 2026-08-12 — see §6.2/§27)
+      ↓
 Semantic Retrieval
       ↓
 Research Retrieval
@@ -346,6 +453,11 @@ Rerank
       ↓
 Memory Context
 ```
+
+Note: "Merge/Rerank" here describes `get_context()`'s overall shape, not
+a literal cross-type reranking step — each type's results are fetched
+and capped independently, then concatenated in a fixed order when
+rendered into prompt text. See §27 for what actually orders each type.
 
 ---
 
@@ -397,6 +509,13 @@ is excluded from embedding-based `search()` entirely (Valkey has no
 vector index); USER memory's "search" is a recency-ordered listing, not
 a semantic search — only SEMANTIC and RESEARCH actually go through
 vector search.
+
+This whole section describes `MemoryService.search()` — the on-demand
+`/memory/search` API path. The **per-turn** injection path
+(`get_context()`, §10) is different and simpler for USER: it calls the
+same recency-ordered `list_preferences()` `search()` uses, but RRF/fusion
+never runs there — `get_context()` keeps each type's list separate and
+`format_memory_context()` concatenates them in a fixed order (§27).
 
 ---
 
@@ -450,6 +569,14 @@ TTL:
 ```text
 Never
 ```
+
+Time-based expiry isn't the only lifecycle mechanism for this type,
+though — since 2026-08-12, a new preference can **replace** an existing
+one in place (`PreferenceSupersessionService`, USER-only) when a cheap
+LLM call judges it updates the same topic rather than being additive.
+This is a content-based supersession, not a TTL: it prevents
+contradictory rows from both persisting forever, but doesn't cause any
+row to expire simply from age. See §27.
 
 ---
 
@@ -651,6 +778,8 @@ class MemoryContext(BaseModel):
 
     session_memories: list[MemoryRecord]
 
+    user_memories: list[MemoryRecord]   # added 2026-08-12 — see §6.2/§27
+
     semantic_memories: list[MemoryRecord]
 
     research_memories: list[MemoryRecord]
@@ -722,7 +851,10 @@ record itself — see §6.4
 
 # 20. Integration Points
 
-Only Chat's integration below is actually live end-to-end today.
+As of 2026-08-12, memory is live across **four** surfaces, not one —
+Chat, linear Research, and both Deep Research checkpoints below. Agent
+and Workspace Runtimes remain the only two integration points that don't
+exist at all.
 
 ---
 
@@ -738,11 +870,13 @@ Generation
 
 `chat.py` calls `MemoryService.get_context()` before generation
 (prepended into `PromptContext.context`) and stores/extracts memory
-after, via Runtime Memory Injection.
+after, via Runtime Memory Injection. Since 2026-08-12 this includes
+USER preferences (§6.2), not just session/semantic/research.
 
 ---
 
-# Research Runtime — 🟡 Partially live (no Planner exists)
+# Research Runtime — ✅ Live (correcting the 2026-07-19 "no Planner
+exists" note, which is now itself stale)
 
 ```text
 Research Goal
@@ -752,14 +886,24 @@ Research Memory
 Planner
 ```
 
-Memory *is* wired live — but directly into today's linear
-`ResearchService` (the Research API Platform), the same
-get-context-before/store-after pattern as Chat. There is no separate
-"Research Runtime" or "Planner" stage yet — decomposition/planning is
-an explicit Non-Goal of the current Research API Platform (see
-`research_api_prd.md` §4) and is future work. When a real Research
-Runtime with a Planner is built, it will sit in front of the
-already-wired memory integration, not replace it.
+Two genuinely different runtimes both wire memory in today, not one:
+
+- **Linear Research** — the Research API Platform's `ResearchService`,
+  the same get-context-before/store-after pattern as Chat. This is what
+  the 2026-07-19 correction above described.
+- **Deep Research** — a real LangGraph-based runtime
+  (`app/ai/runtime/research/`: `planner/`, `decomposition/`, `graph.py`,
+  `checkpointing.py`) built after that correction was written. Its
+  proposal and execution stages (`proposal_service.py`, `execution.py`)
+  both call the same `format_memory_context()`/`with_memory_context()`
+  helpers Chat and linear Research use, so it picked up USER memory (and
+  the precedence rule) automatically, with zero Deep-Research-specific
+  code changes needed.
+
+So "no Planner exists" is no longer accurate — a Planner-based Deep
+Research Runtime exists, is live, and is wired to memory. See the
+Research Runtime Platform history for the Planner's own build details;
+this doc only covers its memory integration.
 
 ---
 
@@ -797,26 +941,43 @@ point is aspirational.
 
 # 21. Observability
 
-Metrics:
+Metrics are emitted through `MetricsRecorder` and registered with the Prometheus
+adapter. The names below describe the implemented families (the exporter adds
+the `researchmind_` prefix and Prometheus counter/histogram suffixes):
 
 ```text
-memory_hits
-memory_misses
-memory_count
-memory_size
-remember_latency
-search_latency
-embedding_latency
+memory.context.* / memory.search.* / memory.extract.*
+memory.created / memory.updated / memory.superseded / memory.duplicate
+memory.public_mutation.* / memory.extraction.rate_limited
+memory.context_tokens / memory.context_items_omitted
+memory.consolidation.* / memory.utility.* / memory.feedback
+memory.lifecycle.*
+memory.storage_rows{type,scope}
+memory.storage_bytes{kind}
+memory.storage_oldest_age_seconds{type}
+memory.storage_distribution{dimension,quantile}
+memory.vector_points / memory.vector_drift{kind}
+memory.inventory_last_success_timestamp
 ```
+
+The last seven families are low-frequency scheduled gauges collected by the
+memory lifecycle worker. Owner and project identifiers are reduced to
+p50/p95/max distributions and never exported as labels. PostgreSQL remains
+canonical; Qdrant orphan and missing-point gauges expose reconciliation drift.
+
+The old aspirational names `memory_size` and `memory_count` are **not emitted**.
+Absolute count and size are implemented accurately as `memory.storage_rows`
+and `memory.storage_bytes`. The historical logical metric key `memory_count`
+is only an internal profile-write counter mapping and must not be interpreted
+as the current number of rows.
 
 Artifacts:
 
 ```text
 memory_context.json    ✅ real — MemoryArtifactWriter.write_context(), best-effort, S3
 memory_search.json     ✅ real — MemoryArtifactWriter.write_search(), best-effort, S3
-memory_metrics.json    ❌ not implemented — no write_metrics() method exists;
-                          only counter/duration metric names are recorded
-                          via MetricsRecorder, no S3 snapshot
+memory_metrics.json    ❌ not implemented — metrics are exposed to Prometheus;
+                          there is no S3 metrics snapshot
 ```
 
 ---
@@ -913,11 +1074,16 @@ Memory Platform is complete when:
 search — not full reports, which are a separate platform's concern;
 see §6.4)
 
-✅ memory observability exists (basic — counters + best-effort S3
-audit artifacts; no dashboards, no `memory_metrics.json`, see §21)
+✅ memory observability exists — operation metrics, bounded scheduled
+PostgreSQL/Qdrant inventory, lifecycle and drift alerts, the Memory Runtime
+dashboard, utility trends, and best-effort S3 audit artifacts are live. There
+is intentionally no `memory_metrics.json`; Prometheus is the metrics store.
 
-❌ memory evaluation exists — **not built**, corrected from the
-original ✅ (see §22)
+🟡 memory evaluation exists — **M6 implementation complete; staging calibration
+pending**: the versioned dataset, deterministic scorer, authenticated live
+capture, paired memory-on/off judge, score persistence, provisional release
+budgets, and deterministic CI gate are implemented. A seeded live baseline,
+human calibration, and staging deployment enforcement remain (see §22).
 
 ---
 
@@ -1017,3 +1183,73 @@ in `memory_platform_optimization_plan.md`.
 
 ✅ future runtimes can consume memory (Chat and Research today; Agent/
 Workspace runtimes don't exist yet to consume it — see §20)
+
+---
+
+# 27. Memory Type Reference Summary (2026-08-12)
+
+A standalone reference answering three questions directly, rather than
+requiring them to be pieced together from the sections above: how does
+this compare to a generic memory-type taxonomy, what's each type's TTL,
+and what actually decides read-time ordering.
+
+## 27.1 Comparison against a generic taxonomy
+
+A common way memory systems get categorized (working / short-term /
+episodic / semantic / procedural / long-term) doesn't map 1:1 onto our 4
+types — some of those categories split across ours, and two aren't built
+as memory at all:
+
+| Generic type | Built here? | What covers it |
+|---|---|---|
+| Working memory | Not a persisted memory type | `PromptContext`/`GenerationRequest`, assembled fresh per call (current query + retrieved chunks + web/paper search context); for Deep Research, also its own LangGraph execution state (plan, budget, evidence bundle). Both are transient and never written to the Memory Platform. |
+| Short-term memory | ✅ = **SESSION** | Valkey, one conversation |
+| Episodic memory | Not a dedicated type | Partially covered by **RESEARCH** (specific findings from past research runs) — no general "specific event/experience" log exists |
+| Semantic memory | ✅ = split across two types | **SEMANTIC** (cross-session facts/topics) + **USER** (durable preferences) — deliberately kept separate rather than one bucket, since preferences are looked up by owner, not fuzzy-matched by meaning (§6.2) |
+| Procedural memory | Not built | "How to do X" lives in static code/prompt templates (system prompts, extraction instructions) — never a retrievable memory anything writes to at runtime |
+| Long-term memory | ✅ = **USER + SEMANTIC + RESEARCH** collectively | All three are Postgres-durable with no default TTL (§27.2) |
+
+## 27.2 TTL by type
+
+| Type | TTL | Mechanism |
+|---|---|---|
+| SESSION | 7 days, hard | Valkey key TTL (`memory_session_ttl_seconds`), auto-expires |
+| USER | None by default | The recurring lifecycle worker evaluates a configurable per-type age/importance policy (default 365 days and importance ≤ 0.1). Dry-run is the default; deletion occurs only when operators explicitly disable dry-run. Content-based supersession (§13) can also replace a row. |
+| SEMANTIC | None by default | Same worker, with its own default policy (90 days and importance ≤ 0.3). |
+| RESEARCH | None by default | Same worker, with its own default policy (180 days and importance ≤ 0.2). |
+
+Related but distinct: the interest-promotion Redis counters (§26.3,
+tracking distinct-session topic mentions before something becomes
+eligible for a durable write) have their own 90-day TTL
+(`memory_interest_promotion_ttl_seconds`) — that governs *promotion
+eligibility*, not the durable memory record itself.
+
+## 27.3 How each type is prioritized at read time
+
+**Across types**, `format_memory_context()` applies a coordinated total token
+budget (1,200 by default), per-type shares, and evidence/output reserves. It
+considers session → user → semantic → research deterministically, keeps only
+whole entries, reports omissions, and redistributes unused capacity. The
+rendered prompt also states that the current turn's instruction wins over
+conflicting stored memory (prompt-text guidance, not code-enforced).
+
+**Within each type**, the ranking signal differs:
+
+- **SEMANTIC / RESEARCH** — genuine relevance ranking: Qdrant cosine
+  similarity against the query embedding, cut off at
+  `memory_search_score_threshold` (0.5), capped to `top_k` then to a
+  formatting max of 5.
+- **USER** — recency, not importance: `ORDER BY updated_at DESC`.
+  Importance only gates whether a preference gets written at all
+  (`memory_importance_threshold`, default 0.1) and, since §13's
+  supersession addition, whether a new one replaces an old one.
+- **SESSION** — intended to be recency (`get_recent()` returns the most
+  recent `top_k` items, oldest-first within that window), but there is a
+  **known, unfixed ordering bug**: `format_memory_context()`'s per-type
+  cap (`memories[:limit]`) takes the *front* of that oldest-first list —
+  i.e. the oldest items of the already-recent window, silently dropping
+  the newest ones whenever more than the cap (5) are loaded. Currently
+  low-impact because `memory_session_raw_turn_storage_enabled` defaults
+  off (so there's usually only a handful of SESSION rows to begin with),
+  but live and wrong whenever raw-turn storage or many distilled-state
+  entries are in play. Not yet fixed as of this writing.

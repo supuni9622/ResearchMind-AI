@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime, timedelta
 from typing import cast
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
 import pytest
@@ -24,6 +25,7 @@ from app.ai.runtime.research.planner.models import (
 )
 from app.ai.runtime.research.synthesis.models import ResearchDraft, ResearchDraftSection
 from app.ai.runtime.research.types import ResearchRunStatus
+from app.infrastructure.metrics.research import RESEARCH_RUN_DURATION
 from app.infrastructure.storage.interfaces import DocumentStorage
 from app.models.research_proposal import ResearchProposal
 from app.models.research_run import ResearchRun
@@ -183,6 +185,156 @@ def test_request_fingerprint_is_stable_and_request_sensitive() -> None:
     assert first != changed
 
 
+# ==============================================================
+# E23 follow-up: Deep Research web-search invocation/success signal
+# ==============================================================
+
+
+def test_web_search_signal_is_empty_when_disabled() -> None:
+    assert ResearchRuntimeExecutionService._web_search_signal({"web_search_mode": "disabled"}) == {}
+
+
+def test_web_search_signal_defaults_to_disabled_when_mode_is_missing() -> None:
+    """A missing `web_search_mode` key must not be treated as eligible --
+    mirrors `execution.py`'s own `WebSearchMode.DISABLED.value` default
+    used elsewhere for exactly this key."""
+
+    assert ResearchRuntimeExecutionService._web_search_signal({}) == {}
+
+
+def test_web_search_signal_reports_invoked_and_successful() -> None:
+    result = ResearchRuntimeExecutionService._web_search_signal(
+        {"web_search_mode": "auto", "web_search_count": 2, "web_search_success_count": 1}
+    )
+
+    assert result == {"web_search_invoked": True, "web_search_success": True}
+
+
+def test_web_search_signal_reports_invoked_but_unsuccessful() -> None:
+    result = ResearchRuntimeExecutionService._web_search_signal(
+        {"web_search_mode": "auto", "web_search_count": 1, "web_search_success_count": 0}
+    )
+
+    assert result == {"web_search_invoked": True, "web_search_success": False}
+
+
+def test_web_search_signal_omits_success_key_when_never_invoked() -> None:
+    """Eligible (not disabled) but the necessity check/budget always
+    declined -- `web_search_success` is meaningless to ask about a run
+    that never searched, so it's absent, not `False`."""
+
+    result = ResearchRuntimeExecutionService._web_search_signal(
+        {"web_search_mode": "required", "web_search_count": 0}
+    )
+
+    assert result == {"web_search_invoked": False}
+    assert "web_search_success" not in result
+
+
+# ==============================================================
+# E17 follow-up: Deep Research end-to-end run duration
+# ==============================================================
+
+
+def _execution_with_metrics(*, metrics) -> ResearchRuntimeExecutionService:
+    return ResearchRuntimeExecutionService(
+        session=AsyncMock(),
+        research_service=AsyncMock(),
+        database_url="postgresql://",
+        metrics=metrics,
+    )
+
+
+def test_record_run_duration_reports_the_real_elapsed_time() -> None:
+    metrics = MagicMock()
+    execution = _execution_with_metrics(metrics=metrics)
+    run = _run()
+    run.started_at = datetime(2026, 8, 12, 12, 0, 0, tzinfo=UTC)
+    run.completed_at = run.started_at + timedelta(seconds=90)
+
+    execution._record_run_duration(run)
+
+    metrics.record_duration.assert_called_once_with(
+        operation=RESEARCH_RUN_DURATION, duration_ms=90_000.0
+    )
+
+
+def test_record_run_duration_is_a_noop_without_a_start_timestamp() -> None:
+    metrics = MagicMock()
+    execution = _execution_with_metrics(metrics=metrics)
+    run = _run()
+    run.completed_at = datetime.now(UTC)
+
+    execution._record_run_duration(run)
+
+    metrics.record_duration.assert_not_called()
+
+
+def test_record_run_duration_is_a_noop_without_a_completion_timestamp() -> None:
+    metrics = MagicMock()
+    execution = _execution_with_metrics(metrics=metrics)
+    run = _run()
+    run.started_at = datetime.now(UTC)
+
+    execution._record_run_duration(run)
+
+    metrics.record_duration.assert_not_called()
+
+
+def test_record_run_duration_survives_a_metrics_backend_failure() -> None:
+    """Best-effort, same convention as every other metrics call site --
+    a Prometheus failure must never break run completion itself."""
+
+    metrics = MagicMock()
+    metrics.record_duration.side_effect = RuntimeError("prometheus unavailable")
+    execution = _execution_with_metrics(metrics=metrics)
+    run = _run()
+    run.started_at = datetime.now(UTC)
+    run.completed_at = datetime.now(UTC)
+
+    execution._record_run_duration(run)  # must not raise
+
+
+@pytest.mark.asyncio
+async def test_mark_terminal_records_duration() -> None:
+    metrics = MagicMock()
+    execution = _execution_with_metrics(metrics=metrics)
+    run = _run()
+    run.started_at = datetime.now(UTC) - timedelta(seconds=5)
+
+    await execution._mark_terminal(run, ResearchRunStatus.CANCELLED, "user_cancelled")
+
+    metrics.record_duration.assert_called_once()
+    assert metrics.record_duration.call_args.kwargs["operation"] == RESEARCH_RUN_DURATION
+
+
+@pytest.mark.asyncio
+async def test_mark_failed_records_duration() -> None:
+    metrics = MagicMock()
+    execution = _execution_with_metrics(metrics=metrics)
+    run = _run()
+    run.started_at = datetime.now(UTC) - timedelta(seconds=5)
+
+    await execution._mark_failed(run, RuntimeError("boom"))
+
+    metrics.record_duration.assert_called_once()
+    assert metrics.record_duration.call_args.kwargs["operation"] == RESEARCH_RUN_DURATION
+
+
+@pytest.mark.asyncio
+async def test_complete_run_records_duration() -> None:
+    metrics = MagicMock()
+    execution = _execution_with_metrics(metrics=metrics)
+    run = _run()
+    run.status = ResearchRunStatus.RESEARCHING.value
+    run.started_at = datetime.now(UTC) - timedelta(seconds=5)
+
+    await execution._complete_run(run=run, outcome=_outcome(run.owner_id))
+
+    metrics.record_duration.assert_called_once()
+    assert metrics.record_duration.call_args.kwargs["operation"] == RESEARCH_RUN_DURATION
+
+
 @pytest.mark.asyncio
 async def test_v1_execution_publishes_only_the_reviewed_graph_draft(monkeypatch) -> None:
     run = _run()
@@ -285,7 +437,8 @@ async def test_retrieve_memory_context_returns_none_without_a_memory_service() -
         owner_id=uuid4(), session_id=uuid4(), query="How does RAG work?"
     )
 
-    assert context is None
+    assert context.text is None
+    assert context.memory_ids == ()
 
 
 @pytest.mark.asyncio
@@ -303,7 +456,8 @@ async def test_retrieve_memory_context_survives_a_memory_backend_failure() -> No
         owner_id=uuid4(), session_id=uuid4(), query="How does RAG work?"
     )
 
-    assert context is None
+    assert context.text is None
+    assert context.memory_ids == ()
 
 
 def _approved_proposal(run: ResearchRun) -> ResearchProposal:

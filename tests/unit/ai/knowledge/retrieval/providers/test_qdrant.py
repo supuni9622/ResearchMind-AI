@@ -9,12 +9,16 @@ Covers:
   content, additional_metadata) fall back to their documented defaults
 - No matching points returns an empty chunk list rather than raising
 - A point payload missing a required field (chunk_id/document_id) fails
-  fast with a KeyError instead of silently producing a bad chunk
-- search_metadata performs a filter-only `scroll()` (no vector) when
-  filters are present, assigns matches a flat score since there is no
-  similarity to rank by, and short-circuits to an empty result without
-  calling Qdrant at all when there are no filters (an unfiltered scroll
-  would ignore tenant scoping and return arbitrary points)
+  fast with a RetrievalExecutionError (chained from the original
+  KeyError) instead of silently producing a bad chunk or leaking a raw
+  KeyError to the API layer
+- search_metadata performs a filter-only `scroll()` (no vector), assigns
+  matches a flat score since there is no similarity to rank by, and skips
+  the branch when no real metadata constraint was supplied
+- search/search_sparse/search_metadata each wrap a failed Qdrant client
+  call into a RetrievalExecutionError (chained via `from exc`) rather
+  than letting the raw client exception escape, so the API layer's
+  RetrievalError handler can turn it into a meaningful response
 """
 
 from __future__ import annotations
@@ -25,6 +29,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 from app.ai.knowledge.retrieval.config import QdrantRetrievalConfig
+from app.ai.knowledge.retrieval.exceptions import RetrievalExecutionError
 from app.ai.knowledge.retrieval.models import RetrievalQuery
 from app.ai.knowledge.retrieval.providers.qdrant import QdrantRetrievalProvider
 from app.ai.knowledge.vectorstores.providers.qdrant import DENSE_VECTOR_NAME
@@ -66,7 +71,7 @@ async def test_search_queries_named_dense_vector_and_maps_points_to_chunks() -> 
         config=QdrantRetrievalConfig(collection_name="researchmind_knowledge"),
     )
     client.query_points = AsyncMock(return_value=SimpleNamespace(points=[_make_point()]))
-    query = RetrievalQuery(query="what is rag?", top_k=5)
+    query = RetrievalQuery(query="what is rag?", top_k=5, owner_id="owner-1")
 
     result = await provider.search(query=query, query_vector=[0.1, 0.2, 0.3])
 
@@ -108,7 +113,7 @@ async def test_search_defaults_missing_optional_payload_fields() -> None:
     client.query_points = AsyncMock(return_value=SimpleNamespace(points=[sparse_point]))
 
     result = await provider.search(
-        query=RetrievalQuery(query="rag"),
+        query=RetrievalQuery(query="rag", owner_id="owner-1"),
         query_vector=[0.1],
     )
 
@@ -125,24 +130,26 @@ async def test_search_returns_empty_chunks_when_no_points_found() -> None:
     client.query_points = AsyncMock(return_value=SimpleNamespace(points=[]))
 
     result = await provider.search(
-        query=RetrievalQuery(query="rag"),
+        query=RetrievalQuery(query="rag", owner_id="owner-1"),
         query_vector=[0.1],
     )
 
     assert result.chunks == []
 
 
-async def test_search_raises_key_error_when_payload_missing_document_id() -> None:
+async def test_search_wraps_malformed_payload_in_retrieval_execution_error() -> None:
     provider, client = _make_provider()
     point = _make_point()
     del point.payload["document_id"]
     client.query_points = AsyncMock(return_value=SimpleNamespace(points=[point]))
 
-    with pytest.raises(KeyError):
+    with pytest.raises(RetrievalExecutionError) as exc_info:
         await provider.search(
-            query=RetrievalQuery(query="rag"),
+            query=RetrievalQuery(query="rag", owner_id="owner-1"),
             query_vector=[0.1],
         )
+
+    assert isinstance(exc_info.value.__cause__, KeyError)
 
 
 async def test_search_metadata_scrolls_with_filter_and_assigns_flat_score() -> None:
@@ -163,7 +170,12 @@ async def test_search_metadata_scrolls_with_filter_and_assigns_flat_score() -> N
         }
     )
     client.scroll = AsyncMock(return_value=([record], None))
-    query = RetrievalQuery(query="rag", top_k=5, filters={"owner_id": "owner-1"})
+    query = RetrievalQuery(
+        query="rag",
+        top_k=5,
+        owner_id="owner-1",
+        filters={"filename": "test.pdf"},
+    )
 
     result = await provider.search_metadata(query=query)
 
@@ -177,13 +189,57 @@ async def test_search_metadata_scrolls_with_filter_and_assigns_flat_score() -> N
     assert result.chunks[0].score == 1.0
 
 
-async def test_search_metadata_short_circuits_without_filters() -> None:
+async def test_search_metadata_skips_unfiltered_owner_scroll() -> None:
     provider, client = _make_provider()
-    client.scroll = AsyncMock()
+    client.scroll = AsyncMock(return_value=([], None))
 
     result = await provider.search_metadata(
-        query=RetrievalQuery(query="rag"),
+        query=RetrievalQuery(query="rag", owner_id="owner-1"),
     )
 
     client.scroll.assert_not_awaited()
     assert result.chunks == []
+
+
+async def test_search_wraps_client_failure_in_retrieval_execution_error() -> None:
+    provider, client = _make_provider()
+    client.query_points = AsyncMock(side_effect=RuntimeError("qdrant unreachable"))
+
+    with pytest.raises(RetrievalExecutionError) as exc_info:
+        await provider.search(
+            query=RetrievalQuery(query="rag", owner_id="owner-1"),
+            query_vector=[0.1],
+        )
+
+    assert isinstance(exc_info.value.__cause__, RuntimeError)
+
+
+async def test_search_sparse_wraps_client_failure_in_retrieval_execution_error() -> None:
+    from app.ai.knowledge.retrieval.query.models import SparseQueryEmbedding
+
+    provider, client = _make_provider()
+    client.query_points = AsyncMock(side_effect=RuntimeError("qdrant unreachable"))
+
+    with pytest.raises(RetrievalExecutionError) as exc_info:
+        await provider.search_sparse(
+            query=RetrievalQuery(query="rag", owner_id="owner-1"),
+            sparse_query=SparseQueryEmbedding(indices=[1], values=[0.5]),
+        )
+
+    assert isinstance(exc_info.value.__cause__, RuntimeError)
+
+
+async def test_search_metadata_wraps_client_failure_in_retrieval_execution_error() -> None:
+    provider, client = _make_provider()
+    client.scroll = AsyncMock(side_effect=RuntimeError("qdrant unreachable"))
+
+    with pytest.raises(RetrievalExecutionError) as exc_info:
+        await provider.search_metadata(
+            query=RetrievalQuery(
+                query="rag",
+                owner_id="owner-1",
+                filters={"filename": "test.pdf"},
+            ),
+        )
+
+    assert isinstance(exc_info.value.__cause__, RuntimeError)

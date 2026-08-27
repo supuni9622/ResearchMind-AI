@@ -1,97 +1,834 @@
 {
   "version": "1.0",
-  "notes": "Query/context/expected_answer/citations judgments for the research-papers benchmark corpus, following evaluation_platform_prd.md's Generation Dataset format. Context excerpts are verbatim (trimmed) passages from each paper's processed_document.json, so the generation benchmark can score answer quality directly against known-correct grounding without depending on live retrieval.",
+  "notes": "Query/context/expected_answer/citations judgments for the research-papers benchmark corpus, following evaluation_platform_prd.md's Generation Dataset format. Context excerpts are verbatim (trimmed) passages from each paper's processed_document.json, so the generation benchmark can score answer quality directly against known-correct grounding without depending on live retrieval. g1-g13 cover the original 5-paper corpus (paper-001..005). g14-g92 (2026-08-11) cover the 45 papers added in paper-006..050. Drafted by parallel research agents grounded directly in each paper's real content, then verified programmatically against the source processed_document.json (word-sequence fuzzy match tolerant of citation-bracket removal and source-PDF OCR noise, plus a numeric-fact check for entries reformatted from a markdown table) -- no answer or fact in g14+ was accepted without that check passing.",
   "queries": [
     {
       "query_id": "g1",
       "query": "What statistical tests were used to evaluate the BSE training intervention, and what were the pre/post test scores?",
       "context": "This study evaluated the effectiveness of a structured PowerPoint-based educational intervention on improving BSE knowledge among 100 female engineering students aged 18-26 years. Using a one-group pre-test post-test design and convenience sampling, participants received a structured training session focused on BSE. Knowledge was assessed before and after the intervention. Statistical analysis using paired t-tests and Fisher's exact test revealed a significant improvement in BSE knowledge following the session. The mean pre-test score was 9.9 ± 3.2, while the post-test score increased markedly to 20.6 ± 2.8 (p < 0.001).",
       "expected_answer": "The study used paired t-tests and Fisher's exact test. The mean pre-test knowledge score was 9.9 ± 3.2, which increased significantly to 20.6 ± 2.8 after the intervention (p < 0.001).",
-      "citations": ["151__CRC.pdfrevised.pdf"]
+      "citations": [
+        "151__CRC.pdfrevised.pdf"
+      ]
     },
     {
       "query_id": "g2",
       "query": "Why is breast cancer awareness particularly important for young women according to this research?",
       "context": "Breast cancer is an important global health issue, with over 2.3 million new cases and approximately 700,000 deaths in 2020. Although breast cancer predominantly affects women aged 50 years and older, younger women are increasingly at risk. Every year, about 14,000 American women under 40 receive a breast cancer diagnosis, around 44,800 deaths every year; it is the second most common cause of cancer-related mortality among women ages 0 to 39. The cumulative risk of developing breast cancer before age 40 in Canada is 0.61%, higher than the global average of 0.44%.",
       "expected_answer": "Younger women are increasingly at risk of breast cancer; about 14,000 American women under 40 are diagnosed each year, and it is the second most common cause of cancer-related mortality among women aged 0 to 39, making early awareness and detection important for this group.",
-      "citations": ["151__CRC.pdfrevised.pdf"]
+      "citations": [
+        "151__CRC.pdfrevised.pdf"
+      ]
     },
     {
       "query_id": "g3",
       "query": "What topics does this LLM survey article cover?",
       "context": "Large Language Models (LLMs) have recently demonstrated remarkable capabilities in natural language processing tasks and beyond. These works encompass diverse topics such as architectural innovations, better training strategies, context length improvements, fine-tuning, multi-modal LLMs, robotics, datasets, benchmarking, efficiency, and more. This article provides an overview of the literature on a broad range of LLM-related concepts.",
       "expected_answer": "The survey covers architectural innovations, better training strategies, context length improvements, fine-tuning, multi-modal LLMs, robotics, datasets, benchmarking, and efficiency, providing a comprehensive overview of LLM research.",
-      "citations": ["LLM_RESEARCH.pdf"]
+      "citations": [
+        "LLM_RESEARCH.pdf"
+      ]
     },
     {
       "query_id": "g4",
       "query": "What has driven recent breakthroughs in language models, according to the introduction?",
       "context": "Recently, significant breakthroughs have been witnessed in language models, primarily attributed to transformers, increased computational capabilities, and the availability of large-scale training data. These developments have brought about a revolutionary transformation by enabling the creation of LLMs that can approximate human-level performance on various tasks.",
       "expected_answer": "Breakthroughs in language models are primarily attributed to transformers, increased computational capabilities, and the availability of large-scale training data.",
-      "citations": ["LLM_RESEARCH.pdf"]
+      "citations": [
+        "LLM_RESEARCH.pdf"
+      ]
     },
     {
       "query_id": "g5",
       "query": "What is the Emergence-Density Inversion hypothesis and what does it argue about noise in job posting clusters?",
       "context": "Standard NLP pipelines for occupational clustering discard the 10-15% of job postings that density-based methods assign to noise. We argue this is an error: in rapidly evolving domains, low posting density signals novelty, not incoherence. We formalize this as the Emergence-Density Inversion (EDI) hypothesis and test it longitudinally on 84,988 job postings across eight quarters (Q4 2022-Q3 2024).",
       "expected_answer": "The Emergence-Density Inversion (EDI) hypothesis argues that in rapidly evolving domains, low posting density -- often discarded as noise by clustering methods -- actually signals novelty or emerging occupations rather than incoherent data.",
-      "citations": ["Noise_is_Signal_Density-Based_Outliers_as_Leading_.pdf"]
+      "citations": [
+        "Noise_is_Signal_Density-Based_Outliers_as_Leading_.pdf"
+      ]
     },
     {
       "query_id": "g6",
       "query": "Which emerging job roles were identified as top occupations by Q3 2024 that are absent from O*NET?",
       "context": "Prompt Engineer, AI Safety Researcher, Foundation Model Engineer, and Agent Systems Engineer -- all absent from O*NET -- are top-4 in Q3 2024 and form stable clusters by Q1 2025.",
       "expected_answer": "Prompt Engineer, AI Safety Researcher, Foundation Model Engineer, and Agent Systems Engineer were identified as the top-4 emerging roles in Q3 2024, none of which appear in the O*NET database.",
-      "citations": ["Noise_is_Signal_Density-Based_Outliers_as_Leading_.pdf"]
+      "citations": [
+        "Noise_is_Signal_Density-Based_Outliers_as_Leading_.pdf"
+      ]
     },
     {
       "query_id": "g7",
       "query": "How much improvement did the extended Emerging Occupation Score achieve in cluster-formation prediction?",
       "context": "We extend the Emerging Occupation Score (EOS) with Temporal Velocity and Cross-Platform Convergence, improving 2-quarter cluster-formation prediction from F1=0.61 to 0.74 -- outperforming Isolation Forest, LOF, GLOSH, and BERTrend baselines.",
       "expected_answer": "The extended EOS (with Temporal Velocity and Cross-Platform Convergence) improved 2-quarter cluster-formation prediction F1 score from 0.61 to 0.74, outperforming Isolation Forest, LOF, GLOSH, and BERTrend baselines.",
-      "citations": ["Noise_is_Signal_Density-Based_Outliers_as_Leading_.pdf"]
+      "citations": [
+        "Noise_is_Signal_Density-Based_Outliers_as_Leading_.pdf"
+      ]
     },
     {
       "query_id": "g8",
       "query": "What does loop engineering treat the observe-plan-act-evaluate cycle as, and why?",
       "context": "This paper proposes loop engineering as a conceptual framework for reliable execution in AI agent systems. The framework treats the repeated observe-plan-act-evaluate cycle as the primary engineering unit of agentic behavior, and it positions that cycle as a governance problem rather than only a control-flow problem.",
       "expected_answer": "Loop engineering treats the observe-plan-act-evaluate cycle as the primary engineering unit of agentic behavior, framing it as a governance problem rather than only a control-flow problem.",
-      "citations": ["Loop_Engineering_Revised.pdf"]
+      "citations": [
+        "Loop_Engineering_Revised.pdf"
+      ]
     },
     {
       "query_id": "g9",
       "query": "How does loop engineering differ from workflow orchestration?",
       "context": "Workflow orchestration coordinates predefined task graphs with deterministic transitions, whereas loop engineering governs emergent, model-generated plans whose structure is not known in advance; workflow systems typically treat failure as an exception path, whereas loop engineering treats uncertainty, risk, and cost as continuous state variables evaluated every iteration; and workflow systems are concerned with whether a task completed, whereas loop engineering is concerned with whether the agent should have continued at all.",
       "expected_answer": "Workflow orchestration coordinates predefined task graphs with deterministic transitions and treats failure as an exception path, while loop engineering governs emergent, model-generated plans, treats uncertainty, risk, and cost as continuous state variables evaluated every iteration, and asks whether the agent should have continued at all.",
-      "citations": ["Loop_Engineering_Revised.pdf"]
+      "citations": [
+        "Loop_Engineering_Revised.pdf"
+      ]
     },
     {
       "query_id": "g10",
       "query": "What are the six components of the loop engineering framework?",
       "context": "The paper defines core constructs including executable AI agents, state models, reflective state, governance loops, and loop traces. It proposes a six-component framework: goal representation, state model, action executor, observation collector, evaluator, and controller.",
       "expected_answer": "The six-component framework consists of goal representation, state model, action executor, observation collector, evaluator, and controller.",
-      "citations": ["Loop_Engineering_Revised.pdf"]
+      "citations": [
+        "Loop_Engineering_Revised.pdf"
+      ]
     },
     {
       "query_id": "g11",
       "query": "According to this guide, what percentage of time in real fine-tuning projects is spent on data collection versus actual training?",
       "context": "TIME DISTRIBUTION IN REAL PROJECTS. Data collection 30%. Data cleaning 25%. Data formatting 15%. Validation / QA 10%. Actual training 20%. The industry maxim: \"80% of ML is data work\" -- fine-tuning is no exception.",
       "expected_answer": "Data collection takes 30% of project time, compared to just 20% spent on actual training, reflecting the maxim that 80% of ML work is data-related.",
-      "citations": ["data engineering .pdf"]
+      "citations": [
+        "data engineering .pdf"
+      ]
     },
     {
       "query_id": "g12",
       "query": "What are the main reasons fine-tuning projects fail, according to this guide?",
       "context": "WHY PROJECTS FAIL: Data too small -> model can't generalize. Data inconsistent -> model learns noise, not patterns. Data duplicated -> model overfits, metrics lie. Data in wrong format -> model ignores structure. Data has wrong distribution -> fails on real inputs.",
       "expected_answer": "Projects fail due to data being too small (can't generalize), inconsistent (model learns noise instead of patterns), duplicated (model overfits), in the wrong format (model ignores structure), or having the wrong distribution (fails on real inputs).",
-      "citations": ["data engineering .pdf"]
+      "citations": [
+        "data engineering .pdf"
+      ]
     },
     {
       "query_id": "g13",
       "query": "When should synthetic data generation be used according to this guide?",
       "context": "WHEN TO USE SYNTHETIC DATA: You have fewer than 500 real examples. Production data exists but can't be labeled at scale. Domain is niche with few public datasets.",
       "expected_answer": "Synthetic data should be used when you have fewer than 500 real examples, when production data exists but can't be labeled at scale, or when the domain is niche with few public datasets.",
-      "citations": ["data engineering .pdf"]
+      "citations": [
+        "data engineering .pdf"
+      ]
+    },
+    {
+      "query_id": "g14",
+      "query": "How commonly is the GTZAN dataset used in music genre recognition research, according to this survey?",
+      "context": "Sturm [474] finds the GTZAN dataset [563] from 2002 is the most used public dataset, appearing in 100 out of 435 publications with an experimental component. We find that GTZAN remains the most frequently used dataset, appearing in 254 of 545 publications that have an experimental component.",
+      "expected_answer": "GTZAN remains the most frequently used public dataset in music genre recognition research, appearing in 254 of the 545 surveyed publications with an experimental component, up from 100 of 435 publications in the earlier Sturm survey.",
+      "citations": [
+        "A CRITICAL SURVEY OF RESEARCH IN MUSIC GENRE RECOGNITION.pdf"
+      ]
+    },
+    {
+      "query_id": "g15",
+      "query": "What figure of merit is most commonly used to evaluate music genre recognition systems, and how often is it accompanied by a confusion table?",
+      "context": "We find accuracy is the figure of merit that appears the most: 449 out of 545 publications with an experimental component. Sturm [474] finds this appears in 385 of 435 publications. The confusion table is the next most common figure of merit, appearing in 193 publications surveyed here. In those publications with a confusion table, we find no discussion about it in 78 publications-that is, it is merely presented as a table without interpretation.",
+      "expected_answer": "Accuracy is the most common figure of merit, used in 449 of 545 publications with an experimental component. The confusion table is the next most common, appearing in 193 publications, though 78 of those present it without any discussion or interpretation.",
+      "citations": [
+        "A CRITICAL SURVEY OF RESEARCH IN MUSIC GENRE RECOGNITION.pdf"
+      ]
+    },
+    {
+      "query_id": "g16",
+      "query": "Did informing participants whether a piece of music was AI-composed affect how they rated it, according to this study's t-test results?",
+      "context": "To test H4, which predicts that human music will be scored more highly compared to AI music, and observe whether informing participants of the nature of the music composer (AI or human) has an impact on the evaluation of music, the responses from the evaluation of music scale were tested and compared using three two-sample t-tests. The results of the t-test showed that the difference in mean scores, whether the respondent is informed or not informed of which music piece was generated by AI, shows no statistical significance (at a 95% significance level) in music evaluation scores for both human and AI-composed music.",
+      "expected_answer": "No — the t-test results showed that informing respondents whether a piece was AI-composed made no statistically significant difference (at the 95% significance level) in evaluation scores, for either AI-composed or human-composed music.",
+      "citations": [
+        "AI and Music- How do listeners and artists perceive it? An Empirical Study toward the Attitude of Humans to AI Music..pdf"
+      ]
+    },
+    {
+      "query_id": "g17",
+      "query": "What five concepts did the systematic literature review identify as relevant to how humans perceive AI musicians and performers?",
+      "context": "By using a systematic literature review, five concepts were identified: anthropomorphism, capabilities, fear, prejudice, bias, and acceptability. A scale measuring the human perception of AI musicians and performers (PREAMP) was developed based on the study.",
+      "expected_answer": "The systematic literature review identified anthropomorphism, capabilities, fear, prejudice/bias, and acceptability as the concepts relevant to human perception of AI musicians and performers, which formed the basis of the PREAMP scale.",
+      "citations": [
+        "AI and Music- How do listeners and artists perceive it? An Empirical Study toward the Attitude of Humans to AI Music..pdf"
+      ]
+    },
+    {
+      "query_id": "g18",
+      "query": "How many articles were ultimately included in this systematic review of music genre classification research, and how did the authors arrive at that number?",
+      "context": "Eleven electronic databases were thoroughly searched, and the findings (articles) from each were summarised, totalling 1,048 articles. This identification process was concluded by removing duplicated articles; 657 were identified as duplicates during the database search, leaving 391 articles. The screening stage commenced by removing articles with no relevance to the titles of the papers or research being conducted... Out of the remaining 391 articles, a total of 278 articles were deemed irrelevant and removed from consideration, leaving 113 articles to be screened. Lastly, a total of 29 articles with ambiguous or unspecified methods were removed, leaving 84 articles. A quality evaluation of the remaining publications was done considering the research question mentioned above. After selection issues with the articles were overcome, 84 primary studies were taken into consideration for this systematic review.",
+      "expected_answer": "84 articles were included in the final systematic review. The authors started with 1,048 articles from 11 databases, removed 657 duplicates (leaving 391), removed 278 irrelevant articles (leaving 113), then removed 29 articles with ambiguous or unspecified methods, leaving 84 primary studies.",
+      "citations": [
+        "Artificial Intelligence in Music Genre Classification- A Systematic Review of Techniques, Applications, and Emerging Trends.pdf"
+      ]
+    },
+    {
+      "query_id": "g19",
+      "query": "What did this study conclude about the presence of optimal differentiation within music genres?",
+      "context": "The results of this study agree with the findings of Askin and Mauskapf (931), with evidence in support of the presence of optimal differentiation in music. This is especially evident looking at pop music, where all three of its most influential variables in predicting popularity - danceability, energy, and speechiness demonstrate optimal differentiation in their density plots... With eleven of the eighteen density plots in this study indicating optimal differentiation, this study provides strong evidence for optimal differentiation at the feature level within music genres.",
+      "expected_answer": "The study found strong evidence for optimal differentiation at the feature level within music genres: 11 of the 18 density plots examined showed patterns consistent with optimal differentiation, with pop music being a particularly clear case (danceability, energy, and speechiness all showing the pattern).",
+      "citations": [
+        "Exploring Music Genres_ A Study of Optimal Differentiation by Fea.pdf"
+      ]
+    },
+    {
+      "query_id": "g20",
+      "query": "What emotions were most commonly associated with jazz, reggae, and disco music in this study?",
+      "context": "The results for this study revealed happy emotions emanated from Jazz, Reggae and Disco music most prominently. Trap music unveiled rather indecisive opinions, for the emotional and motivational questions. The main findings in this study was the overwhelmingly consistent associations throughout the received data between nostalgia and happiness while listening to jazz music, relaxation and happiness with reggae music and dancing and happiness with disco music.",
+      "expected_answer": "Jazz music was most strongly associated with nostalgia and happiness, reggae music with relaxation and happiness, and disco music with dancing and happiness. Trap music, by contrast, produced indecisive responses.",
+      "citations": [
+        "Investigating the impact of different music genres on emotions and motivation.pdf"
+      ]
+    },
+    {
+      "query_id": "g21",
+      "query": "Which machine learning model performed best for music genre classification, and what accuracy did each model achieve?",
+      "context": "MLP: 0% accuracy. CNN: 40% accuracy. KNN: 55% accuracy. RandomForest: 84% accuracy. To summarise the findings, the Random Forest model presented a higher accuracy rating compared to the MLP, CNN and KNN. The Random Forest's ensemble of decision trees allowed it to capture complex relationships in the data more effectively than the other models. In contrast, the MLP's architecture and limited capacity prevent the model from learning intricate patterns and useful information to perform classification.",
+      "expected_answer": "Random Forest performed best with 84% accuracy, followed by KNN (55%), CNN (40%), and MLP (0%). The paper attributes Random Forest's advantage to its ensemble of decision trees capturing complex relationships in the data more effectively than the other models.",
+      "citations": [
+        "Music Genre Classification- Training an AI model.pdf"
+      ]
+    },
+    {
+      "query_id": "g22",
+      "query": "Which music genres produced a statistically significant reduction in stress, and which produced a significant increase?",
+      "context": "Classical: Mean Before 22.00, Mean After 16.52, t-Value 9.89, df 24, p < .001, Effect Size (r) 0.89. Jazz: Mean Before 19.80, Mean After 15.92, t-Value 13.63, df 24, p < .001, Effect Size (r) 0.94. Folk: Mean Before 21.64, Mean After 22.56, t-Value -1.99, df 24, p 0.057, Effect Size (r) 0.92. Hip-Hop: Mean Before 22.32, Mean After 23.32, t-Value -3.54, df 24, p 0.002, Effect Size (r) 0.96. Classical Music: Classical music led to a significant reduction in stress levels (p < .001)... Jazz Music: Jazz also demonstrated a significant reduction in stress levels (p < .001) with the largest effect size among all genres (r = 0.94)... Folk Music: While Folk music showed a slight increase in mean stress levels, the results were not statistically significant (p = 0.057)... Hip-Hop Music: Hip-Hop resulted in a significant increase in stress levels (p = 0.002).",
+      "expected_answer": "Classical and Jazz music produced statistically significant reductions in stress (p < .001 for both). Folk music showed a slight, non-significant increase in stress (p = 0.057). Hip-Hop produced a statistically significant increase in stress (p = 0.002).",
+      "citations": [
+        "Music Genres and Stress Reduction- A Comparative Experimental Study with University Students.pdf"
+      ]
+    },
+    {
+      "query_id": "g23",
+      "query": "What did the study find about the relationship between complex care trajectories, mortality risk, and baseline anxiety in cancer patients?",
+      "context": "Notably, all eight trajectory clusters showed significantly higher odds of mortality compared to the reference group, which is characterized by short observation periods (median 6.3 years) and the lowest mortality rate (31.5%). These high-mortality clusters fall into two distinct patterns: clusters with complex, long-term care pathways comprising up to 196 health-related events (mortality OR up to 3.38, 95% CI 2.13-5.37), and clusters with shorter but severe trajectories (median 78 events; mortality OR 2.32, 95% CI 1.82-2.97). Notably, the two complex-care clusters also showed significantly lower baseline anxiety scores, revealing a divergent relationship between trajectory complexity, mortality risk, and baseline mental health.",
+      "expected_answer": "All eight trajectory clusters had significantly higher mortality odds than the reference group (short trajectories, median 6.3 years, 31.5% mortality rate). High-mortality clusters were either complex/long-term (up to 196 events, OR up to 3.38) or shorter but severe (median 78 events, OR 2.32). The two complex-care clusters also showed significantly lower baseline anxiety scores, revealing a divergent relationship between trajectory complexity, mortality risk, and baseline mental health.",
+      "citations": [
+        "Care Trajectories Are Linked to Mental Health and Mortality in Cancer Patients.pdf"
+      ]
+    },
+    {
+      "query_id": "g24",
+      "query": "What methods were used to identify patient care trajectory clusters and assess their prognostic value in this cancer study?",
+      "context": "We analyzed longitudinal care patterns observed in up to 37 years from over 8,000 patients using Dynamic Time Warping (DTW) and Hierarchical Clustering. This resulted in the identification of nine distinct, non-trivial patient clusters encoding robust healthcare utilization trajectories. We evaluated the prognostic utility of these clusters by including them, alongside conventional covariates (socioeconomic variables, age, sex, and diagnoses), as features in generalized linear models for mortality prediction and for assessing associations with baseline anxiety and depression scores.",
+      "expected_answer": "The study used Dynamic Time Warping (DTW) and Hierarchical Clustering to analyze longitudinal care patterns from over 8,000 patients spanning up to 37 years, identifying nine distinct patient clusters. Prognostic value was evaluated by including these clusters, alongside conventional covariates (socioeconomic variables, age, sex, diagnoses), as features in generalized linear models predicting mortality and associations with baseline anxiety/depression scores.",
+      "citations": [
+        "Care Trajectories Are Linked to Mental Health and Mortality in Cancer Patients.pdf"
+      ]
+    },
+    {
+      "query_id": "g25",
+      "query": "How did stress and mental health scores compare between Dance Movement Therapy practitioners and Indian classical dancers in this study?",
+      "context": "Notably, students and practitioners of Dance movement therapy exhibited lower stress levels and higher mental health scores compared to their counterparts engaged in Indian classical dance. These results were derived from the Perceived Stress Scale and Mental Health Inventory. These findings suggest that engagement in Dance movement therapy may be associated with improved mental health and stress reduction.",
+      "expected_answer": "Dance Movement Therapy practitioners showed lower stress levels and higher mental health scores than Indian classical dancers, as measured by the Perceived Stress Scale and Mental Health Inventory, suggesting DMT engagement is associated with improved mental health and stress reduction.",
+      "citations": [
+        "Impact of Dance and Movement on Stress and Mental Health.pdf"
+      ]
+    },
+    {
+      "query_id": "g26",
+      "query": "What is a mental health digital twin (MHDT) as proposed in this paper?",
+      "context": "We further propose the use of mental health digital twins (MHDTs) - continuously updated computational models that capture individual symptom dynamics and trajectories - as a transformative framework for personalized mental health care.",
+      "expected_answer": "A mental health digital twin (MHDT) is a continuously updated computational model that captures an individual's symptom dynamics and trajectories, proposed as a transformative framework for personalized mental health care.",
+      "citations": [
+        "Position- AI Will Transform Neuropsychology Through Mental Health Digital Twins for Dynamic Mental Health Care, Especially for ADHD.pdf"
+      ]
+    },
+    {
+      "query_id": "g27",
+      "query": "How prevalent is ADHD in adults, and how does its symptom presentation change over the lifespan?",
+      "context": "Attention-Deficit/Hyperactivity Disorder (ADHD) illustrates this dynamism well: it often persists into adulthood and affects roughly 4% of adults worldwide, yet its symptomatology varies across contexts and over the lifespan. Hyperactivity tends to dominate in preschool years, whereas inattention becomes central from middle childhood onward; DSM subtypes show limited temporal stability.",
+      "expected_answer": "ADHD affects roughly 4% of adults worldwide and often persists into adulthood. Its symptom presentation shifts over the lifespan, with hyperactivity dominating in preschool years and inattention becoming more central from middle childhood onward, while DSM subtypes show limited temporal stability.",
+      "citations": [
+        "Position- AI Will Transform Neuropsychology Through Mental Health Digital Twins for Dynamic Mental Health Care, Especially for ADHD.pdf"
+      ]
+    },
+    {
+      "query_id": "g28",
+      "query": "How indistinguishable were PsyCLIENT's simulated clients from real human clients in expert evaluation?",
+      "context": "Notably, the simulated clients are nearly indistinguishable from human clients, achieving an about 95% expert confusion rate in discrimination tasks.",
+      "expected_answer": "PsyCLIENT's simulated clients were nearly indistinguishable from human clients, achieving about a 95% expert confusion rate when experts tried to discriminate between them.",
+      "citations": [
+        "PsyCLIENT- Client Simulation via Conversational Trajectory Modeling for Trainee Practice and Model Evaluation in Mental Health Counseling.pdf"
+      ]
+    },
+    {
+      "query_id": "g29",
+      "query": "What three key challenges do existing LLM-based client simulation approaches face, according to this paper?",
+      "context": "existing client simulation approaches face three key challenges: (1) limited diversity and realism in client profiles, (2) the lack of a principled framework for modeling realistic client behaviors, and (3) a scarcity in Chinese-language settings.",
+      "expected_answer": "Existing client simulation approaches face three key challenges: limited diversity and realism in client profiles, lack of a principled framework for modeling realistic client behaviors, and scarcity of research in Chinese-language settings.",
+      "citations": [
+        "PsyCLIENT- Client Simulation via Conversational Trajectory Modeling for Trainee Practice and Model Evaluation in Mental Health Counseling.pdf"
+      ]
+    },
+    {
+      "query_id": "g30",
+      "query": "What is Semantic Recovery Velocity (SRV) and how accurately did topological features predict self-reported improvement?",
+      "context": "We introduce Semantic Recovery Velocity (SRV), a novel metric quantifying the rate users move away from initial distress-focused posts in embedding space. Analyzing 15,847 r/depression trajectories and validating against multiple proxies, we demonstrate topological features predict self-reported improvement with 78.3% accuracy, outperforming sentiment baselines.",
+      "expected_answer": "Semantic Recovery Velocity (SRV) is a metric quantifying the rate at which users move away from their initial distress-focused posts in embedding space. Analyzing 15,847 r/depression trajectories, the topological features predicted self-reported improvement with 78.3% accuracy, outperforming sentiment baselines.",
+      "citations": [
+        "The Topology of Recovery- Using Persistent Homology to Map Individual Mental Health Journeys in Online Communities.pdf"
+      ]
+    },
+    {
+      "query_id": "g31",
+      "query": "How did Loop Persistence differ between users who showed improvement and those who did not?",
+      "context": "Users labeled as improved (via pattern-matched self-reports) showed significantly lower Loop Persistence compared to non-improved users (mean LP: 0.23 +/- 0.14 vs. 0.41 +/- 0.18, Cohen's d = 0.58, p < 0.001, Welch's t-test), indicating less semantic cycling.",
+      "expected_answer": "Users labeled as improved had significantly lower Loop Persistence than non-improved users (mean 0.23 +/- 0.14 vs. 0.41 +/- 0.18, Cohen's d = 0.58, p < 0.001, Welch's t-test), indicating less semantic cycling back to prior states among improved users.",
+      "citations": [
+        "The Topology of Recovery- Using Persistent Homology to Map Individual Mental Health Journeys in Online Communities.pdf"
+      ]
+    },
+    {
+      "query_id": "g32",
+      "query": "What did the thematic analysis of participant experiences reveal about the Umkhosi weLembe cultural event?",
+      "context": "Thematic analysis revealed five different dimensions to explain the participants' experiences of Umkhosi weLembe: (1) The event is viewed as a 'pro-participatory' approach as its success hinges upon key players' dedication, cooperation, and commitment. Key players had evidently been working collectively and cooperatively towards achieving the event's aims and objectives as the participants experienced no negative encounters.",
+      "expected_answer": "The thematic analysis identified five dimensions of participants' experiences with Umkhosi weLembe, including viewing the event as a 'pro-participatory' approach whose success depends on key players' dedication, cooperation, and commitment, with participants reporting no negative encounters.",
+      "citations": [
+        "Cultural Events as a Strategy for Sustainable Relationships among Key Players.pdf"
+      ]
+    },
+    {
+      "query_id": "g33",
+      "query": "Who participated in this study of the Umkhosi weLembe event, and what was the total sample size?",
+      "context": "Distribution of participants and total sample: Event organizers n4, KDLM's Tourism and LED Officers n2, Community leaders n10, Local residents n76, Domestic tourists n42, International tourists n16, Total sample n150. The participant sample comprised event organizers, municipality (tourism officer and local economic development [LED] officer) officers, community leaders, local residents, and domestic and international tourists.",
+      "expected_answer": "The study collected data from 150 participants via face-to-face interviews, comprising 4 event organizers, 2 municipality tourism/LED officers, 10 community leaders, 76 local residents, 42 domestic tourists, and 16 international tourists.",
+      "citations": [
+        "Cultural Events as a Strategy for Sustainable Relationships among Key Players.pdf"
+      ]
+    },
+    {
+      "query_id": "g34",
+      "query": "What does the concept of 'authorised transgression' mean in the context of festivals and events?",
+      "context": "Festivals and events have long been associated with the creation of liminal times and spaces, where established social conventions may be temporarily relaxed, suspended or reversed. More specifically, festivals or carnivals have long been recognized as occasions where or when social rules and mores may be inverted, where particular activities or forms of behaviour that challenge social hegemony are indulged in and, importantly, temporarily permitted. In other words, a particular feature of festivity is that it is 'related to the idea of transgression of the boundaries and taboos that define social and symbolic everyday life spaces' (Picard and Robinson 2006: 11) and, moreover, that such transgression is, in a sense authorized.",
+      "expected_answer": "Authorised transgression refers to how festivals and events create liminal times and spaces in which established social conventions and boundaries are temporarily relaxed, suspended, or reversed. This transgression of everyday social and symbolic norms is, in a sense, permitted or authorized by the event itself.",
+      "citations": [
+        "Socio-cultural impacts of events- meanings, authorised transgression and social capital.pdf"
+      ]
+    },
+    {
+      "query_id": "g35",
+      "query": "How do Adler and Kwon, and Coleman, define social capital in this chapter?",
+      "context": "Adler and Kwon (2002: 17) define it as 'the goodwill that is engendered by the fabric of social relations and that can be mobilised to facilitate action' whilst Coleman (1988: 98), a notable proponent of social capital, states that social capital is defined by its function. It is not a single entity but a variety of different entities, with two elements in common: they all consist of some aspect of social structures, and they facilitate certain actions of actors within the structure.",
+      "expected_answer": "Adler and Kwon define social capital as the goodwill engendered by the fabric of social relations that can be mobilised to facilitate action, while Coleman defines it functionally: not a single entity but a variety of different entities that all involve some aspect of social structure and facilitate actors' actions within that structure.",
+      "citations": [
+        "Socio-cultural impacts of events- meanings, authorised transgression and social capital.pdf"
+      ]
+    },
+    {
+      "query_id": "g36",
+      "query": "How many research publications did this literature review identify, and how were they distributed across event types?",
+      "context": "A total of 101 research publications were identified, which were then grouped according to event typology. Over half of the publications focused on 'small-scale festivals' dedicated to respective local communities. A quarter were dedicated to 'Mega-events', which are characterised by their one-off nature and their scale - attracting the largest range of participants and media coverage. Thirteen studies centred on major cultural festivals. These are mostly multi-annual events with an international reputation, built over a period of time. Finally, 17 studies had no clear focus on any one type of event.",
+      "expected_answer": "The review identified 101 research publications on measuring the impacts of cultural events. Over half focused on small-scale local community festivals, a quarter on mega-events, thirteen studies on major cultural festivals, and 17 had no clear focus on a single event type.",
+      "citations": [
+        "easuring the impact of major cultural events- a literature revie.pdf"
+      ]
+    },
+    {
+      "query_id": "g37",
+      "query": "How did Snowball and Willis (2002) measure the value visitors derived from the South African National Arts Festival?",
+      "context": "Snowball and Willis (2002) form a clear exception to this approach. In their (academic) study they apply Choice Experiments (CE) to value the utility visitors derive from various sections of the South African National Arts Festival, arguing that this methodology is particularly useful for estimating benefits of the various aspects of the festival and how these are differently valued by the audience.",
+      "expected_answer": "Snowball and Willis (2002) applied Choice Experiments (CE) to value the utility visitors derived from different sections of the South African National Arts Festival, arguing this methodology is particularly useful for estimating how different aspects of the festival are valued differently by the audience.",
+      "citations": [
+        "easuring the impact of major cultural events- a literature revie.pdf"
+      ]
+    },
+    {
+      "query_id": "g38",
+      "query": "According to this white paper, how are AI-driven techniques currently being used to advance quantum computing research?",
+      "context": "Quantum computing is still a promise in the making but its synergies with AI are already there and growing. Many AI-driven techniques are already enabling significant progress in quantum computing research and industry developments, from optimizing qubit control and quantum error mitigation (QEM) strategies in the early stage noisy intermediate-scale quantum (NISQ) regime to designing novel quantum algorithms, highlighting the importance of mastering this dual discipline as an enabling technology.",
+      "expected_answer": "AI-driven techniques are already enabling progress in quantum computing by optimizing qubit control and quantum error mitigation (QEM) strategies in the early-stage noisy intermediate-scale quantum (NISQ) regime, and by helping design novel quantum algorithms.",
+      "citations": [
+        "Artificial intelligence and quantum computing white paper.pdf"
+      ]
+    },
+    {
+      "query_id": "g39",
+      "query": "How can quantum algorithms be applied to coalition formation problems in multi-agent systems, according to this white paper?",
+      "context": "A fundamental challenge in multi-agent system (MAS) is coalition formation, where agents are grouped into teams or coalitions to maximize collective utility. Given the combinatorial nature of the coalition structure generation problem, this can be reformulated as QUBO problem, as demonstrated by BILP-Q algorithm and allows the use of quantum routines like the quantum approximate optimization algorithm (QAOA) and quantum annealing to explore large solution spaces presumably more efficiently. However, due to the current limitations of quantum hardware, scaling these approaches to larger problems remains an open challenge.",
+      "expected_answer": "Coalition formation in multi-agent systems can be reformulated as a QUBO problem, as shown by the BILP-Q algorithm, allowing quantum routines like the quantum approximate optimization algorithm (QAOA) and quantum annealing to explore large solution spaces more efficiently, though scaling to larger problems remains limited by current quantum hardware.",
+      "citations": [
+        "Artificial intelligence and quantum computing white paper.pdf"
+      ]
+    },
+    {
+      "query_id": "g40",
+      "query": "According to this paper, how could quantum computing improve data storage and search capabilities in libraries?",
+      "context": "Increased Storage Capacity: Quantum computers can store and manipulate vast amounts of data due to the quantum property of superposition. Quantum bits or qubits can represent multiple states simultaneously, allowing for a massive increase in storage capacity compared to classical bits. This could enable more efficient and compact storage solutions for large datasets. Improved Data Retrieval and Search: Quantum computing can enhance data retrieval and search algorithms. Quantum algorithms like Grover's algorithm can search unsorted databases exponentially faster than classical algorithms.",
+      "expected_answer": "Quantum computing could increase storage capacity because qubits, unlike classical bits, can represent multiple states simultaneously via superposition, enabling more compact storage for large datasets. It could also improve search by using quantum algorithms like Grover's algorithm, which can search unsorted databases exponentially faster than classical algorithms.",
+      "citations": [
+        "Quantum Computing- A Game-Changer for Libraries and Information Centers .pdf"
+      ]
+    },
+    {
+      "query_id": "g41",
+      "query": "What computational advantage does Grover's algorithm provide over classical search algorithms, according to this paper?",
+      "context": "This database search algorithm is designed to find an item in an unordered list. For example, it can be used for speeding up brute force key search on symmetric key encryption such as AES. It is known that this algorithm requires O(sqrt(N)) operations to search an unsorted array of size N, which requires O(N) operations for classical algorithms (Grover, 1996).",
+      "expected_answer": "Grover's algorithm can find an item in an unordered list of size N using O(sqrt(N)) operations, compared to O(N) operations required by classical algorithms, making it useful for tasks like speeding up brute-force key search on symmetric encryption such as AES.",
+      "citations": [
+        "Quantum Computing- Principles and Applications .pdf"
+      ]
+    },
+    {
+      "query_id": "g42",
+      "query": "Why is Quantum Key Distribution (QKD) with the one-time pad described as 'unbreakable' in this paper?",
+      "context": "The QKD with the one-time pad can provide theoretically unbreakable end-to-end security by utilizing quantum mechanical properties in a classical cryptographic protocol. Here 'unbreakable' means that the security of the cryptography does not rely on the complexity of the algorithm but a physical property that prevents decryptions without the key. The one-time pad is classical cryptography known to be a perfect encryption scheme.",
+      "expected_answer": "QKD combined with the one-time pad is called 'unbreakable' because its security relies not on the computational complexity of an algorithm but on a physical property of quantum mechanics that prevents decryption without the key, and the one-time pad itself is a classical cryptography scheme already known to be a perfect encryption method.",
+      "citations": [
+        "Quantum Computing- Principles and Applications .pdf"
+      ]
+    },
+    {
+      "query_id": "g43",
+      "query": "What kinds of complex problems can quantum computing help solve, according to this paper?",
+      "context": "The recent development of quantum computing, which uses entanglement, superposition, and other quantum fundamental concepts, can provide substantial processing advantages over traditional computing. These quantum features help solve many complex problems that cannot be solved otherwise with conventional computing methods. These problems include modeling quantum mechanics, logistics, chemical-based advances, drug design, statistical science, sustainable energy, banking, reliable communication, and quantum chemical engineering.",
+      "expected_answer": "Quantum computing, through entanglement and superposition, can help solve complex problems including modeling quantum mechanics, logistics, chemical-based advances, drug design, statistical science, sustainable energy, banking, reliable communication, and quantum chemical engineering.",
+      "citations": [
+        "Quantum Computing- Vision and Challenges.pdf"
+      ]
+    },
+    {
+      "query_id": "g44",
+      "query": "What is the Variational Quantum Eigensolver (VQE) and how has it performed on NISQ devices, according to this paper?",
+      "context": "Variational Quantum Eigensolver (VQE) and other variational quantum algorithms are a popular kind of hybrid quantum-classical algorithm that combines the advantages of the two technologies. On NISQ devices, VQE algorithms have performed exceptionally well in solving quantum mechanical problems and Quantum Artificial Intelligence (QAI) tasks.",
+      "expected_answer": "VQE is a popular hybrid quantum-classical algorithm that combines the advantages of both quantum and classical computing, and on NISQ (Noisy Intermediate Scale Quantum) devices it has performed exceptionally well at solving quantum mechanical problems and Quantum Artificial Intelligence (QAI) tasks.",
+      "citations": [
+        "Quantum Computing- Vision and Challenges.pdf"
+      ]
+    },
+    {
+      "query_id": "g45",
+      "query": "What improvements were observed in future teachers' understanding of statistics and probability after the training cycle intervention?",
+      "context": "The results from Table 5 indicate improvements in both groups after receiving the intervention in statistics and probability in the context of SDG5. In group 1, an average improvement of 0.7 points was observed, while in group 2, it was 0.6 points. Furthermore, a decrease in the standard deviation is observed in both groups (from 0.64 to 0.28 in group 1 and from 0.45 to 0.17 in group 2), implying greater consistency in participants' responses following the intervention.",
+      "expected_answer": "Both groups improved after the intervention: Group 1 improved by an average of 0.7 points and Group 2 by 0.6 points. Standard deviation decreased in both groups (0.64 to 0.28 in Group 1, and 0.45 to 0.17 in Group 2), indicating participants' responses became more consistent after the training.",
+      "citations": [
+        "The impact of a training cycle on statistics and probability for future primary schoolteachers with a gender-focused approach within the framework of education for sustainable development.pdf"
+      ]
+    },
+    {
+      "query_id": "g46",
+      "query": "What research design and statistical test did the authors use to evaluate the training cycle's effectiveness?",
+      "context": "In this research, we employed a mixed-methods approach, combining qualitative and quantitative aspects for a comprehensive analysis of the topics under investigation and quasi-experimental design. We conducted a pre- and post-assessment of a training cycle in statistics and probability. The data were analyzed and categorized using content analysis techniques, and scores were assigned to each response to measure the effectiveness of each version of the training cycle, applying the student's t-test.",
+      "expected_answer": "The authors used a mixed-methods, quasi-experimental design with pre- and post-assessments of the training cycle. They applied content analysis techniques to categorize and score responses, and used the student's t-test to measure the effectiveness of each version of the training cycle.",
+      "citations": [
+        "The impact of a training cycle on statistics and probability for future primary schoolteachers with a gender-focused approach within the framework of education for sustainable development.pdf"
+      ]
+    },
+    {
+      "query_id": "g47",
+      "query": "What is a probability model and how are the probabilities of events computed within it, according to this paper?",
+      "context": "Random processes can be described mathematically by using a probability model; a list or description of the possible outcomes (the sample space), each of which is assigned a probability. In situations such as flipping a coin, rolling a number cube, or drawing a card, it might be reasonable to assume various outcomes are equally likely. In a probability model, sample points represent outcomes and combine to make up events; probabilities of events can be computed by applying the Addition and Multiplication Rules.",
+      "expected_answer": "A probability model is a list or description of the possible outcomes of a random process (the sample space), each assigned a probability; sample points represent outcomes that combine to make up events, and the probabilities of those events can be computed by applying the Addition and Multiplication Rules.",
+      "citations": [
+        "USE OF PROBABILITY IN STATISTICS- A STUDY.pdf"
+      ]
+    },
+    {
+      "query_id": "g48",
+      "query": "How does this paper characterize 'probability theory as logic' in relation to frequentist approaches?",
+      "context": "Probability theory seen as logic goes much beyond the so-called frequentists' schools of probability theory, as it is based on more fundamental assumptions (desiderata) and is far more flexible in its applications. In fact, probability theory is common sense translated into precise mathematical statements to attain simple and clear results by the process of reduction to calculation. 'Probability theory as logic' provides a way of drawing consistent conclusions in case of incomplete information that goes well beyond pure inductive or deductive reasoning.",
+      "expected_answer": "The paper characterizes 'probability theory as logic' as going beyond frequentist schools of probability because it rests on more fundamental assumptions and is more flexible in application, providing a way to draw consistent conclusions from incomplete information that goes beyond pure inductive or deductive reasoning.",
+      "citations": [
+        "USE OF PROBABILITY IN STATISTICS- A STUDY.pdf"
+      ]
+    },
+    {
+      "query_id": "g49",
+      "query": "What impact is climate change projected to have on cereal production in Sub-Saharan Africa by 2060?",
+      "context": "Projected loses in cereal production potential in SSA will be about 33% by 2060. Fish production will be negatively affected by sea level rise and coral bleaching. Some countries have significant agricultural products from coastal zones which are threatened by sea level rise and increasing temperatures.",
+      "expected_answer": "Cereal production potential in Sub-Saharan Africa (SSA) is projected to decline by about 33% by 2060. Fish production is also expected to be negatively affected by sea level rise and coral bleaching, and coastal agricultural products are threatened by sea level rise and increasing temperatures.",
+      "citations": [
+        "report on climate change.pdf"
+      ]
+    },
+    {
+      "query_id": "g50",
+      "query": "What are the three flexibility mechanisms of the Kyoto Protocol, and what does the Clean Development Mechanism (CDM) do?",
+      "context": "The Kyoto Protocol has three innovative 'flexibility mechanisms' to lower the overall costs of achieving its emissions targets; Clean Development Mechanism (CDM), Joint Implementation (JI) and Emissions Trading (ET). The clean development mechanism (CDM) aims to enable Annex I Parties to meet their emission reduction commitments under the Kyoto Protocol while facilitating sustainable development in Non-Annex I Parties. This implies that Annex I Parties invest in projects that emit little or no emissions in Non-Annex I Parties and acquire the certified emission reductions (CERs) which are then used to offset their commitments.",
+      "expected_answer": "The Kyoto Protocol's three flexibility mechanisms are the Clean Development Mechanism (CDM), Joint Implementation (JI), and Emissions Trading (ET). The CDM lets Annex I (industrialized) Parties invest in low- or no-emission projects in Non-Annex I Parties and acquire certified emission reductions (CERs) to offset their own emission reduction commitments while facilitating sustainable development in those Non-Annex I countries.",
+      "citations": [
+        "report on climate change.pdf"
+      ]
+    },
+    {
+      "query_id": "g51",
+      "query": "According to Leiserowitz's survey data cited in this paper, what percentage of Americans believed global warming was happening, and what percentage believed there was scientific consensus on its cause?",
+      "context": "While it can be seen from this data that many Americans have accepted the idea that global warming is a contemporary issue of concern, it should also be noted that there are many people who are less certain about it. Perhaps some of the most interesting information from Leiserowitz's data is the following: while 71% of Americans believe that global warming is happening, only 48% of them believe that there is scientific consensus on the issue of why it is happening, and 40% believe that there is substantial disagreement on the issue.",
+      "expected_answer": "According to Leiserowitz's survey data, 71% of Americans believed global warming was happening, but only 48% believed there was scientific consensus on why it was happening, and 40% believed there was substantial disagreement on the issue.",
+      "citations": [
+        "understanding the global climate change.pdf"
+      ]
+    },
+    {
+      "query_id": "g52",
+      "query": "What did the IPCC's 'Climate Change 2007' report conclude about the certainty of human-caused global warming, according to this paper?",
+      "context": "More recently, Earth's climate has been studied by the Intergovernmental Panel on Climate Change, an organization made up of many scientists who specialize in climate studies. The IPCC has issued four reports over recent years that have studied the connections between human activity and climate change. The most recent report, 'Climate Change 2007', declared that the consensus of the group is that there is 90% certainty that global warming is directly related to human greenhouse gas emissions. The IPCC was awarded with the Nobel Peace Prize for their efforts in raising world-wide attention to this issue.",
+      "expected_answer": "The IPCC's 'Climate Change 2007' report declared a group consensus of 90% certainty that global warming is directly related to human greenhouse gas emissions. The IPCC was also awarded the Nobel Peace Prize for raising worldwide attention to the issue.",
+      "citations": [
+        "understanding the global climate change.pdf"
+      ]
+    },
+    {
+      "query_id": "g53",
+      "query": "What text analysis technique did researchers use to extract keyword phrases from Reddit posts and comments about personal finance?",
+      "context": "After primary data preprocessing by the use of computational methods of text analysis, the RAKE was used for keywords extraction. This is a Rapid Automatic Keyword Extraction (RAKE) algorithm that omits delimiters and stopwords and takes into account the word co-occurrences and their frequency in the text. By this, we extracted top-200 keyword phrases by the number of times they appeared in unique texts, posts, or comments, consisting of simple noun phrases.",
+      "expected_answer": "They used RAKE (Rapid Automatic Keyword Extraction), an algorithm that omits delimiters and stopwords and accounts for word co-occurrence and frequency, to extract the top-200 keyword phrases (simple noun phrases) from the Reddit posts and comments.",
+      "citations": [
+        "A Study of Personal Finance Practices. The Case of Online Discussions on Reddit .pdf"
+      ]
+    },
+    {
+      "query_id": "g54",
+      "query": "What were the three most frequently discussed topics in the Personal Finance subreddit, and how many texts were associated with each?",
+      "context": "The most frequent topics of discussion are 'credit, loans and dealing with banks' (1266 texts related to this topic), 'money management' (1174), and 'real estate issues (car, house)' (880).",
+      "expected_answer": "The three most frequent topics were 'credit, loans and dealing with banks' (1266 texts), 'money management' (1174 texts), and 'real estate issues (car, house)' (880 texts).",
+      "citations": [
+        "A Study of Personal Finance Practices. The Case of Online Discussions on Reddit .pdf"
+      ]
+    },
+    {
+      "query_id": "g55",
+      "query": "According to the study, how does an additional year of mandatory economics education in high school affect young adults' debt outcomes, compared to math education?",
+      "context": "Moving to the impacts of mandatory economics education, we see they are quite different from those of math education. They include an average decline of 0.6 points in the individual's risk score (though the estimate is not significant), an increase in the proportion of balances that are delinquent, and a small but precisely estimated increase of 0.07 percentage points in the probability of bankruptcy over the next two years (on a base of 0.56 percent). Like math, economics education leads to an increase in the prevalence of outstanding debt. However, the magnitude of the estimated effect for economics is three times as large, at 0.6 percentage points on average, and it is highly significant.",
+      "expected_answer": "Unlike math education, mandatory economics education is associated with worse debt outcomes: a decline in the average risk score, an increase in the proportion of delinquent balances, a small but significant 0.07 percentage point increase in bankruptcy probability, and a significant 0.6 percentage point increase in the prevalence of outstanding debt (three times the size of the math education effect).",
+      "citations": [
+        "Financial Education and the Debt Behavior of the Young.pdf"
+      ]
+    },
+    {
+      "query_id": "g56",
+      "query": "What data source did the researchers use to track young Americans' debt outcomes over time?",
+      "context": "Seventy-nine percent of 25-year-olds in the FRBNY Consumer Credit Panel (CCP) in 2012 held consumer debt. The average debt balance among all 2012 CCP 25-year-olds was $22,911... The FRBNY Consumer Credit Panel provides debt outcomes based on quarterly Equifax credit reports from 1999 to 2014.",
+      "expected_answer": "They used the FRBNY (Federal Reserve Bank of New York) Consumer Credit Panel (CCP), which provides debt outcomes drawn from quarterly Equifax credit reports spanning 1999 to 2014.",
+      "citations": [
+        "Financial Education and the Debt Behavior of the Young.pdf"
+      ]
+    },
+    {
+      "query_id": "g57",
+      "query": "What did the survey at the University of Northern Iowa find about the relationship between taking a personal finance course and financial knowledge?",
+      "context": "This research was able to determine that taking a personal financial course has a positive affect on personal financial knowledge. If students who have taken any personal finance course are grouped together and compared to those who have never had a course, those who have taken a personal financial course have a higher level of personal financial knowledge.",
+      "expected_answer": "The study found that taking a personal finance course has a positive effect on personal financial knowledge—students who had taken any personal finance course scored higher on financial knowledge than those who had never taken one.",
+      "citations": [
+        "Personal Financial Knowledge of College Students.pdf"
+      ]
+    },
+    {
+      "query_id": "g58",
+      "query": "What statistical methods were used to determine significant differences in financial knowledge scores among survey participants, and at what confidence level?",
+      "context": "Each of these areas of interest were examined using ANOVA and T-tests to determine which items have statistically significant differences at a 95% confidence level.",
+      "expected_answer": "The researchers used ANOVA and T-tests to identify statistically significant differences in financial knowledge scores, applying a 95% confidence level.",
+      "citations": [
+        "Personal Financial Knowledge of College Students.pdf"
+      ]
+    },
+    {
+      "query_id": "g59",
+      "query": "What did the regression analysis reveal about the effects of financial knowledge, financial attitude, and external locus of control on personal financial management behaviour among lower-income people in Batticaloa?",
+      "context": "Coefficient result in table 5 indicates that, financial knowledge (p<0.05; beta=0.512) and financial attitude (p<0.05; beta=0.370) had statistically significant and positively effect on personnel financial management behaviour. External locus of control (p<0.05; beta=-0.167) had statistically significant and negative impact on personal financial management behaviour. Based on the values, financial knowledge has the highest impact on personnel financial management behaviour.",
+      "expected_answer": "Financial knowledge (beta=0.512) and financial attitude (beta=0.370) had statistically significant positive effects on personal financial management behaviour, while external locus of control (beta=-0.167) had a statistically significant negative effect. Financial knowledge had the largest impact of the three factors.",
+      "citations": [
+        "Personal Financial Management Behaviour of Lower Income People in Batticaloa District.pdf"
+      ]
+    },
+    {
+      "query_id": "g60",
+      "query": "What levels of financial knowledge, financial attitude, and external locus of control did the study find among lower-income people in Manmunai North?",
+      "context": "Financial knowledge is in low level (Mean=2.2156) among lower income people. The financial knowledge mean is 2.2156, it is deviated from 0.87375. The overall financial attitude mean is 2.4344 it is deviated from 1.08066. Financial attitude is in low level among lower income people. The external locus of control is in high level (Mean=3.7517) among lower income people.",
+      "expected_answer": "The study found low levels of financial knowledge (mean=2.2156) and financial attitude (mean=2.4344), but a high level of external locus of control (mean=3.7517) among lower-income people.",
+      "citations": [
+        "Personal Financial Management Behaviour of Lower Income People in Batticaloa District.pdf"
+      ]
+    },
+    {
+      "query_id": "g61",
+      "query": "What did the 1956 Sinhala Only Act require, and what impact did it have on the Tamil minority?",
+      "context": "With the adoption of the 1956 Sinhala-Only Act, Ceylon implemented a hegemonic language regime, making the knowledge of Sinhala a precondition to entering the public service and to obtaining a promotion, effectively choking off Tamil entry into the public service.",
+      "expected_answer": "The 1956 Sinhala-Only Act made knowledge of Sinhala a requirement for entering the public service and for promotion, which effectively blocked Tamil entry into the public service and marginalized the Tamil minority.",
+      "citations": [
+        "LANGUAGE POLICY IN SRI LANKA CRITICAL JUNCTURES AND RESISTANCE FACTORS PREVENTING SUCCESSFUL IMPLEMENTATION.pdf"
+      ]
+    },
+    {
+      "query_id": "g62",
+      "query": "What four critical junctures did the author identify as shaping Sri Lanka's postcolonial language policy?",
+      "context": "It identified four episodes of critical junctures that established the path that remained an enduring influence and constrained the scope for diversion from the set of Sri Lanka's postcolonial language policy direction since the country's independence in 1948, namely independence in 1948, the 1956 Sinhala-Only Act, the 1978 Constitution and the Thirteenth Amendment to the Constitution adopted in 1987.",
+      "expected_answer": "The four critical junctures identified are: independence in 1948, the 1956 Sinhala-Only Act, the 1978 Constitution, and the Thirteenth Amendment to the Constitution adopted in 1987.",
+      "citations": [
+        "LANGUAGE POLICY IN SRI LANKA CRITICAL JUNCTURES AND RESISTANCE FACTORS PREVENTING SUCCESSFUL IMPLEMENTATION.pdf"
+      ]
+    },
+    {
+      "query_id": "g63",
+      "query": "What psychological factors does the paper identify as hindering ESL learning among secondary students in Sri Lanka?",
+      "context": "In this survey, secondary student of Sri Lankan indeed experience language anxiety mostly during test or time that require speaking fluently in classroom. Most students' anxiety of failure can be attributed to violation of social norms and negative peers' judgments. According to a few studies, instructions that foster positive learning climates and low-pressure tasks can reduce such anxiety to allow learners to contribute effectively.",
+      "expected_answer": "Secondary ESL students in Sri Lanka experience language anxiety, especially during tests or speaking tasks, often driven by fear of violating social norms and negative peer judgment; positive, low-pressure learning climates can help reduce this anxiety.",
+      "citations": [
+        "Obstacles in second language acquisition- Linguistic, psychological, social, cultural, and pedagogical challenges with a focus on secondary ESL Education in Sri Lanka.pdf"
+      ]
+    },
+    {
+      "query_id": "g64",
+      "query": "What gap did the paper identify in ESL teacher training programs in Sri Lanka?",
+      "context": "Most teachers are prepared in the conventional models, which emphasize form and text instead of function and interaction or in interactive approaches that involve the learner. Therefore, the identified gap is an alarming gap between the teaching knowledge and pedagogy skills that trainers gain in the training programs and the updated demands acting on ESL learners.",
+      "expected_answer": "Most ESL teachers are trained in conventional models that emphasize grammatical form and text over functional, interactive approaches, creating a significant gap between the pedagogy skills teachers receive in training programs and the actual, updated demands of teaching ESL learners.",
+      "citations": [
+        "Obstacles in second language acquisition- Linguistic, psychological, social, cultural, and pedagogical challenges with a focus on secondary ESL Education in Sri Lanka.pdf"
+      ]
+    },
+    {
+      "query_id": "g65",
+      "query": "What reasons did the 2001 Ministry of Education circular give for teaching A/L Science subjects in English?",
+      "context": "The Circular directs Principals to start teaching A/L Science Subjects in English for the following reasons: i) The growing importance of English as the language of global communication in an increasingly more globalized world; ii) The need to facilitate the transfer of students to either the world of work or to higher education in the sciences.",
+      "expected_answer": "The circular cited two reasons: the growing importance of English as the language of global communication in a globalized world, and the need to facilitate students' transfer to the workforce or to higher education in the sciences.",
+      "citations": [
+        "STUDY ON MEDIUM OF INSTRUCTION, NATIONAL AND INTERNATIONAL LANGUAGES IN GENERAL EDUCATION IN SRI LANKA.pdf"
+      ]
+    },
+    {
+      "query_id": "g66",
+      "query": "What statistics were cited to justify extending the English-medium initiative to junior secondary level in Sri Lanka?",
+      "context": "Interestingly, the only 'research' which justified this initiative was that 26% of all students in Type 1AB and Type 2 schools who sat the GCE (Ordinary Level) exam in 2000, expressed their desire to study in the English medium and 50% of Science-graduate teachers in all Type 1AB schools expressed a desire to teach in the English medium.",
+      "expected_answer": "The initiative was justified by findings that 26% of students in Type 1AB and Type 2 schools who sat the GCE (Ordinary Level) exam in 2000 wanted to study in the English medium, and 50% of Science-graduate teachers in Type 1AB schools wanted to teach in English.",
+      "citations": [
+        "STUDY ON MEDIUM OF INSTRUCTION, NATIONAL AND INTERNATIONAL LANGUAGES IN GENERAL EDUCATION IN SRI LANKA.pdf"
+      ]
+    },
+    {
+      "query_id": "g67",
+      "query": "What accuracy did the ANN classifier achieve for damage-state classification in this seismic vulnerability study, and which architecture performed best?",
+      "context": "ANN Classifier Performance: Accuracy = 87-95% across 5 damage states. Best recall = 92.6% for complete damage state. ANN with 16 hidden neurons provided the most balanced performance.",
+      "expected_answer": "The ANN classifier achieved an accuracy of 87-95% across the five damage states, with a best recall of 92.6% for the complete damage state. The ANN architecture with 16 hidden neurons provided the most balanced performance.",
+      "citations": [
+        "AI-Driven Seismic Vulnerability Assessment of Reinforced Concrete Buildings Using Machine Learning, Fragility Analysis, and GIS Integration.pdf"
+      ]
+    },
+    {
+      "query_id": "g68",
+      "query": "What detection accuracy did the XGBoost model achieve in E3WS, and how did it compare to the other machine learning models tested?",
+      "context": "We test several approaches to design the models, including Extreme Gradient Boosting (XGB), Support Vector Machine (SVM), Random Forest (RF) and Neural Networks (Multilayer Perceptron: MLP). We find that the approach yielding the best results is XGB... In the testing stage, detection results show that XGB has an overall accuracy (correct classifications divided by total test samples) of 99.95%, slightly better than the other models (Table 2.1).",
+      "expected_answer": "XGBoost (XGB) achieved the best detection accuracy of 99.95%, slightly outperforming the other models tested (Support Vector Machine, Random Forest, and Multilayer Perceptron neural networks).",
+      "citations": [
+        "Detection of seismic signals by artificial intelligence.pdf"
+      ]
+    },
+    {
+      "query_id": "g69",
+      "query": "What is E3WS, and how is it deployed as part of Peru's earthquake early warning system?",
+      "context": "we design an AI-based algorithm, coined E3WS for Ensemble Earthquake Early Warning System, which detects earthquakes and estimate their magnitude and location using 3 seconds of data recorded on a single station... We install E3WS as the core algorithm of the Peruvian EEWS (SASPe for Sistema de Alerta Sismica Peruano), providing timely alerts for subduction earthquakes along the coast and benefiting more than 18 million Peruvians. SASPe operates through a network of 111 stations, where E3WS is independently implemented.",
+      "expected_answer": "E3WS (Ensemble Earthquake Early Warning System) is an AI-based algorithm that detects earthquakes and estimates their magnitude and location using just 3 seconds of data from a single station. It is deployed as the core algorithm of SASPe (Sistema de Alerta Sismica Peruano), Peru's earthquake early warning system, which operates through a network of 111 stations and benefits more than 18 million Peruvians.",
+      "citations": [
+        "Detection of seismic signals by artificial intelligence.pdf"
+      ]
+    },
+    {
+      "query_id": "g70",
+      "query": "What quantitative source parameters did seismologists focus on determining for earthquakes in the years leading up to this 1979 review?",
+      "context": "As more sophisticated techniques for retrieving earthquake source parameters (synthetic seismogram method for both body and surface waves, inversion method, matching filter method, etc.) were developed, emphasis in the last four years was placed on the determination of not only the geometry of the source but also more quantitative parameters such as the stress drop, the amount of slip, the complexity, the strength of non-isotropic components, and the spectral characteristics.",
+      "expected_answer": "Using techniques such as the synthetic seismogram method, inversion method, and matching filter method, seismologists placed emphasis on determining quantitative source parameters including stress drop, amount of slip, complexity, strength of non-isotropic components, and spectral characteristics, in addition to source geometry.",
+      "citations": [
+        "EARTHQUAKE SOURCE MECHANISMS AND PLATE TECTONICS.pdf"
+      ]
+    },
+    {
+      "query_id": "g71",
+      "query": "What observation in Southern California in December 1975 created new urgency for earthquake prediction research?",
+      "context": "A new sense of urgency and relevancy for prediction research was created in December, 1975, when Castle et al. (1976) presented evidence that the elevation of a 12,000 square kilometer area in southern California had increased by 15 to 25 cm during the 1960's. Because this uplift lay astride a section of the San Andreas fault that has been essentially aseismic since a devastating earthquake in 1857...",
+      "expected_answer": "In December 1975, Castle et al. presented evidence that a 12,000 square kilometer area of southern California had risen by 15 to 25 cm during the 1960s. Because this uplift lay along a section of the San Andreas fault that had been aseismic since the 1857 earthquake, it raised concern that it could be precursory to the next great California earthquake, creating urgency for prediction research.",
+      "citations": [
+        "EARTHQUAKE SOURCE MECHANISMS AND PLATE TECTONICS.pdf"
+      ]
+    },
+    {
+      "query_id": "g72",
+      "query": "In the Istanbul metropolitan area, what proportion of users reported receiving 'Be Aware' versus 'Take Action' alerts during the Marmara earthquake, and how did this align with observed shaking?",
+      "context": "Data analysis shows that over 56.7% of users in the Istanbul metropolitan area received \"Be Aware\" (BA) alerts, while 13.4% received \"Take Action\" (TA) alerts (Figure 4). This aligns with Istanbul experiencing moderate shaking, estimated at MMI V.",
+      "expected_answer": "Over 56.7% of users in the Istanbul metropolitan area received 'Be Aware' alerts, while 13.4% received 'Take Action' alerts. This distribution aligns with Istanbul experiencing moderate shaking, estimated at MMI V.",
+      "citations": [
+        "Leveraging LLMs and Social Media to Understand User Perception of SmartphoneBased Earthquake Early Warnings.pdf"
+      ]
+    },
+    {
+      "query_id": "g73",
+      "query": "How did the researchers use LLMs to extract information from social media posts about the earthquake alerts?",
+      "context": "Google's Gemini Pro 2.5 (Gemini Team, 2023) and Vertex AI, Google Cloud's comprehensive machine learning platform, were utilized to extract 42 distinct attributes (encompassing both questions and demographic data) from these posts through careful prompt engineering and few-shot learning methodologies.",
+      "expected_answer": "The researchers used Google's Gemini Pro 2.5 and Vertex AI, applying careful prompt engineering and few-shot learning methodologies, to extract 42 distinct attributes (covering both questions and demographic data) from the social media posts.",
+      "citations": [
+        "Leveraging LLMs and Social Media to Understand User Perception of SmartphoneBased Earthquake Early Warnings.pdf"
+      ]
+    },
+    {
+      "query_id": "g74",
+      "query": "Why are hydro-acoustic waves useful as precursors for tsunami early warning?",
+      "context": "It has been proved that sudden displacements of the sea bottom, as those associated with submerged earthquakes, generate hydro-acoustic (pressure) waves, propagating at the celerity of the sound in water (1500 m/s). These waves are precursors of tsunamis, since their propagation speed is much faster than that of the free surface waves.",
+      "expected_answer": "Hydro-acoustic (pressure) waves generated by sudden sea-bottom displacements, such as those from submarine earthquakes, propagate at the speed of sound in water (1500 m/s), which is much faster than free surface tsunami waves. This makes them useful precursors that can anticipate tsunami arrival.",
+      "citations": [
+        "Tsunami Early Warning System based on Real-time Measurements of Hydro-acoustic Waves.pdf"
+      ]
+    },
+    {
+      "query_id": "g75",
+      "query": "In the Stromboli test case, how far in advance could the model predict the maximum tsunami wave elevation at Panarea?",
+      "context": "For tknown = 496 s (Fig. 2 (b)) the crest of the first (highest) wave is used in the input time series and the prediction at Panarea appears to be already comparable to the final one. Since the highest wave will reach Panarea around 1000 s after the tsunami generation, its prediction can be achieved around 500 s in advance.",
+      "expected_answer": "Using a truncated input time series up to 496 seconds (which captures the crest of the first, highest wave), the model could predict the maximum wave elevation at Panarea about 500 seconds before the highest wave actually arrived (around 1000 seconds after tsunami generation).",
+      "citations": [
+        "Tsunami Early Warning System based on Real-time Measurements of Hydro-acoustic Waves.pdf"
+      ]
+    },
+    {
+      "query_id": "g76",
+      "query": "According to Koke's (2003) museum audience research, what proportion of visitors believed there is life outside the solar system, and what form did they expect it to take?",
+      "context": "Consistent with the public opinion surveys, Koke (2003) found that most (90%) museum visitors believed there is life outside of the solar system, with different types of environments and life forms. The great majority believed scientists' belief that the life we may find outside the earth will be microscopic, in part because there will be very different environments on other planets and/or different evolutionary pathways.",
+      "expected_answer": "Koke (2003) found that 90% of museum visitors believed there is life outside the solar system, and the great majority expected that life found beyond Earth would be microscopic, given the very different environments and evolutionary pathways on other planets.",
+      "citations": [
+        "Aliens- More Real Than Ever.pdf"
+      ]
+    },
+    {
+      "query_id": "g77",
+      "query": "What frequency did Project Ozma use to listen for extraterrestrial signals, and why was that frequency chosen?",
+      "context": "Epsilon Eridani and Tau Ceti were the targets on which Dr. Drake focussed his attention in the spring of 1960 in Project Ozma, an attempt to detect possible intelligent signals from outer space. The frequency selected for listening was 1420.405752 megacycles per second, or a wave length of 21 cm. This particular frequency... happens to be the radiation frequency of atomic or free hydrogen which permeates space in great clouds; moreover, this frequency is within the range of radio frequencies able to pass through the earth's atmosphere.",
+      "expected_answer": "Project Ozma listened at 1420.405752 megacycles per second (a wavelength of 21 cm), the radiation frequency of atomic or free hydrogen that permeates space, because this frequency was believed to be recognizable to other intelligent beings familiar with radio theory and because it can pass through Earth's atmosphere.",
+      "citations": [
+        "Communication with Extraterrestrial Intelligence .pdf"
+      ]
+    },
+    {
+      "query_id": "g78",
+      "query": "What was significant about the message that scientists at Arecibo Observatory beamed at Messier 13?",
+      "context": "Last November a group of scientists at Arecibo Observatory in Puerto Rico sent a three-minute message beamed at Messier 13, and this represented man's first attempt to take the initiative in communicating with another civilization... Messier 13 is a cluster of 300,000 stars on the edge of the Milky Way, 24,000 light years away, so if the message is received and answered promptly, unless we happen to hit them on one of their three-day holidays we should have their answer in 48,000 years, give or take a day or two.",
+      "expected_answer": "The three-minute message beamed at Messier 13 from Arecibo Observatory represented humanity's first attempt to take the initiative in communicating with another civilization. Since Messier 13 is 24,000 light years away, any reply would take about 48,000 years to arrive.",
+      "citations": [
+        "Communication with Extraterrestrial Intelligence .pdf"
+      ]
+    },
+    {
+      "query_id": "g79",
+      "query": "What is the Zoo Hypothesis and how does it attempt to explain the Fermi paradox?",
+      "context": "the ETI could be intentionally invisible. The intentional form of this solution is sometimes known as the Zoo Hypothesis because it implies that ETI are treating Earth like a wildlife preserve to be observed but not fully incorporated into the Galactic Club. This idea has been popularized through the Star Trek series as the 'prime directive' for noninterference with a primitive culture. The Zoo Hypothesis thus implies that ETI could make contact with humans at any time.",
+      "expected_answer": "The Zoo Hypothesis proposes that extraterrestrial intelligence is intentionally invisible to humanity, treating Earth like a wildlife preserve that is observed but not incorporated into a wider galactic community -- similar to Star Trek's 'prime directive' of noninterference. It implies that ETI already exist and could choose to make contact with humans at any time.",
+      "citations": [
+        "Would Contact with Extraterrestrials Benefit or Harm Humanity? A Scenario Analysis.pdf"
+      ]
+    },
+    {
+      "query_id": "g80",
+      "query": "What recommendation does this paper make about the content of messages humanity sends to extraterrestrial intelligence, and why?",
+      "context": "One recommendation is that messages to extraterrestrials should be written cautiously. For example, prior messages have included details of human biology, such as the numbers one through ten... and the form and structure of the DNA molecule. However, details about our biology, though seemingly harmless, may actually help certain ETI to cause us harm. A malicious ETI listener may use a message about human biology to design a potent biological weapon for use against Earth... initial communication with ETI may be best limited to simple mathematical discourse for security purposes until we have a better idea of the type of ETI we are dealing with.",
+      "expected_answer": "The paper recommends that messages to extraterrestrials be written cautiously, since seemingly harmless details about human biology (such as the structure of DNA) could help a malicious ETI design a biological weapon against Earth. It suggests initial communication be limited to simple mathematical discourse for security until more is known about the nature of the ETI.",
+      "citations": [
+        "Would Contact with Extraterrestrials Benefit or Harm Humanity? A Scenario Analysis.pdf"
+      ]
+    },
+    {
+      "query_id": "g81",
+      "query": "What did Voyager 2 discover during its 1989 encounter with Neptune and its moon Triton?",
+      "context": "In late August 1989, Voyager 2 made its historic final encounter with our solar system when it passed within 3044 miles of Neptune and observed its largest moon, Triton... A huge atmospheric dark spot, the size of Earth, was observed to be rotating around the planet every 18.3 hours. A smaller spot, lower in latitude, was rotating at an even faster rate. A strong magnetic field, tilted at 50 degrees to the rotational axis of the planet, was discovered. Voyager 2 also discovered six new satellites, making a total of eight satellites around Neptune... The temperature of Triton was -400 degrees F, the coldest temperature of any body observed in the entire planetary system.",
+      "expected_answer": "During its 1989 flyby, Voyager 2 passed within 3044 miles of Neptune and found a huge, Earth-sized atmospheric dark spot rotating around the planet every 18.3 hours, a strong magnetic field tilted 50 degrees from the rotational axis, and six new satellites (bringing Neptune's total to eight). At its moon Triton, it measured a temperature of -400 degrees F, the coldest temperature recorded for any body in the planetary system.",
+      "citations": [
+        "external life in universe.pdf"
+      ]
+    },
+    {
+      "query_id": "g82",
+      "query": "What did the Viking missions reveal about the Martian canals and the possibility of water on Mars?",
+      "context": "One of the things we have learned is that the canals, or channels, are not creature-made--they are natural. Figure 14 is an image of a canyon that is 3000 miles long and 4 miles deep. There are other channels that appear to have been cut by torrents of water; several of them are estimated to be 10,000 times greater than the volumetric flow of the Amazon River. The terrain suggests that at one time there were great rivers and oceans on Mars. However, no liquid water exists on Mars now.",
+      "expected_answer": "The Viking missions revealed that the Martian canals/channels are natural, not creature-made. One canyon is 3000 miles long and 4 miles deep, and other channels appear to have been cut by torrents of water up to 10,000 times greater than the Amazon River's flow, suggesting Mars once had rivers and oceans -- but no liquid water exists on Mars today.",
+      "citations": [
+        "external life in universe.pdf"
+      ]
+    },
+    {
+      "query_id": "g83",
+      "query": "According to the Elon University canvassing, in which areas do experts predict AI-driven change will be mostly negative versus mostly positive by 2035?",
+      "context": "The 301 experts who responded to the quantitative questions were asked to predict the impact of change they expect on 12 essential traits and capabilities by 2035. They predicted that change is likely to be mostly negative in the following nine areas: social and emotional intelligence, capacity and willingness to think deeply about complex concepts, trust in widely shared values and norms, confidence in their native abilities, empathy and application of moral judgment, mental well-being, sense of agency, sense of identity and purpose, metacognition. Pluralities said they expect that change for humans in by 2035 will be mostly positive in these areas: curiosity and capacity to learn, decision-making and problem-solving, innovative thinking and creativity.",
+      "expected_answer": "Experts predicted mostly negative change by 2035 in nine areas: social and emotional intelligence, capacity/willingness to think deeply about complex concepts, trust in widely shared values and norms, confidence in native abilities, empathy and moral judgment, mental well-being, sense of agency, sense of identity and purpose, and metacognition. They predicted mostly positive change in three areas: curiosity and capacity to learn, decision-making and problem-solving, and innovative thinking and creativity.",
+      "citations": [
+        "Being Human in 2035.pdf"
+      ]
+    },
+    {
+      "query_id": "g84",
+      "query": "Did the experts who responded to this canvassing use LLMs to write their survey responses?",
+      "context": "No large language models (LLMs) were used in the authors' writing and editing of this report. LLMs were also not used in any of the analysis of the quantitative data or the qualitative essays. We experimented briefly with their use, but we immediately found that there were serious flaws and inaccuracies; we did not find them capable of doing anything as well as the humans preparing this report. Respondents were asked about their use of LLMs in completing this survey. Of the 223 who responded to that question, 82% replied, 'My response was fully generated out of my own mind, with no LLM assistance'; 16% replied, 'I used one or more LLMs somewhat in crafting my response, but most of it was written with no LLM assist'; 2% replied, 'I used one or more LLMs to make a significant difference in enhancing my honest, personal response.'",
+      "expected_answer": "Mostly not: of the 223 respondents who answered this question, 82% said their response was fully generated from their own mind with no LLM assistance, 16% used an LLM somewhat but wrote most of it themselves, and only 2% used an LLM to significantly enhance their response. The authors themselves also used no LLMs in writing, editing, or analyzing the report.",
+      "citations": [
+        "Being Human in 2035.pdf"
+      ]
+    },
+    {
+      "query_id": "g85",
+      "query": "How many papers about groups were identified in Social Psychology Quarterly between 1975 and 2005, and what was the range of the 'index of interest in groups'?",
+      "context": "We identified 332 papers about groups out of the 1,037 papers published from 1975 to 2005. The number of papers about groups per year reached a low of 2 in 1987, and a high of 19 in 1976, with an average of 10.7 per year. Following MHH, we counted the number of pages in papers about groups and divided that number by the total number of pages in all papers in the journal to construct an \"index of interest in groups.\" ... This index ranges from a low of 5.1% in 1987 to a high of 54.9% in 1995, with an average of 31.2%.",
+      "expected_answer": "332 out of 1,037 papers published in SPQ from 1975 to 2005 were about groups. The 'index of interest in groups' (pages about groups divided by total journal pages) ranged from a low of 5.1% in 1987 to a high of 54.9% in 1995, averaging 31.2% over the period.",
+      "citations": [
+        "CURRENT RESEARCH IN SOCIAL PSYCHOLOGY.pdf"
+      ]
+    },
+    {
+      "query_id": "g86",
+      "query": "Which theoretical perspectives were most popular among group research papers in SPQ, and what percentage of journal pages did each represent?",
+      "context": "On average, social cognition and EST have been the most popular theoretical perspectives in group papers in SPQ. Group papers about social cognition made up 9.94% of all pages published in SPQ during the 31-year period, and group papers about EST made up 9.20%.",
+      "expected_answer": "Social cognition and Expectation States Theory (EST) were the most popular theoretical perspectives in SPQ's group research papers, accounting for 9.94% and 9.20% of all journal pages published over the 31-year period, respectively.",
+      "citations": [
+        "CURRENT RESEARCH IN SOCIAL PSYCHOLOGY.pdf"
+      ]
+    },
+    {
+      "query_id": "g87",
+      "query": "How did knowledge workers' use of LLMs for work change between Survey1 (2023) and Survey2 (2024)?",
+      "context": "We describe LLM usage of three groups of participants: those who had used LLMs for work (Survey1: 24.5%, Survey2: 34.6%), those who had used LLMs to accomplish a personal task (Survey1: 27.8%, Survey2: 29.9%), and those who had only experimented with LLMs (Survey1: 26.9%, Survey2: 27.1%).",
+      "expected_answer": "LLM use for work rose from 24.5% of participants in Survey1 (2023) to 34.6% in Survey2 (2024). Personal-task use rose slightly from 27.8% to 29.9%, while the share who had only experimented with LLMs stayed roughly flat, from 26.9% to 27.1%.",
+      "citations": [
+        "Current and Future Use of Large Language Models for Knowledge Work.pdf"
+      ]
+    },
+    {
+      "query_id": "g88",
+      "query": "What four categories of LLM usage for work does this study describe?",
+      "context": "At a high level, we describe four categories of LLM usage for work: for creation, to find or work with information, to get advice, or for automation. Current LLM usage for work focused on creation of artifacts and ideas, finding or learning new information, and improving existing artifacts.",
+      "expected_answer": "The study describes four categories of LLM usage for work: creation, finding or working with information, getting advice, and automation.",
+      "citations": [
+        "Current and Future Use of Large Language Models for Knowledge Work.pdf"
+      ]
+    },
+    {
+      "query_id": "g89",
+      "query": "According to this paper, what is the final goal of education?",
+      "context": "The final goal of Education is A healthy, emotionally mature wise and knowledgeable nourisher of Life, A human being who understand and feels the Reality, An ethical, compassionate Humanist, A human who acts according to ethics, knowledge and Wisdom. This is the Final Goal of Education.",
+      "expected_answer": "The final goal of education is to produce a healthy, emotionally mature, wise, and knowledgeable 'nourisher of life' -- a human being who understands and feels reality, is an ethical and compassionate humanist, and acts according to ethics, knowledge, and wisdom.",
+      "citations": [
+        "The Cornerstone of Human Future .pdf"
+      ]
+    },
+    {
+      "query_id": "g90",
+      "query": "According to Kate Crawford's contribution, what are the main costs of AI that need to be addressed?",
+      "context": "The most urgent work facing the field today is to research and remediate the costs and consequences of AI. This requires a deeper sociotechnical approach that can contend with the complex effect of AI on societies and ecologies. Although there has been important work done on algorithmic fairness in recent years, not enough has been done to address how training data fundamentally skew how AI models interpret the world from the outset. Second, we need to address the human costs of AI, which range from discrimination and misinformation to the widespread reliance on underpaid labourers (such as the crowd-workers who train AI systems for as little as US $2 per hour). Third, there must be a commitment to reversing the environmental costs of AI, including the exceptionally high energy consumption of the current large computational models, and the carbon footprint of building and operating modern tensor processing hardware. Finally, we need strong regulatory and policy frameworks, expanding on the EU's draft AI Act of 2021.",
+      "expected_answer": "Kate Crawford identifies four areas needing attention: how training data skews AI models' worldview, the human costs of AI (discrimination, misinformation, and reliance on underpaid crowd-workers earning as little as US $2/hour), the environmental costs (high energy consumption and carbon footprint of large computational models and hardware), and the need for stronger regulatory and policy frameworks building on the EU's draft AI Act of 2021.",
+      "citations": [
+        "The future of human behaviour research.pdf"
+      ]
+    },
+    {
+      "query_id": "g91",
+      "query": "What research methods were used in the study of the Vlach hora dance event in Denmark?",
+      "context": "Methods used in the study of the hora were: participation and direct observation, recording (sound, video, dance notation), and interviews. \"Feedback interviews\" based on performers' comments on their own videorecordings from various events help to understand the way they themselves experience and interpret these events.",
+      "expected_answer": "The hora study used participation and direct observation, recording (sound, video, and dance notation), interviews, and 'feedback interviews' in which performers commented on their own video recordings of events to help researchers understand how they themselves experienced and interpreted them.",
+      "citations": [
+        "Theory and Methods in Dance Research- A European Approach to the Holistic Study of Dance.pdf"
+      ]
+    },
+    {
+      "query_id": "g92",
+      "query": "What did the study of Hip Hop dances among boys in Denmark conclude about gender?",
+      "context": "By combining anthropological and choreological approaches it was possible to conclude that the performance of Hip Hop dances among pre-teen and teen-age boys was a gender specific phenomenon, girl performers were rare and usually not as good as boys.",
+      "expected_answer": "The study concluded that performing Hip Hop dances among pre-teen and teen-age boys in Denmark was a gender-specific phenomenon: girl performers were rare and usually not as skilled as the boys.",
+      "citations": [
+        "Theory and Methods in Dance Research- A European Approach to the Holistic Study of Dance.pdf"
+      ]
     }
   ]
 }

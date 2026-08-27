@@ -112,13 +112,18 @@ The initial implementation intentionally remains small.
 
 Restrict retrieval to documents belonging to a specific user.
 
+**Required, not a filter.** `owner_id` is a dedicated required field on
+`RetrievalQuery`, not an entry in `filters` -- an unscoped, cross-tenant
+query is a type/validation error, not a possible bug
+(`PRODUCTION_READINESS_EVALUATION.md` item 5). It is always included in
+the Qdrant filter unconditionally; it cannot be overridden through
+`filters` since the provider reads it from the dedicated field only.
+
 Example:
 
 ```json
 {
-  "filters": {
-    "owner_id": "user_123"
-  }
+  "owner_id": "user_123"
 }
 ```
 
@@ -181,6 +186,8 @@ These fields will be added incrementally as the platform evolves.
 class RetrievalQuery(BaseModel):
 
     query: str
+
+    owner_id: str  # required, no default -- see "owner_id" above
 
     top_k: int = 5
 

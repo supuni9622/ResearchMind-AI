@@ -16,10 +16,19 @@ as of 2026-08-10), [`docs/EVALUATION_PLAN.md`](EVALUATION_PLAN.md) (the
 finalized, canonical evaluation design — supersedes Part 1 below).
 
 **For execution order, see [`docs/PRIORITIZED_ROADMAP.md`](PRIORITIZED_ROADMAP.md)
-(2026-08-10)** — this document remains the detailed, code-verified analysis
+(reconciled 2026-08-17)** — this document remains the detailed, code-verified analysis
 of every item; `PRIORITIZED_ROADMAP.md` is the value×ease-ranked sequence
 built from it, and is the canonical answer to "what do we build, in what
 order."
+
+For memory status, task IDs, and acceptance criteria, use
+[`MEMORY_PLATFORM_PRIORITIZED_TASKS.md`](MEMORY_PLATFORM_PRIORITIZED_TASKS.md),
+with [`MEMORY_MANAGEMENT_SUMMARY.md`](MEMORY_MANAGEMENT_SUMMARY.md) as the
+orientation. M0-M2 and M4-M16 are implemented; M3 has rollout pending, M6-M10
+still have the staging calibration/rollout gates recorded in the memory
+backlog, and M13's Personal/Project Memory management UI is live. M5's
+scope and authorization foundation is complete; Project-aware runtime
+activation still must precede any Project-scoped product write or retrieval.
 
 ## How to read this document
 
@@ -307,7 +316,7 @@ different scopes, and both matter:
    versioned config changes vetted against accumulating real signal — not
    through the model updating itself. This improves the product for
    everyone, and is deliberately human-gated (§ above).
-2. **Individual — memory-level, and already partly built today.** This is
+2. **Individual — memory-level, now active for prompt personalization.** This is
    the other real meaning of "self-learning" here: extracting repeated
    patterns in *one user's* behavior and adapting to that specific person,
    without touching any shared config. This isn't new — the Memory
@@ -319,13 +328,11 @@ different scopes, and both matter:
    lexical filtering first, an LLM validation call only for genuine
    repeat-pattern candidates. 1g's PREFERENCE-classified feedback is a
    second, more direct write path into the same `USER` memory tier. Both
-   are real, already-modeled "the system noticed a pattern in how this
-   person works and adapted" mechanisms — the missing piece, per
-   [`user-memory-profile-injection-gap.md`](todo/user-memory-profile-injection-gap.md),
-   is only the read side: none of this durable memory is actually
-   injected into a future prompt yet. Fixing that read-side gap is what
-   turns this from "captured but inert" into genuinely per-user adaptive
-   behavior.
+   are real "the system noticed a pattern in how this person works and
+   adapted" mechanisms. Reconciled 2026-08-17: the former read-side gap is
+   closed. USER memory is injected into Chat, Linear Research, Deep Research
+   proposal generation, and Deep Research execution. Prompt personalization
+   is active; memory-driven routing remains deliberately out of scope.
 
 Put together: the config loop makes the *product* better over time; the
 memory loop makes *each user's* experience better over time. Neither is
@@ -365,7 +372,7 @@ same request/response, zero added latency.
 |---|---|---|
 | Chat / Linear Research, next to citations | Per-chunk retrieval similarity (Qdrant cosine, or RRF fusion score for hybrid) | Already computed on every retrieval (`RetrievedChunk.score`, `apps/api/app/ai/knowledge/retrieval/`) and survives into `ContextChunk.score` — but `CitationService.build()` never copies it onto the `Citation` object the frontend receives. **It's computed, then silently dropped.** Threading it through is a small fix, not new infrastructure. |
 | Deep Research, report-approval screen (`draft-review.tsx`) | Review `decision`, `citation_integrity_score`, `completeness_score` | **Already shown today**, live — `draft-review.tsx:212-216` renders exactly these three fields as a one-line summary before the user approves. Note what these actually measure: `citation_integrity_score` is binary (do cited IDs exist in the evidence bundle, not "does the text match the citation"), `completeness_score` is a ratio of research tasks that finished, not topical coverage — both are cheap deterministic proxies, not faithfulness scores. |
-| Same screen, not yet shown | `limitations` (text), `model_quality_score` (the one LLM-judged number that exists today), `gap_questions`/`revision_instructions` | The backend already returns all of these (`ResearchDraftInspectionService.get_pending_draft()`) — the frontend component just never renders them. Also a small fix, no backend work needed. |
+| Same screen | ✅ Done — `limitations` (both `ResearchDraft.limitations`, the report's own self-declared caveats, and `ResearchReview.limitations`, the reviewer's), `model_quality_score`, `gap_questions` | Correction to this row's original claim: the backend did **not** already return `model_quality_score`/`gap_questions` -- `ResearchDraftReviewSummary` (`schemas/research.py`) was missing both fields even though `ResearchReview` (`ai/runtime/research/review.py`) already computed them, so a small schema + mapping addition (`api/v1/research.py::get_research_run_draft`) was needed alongside the frontend render. `revision_instructions` remains unrendered -- deliberately out of scope, since it's only populated on `REVISE_SYNTHESIS`, a decision that never reaches this screen (it triggers an automatic re-synthesis loop instead of pausing for approval), so it would always be empty here. |
 
 **Tier 2 — real faithfulness/relevancy (Ragas or LLM-judge), from Part 1b.**
 Requires its own LLM call, so it cannot be synchronous without adding latency
@@ -503,15 +510,13 @@ taste.**
 
 **Two concrete consequences:**
 
-1. **Preference-classified feedback becomes a new write path into `USER`
+1. **Preference-classified feedback is now a write path into `USER`
    memory** — a third one, alongside the two extraction paths
    [`docs/todo/user-memory-profile-injection-gap.md`](todo/user-memory-profile-injection-gap.md)
    already documents (explicit trigger phrases, repeated-interest
-   promotion). That doc's open question #1 ("where does USER memory get
-   read") is unchanged and still unresolved — this only adds a write path,
-   it doesn't fix the already-known read-side gap. Both need to land before
-   a preference expressed via feedback actually changes a future answer for
-   that user.
+   promotion). Reconciled 2026-08-17: both this write path and prompt-content
+   read-side injection are complete. Feedback commits canonically before the
+   optional USER-memory write runs in an isolated transaction.
 2. **The internal dashboard (1d) needs an owner-scoped drill-down, not just
    an aggregate view.** A global thumbs-up rate can look perfectly healthy
    while one specific user's experience is quietly degrading — averaging
@@ -532,8 +537,8 @@ additions to what 1a–1f already build, not a parallel system.
 
 | Step | What | Depends on |
 |---|---|---|
-| 0a | Thread `chunk.score` through `CitationService.build()` into `Citation`, render it as a lightweight relevance signal next to citations (Chat/Linear Research) | Nothing — the score already exists, this is one dropped field |
-| 0b | Render `limitations`, `model_quality_score`, `gap_questions` in `draft-review.tsx` (Deep Research) | Nothing — the API already returns these, this is frontend-only |
+| 0a | ✅ Thread `chunk.score` through `CitationService.build()` into `Citation`, render it as a lightweight relevance signal next to citations (Chat/Linear Research) — Done | Nothing — the score already exists, this is one dropped field |
+| 0b | ✅ Render `limitations`, `model_quality_score`, `gap_questions` in `draft-review.tsx` (Deep Research) — Done | Nothing — the API already returns these, this is frontend-only |
 | 1 | Golden QA set (50-150 examples) + Ragas scoring function | Nothing — can start immediately |
 | 2 | Wire `benchmarks/runner.py --check-regression` into CI (already-built tooling, just needs a workflow job) | Nothing — independent, do in parallel with step 1 |
 | 3 | Implement `POST /feedback` (real logic in the empty stub) + minimal frontend thumbs up/down | Nothing — independent, do in parallel |
@@ -544,7 +549,7 @@ additions to what 1a–1f already build, not a parallel system.
 | 8 | Config fingerprint (`prompt_version`/`chunking_strategy`/`embedding_model`/`reranker`/`routing_strategy`) threaded through `GenerationRequest` → `GenerationResult` → `GenerationUsage` (see 1f) | Nothing structurally, but pairs naturally with step 4/5 since it's the same records |
 | 9 | Segment-analysis job flagging underperforming **and** improving config/content slices on the internal dashboard (see 1f), sliceable by `owner_id` (see 1g) — both thumbs-up and thumbs-down rate, not just complaints | Steps 4, 6, 8 |
 | 10 | Comment-classification step: bounded LLM call tagging free-text feedback into OBJECTIVE/PREFERENCE class + category (see 1c/1g) | Step 3 |
-| 11 | PREFERENCE-class feedback → write path into that owner's `USER` memory (see 1g) — depends on the read-side fix in [`user-memory-profile-injection-gap.md`](todo/user-memory-profile-injection-gap.md) to actually affect future answers | Step 10, plus the read-side fix from V2 #2 |
+| 11 | ✅ PREFERENCE-class feedback → isolated write path into that owner's `USER` memory; prompt-content injection is also complete — Done 2026-08-12 | Step 10, plus the completed V2 #2 read-side fix |
 
 Steps 0a/0b are the cheapest possible starting point — both are already-computed
 data sitting one dropped/unrendered field away from being visible, no backend
@@ -558,10 +563,10 @@ before anything else in this document.
 
 | # (notes) | Item | Current state | Plan |
 |---|---|---|---|
-| 2 | User-profile memory — "fill complex gaps found in V1" | **Already fully diagnosed, not yet fixed** — see [`docs/todo/user-memory-profile-injection-gap.md`](todo/user-memory-profile-injection-gap.md). USER memory is written/deduped/stored but never read back into a prompt or into routing decisions. | This is a read-side wiring task, not new design — the open questions in that doc (injection point, staleness/conflict resolution, whether it should wait for the Phase 1.6 explicit settings UI) need a decision, then the fix is small. Maps to `ROADMAP.md` Phase 1.6. |
-| 3 | Project-based workspace — project memory, project document set, doc mentioning | **Absent — genuinely net-new.** No `Project` concept anywhere; everything is flat under `owner_id`/`conversation_id`. `access_control.py` already notes there's no workspace/ACL model. `ResearchConversation` (`apps/api/app/models/research.py:13-44`) is a bare shell (`id`/`owner_id`/`title` only) — confirmed no document/memory/typed-sub-object field exists on it or anywhere else to build on. | **Decided (2026-08-10, see [`NORTH_STAR.md`](NORTH_STAR.md) §7):** scope this from day one as the anchor for the future typed research-object model (Knowledge/Evidence/HumanInsight/Hypothesis) and Research Paths, not just docs+memory — building the narrow version first (a `project_id` FK and nothing else) would mean rebuilding the schema once the canvas work starts. Concretely: design the `Project` table now with room for polymorphic child relations (even if only a `research_object_id`-shaped FK table is stubbed, unused, until the domain model in `NORTH_STAR.md` §8 is built), not just `conversation_id`/`document_id` FKs. "Doc mentioning" (`@document` references inline) stays a frontend affordance on top of the same grouping. Largest net-new item in Part 2; don't start it before Part 1. |
+| 2 | User-profile memory — "fill complex gaps found in V1" | **M0-M2/M4-M16 implemented, 2026-08-17.** USER memory is scope-safe, measurable, manageable in Personal/Project UI, portable, and protected by server-confirmed erasure. | Complete M3 rollout evidence and M6-M10 calibration in [`MEMORY_PLATFORM_PRIORITIZED_TASKS.md`](MEMORY_PLATFORM_PRIORITIZED_TASKS.md). Do not expand USER memory into the separate `HumanInsight` domain model. |
+| 3 | Project-based workspace — project memory, project document set, doc mentioning | **Foundation only.** M5 adds minimal Project/membership models and first-class memory isolation; the full Project product, typed objects, routing, and UI remain net-new. | **Decided (2026-08-17, consistent with [`NORTH_STAR.md`](NORTH_STAR.md) §7):** design Project as the anchor for typed research objects and Research Paths. Activate the completed M5 scope boundary only after the Project runtime resolves membership server-side. `@document` remains a frontend affordance on the same grouping. |
 | 4 | Human feedback loop | Same item as [1c](#1c-human-feedback-the-loop-that-makes-this-self-learning) above — not separate work. | See Part 1. |
-| 5 | Interruption capability, traceable rebuilds, full token/cost visibility | **Interruption**: Deep Research already has three real `interrupt()` checkpoints (plan/report/web-search approval) — but confirmed (2026-08-10) that rejection at the plan/report checkpoints is a dead end today: the `reason` a user types is stored for audit only and never read again by any node. **Traceability**: partially done — LangSmith traces exist, but readiness item 8 already flags that trace tags don't carry `owner_id`. **Tokens & cost**: `GenerationUsage` ledger tracks this per-request, but nothing surfaces it live to the user during a run. | **Expanded (2026-08-10) — see the dedicated subsection right after this table.** Two concrete additions, both reusing existing mechanisms rather than new plumbing: (a) let a plan/report rejection carry revision instructions that route back into the *already-built* `REVISE_SYNTHESIS` repair path instead of just terminating; (b) surface running cost live in Deep Research's existing SSE event log. Plus the already-scoped fix: add `owner_id`/tenant as a LangSmith trace tag (readiness item 8). |
+| 5 | Interruption capability, traceable rebuilds, full token/cost visibility | **Interruption**: Deep Research already has three real `interrupt()` checkpoints (plan/report/web-search approval) — but confirmed (2026-08-10) that rejection at the plan/report checkpoints is a dead end today: the `reason` a user types is stored for audit only and never read again by any node. **Traceability**: ✅ Done — LangSmith traces now carry `owner_id` alongside `provider`/`model`/`runtime` (readiness item 8's trace-tag gap; cost-on-the-trace itself remains open, still cross-referenced from the `GenerationUsage` ledger). **Tokens & cost**: `GenerationUsage` ledger tracks this per-request, but nothing surfaces it live to the user during a run. | **Expanded (2026-08-10) — see the dedicated subsection right after this table.** Two concrete additions, both reusing existing mechanisms rather than new plumbing: (a) let a plan/report rejection carry revision instructions that route back into the *already-built* `REVISE_SYNTHESIS` repair path instead of just terminating; (b) surface running cost live in Deep Research's existing SSE event log. |
 | 6 | Graph RAG setup | **Reserved but unimplemented — confirmed truly zero, not partial.** `KNOWLEDGE_GRAPH` is one of three `IndexType` enum members (`indexing/enums.py:22`), explicitly marked `(future)`; repo-wide grep for `IndexType` usage returns only that same enum file, and grep for `neo4j\|graph_store\|entity_extraction\|networkx` across the whole backend returns zero hits. No graph store client, no entity-extraction step, nothing beyond the bare literal. Not to be confused with LangGraph, which is the *orchestration* engine already used for Deep Research — unrelated. The frontend already has an empty, entirely unwired "Knowledge Graph" panel waiting for this (`apps/web/src/features/research/components/source-panel.tsx:91-101` — static JSX only, no fetch, no data shape defined anywhere) — the UI got ahead of the backend here. | **Reframed (2026-08-10, see [`NORTH_STAR.md`](NORTH_STAR.md) §5/§7):** this is no longer "better retrieval, someday" — it's the concrete substrate for the Knowledge Cartographer relations (`SUPPORTED_BY`/`RELATED_TO`/`CONTRADICTS`/`INSPIRED_BY`/`GENERATED`) between the typed research objects item 3 now anchors. Same engineering effort as before (entity/relation extraction at ingestion, a graph store, graph-aware retrieval), but sequence it **alongside** item 3 rather than as an independent, more-speculative-than-everything-else line item — still **after** Part 1, since a golden eval set in place first is what lets this be measured rather than assumed to help. **Hard constraint, decided 2026-08-10 — see the dedicated subsection right after this table:** must be configurable (default off) and strictly additive — the existing vector/hybrid retrieval path must behave identically, byte-for-byte, when the flag is off. |
 | 7 | Deployment | Already has a decided direction and open-questions doc: [`docs/todo/aws-ecs-fargate-production-deployment.md`](todo/aws-ecs-fargate-production-deployment.md) (AWS ECS Fargate + RDS + ElastiCache, one VPC). Nothing built yet — no Dockerfiles, no IaC. | Follow that doc's open questions (L2 semantic-cache module gap, NAT Gateway cost, worker scaling on Fargate, Qdrant persistence, secrets management) before writing IaC. This is infrastructure work that can run in parallel with the product work above, not a blocker for it. |
 
@@ -734,7 +739,7 @@ code path with `graph=None`.
 | 4, 10, 11 | Evaluation improvements / "Plan evaluation platform with Ragas & LangSmith, visible to users" / "offline & online real-time evaluation, LLM as judge" | This is Part 1, verbatim — the notes describe the same plan twice, once as a V2 item and once spelled out in more detail as V3 items 10-11. | No separate plan needed — Part 1 already covers offline (10/CI), online (11/real-time), Ragas, LangSmith, and user-visibility. "LLM as judge" is the one V3-specific addition: once the golden set (1a) exists, add an LLM-judge metric alongside Ragas's reference-free metrics for the subset of quality dimensions Ragas doesn't cover well (e.g. tone, completeness against a rubric) — bolt-on, not a redesign. |
 | 5 | Observation improvements | Prometheus/Grafana (Phase 9) already real and wired across HTTP/Generation/Guardrails/Memory/Cache/Web Search/MCP. Known gaps: no `api` service in `docker-compose.yml` (host-run API scraped via `host.docker.internal`), no multiprocess Prometheus support, no latency-budget alert rules (readiness item 2). | Extend the existing stack rather than replace it: add the missing latency-SLO alert rules (readiness item 2), and feed the new `eval_scores` table (1b) into a Grafana panel so eval trends live next to the existing operational metrics instead of in a separate tool. |
 | 6 | Worker-evaluator pattern | **Clarified 2026-08-10: "use another LLM to evaluate the deep research work" — confirmed this substantially already exists.** `ResearchReviewService._model_review` (`review.py:172-233`) is a genuine second, separate Generation Runtime call that judges the first call's output — draft vs. evidence, never-cached (`CacheRuntime.REVIEWER`), degrading safely to `FINALIZE_WITH_LIMITATIONS` on error rather than blocking the run. This *is* the "worker-evaluator pattern," already live, not a scaffold. | **No scoping decision needed, no Phase 6 reopening.** Verified exactly what `_model_review` does and doesn't cover: it judges the synthesized *draft* against the *evidence bundle* — it does **not** judge plan quality, per-task retrieval targeting, tool-call decisions in hindsight, or workflow efficiency (all of those are governed by deterministic budgets only, confirmed by tracing all 20 graph nodes). That remaining gap is exactly `EVALUATION_PLAN.md` §10's already-scoped Mature-tier row ("Plan quality, subquestion coverage, tool-call correctness... would need new LLM-judge rubrics") — it doesn't need separate scoping here, it's already tracked. This item effectively **drops out of Part 3 as its own line** — it's either already done (narrow reading) or already planned elsewhere (broad reading). |
-| 7 | OCR support for scanned docs | **Absent, and cheaper to fix than it sounds.** `docling.py` explicitly sets `PdfPipelineOptions(do_ocr=False)` — Docling (the parser already in use) has OCR support built in, just switched off. | Likely a config flip + testing pass (enable `do_ocr=True`, verify latency/cost/accuracy impact on scanned PDFs) rather than a new library integration. Cheapest item in this entire document — good candidate to pull forward regardless of phase sequencing. |
+| 7 | OCR support for scanned docs | ✅ Done — `docling.py` now sets `PdfPipelineOptions(do_ocr=True)`. Docling only runs OCR on pages/regions that actually need it (`bitmap_area_threshold=0.05`, `force_full_page_ocr=False` by default), so a normal digitally-generated PDF's parse latency is unaffected; only scanned/image-only pages, which previously parsed to near-empty content with no text layer, now go through OCR. | Was a literal config flip, confirmed via the real `sample.pdf` fixture test (`test_docling_parser_pdf`) plus a new regression-lock test (`test_docling_parser_enables_ocr_for_scanned_pages`) pinning `do_ocr is True`. |
 
 ### Item 2 in detail — Vision: three sub-capabilities, three different costs (added 2026-08-10)
 
@@ -749,7 +754,7 @@ Adding image sources needs three additive pieces, following the existing pattern
 
 **One upstream blocker, separate from parsing:** image MIME types (`image/*`) and extensions (`.jpg`/`.png`) are rejected today at **upload validation**, before a file ever reaches the parser (`upload/constants.py`'s `SUPPORTED_CONTENT_TYPES`/`SUPPORTED_EXTENSIONS`). This allowlist needs updating too — a separate, small fix from the parser itself.
 
-**Don't conflate this with V3 #7 (OCR)** — that item is Docling's built-in OCR for scanned *pages inside a PDF* (`do_ocr=False → True`, a config flip). This is standalone image *files* as document sources, a new parser. Related mechanism (OCR is one branch of it), different scope.
+**Don't conflate this with V3 #7 (OCR, ✅ Done)** — that item was Docling's built-in OCR for scanned *pages inside a PDF* (`do_ocr=False → True`, a config flip, now shipped). This is standalone image *files* as document sources, a new parser. Related mechanism (OCR is one branch of it), different scope.
 
 **b. Chat-only image attachments (ephemeral, up to 5 per turn, never indexed into RAG)**
 
@@ -801,7 +806,8 @@ own P0/P1/P2 list so the two plans reinforce rather than compete:
    endpoint) — these alone close production-readiness items 7 and 9, and most
    of 11.
 2. **Cheap wins, pull forward regardless of phase:** V3 item 7 (OCR — config
-   flip), V2 item 5's trace-attribution fix (readiness item 8 — one tag).
+   flip) is ✅ Done; V2 item 5's trace-attribution fix (readiness item 8 — one tag) is
+   ✅ Done.
 3. **Do next, building on step 1:** Part 1 steps 4–7 (online sampled eval,
    feedback→trace attachment, dashboard, golden-set promotion review),
    V2 item 2 (user-profile memory read-side — already fully scoped in its own

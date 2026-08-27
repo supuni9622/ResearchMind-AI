@@ -4,20 +4,26 @@ Memory Platform dependencies (memory_platform_prd.md).
 
 from __future__ import annotations
 
+from uuid import UUID
+
 from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.memory.artifacts.writers import MemoryArtifactWriter
 from app.ai.memory.create import (
+    build_preference_supersession_service,
     create_memory_artifact_writer,
     create_memory_availability_client,
     create_memory_query_embedding_service,
     create_memory_vector_index,
     create_session_memory_service,
+    create_valkey_session_store,
     get_memory_metrics,
 )
 from app.ai.memory.extraction.service import MemoryExtractionService
+from app.ai.memory.governance import MemoryGovernanceService
 from app.ai.memory.lifecycle.service import MemoryLifecycleService
+from app.ai.memory.policy.supersession import PreferenceSupersessionService
 from app.ai.memory.profile.service import UserMemoryService
 from app.ai.memory.research.service import ResearchMemoryService
 from app.ai.memory.retrieval.availability import DurableMemoryAvailabilityService
@@ -30,10 +36,11 @@ from app.ai.memory.storage.vector_index import MemoryVectorIndex
 from app.ai.runtime.generation.enums import GenerationProvider
 from app.ai.runtime.generation.orchestration.orchestrator import GenerationRuntime
 from app.core.settings import settings
-from app.db.session import get_db
+from app.db.session import SessionFactory, get_db
 from app.dependencies.generation import get_generation_runtime
 from app.infrastructure.metrics.interfaces import MetricsRecorder
 from app.repositories.memory import MemoryRepository
+from app.repositories.memory_settings import MemoryScopeSettingsRepository
 
 
 def get_session_memory_service() -> SessionMemoryService:
@@ -44,6 +51,33 @@ def get_postgres_memory_store(
     session: AsyncSession = Depends(get_db),
 ) -> PostgresMemoryStore:
     return PostgresMemoryStore(session)
+
+
+def get_memory_governance_service(
+    session: AsyncSession = Depends(get_db),
+    vector_index: MemoryVectorIndex = Depends(create_memory_vector_index),
+) -> MemoryGovernanceService:
+    return MemoryGovernanceService(
+        session,
+        vector_index,
+        create_valkey_session_store(),
+        create_memory_artifact_writer(),
+        get_memory_metrics(),
+    )
+
+
+async def run_memory_governance_job(*, owner_id: UUID, job_id: UUID) -> None:
+    """Run erasure after the response with independently scoped resources."""
+
+    async with SessionFactory() as session:
+        service = MemoryGovernanceService(
+            session,
+            create_memory_vector_index(),
+            create_valkey_session_store(),
+            create_memory_artifact_writer(),
+            get_memory_metrics(),
+        )
+        await service.run_job(owner_id=owner_id, job_id=job_id)
 
 
 def get_user_memory_service(
@@ -119,6 +153,10 @@ def get_session_state_updater_service(
     )
 
 
+def get_preference_supersession_service() -> PreferenceSupersessionService:
+    return build_preference_supersession_service()
+
+
 def get_memory_lifecycle_service(
     session: AsyncSession = Depends(get_db),
     vector_index: MemoryVectorIndex = Depends(create_memory_vector_index),
@@ -133,6 +171,7 @@ def get_memory_lifecycle_service(
 
 
 def get_memory_service(
+    session: AsyncSession = Depends(get_db),
     store: PostgresMemoryStore = Depends(get_postgres_memory_store),
     session_memory: SessionMemoryService = Depends(get_session_memory_service),
     user_memory: UserMemoryService = Depends(get_user_memory_service),
@@ -140,6 +179,9 @@ def get_memory_service(
     research_memory: ResearchMemoryService = Depends(get_research_memory_service),
     artifact_writer: MemoryArtifactWriter = Depends(get_memory_artifact_writer),
     metrics: MetricsRecorder = Depends(get_memory_metrics),
+    supersession_service: PreferenceSupersessionService = Depends(
+        get_preference_supersession_service
+    ),
 ) -> MemoryService:
     """
     Request-scoped `MemoryService` (carries a request-scoped
@@ -160,4 +202,6 @@ def get_memory_service(
             create_memory_availability_client(),
             metrics,
         ),
+        supersession_service=supersession_service,
+        scope_settings=MemoryScopeSettingsRepository(session),
     )

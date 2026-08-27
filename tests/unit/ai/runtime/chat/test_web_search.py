@@ -41,6 +41,7 @@ async def test_disabled_toggle_never_calls_the_necessity_service() -> None:
     assert outcome.events == []
     assert outcome.context_text is None
     assert outcome.sources == []
+    assert outcome.invoked is False
     necessity.decide.assert_not_awaited()
 
 
@@ -56,6 +57,7 @@ async def test_missing_collaborators_degrade_to_no_search() -> None:
         web_search_necessity=_necessity(needs_web_search=True),
     )
     assert outcome.events == []
+    assert outcome.invoked is False
 
 
 @pytest.mark.asyncio
@@ -71,6 +73,7 @@ async def test_unavailable_web_search_service_degrades_to_no_search() -> None:
         web_search_necessity=necessity,
     )
     assert outcome.events == []
+    assert outcome.invoked is False
     necessity.decide.assert_not_awaited()
 
 
@@ -88,6 +91,7 @@ async def test_necessity_failure_degrades_gracefully() -> None:
         web_search_necessity=necessity,
     )
     assert outcome.events == []
+    assert outcome.invoked is False
 
 
 @pytest.mark.asyncio
@@ -104,6 +108,7 @@ async def test_decision_no_web_search_needed_never_calls_search() -> None:
         web_search_necessity=necessity,
     )
     assert outcome.events == []
+    assert outcome.invoked is False
     search.assert_not_awaited()
 
 
@@ -145,6 +150,7 @@ async def test_successful_search_produces_events_context_and_sources() -> None:
     assert len(outcome.sources) == 1
     assert outcome.sources[0].domain == "example.com"
     assert outcome.sources[0].url == "https://example.com/pricing"
+    assert outcome.invoked is True
 
 
 @pytest.mark.asyncio
@@ -169,6 +175,9 @@ async def test_search_with_no_usable_results_emits_skipped_event() -> None:
     ]
     assert outcome.context_text is None
     assert outcome.sources == []
+    # Invoked but unsuccessful -- distinct from the never-attempted cases
+    # above, exactly the distinction E23's success-rate metric needs.
+    assert outcome.invoked is True
 
 
 @pytest.mark.asyncio
@@ -190,3 +199,7 @@ async def test_search_failure_degrades_to_skipped_event() -> None:
         ChatEventType.CHAT_WEB_SEARCH_STARTED.value,
         ChatEventType.CHAT_WEB_SEARCH_SKIPPED.value,
     ]
+    assert outcome.invoked is True
+    # Invoked-but-failed (an exception mid-search) still counts as an
+    # attempt for E23's invocation-rate metric, same as the empty-results
+    # case above.

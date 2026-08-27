@@ -57,6 +57,9 @@ from app.ai.tools.paper_search.service import PaperSearchService
 from app.ai.tools.web_search.models import WebSearchRequest
 from app.ai.tools.web_search.service import WebSearchService
 from app.core.settings import settings
+from app.infrastructure.metrics.interfaces import MetricsRecorder
+from app.infrastructure.metrics.noop import NoOpMetricsRecorder
+from app.infrastructure.metrics.research import RESEARCH_REVIEW_DECISIONS_TOTAL
 
 logger = structlog.get_logger()
 
@@ -93,11 +96,17 @@ class MultiWaveResearchState(TypedDict):
     web_search_include_domains: list[str]
     web_search_exclude_domains: list[str]
     web_search_count: int
+    web_search_success_count: int
     web_search_suggestion: dict[str, object]
     web_search_decision: str
     web_search_rejection_reason: str | None
     paper_suggestions_enabled: bool
     related_papers_suggestion: dict[str, object]
+    injected_memory_ids: list[str]
+    memory_context: str | None
+    socratic_challenger_enabled: bool
+    socratic_question: str | None
+    socratic_response: str | None
 
 
 def compile_multi_wave_research_graph(
@@ -118,6 +127,9 @@ def compile_multi_wave_research_graph(
     web_search_necessity: WebSearchNecessityService | None = None,
     paper_search: PaperSearchService | None = None,
     paper_query_extraction: PaperQueryExtractionService | None = None,
+    metrics: MetricsRecorder | None = None,
+    socratic_challenge: Callable[[str, ResearchEvidenceBundle], Awaitable[str]] | None = None,
+    remember_socratic_response: Callable[[str, str], Awaitable[None]] | None = None,
 ) -> Any:
     """Compile bounded waves through synthesis, review, and final artifacts.
 
@@ -125,6 +137,8 @@ def compile_multi_wave_research_graph(
     review/finalization handoff. Durable artifact keys are the long-lived graph
     outputs; raw documents and provider responses never enter graph state.
     """
+
+    metrics_recorder = metrics or NoOpMetricsRecorder()
 
     async def emit(
         event_type: ResearchEventType,
@@ -224,7 +238,7 @@ def compile_multi_wave_research_graph(
 
     def route_after_aggregate(
         state: MultiWaveResearchState,
-    ) -> Literal["evaluate_web_search_need", "await_plan_approval"]:
+    ) -> Literal["evaluate_web_search_need", "prepare_socratic_challenge"]:
         """Detour through the web-search-need evaluation before plan
         approval whenever web search is enabled -- catching a private
         corpus that's topically irrelevant to the goal (not just "thin")
@@ -247,9 +261,9 @@ def compile_multi_wave_research_graph(
                     "research_runtime.graph.web_search_required_unavailable",
                     research_run_id=state["research_run_id"],
                 )
-            return "await_plan_approval"
+            return "prepare_socratic_challenge"
         if mode is WebSearchMode.DISABLED:
-            return "await_plan_approval"
+            return "prepare_socratic_challenge"
         return "evaluate_web_search_need"
 
     async def await_plan_approval(state: MultiWaveResearchState) -> dict[str, object]:
@@ -286,7 +300,13 @@ def compile_multi_wave_research_graph(
         run terminal without a `publish_runtime_report` call.
         """
 
-        decision = interrupt({"kind": "plan_approval", "research_run_id": state["research_run_id"]})
+        decision = interrupt(
+            {
+                "kind": "plan_approval",
+                "research_run_id": state["research_run_id"],
+                "socratic_question": state.get("socratic_question"),
+            }
+        )
         if not isinstance(decision, dict):
             raise ResearchPlanRejectedError(
                 "The plan-approval interrupt resumed with an invalid decision payload."
@@ -300,10 +320,49 @@ def compile_multi_wave_research_graph(
             )
             return {"plan_decision": "rejected", "plan_rejection_reason": reason}
         update: dict[str, object] = {"plan_decision": "approved"}
+        response = decision.get("socratic_response")
+        question = state.get("socratic_question")
+        if isinstance(response, str) and response.strip() and isinstance(question, str):
+            response = response.strip()
+            update["socratic_response"] = response
+            if remember_socratic_response is not None:
+                try:
+                    await remember_socratic_response(question, response)
+                except Exception:
+                    logger.warning(
+                        "research_runtime.graph.socratic_memory_write_failed",
+                        research_run_id=state["research_run_id"],
+                        exc_info=True,
+                    )
         edited_plan = decision.get("edited_plan")
         if isinstance(edited_plan, dict) and isinstance(edited_plan.get("rewritten_goal"), str):
             update["plan"] = {**state["plan"], "rewritten_goal": edited_plan["rewritten_goal"]}
         return update
+
+    async def prepare_socratic_challenge(state: MultiWaveResearchState) -> dict[str, object]:
+        """Generate a single optional challenge before the existing plan pause.
+
+        This is fail-open: an unavailable challenger must never prevent the
+        long-standing plan approval and synthesis path from continuing.
+        """
+
+        if not state.get("socratic_challenger_enabled") or socratic_challenge is None:
+            return {"socratic_question": None}
+        goal = state["plan"].get("rewritten_goal") or state["plan"].get("goal")
+        if not isinstance(goal, str) or not goal:
+            return {"socratic_question": None}
+        try:
+            question = await socratic_challenge(
+                goal, ResearchEvidenceBundle.model_validate(state["evidence_bundle"])
+            )
+        except Exception:
+            logger.warning(
+                "research_runtime.graph.socratic_challenge_unavailable",
+                research_run_id=state["research_run_id"],
+                exc_info=True,
+            )
+            return {"socratic_question": None}
+        return {"socratic_question": question.strip() or None}
 
     async def synthesize(state: MultiWaveResearchState) -> dict[str, object]:
         await check_not_cancelled(state["research_run_id"])
@@ -324,6 +383,8 @@ def compile_multi_wave_research_graph(
                 owner_id=UUID(state["owner_id"]),
                 research_run_id=UUID(state["research_run_id"]),
                 revision_instructions=revision_instructions,
+                injected_memory_ids=state.get("injected_memory_ids", []),
+                memory_context=state.get("memory_context"),
             )
         except ResearchSynthesisError as exc:
             if synthesis_revision_count >= budget.max_review_iterations:
@@ -345,6 +406,8 @@ def compile_multi_wave_research_graph(
                 owner_id=UUID(state["owner_id"]),
                 research_run_id=UUID(state["research_run_id"]),
                 revision_instructions=[str(exc)],
+                injected_memory_ids=state.get("injected_memory_ids", []),
+                memory_context=state.get("memory_context"),
             )
         except Exception:
             logger.exception(
@@ -402,6 +465,10 @@ def compile_multi_wave_research_graph(
             decision=result.decision.value,
             citation_integrity_score=result.citation_integrity_score,
             completeness_score=result.completeness_score,
+        )
+        metrics_recorder.increment(
+            metric=RESEARCH_REVIEW_DECISIONS_TOTAL,
+            labels={"decision": result.decision.value},
         )
         await emit(ResearchEventType.REVIEW_COMPLETED)
         return update
@@ -577,7 +644,7 @@ def compile_multi_wave_research_graph(
 
     def route_after_gap_evidence_aggregation(
         state: MultiWaveResearchState,
-    ) -> Literal["await_plan_approval", "synthesize"]:
+    ) -> Literal["prepare_socratic_challenge", "synthesize"]:
         """`aggregate_gap_evidence` is shared by two contexts: the early,
         pre-plan-approval evidence-relevance detour (`search_web_gap` ->
         here -> should continue on to `await_plan_approval`, since
@@ -585,7 +652,7 @@ def compile_multi_wave_research_graph(
         (`retrieve_gap_task`/`search_web_gap` -> here -> should loop back to
         `synthesize`, since a draft already exists to revise)."""
 
-        return "await_plan_approval" if _before_plan_approval(state) else "synthesize"
+        return "prepare_socratic_challenge" if _before_plan_approval(state) else "synthesize"
 
     async def evaluate_web_search_need(state: MultiWaveResearchState) -> dict[str, object]:
         """Decide whether web search would help -- reached either early,
@@ -656,7 +723,10 @@ def compile_multi_wave_research_graph(
     def route_after_web_search_evaluation(
         state: MultiWaveResearchState,
     ) -> Literal[
-        "await_plan_approval", "prepare_gap_research", "await_web_search_approval", "search_web_gap"
+        "prepare_socratic_challenge",
+        "prepare_gap_research",
+        "await_web_search_approval",
+        "search_web_gap",
     ]:
         suggestion = state.get("web_search_suggestion") or {}
         if not suggestion.get("query"):
@@ -665,7 +735,11 @@ def compile_multi_wave_research_graph(
             # reached without this feature: `await_plan_approval` when this
             # is the early, pre-plan-approval check, `prepare_gap_research`
             # (today's doc-only gap path) when it's the post-review one.
-            return "await_plan_approval" if _before_plan_approval(state) else "prepare_gap_research"
+            return (
+                "prepare_socratic_challenge"
+                if _before_plan_approval(state)
+                else "prepare_gap_research"
+            )
         mode = WebSearchMode(state.get("web_search_mode", WebSearchMode.DISABLED.value))
         if mode is WebSearchMode.REQUIRED or state.get("web_search_auto_approve", False):
             return "search_web_gap"
@@ -712,9 +786,13 @@ def compile_multi_wave_research_graph(
 
     def route_after_web_search_approval(
         state: MultiWaveResearchState,
-    ) -> Literal["await_plan_approval", "prepare_gap_research", "search_web_gap"]:
+    ) -> Literal["prepare_socratic_challenge", "prepare_gap_research", "search_web_gap"]:
         if state.get("web_search_decision") == "rejected":
-            return "await_plan_approval" if _before_plan_approval(state) else "prepare_gap_research"
+            return (
+                "prepare_socratic_challenge"
+                if _before_plan_approval(state)
+                else "prepare_gap_research"
+            )
         return "search_web_gap"
 
     async def search_web_gap(state: MultiWaveResearchState) -> dict[str, object]:
@@ -740,6 +818,7 @@ def compile_multi_wave_research_graph(
         goal = state["plan"].get("rewritten_goal") or state["plan"].get("goal")
         query = str(suggestion.get("query") or goal)[:500]
         next_web_count = state.get("web_search_count", 0) + 1
+        previous_web_success_count = state.get("web_search_success_count", 0)
         await emit(ResearchEventType.RESEARCH_WEB_SEARCH_STARTED)
 
         references: list[ResearchEvidenceReference] = []
@@ -782,6 +861,7 @@ def compile_multi_wave_research_graph(
             if references
             else ResearchEventType.RESEARCH_WEB_SEARCH_SKIPPED
         )
+        next_web_success_count = previous_web_success_count + (1 if references else 0)
         logger.info(
             "research_runtime.graph.web_search_gap_completed",
             research_run_id=state["research_run_id"],
@@ -791,6 +871,7 @@ def compile_multi_wave_research_graph(
         return {
             "task_results": {task_id: task_result.model_dump(mode="json")},
             "web_search_count": next_web_count,
+            "web_search_success_count": next_web_success_count,
             "gap_research_count": next_gap_count,
             "plan_version": state.get("plan_version", 1) + 1,
             "plan_versions": [
@@ -1023,6 +1104,7 @@ def compile_multi_wave_research_graph(
     graph.add_node("advance_wave", advance_wave)
     graph.add_node("aggregate", aggregate)
     graph.add_node("await_plan_approval", await_plan_approval)
+    graph.add_node("prepare_socratic_challenge", prepare_socratic_challenge)
     graph.add_node("synthesize", synthesize)
     graph.add_node("review", review)
     graph.add_node("prepare_synthesis_revision", prepare_synthesis_revision)
@@ -1042,6 +1124,7 @@ def compile_multi_wave_research_graph(
     graph.add_edge("retrieve_task", "advance_wave")
     graph.add_conditional_edges("advance_wave", route_after_wave)
     graph.add_conditional_edges("aggregate", route_after_aggregate)
+    graph.add_edge("prepare_socratic_challenge", "await_plan_approval")
     graph.add_conditional_edges("await_plan_approval", route_after_plan_approval)
     graph.add_edge("synthesize", "review")
     graph.add_conditional_edges("review", route_after_review)

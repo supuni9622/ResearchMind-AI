@@ -175,7 +175,7 @@ class QdrantVectorStoreProvider(
         retrieval from the same collection.
         """
 
-        vector: dict[str, list[float] | qdrant.SparseVector] = {
+        vector: dict[str, qdrant.Vector] = {
             DENSE_VECTOR_NAME: record.vector,
         }
 
@@ -295,27 +295,23 @@ class QdrantVectorStoreProvider(
         self,
         collection_name: str,
         *,
-        owner_id: str | None = None,
+        owner_id: str,
     ) -> int:
         """
-        Return the number of indexed vectors.
+        Return the number of indexed vectors scoped to an owner.
         """
 
         try:
             response = await self._client.count(
                 collection_name=collection_name,
                 exact=True,
-                count_filter=(
-                    qdrant.Filter(
-                        must=[
-                            qdrant.FieldCondition(
-                                key="owner_id",
-                                match=qdrant.MatchValue(value=owner_id),
-                            )
-                        ]
-                    )
-                    if owner_id
-                    else None
+                count_filter=qdrant.Filter(
+                    must=[
+                        qdrant.FieldCondition(
+                            key="owner_id",
+                            match=qdrant.MatchValue(value=owner_id),
+                        )
+                    ]
                 ),
             )
 

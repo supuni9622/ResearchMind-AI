@@ -21,25 +21,47 @@ from dataclasses import dataclass, field
 from typing import Literal
 
 from app.ai.memory.observability.metrics import (
+    CONSOLIDATION_CANDIDATES,
+    CONSOLIDATION_DURATION,
+    CONSOLIDATION_EXAMINED,
+    CONSOLIDATION_OUTCOMES,
     CONTEXT_DURABLE_AVAILABLE,
     CONTEXT_DURABLE_EMPTY,
+    CONTEXT_ITEMS_OMITTED,
     CONTEXT_LATENCY,
     CONTEXT_REQUESTS,
     CONTEXT_RETRIEVAL_SKIPPED,
+    CONTEXT_TOKEN_SHARE,
+    CONTEXT_TOKENS_DROPPED,
+    CONTEXT_TOKENS_SELECTED,
     DURABLE_SEARCH_LATENCY,
     EMBEDDING_LATENCY,
     EXTRACTION_EMPTY,
     EXTRACTION_EVALUATED,
     EXTRACTION_FAILED,
     EXTRACTION_LATENCY,
+    EXTRACTION_RATE_LIMITED,
     EXTRACTION_REQUESTED,
     EXTRACTION_SKIPPED,
     EXTRACTION_SUCCEEDED,
+    GOVERNANCE_DURATION,
+    GOVERNANCE_JOBS,
+    INVENTORY_LAST_SUCCESS,
+    LIFECYCLE_DELETED,
+    LIFECYCLE_DURATION,
+    LIFECYCLE_EXAMINED,
+    LIFECYCLE_FAILED,
+    LIFECYCLE_LAST_SUCCESS,
+    LIFECYCLE_OLDEST_CANDIDATE_AGE,
     MEMORY_COUNT,
     MEMORY_CREATED,
     MEMORY_DUPLICATE,
     MEMORY_HITS,
     MEMORY_MISSES,
+    MEMORY_MUTATION_ACCEPTED,
+    MEMORY_MUTATION_FAILED,
+    MEMORY_MUTATION_REJECTED,
+    MEMORY_SUPERSEDED,
     MEMORY_UPDATED,
     PARALLEL_SEARCH,
     REMEMBER_LATENCY,
@@ -48,6 +70,12 @@ from app.ai.memory.observability.metrics import (
     SEMANTIC_SEARCH,
     SESSION_DUPLICATES_REMOVED,
     SESSION_ITEMS_LOADED,
+    STORAGE_BYTES,
+    STORAGE_DISTRIBUTION,
+    STORAGE_OLDEST_AGE,
+    STORAGE_ROWS,
+    VECTOR_DRIFT,
+    VECTOR_POINTS,
 )
 from app.infrastructure.metrics.cache import (
     CACHE_COST_SAVED_USD_TOTAL,
@@ -88,9 +116,16 @@ from app.infrastructure.metrics.mcp import (
 )
 from app.infrastructure.metrics.research import (
     RESEARCH_DURATION,
+    RESEARCH_REVIEW_DECISIONS_TOTAL,
+    RESEARCH_RUN_DURATION,
     RESEARCH_RUNS_COMPLETED_TOTAL,
     RESEARCH_RUNS_FAILED_TOTAL,
     RESEARCH_RUNS_TOTAL,
+)
+from app.infrastructure.metrics.voice import (
+    VOICE_STT_FIRST_TRANSCRIPT_DURATION,
+    VOICE_TTS_FIRST_AUDIO_DURATION,
+    VOICE_TURN_DURATION,
 )
 from app.infrastructure.metrics.web_search import (
     WEB_SEARCH_DURATION,
@@ -133,6 +168,27 @@ RUNTIME_BUCKETS: tuple[float, ...] = (
     30.0,
     60.0,
     120.0,
+)
+
+TOKEN_BUCKETS: tuple[float, ...] = (10, 25, 50, 100, 250, 500, 1_000, 2_000, 4_000)
+
+#: Deep Research end-to-end run duration (E17 follow-up) -- minutes-to-hours
+#: scale, since a run's wall-clock time legitimately includes
+#: human-approval wait time at the plan/report/web-search checkpoints, not
+#: just compute time. `RUNTIME_BUCKETS` above tops out at 120s, an order
+#: of magnitude too small to say anything meaningful about this metric.
+DEEP_RESEARCH_RUN_BUCKETS: tuple[float, ...] = (
+    5.0,
+    15.0,
+    30.0,
+    60.0,
+    120.0,
+    300.0,
+    600.0,
+    1800.0,
+    3600.0,
+    7200.0,
+    14400.0,
 )
 
 
@@ -364,6 +420,18 @@ COUNTER_METRICS: dict[str, MetricSpec] = {
         ("source_mode", "failure_type"),
     ),
     #
+    # Deep Research review (Research Runtime V1 graph's report-quality
+    # checkpoint, distinct from run-level completed/failed above) -- fires
+    # on every review cycle, including ones that loop back into revision,
+    # not just the terminal one a run ends on.
+    #
+    RESEARCH_REVIEW_DECISIONS_TOTAL: MetricSpec(
+        "researchmind_research_review_decisions_total",
+        "Total Deep Research report reviews, by decision.",
+        "counter",
+        ("decision",),
+    ),
+    #
     # Memory (PRD §20) -- no labels at existing call sites today.
     #
     MEMORY_HITS: MetricSpec(
@@ -455,6 +523,75 @@ COUNTER_METRICS: dict[str, MetricSpec] = {
     MEMORY_DUPLICATE: MetricSpec(
         "researchmind_memory_duplicates_total", "Total duplicate memories detected.", "counter"
     ),
+    MEMORY_SUPERSEDED: MetricSpec(
+        "researchmind_memory_superseded_total", "Total USER preferences superseded.", "counter"
+    ),
+    MEMORY_MUTATION_ACCEPTED: MetricSpec(
+        "researchmind_memory_mutation_accepted_total",
+        "Accepted public memory mutations.",
+        "counter",
+        ("operation",),
+    ),
+    MEMORY_MUTATION_REJECTED: MetricSpec(
+        "researchmind_memory_mutation_rejected_total",
+        "Rate-limited public memory mutations.",
+        "counter",
+        ("operation",),
+    ),
+    MEMORY_MUTATION_FAILED: MetricSpec(
+        "researchmind_memory_mutation_failed_total",
+        "Failed public memory mutations.",
+        "counter",
+        ("operation",),
+    ),
+    GOVERNANCE_JOBS: MetricSpec(
+        "researchmind_memory_governance_jobs_total",
+        "Memory governance jobs by bounded outcome and failure stage.",
+        "counter",
+        ("outcome", "stage"),
+    ),
+    EXTRACTION_RATE_LIMITED: MetricSpec(
+        "researchmind_memory_extraction_rate_limited_total",
+        "Internal memory extraction attempts skipped by the cost circuit breaker.",
+        "counter",
+    ),
+    LIFECYCLE_EXAMINED: MetricSpec(
+        "researchmind_memory_lifecycle_examined_total",
+        "Total durable-memory rows examined by lifecycle sweeps.",
+        "counter",
+    ),
+    LIFECYCLE_DELETED: MetricSpec(
+        "researchmind_memory_lifecycle_deleted_total",
+        "Total durable-memory rows deleted by lifecycle sweeps.",
+        "counter",
+    ),
+    LIFECYCLE_FAILED: MetricSpec(
+        "researchmind_memory_lifecycle_failed_total",
+        "Total durable-memory rows whose lifecycle deletion failed.",
+        "counter",
+    ),
+    CONSOLIDATION_EXAMINED: MetricSpec(
+        "researchmind_memory_consolidation_examined_total",
+        "Total memory rows examined for consolidation.",
+        "counter",
+    ),
+    CONSOLIDATION_CANDIDATES: MetricSpec(
+        "researchmind_memory_consolidation_candidates_total",
+        "Total near-duplicate candidate pairs nominated by embeddings.",
+        "counter",
+    ),
+    CONSOLIDATION_OUTCOMES: MetricSpec(
+        "researchmind_memory_consolidation_outcomes_total",
+        "Typed consolidation outcomes.",
+        "counter",
+        ("action",),
+    ),
+    CONTEXT_ITEMS_OMITTED: MetricSpec(
+        "researchmind_memory_context_items_omitted_total",
+        "Total memory entries omitted by the coordinated token budget.",
+        "counter",
+        ("type",),
+    ),
 }
 
 #: Populated by `record_duration()` calls (`operation=` is the lookup key).
@@ -480,6 +617,30 @@ DURATION_METRICS: dict[str, MetricSpec] = {
         ("provider",),
         RUNTIME_BUCKETS,
     ),
+    VOICE_STT_FIRST_TRANSCRIPT_DURATION: MetricSpec(
+        "researchmind_voice_stt_first_transcript_duration_seconds",
+        "Time from opening a Deepgram connection for a voice turn to the "
+        "first transcript event (interim or final) coming back.",
+        "histogram",
+        (),
+        RUNTIME_BUCKETS,
+    ),
+    VOICE_TTS_FIRST_AUDIO_DURATION: MetricSpec(
+        "researchmind_voice_tts_first_audio_duration_seconds",
+        "Time from opening an ElevenLabs connection for a voice turn's "
+        "response to the first synthesized audio chunk coming back.",
+        "histogram",
+        (),
+        RUNTIME_BUCKETS,
+    ),
+    VOICE_TURN_DURATION: MetricSpec(
+        "researchmind_voice_turn_duration_seconds",
+        "End-to-end voice turn duration: final transcript received to "
+        "the response (text + audio) finishing.",
+        "histogram",
+        (),
+        RUNTIME_BUCKETS,
+    ),
     MCP_TOOL_DURATION: MetricSpec(
         "researchmind_mcp_tool_duration_seconds",
         "MCP tool call duration.",
@@ -493,6 +654,15 @@ DURATION_METRICS: dict[str, MetricSpec] = {
         "histogram",
         ("source_mode",),
         RUNTIME_BUCKETS,
+    ),
+    RESEARCH_RUN_DURATION: MetricSpec(
+        "researchmind_deep_research_run_duration_seconds",
+        "Deep Research end-to-end run duration, creation to terminal "
+        "status -- includes human-approval wait time, minutes-to-hours "
+        "scale, not directly comparable to researchmind_research_duration_seconds.",
+        "histogram",
+        (),
+        DEEP_RESEARCH_RUN_BUCKETS,
     ),
     REMEMBER_LATENCY: MetricSpec(
         "researchmind_memory_remember_duration_seconds",
@@ -536,6 +706,27 @@ DURATION_METRICS: dict[str, MetricSpec] = {
         (),
         RUNTIME_BUCKETS,
     ),
+    LIFECYCLE_DURATION: MetricSpec(
+        "researchmind_memory_lifecycle_duration_seconds",
+        "Memory lifecycle sweep duration.",
+        "histogram",
+        (),
+        RUNTIME_BUCKETS,
+    ),
+    CONSOLIDATION_DURATION: MetricSpec(
+        "researchmind_memory_consolidation_duration_seconds",
+        "Memory consolidation batch duration.",
+        "histogram",
+        (),
+        RUNTIME_BUCKETS,
+    ),
+    GOVERNANCE_DURATION: MetricSpec(
+        "researchmind_memory_governance_duration_seconds",
+        "Memory governance job duration.",
+        "histogram",
+        ("outcome",),
+        RUNTIME_BUCKETS,
+    ),
 }
 
 #: Populated by `set_gauge()` calls.
@@ -546,9 +737,81 @@ GAUGE_METRICS: dict[str, MetricSpec] = {
         "gauge",
         ("server",),
     ),
+    LIFECYCLE_LAST_SUCCESS: MetricSpec(
+        "researchmind_memory_lifecycle_last_success_timestamp_seconds",
+        "Unix timestamp of the last successful lifecycle sweep.",
+        "gauge",
+    ),
+    LIFECYCLE_OLDEST_CANDIDATE_AGE: MetricSpec(
+        "researchmind_memory_lifecycle_oldest_candidate_age_seconds",
+        "Age of the oldest lifecycle candidate in seconds.",
+        "gauge",
+    ),
+    STORAGE_ROWS: MetricSpec(
+        "researchmind_memory_storage_rows",
+        "Absolute PostgreSQL memory rows by bounded type and scope.",
+        "gauge",
+        ("type", "scope"),
+    ),
+    STORAGE_BYTES: MetricSpec(
+        "researchmind_memory_storage_bytes",
+        "PostgreSQL memory relation bytes by bounded storage kind.",
+        "gauge",
+        ("kind",),
+    ),
+    STORAGE_OLDEST_AGE: MetricSpec(
+        "researchmind_memory_storage_oldest_age_seconds",
+        "Age of the oldest PostgreSQL memory row by type.",
+        "gauge",
+        ("type",),
+    ),
+    STORAGE_DISTRIBUTION: MetricSpec(
+        "researchmind_memory_storage_distribution",
+        "Memory rows per owner/project at bounded distribution quantiles.",
+        "gauge",
+        ("dimension", "quantile"),
+    ),
+    VECTOR_POINTS: MetricSpec(
+        "researchmind_memory_vector_points",
+        "Absolute Qdrant memory point count.",
+        "gauge",
+    ),
+    VECTOR_DRIFT: MetricSpec(
+        "researchmind_memory_vector_drift",
+        "PostgreSQL/Qdrant drift count by bounded kind.",
+        "gauge",
+        ("kind",),
+    ),
+    INVENTORY_LAST_SUCCESS: MetricSpec(
+        "researchmind_memory_inventory_last_success_timestamp_seconds",
+        "Unix timestamp of the last successful storage inventory collection.",
+        "gauge",
+    ),
 }
 
 #: Populated by `observe()` calls (non-duration histogram values). Empty
 #: until a caller needs one -- PRD §39 rule 19: don't fabricate metrics
 #: ahead of real behavior.
-OBSERVE_METRICS: dict[str, MetricSpec] = {}
+OBSERVE_METRICS: dict[str, MetricSpec] = {
+    CONTEXT_TOKENS_SELECTED: MetricSpec(
+        "researchmind_memory_context_tokens_selected",
+        "Estimated tokens selected for a rendered memory block.",
+        "histogram",
+        (),
+        TOKEN_BUCKETS,
+    ),
+    CONTEXT_TOKENS_DROPPED: MetricSpec(
+        "researchmind_memory_context_tokens_dropped",
+        "Estimated candidate tokens dropped from a memory block.",
+        "histogram",
+        (),
+        TOKEN_BUCKETS,
+    ),
+    CONTEXT_TOKEN_SHARE: MetricSpec(
+        "researchmind_memory_context_budget_utilization_ratio",
+        "Fraction of the resolved memory token budget used.",
+        "histogram",
+        (),
+        (0.1, 0.25, 0.5, 0.75, 0.9, 1.0),
+    ),
+}

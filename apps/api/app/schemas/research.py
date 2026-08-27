@@ -91,6 +91,14 @@ class ResearchProposalRequest(ResearchRequest):
         ),
     )
 
+    socratic_challenger_enabled: bool = Field(
+        default=False,
+        description=(
+            "Opt in to one evidence-aware Socratic question at the existing "
+            "pre-synthesis plan checkpoint. The answer is stored as research memory."
+        ),
+    )
+
 
 class ResearchDraftFindingEdit(BaseModel):
     """One edited findings section -- keeps the original's `citation_ids`
@@ -164,6 +172,8 @@ class ResearchPlanDecisionRequest(BaseModel):
     # Only meaningful when `approved` -- mirrors `ResearchReportDecisionRequest.edited_draft`.
     edited_plan: ResearchPlanGoalEdit | None = None
 
+    socratic_response: str | None = Field(default=None, min_length=1, max_length=4_000)
+
 
 class ResearchWebSearchDecisionRequest(BaseModel):
     """Body for `POST /research/runs/{id}/web-search-decision` (the
@@ -222,7 +232,17 @@ class ResearchReportDownloadResponse(BaseModel):
 
     research_run_id: UUID
     download_url: str
-    expires_in_seconds: int = 300
+    expires_in_seconds: int
+    generation_id: UUID | None = Field(
+        default=None,
+        description=(
+            "The synthesis call's generation_id (E21), read from the persisted "
+            "final-report.json artifact -- None for reports persisted before this "
+            "field existed, or if the JSON artifact is unexpectedly missing/corrupt "
+            "(best-effort: never fails the download itself)."
+        ),
+    )
+    memory_used: bool = False
 
 
 class ResearchDraftFindingResponse(BaseModel):
@@ -252,6 +272,8 @@ class ResearchDraftReviewSummary(BaseModel):
     citation_integrity_score: float
     completeness_score: float
     limitations: list[str]
+    model_quality_score: float | None
+    gap_questions: list[str]
 
 
 class ResearchDraftResponse(BaseModel):
@@ -305,6 +327,7 @@ class ResearchPendingPlanResponse(BaseModel):
     tasks: list[ResearchPendingPlanTaskResponse]
     evidence: ResearchPendingPlanEvidenceSummary
     citations: list[ResearchDraftCitationResponse]
+    socratic_question: str | None = None
 
 
 class ResearchPendingWebSearchResponse(BaseModel):
@@ -398,6 +421,10 @@ class ResearchSessionResponse(BaseModel):
     citations: list[Citation]
 
     sources: list[ResearchSource]
+
+    generation_id: UUID | None = None
+
+    memory_used: bool = False
 
     created_at: datetime
 

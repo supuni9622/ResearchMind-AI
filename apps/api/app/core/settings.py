@@ -198,6 +198,20 @@ class Settings(BaseSettings):
     # get injected into the prompt as if it were relevant context.
     memory_search_score_threshold: float = 0.5
 
+    # Bounds every per-turn Valkey/Qdrant-backed memory call (retrieval,
+    # session-state write, extraction orchestration) that chat/research
+    # routes treat as best-effort. Those call sites already catch
+    # exceptions so a memory outage can't fail a turn, but none of the
+    # underlying `redis.asyncio.Redis` clients set a socket timeout, so a
+    # stalled connection previously hung forever instead of raising --
+    # invisible in the single-request SSE/`/chat/ws` surfaces, but able to
+    # wedge a long-lived multi-turn connection like `WS /chat/voice`
+    # indefinitely (docs/todo/voice-chat-poc-implementation-plan.md's
+    # unresolved multi-turn-drop gap). `asyncio.wait_for` around each call
+    # turns that hang into the same best-effort-failure path as any other
+    # memory exception.
+    memory_runtime_operation_timeout_seconds: float = 10.0
+
     # Memory runtime optimization. Defaults preserve the established memory
     # contract while allowing each optimization to be rolled back independently.
     memory_durable_retrieval_enabled: bool = True

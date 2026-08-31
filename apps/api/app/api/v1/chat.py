@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import time
 from collections.abc import AsyncGenerator
 from datetime import datetime
@@ -242,12 +243,15 @@ async def _retrieve_memory_context(
         return FormattedMemoryContext(text=None, memory_ids=())
 
     try:
-        context = await memory_service.get_context(
-            owner_id=owner_id,
-            session_id=conversation_id,
-            semantic_query=query,
-            top_k=5,
-            transcript=transcript,
+        context = await asyncio.wait_for(
+            memory_service.get_context(
+                owner_id=owner_id,
+                session_id=conversation_id,
+                semantic_query=query,
+                top_k=5,
+                transcript=transcript,
+            ),
+            timeout=settings.memory_runtime_operation_timeout_seconds,
         )
     except Exception as exc:
         logger.warning(
@@ -287,31 +291,41 @@ async def _extract_and_store_memory(
     try:
         turn_id = str(assistant_message_id) if assistant_message_id else f"chat:{conversation_id}"
         if settings.memory_session_raw_turn_storage_enabled:
-            await memory_service.remember(
-                owner_id=owner_id,
-                type=MemoryType.SESSION,
-                content=f"Q: {user_prompt}\nA: {assistant_content}",
-                session_id=conversation_id,
-                metadata={
-                    "kind": "raw_turn",
-                    "source_turn_id": turn_id,
-                    **({"source_user_message_id": str(user_message_id)} if user_message_id else {}),
-                    **(
-                        {"source_assistant_message_id": str(assistant_message_id)}
-                        if assistant_message_id
-                        else {}
-                    ),
-                },
+            await asyncio.wait_for(
+                memory_service.remember(
+                    owner_id=owner_id,
+                    type=MemoryType.SESSION,
+                    content=f"Q: {user_prompt}\nA: {assistant_content}",
+                    session_id=conversation_id,
+                    metadata={
+                        "kind": "raw_turn",
+                        "source_turn_id": turn_id,
+                        **(
+                            {"source_user_message_id": str(user_message_id)}
+                            if user_message_id
+                            else {}
+                        ),
+                        **(
+                            {"source_assistant_message_id": str(assistant_message_id)}
+                            if assistant_message_id
+                            else {}
+                        ),
+                    },
+                ),
+                timeout=settings.memory_runtime_operation_timeout_seconds,
             )
         elif settings.memory_session_state_storage_enabled and session_state_updater is not None:
-            await distill_and_upsert_session_state(
-                memory_service=memory_service,
-                session_state_updater=session_state_updater,
-                owner_id=owner_id,
-                session_id=conversation_id,
-                user_message=user_prompt,
-                assistant_message=assistant_content,
-                turn_id=turn_id,
+            await asyncio.wait_for(
+                distill_and_upsert_session_state(
+                    memory_service=memory_service,
+                    session_state_updater=session_state_updater,
+                    owner_id=owner_id,
+                    session_id=conversation_id,
+                    user_message=user_prompt,
+                    assistant_message=assistant_content,
+                    turn_id=turn_id,
+                ),
+                timeout=settings.memory_runtime_operation_timeout_seconds,
             )
     except Exception as exc:
         logger.warning(
@@ -325,21 +339,24 @@ async def _extract_and_store_memory(
         return
 
     try:
-        await MemoryExtractionOrchestrator(
-            memory_service,
-            memory_extraction_service,
-            create_memory_availability_client(),
-            get_memory_metrics(),
-        ).process_turn(
-            MemoryTurnEvent(
-                owner_id=owner_id,
-                session_id=conversation_id,
-                conversation_id=conversation_id,
-                runtime="chat",
-                user_message=user_prompt,
-                assistant_message=assistant_content,
-                turn_id=turn_id,
-            )
+        await asyncio.wait_for(
+            MemoryExtractionOrchestrator(
+                memory_service,
+                memory_extraction_service,
+                create_memory_availability_client(),
+                get_memory_metrics(),
+            ).process_turn(
+                MemoryTurnEvent(
+                    owner_id=owner_id,
+                    session_id=conversation_id,
+                    conversation_id=conversation_id,
+                    runtime="chat",
+                    user_message=user_prompt,
+                    assistant_message=assistant_content,
+                    turn_id=turn_id,
+                )
+            ),
+            timeout=settings.memory_runtime_operation_timeout_seconds,
         )
     except Exception as exc:
         logger.warning(
@@ -1147,8 +1164,12 @@ async def stream_chat_voice(
             created_at=conversation.created_at,
         )
 
+        turn_index = 0
+
         try:
             while True:
+                turn_index += 1
+
                 try:
                     transcript = await collect_voice_turn_transcript(
                         websocket=websocket,
@@ -1176,6 +1197,12 @@ async def stream_chat_voice(
                     break
 
                 turn_started_at = time.monotonic()
+                logger.info(
+                    "voice.chat.turn_checkpoint",
+                    turn=turn_index,
+                    phase="transcript_received",
+                    transcript_chars=len(transcript),
+                )
 
                 try:
                     payload = ChatStreamRequest(
@@ -1196,6 +1223,11 @@ async def stream_chat_voice(
                         web_search_necessity=web_search_necessity,
                         paper_search=paper_search,
                         paper_query_extraction=paper_query_extraction,
+                    )
+                    logger.info(
+                        "voice.chat.turn_checkpoint",
+                        turn=turn_index,
+                        phase="prepare_generation_done",
                     )
 
                     events = _chain_events(
@@ -1223,6 +1255,11 @@ async def stream_chat_voice(
                             session_state_updater=session_state_updater,
                         ),
                         tts=tts_provider,
+                    )
+                    logger.info(
+                        "voice.chat.turn_checkpoint",
+                        turn=turn_index,
+                        phase="response_stream_done",
                     )
                 except Exception:
                     # A turn failing must not leave the client's assistant

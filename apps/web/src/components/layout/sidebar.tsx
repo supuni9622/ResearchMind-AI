@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useAuth } from '@/hooks/use-auth';
+import { ProjectSwitcher } from '@/components/layout/project-switcher';
 
 const NAV_ITEMS = [
   {
@@ -116,6 +117,8 @@ export function Sidebar() {
           </span>
         </div>
       </div>
+
+      <ProjectSwitcher />
 
       <nav className="flex-1 px-2 py-3">
         <ul className="space-y-0.5" role="list">

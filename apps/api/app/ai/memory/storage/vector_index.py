@@ -141,6 +141,17 @@ class MemoryVectorIndex:
                     ),
                 ]
             )
+        elif scope_type == MemoryScopeType.GLOBAL:
+            # GLOBAL always has project_id=None -- a real match on
+            # scope_type is enough, no project_id condition needed (and
+            # unlike PERSONAL, there are no legacy pre-GLOBAL points to
+            # fall back to, since this scope is brand new).
+            must_conditions.append(
+                qdrant.FieldCondition(
+                    key="scope_type",
+                    match=qdrant.MatchValue(value=scope_type.value),
+                )
+            )
         else:
             # Points created before M5 have no scope payload; all legacy SQL
             # rows are reversibly backfilled as personal by the migration.

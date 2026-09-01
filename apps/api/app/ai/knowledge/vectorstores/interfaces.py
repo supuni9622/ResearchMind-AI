@@ -112,9 +112,14 @@ class VectorStoreProviderInterface(ABC):
         collection_name: str,
         *,
         owner_id: str,
+        project_id: str | None = None,
     ) -> int:
         """
         Return the number of indexed vectors scoped to an owner.
+
+        `project_id=None` means personal documents only, not "every
+        project" -- same "omit = personal-only" contract used throughout
+        the Project workspace feature.
         """
 
     @abstractmethod

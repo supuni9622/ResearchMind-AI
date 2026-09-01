@@ -33,7 +33,7 @@ from app.ai.memory.create import (
     create_memory_availability_client,
     get_memory_metrics,
 )
-from app.ai.memory.enums import MemoryType
+from app.ai.memory.enums import MemoryScopeType, MemoryType
 from app.ai.memory.extraction.orchestrator import MemoryExtractionOrchestrator
 from app.ai.memory.extraction.service import MemoryExtractionService
 from app.ai.memory.policy.models import MemoryTurnEvent
@@ -89,6 +89,7 @@ from app.dependencies.memory import (
     get_memory_service,
     get_session_state_updater_service,
 )
+from app.dependencies.project import get_project_authorization_service
 from app.dependencies.rate_limiting import enforce_rate_limit, get_rate_limiter
 from app.dependencies.research import (
     get_paper_query_extraction_service,
@@ -110,6 +111,7 @@ from app.schemas.chat import (
 )
 from app.schemas.voice import VoiceStreamRequest
 from app.services.conversation import ConversationService, PromptHistory
+from app.services.project_authorization import ProjectAuthorizationService
 
 logger = structlog.get_logger()
 
@@ -228,6 +230,8 @@ async def _retrieve_memory_context(
     conversation_id: UUID,
     query: str,
     transcript: str | None = None,
+    scope_type: MemoryScopeType = MemoryScopeType.PERSONAL,
+    project_id: UUID | None = None,
 ) -> FormattedMemoryContext:
     """
     Memory retrieval, ahead of generation (Runtime Memory Injection
@@ -237,6 +241,10 @@ async def _retrieve_memory_context(
     turns via `ConversationService.get_or_create()`, so it's the
     natural session boundary for chat. Best-effort: a memory outage
     must never block a chat turn.
+
+    `scope_type`/`project_id` default to personal -- the caller resolves
+    `PROJECT` scope only when the conversation belongs to a project (the
+    M5 memory-scope boundary's first real activation outside tests).
     """
 
     if memory_service is None:
@@ -250,6 +258,8 @@ async def _retrieve_memory_context(
                 semantic_query=query,
                 top_k=5,
                 transcript=transcript,
+                scope_type=scope_type,
+                project_id=project_id,
             ),
             timeout=settings.memory_runtime_operation_timeout_seconds,
         )
@@ -276,6 +286,8 @@ async def _extract_and_store_memory(
     assistant_content: str,
     user_message_id: UUID | None = None,
     assistant_message_id: UUID | None = None,
+    scope_type: MemoryScopeType = MemoryScopeType.PERSONAL,
+    project_id: UUID | None = None,
 ) -> None:
     """
     Post-generation half of the Runtime Memory Injection Pipeline
@@ -283,6 +295,9 @@ async def _extract_and_store_memory(
     is always captured as SESSION memory; durable USER/RESEARCH facts
     are additionally proposed by `MemoryExtractionService` and stored
     when above the importance threshold. Best-effort throughout.
+
+    `scope_type`/`project_id` default to personal, same contract as
+    `_retrieve_memory_context`.
     """
 
     if memory_service is None:
@@ -295,6 +310,8 @@ async def _extract_and_store_memory(
                 memory_service.remember(
                     owner_id=owner_id,
                     type=MemoryType.SESSION,
+                    scope_type=scope_type,
+                    project_id=project_id,
                     content=f"Q: {user_prompt}\nA: {assistant_content}",
                     session_id=conversation_id,
                     metadata={
@@ -324,6 +341,8 @@ async def _extract_and_store_memory(
                     user_message=user_prompt,
                     assistant_message=assistant_content,
                     turn_id=turn_id,
+                    scope_type=scope_type,
+                    project_id=project_id,
                 ),
                 timeout=settings.memory_runtime_operation_timeout_seconds,
             )
@@ -348,6 +367,8 @@ async def _extract_and_store_memory(
             ).process_turn(
                 MemoryTurnEvent(
                     owner_id=owner_id,
+                    scope_type=scope_type,
+                    project_id=project_id,
                     session_id=conversation_id,
                     conversation_id=conversation_id,
                     runtime="chat",
@@ -427,6 +448,10 @@ async def _build_request(
         conversation_id=conversation.id,
         query=payload.user_prompt,
         transcript=transcript,
+        scope_type=(
+            MemoryScopeType.PROJECT if conversation.project_id else MemoryScopeType.PERSONAL
+        ),
+        project_id=conversation.project_id,
     )
 
     prompt_context = with_memory_context(
@@ -694,6 +719,7 @@ async def _persist_on_complete(
     memory_service: MemoryService | None = None,
     memory_extraction_service: MemoryExtractionService | None = None,
     session_state_updater: SessionStateUpdaterService | None = None,
+    project_id: UUID | None = None,
 ) -> AsyncGenerator[StreamEvent, None]:
     """
     Forwards every event untouched, accumulating TOKEN content along the
@@ -738,6 +764,8 @@ async def _persist_on_complete(
                 assistant_message_id=(
                     persisted_turn.assistant_message_id if persisted_turn is not None else None
                 ),
+                scope_type=(MemoryScopeType.PROJECT if project_id else MemoryScopeType.PERSONAL),
+                project_id=project_id,
             )
 
             if generation_service is not None:
@@ -791,6 +819,12 @@ async def list_chat_conversations(
     limit: int = Query(
         default=settings.chat_history_page_size, ge=1, le=settings.chat_history_page_max_size
     ),
+    # Omitted -> personal conversations only (`project_id IS NULL`), not
+    # "every project" -- the client always passes its current workspace
+    # context explicitly (see `ProjectAuthorizationService.
+    # authorize_for_new_conversation`'s docstring for the matching
+    # create-side contract).
+    project_id: UUID | None = None,
     current_user: User = Depends(get_current_user),
     conversation_service: ConversationService = Depends(get_conversation_service),
 ) -> ChatConversationListResponse:
@@ -798,11 +832,13 @@ async def list_chat_conversations(
         owner_id=current_user.id,
         before_conversation_id=cursor,
         limit=limit,
+        project_id=project_id,
     )
     return ChatConversationListResponse(
         conversations=[
             ChatConversationSummary(
                 conversation_id=conversation.id,
+                project_id=conversation.project_id,
                 title=conversation.title,
                 created_at=conversation.created_at,
                 updated_at=conversation.updated_at,
@@ -870,6 +906,7 @@ async def stream_chat(
     paper_query_extraction: PaperQueryExtractionService = Depends(
         get_paper_query_extraction_service
     ),
+    project_authorization: ProjectAuthorizationService = Depends(get_project_authorization_service),
 ) -> StreamingResponse:
     """
     A `POST` consumed via `fetch` + `ReadableStream` on the frontend, not
@@ -880,9 +917,16 @@ async def stream_chat(
 
     await _check_chat_rate_limit(rate_limiter=rate_limiter, owner_id=current_user.id)
 
+    await project_authorization.authorize_for_new_conversation(
+        conversation_id=payload.conversation_id,
+        project_id=payload.project_id,
+        user_id=current_user.id,
+    )
+
     conversation = await conversation_service.get_or_create(
         conversation_id=payload.conversation_id,
         owner_id=current_user.id,
+        project_id=payload.project_id,
     )
 
     await _persist_conversation_identity(
@@ -927,6 +971,7 @@ async def stream_chat(
             memory_service=memory_service,
             memory_extraction_service=memory_extraction_service,
             session_state_updater=session_state_updater,
+            project_id=conversation.project_id,
         )
     )
 
@@ -999,10 +1044,25 @@ async def stream_chat_ws(
         web_search_necessity = create_web_search_necessity_service()
         paper_search = create_paper_search_service()
         paper_query_extraction = create_paper_query_extraction_service()
+        project_authorization = ProjectAuthorizationService(session)
+
+        try:
+            await project_authorization.authorize_for_new_conversation(
+                conversation_id=payload.conversation_id,
+                project_id=payload.project_id,
+                user_id=current_user.id,
+            )
+        except AppException as exc:
+            await websocket.close(
+                code=status.WS_1008_POLICY_VIOLATION,
+                reason=exc.message,
+            )
+            return
 
         conversation = await conversation_service.get_or_create(
             conversation_id=payload.conversation_id,
             owner_id=current_user.id,
+            project_id=payload.project_id,
         )
 
         await _persist_conversation_identity(
@@ -1049,6 +1109,7 @@ async def stream_chat_ws(
                     memory_service=memory_service,
                     memory_extraction_service=memory_extraction_service,
                     session_state_updater=session_state_updater,
+                    project_id=conversation.project_id,
                 ),
             )
         finally:
@@ -1150,10 +1211,25 @@ async def stream_chat_voice(
         web_search_necessity = create_web_search_necessity_service()
         paper_search = create_paper_search_service()
         paper_query_extraction = create_paper_query_extraction_service()
+        project_authorization = ProjectAuthorizationService(session)
+
+        try:
+            await project_authorization.authorize_for_new_conversation(
+                conversation_id=handshake.conversation_id,
+                project_id=handshake.project_id,
+                user_id=current_user.id,
+            )
+        except AppException as exc:
+            await websocket.close(
+                code=status.WS_1008_POLICY_VIOLATION,
+                reason=exc.message,
+            )
+            return
 
         conversation = await conversation_service.get_or_create(
             conversation_id=handshake.conversation_id,
             owner_id=current_user.id,
+            project_id=handshake.project_id,
         )
 
         await _persist_conversation_identity(
@@ -1253,6 +1329,7 @@ async def stream_chat_voice(
                             memory_service=memory_service,
                             memory_extraction_service=memory_extraction_service,
                             session_state_updater=session_state_updater,
+                            project_id=conversation.project_id,
                         ),
                         tts=tts_provider,
                     )

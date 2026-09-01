@@ -32,10 +32,14 @@ class ResearchConversationService:
         *,
         conversation_id: uuid.UUID | None,
         owner_id: uuid.UUID,
+        project_id: uuid.UUID | None = None,
     ) -> ResearchConversation:
         """
         Loads an existing conversation scoped to `owner_id`, or starts a
-        new one when `conversation_id` is not given.
+        new one when `conversation_id` is not given. `project_id` only
+        applies to the new-conversation branch -- an existing conversation
+        keeps whatever project (if any) it was created with, regardless of
+        what's passed here.
         """
 
         if conversation_id is not None:
@@ -57,7 +61,7 @@ class ResearchConversationService:
         # `ResearchSession` row before that row is flushed), not only
         # after a real flush executes the mapped-column default.
         conversation = await self.repository.create_conversation(
-            ResearchConversation(id=uuid4(), owner_id=owner_id),
+            ResearchConversation(id=uuid4(), owner_id=owner_id, project_id=project_id),
         )
 
         await self.session.commit()

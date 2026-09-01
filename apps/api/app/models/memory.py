@@ -82,6 +82,7 @@ class Memory(TimestampMixin, Base):
     __table_args__ = (
         CheckConstraint(
             "(scope_type = 'personal' AND project_id IS NULL) OR "
+            "(scope_type = 'global' AND project_id IS NULL) OR "
             "(scope_type = 'project' AND project_id IS NOT NULL)",
             name="ck_memories_scope_project",
         ),
@@ -120,12 +121,14 @@ class MemoryScopeSetting(TimestampMixin, Base):
     __table_args__ = (
         CheckConstraint(
             "(scope_type = 'personal' AND project_id IS NULL) OR "
+            "(scope_type = 'global' AND project_id IS NULL) OR "
             "(scope_type = 'project' AND project_id IS NOT NULL)",
             name="ck_memory_scope_settings_scope_project",
         ),
         Index(
             "uq_memory_scope_settings_personal",
             "owner_id",
+            "scope_type",
             unique=True,
             postgresql_where=project_id.is_(None),
         ),

@@ -29,7 +29,7 @@ from app.ai.knowledge.retrieval.enums import RetrievalProvider
 from app.ai.knowledge.retrieval.models import RetrievalQuery, RetrievalResult
 from app.ai.knowledge.retrieval.service import RetrievalService
 from app.ai.memory.create import create_memory_availability_client, get_memory_metrics
-from app.ai.memory.enums import MemoryType
+from app.ai.memory.enums import MemoryScopeType, MemoryType
 from app.ai.memory.extraction.orchestrator import MemoryExtractionOrchestrator
 from app.ai.memory.extraction.service import MemoryExtractionService
 from app.ai.memory.policy.models import MemoryTurnEvent
@@ -123,6 +123,7 @@ class ResearchService:
         provider: GenerationProvider | None = None,
         routing_strategy: RoutingStrategy | None = None,
         conversation_id: UUID | None = None,
+        project_id: UUID | None = None,
     ) -> ResearchOutcome:
         """
         Full linear flow (PRD §17, extended with the Memory Platform's
@@ -137,11 +138,18 @@ class ResearchService:
         pattern). The conversation's own id doubles as the session-memory
         boundary, replacing the old default of "a fresh session per call"
         that made SESSION memory a no-op across turns.
+
+        `project_id` is only consulted when starting a new conversation
+        (authorized by the caller before this method runs, mirroring
+        Chat) -- an existing conversation's own stored `project_id` is
+        used instead, resolving `PROJECT` memory/retrieval scope exactly
+        like Chat's identical activation.
         """
 
         conversation = await self._conversations.get_or_create(
             conversation_id=conversation_id,
             owner_id=owner_id,
+            project_id=project_id,
         )
         await self._conversations.set_title_from_first_query(
             conversation=conversation,
@@ -150,6 +158,9 @@ class ResearchService:
 
         research_id = uuid4()
         session_id = conversation.id
+        scope_type = (
+            MemoryScopeType.PROJECT if conversation.project_id else MemoryScopeType.PERSONAL
+        )
 
         started = perf_counter()
 
@@ -169,6 +180,8 @@ class ResearchService:
                 session_id=session_id,
                 query=query,
                 transcript="\n".join(str(message.content) for message in history),
+                scope_type=scope_type,
+                project_id=conversation.project_id,
             )
 
             retrieval_result, context_result = await self._retrieve_and_build_context(
@@ -176,6 +189,7 @@ class ResearchService:
                 top_k=top_k,
                 filters=filters,
                 owner_id=owner_id,
+                project_id=conversation.project_id,
             )
 
             request = GenerationRequest(
@@ -236,6 +250,8 @@ class ResearchService:
                 research_id=research_id,
                 query=query,
                 answer=result.content,
+                scope_type=scope_type,
+                project_id=conversation.project_id,
             )
         except Exception as exc:
             self._metrics.increment(
@@ -279,19 +295,22 @@ class ResearchService:
         provider: GenerationProvider | None = None,
         routing_strategy: RoutingStrategy | None = None,
         conversation_id: UUID | None = None,
+        project_id: UUID | None = None,
     ) -> AsyncGenerator[StreamEvent, None]:
         """
         Streaming counterpart of `research()` (PRD §17), extended with
         the same Runtime Memory Injection Pipeline and conversation
-        threading -- see `research()`'s docstring. Generation goes
-        through `StreamingService` directly rather than the Generation
-        Runtime -- that's what the PRD's own `/research/stream` flow
-        diagram specifies, distinct from `/research`.
+        threading -- see `research()`'s docstring, including the
+        `project_id` contract. Generation goes through `StreamingService`
+        directly rather than the Generation Runtime -- that's what the
+        PRD's own `/research/stream` flow diagram specifies, distinct
+        from `/research`.
         """
 
         conversation = await self._conversations.get_or_create(
             conversation_id=conversation_id,
             owner_id=owner_id,
+            project_id=project_id,
         )
         await self._conversations.set_title_from_first_query(
             conversation=conversation,
@@ -300,6 +319,9 @@ class ResearchService:
 
         research_id = uuid4()
         session_id = conversation.id
+        scope_type = (
+            MemoryScopeType.PROJECT if conversation.project_id else MemoryScopeType.PERSONAL
+        )
 
         # `session_id` here stays `research_id`, not `conversation.id` --
         # the frontend (`use-research.ts`) reads the first event's
@@ -323,6 +345,8 @@ class ResearchService:
             session_id=session_id,
             query=query,
             transcript="\n".join(str(message.content) for message in history),
+            scope_type=scope_type,
+            project_id=conversation.project_id,
         )
 
         yield StreamEvent(
@@ -336,6 +360,7 @@ class ResearchService:
             top_k=top_k,
             filters=filters,
             owner_id=owner_id,
+            project_id=conversation.project_id,
         )
 
         yield StreamEvent(
@@ -421,6 +446,8 @@ class ResearchService:
                     research_id=research_id,
                     query=query,
                     answer=answer,
+                    scope_type=scope_type,
+                    project_id=conversation.project_id,
                 )
 
     async def citations_only(
@@ -460,20 +487,26 @@ class ResearchService:
         conversation_id: UUID | None,
         duration_ms: float,
         memory_used: bool = False,
+        project_id: UUID | None = None,
     ) -> ResearchOutcome:
         """Persist a reviewed runtime draft before invoking memory extraction.
 
         This is intentionally the only handoff from the graph to durable user
         state. Planner, retrieval, reviewer, and PDF nodes never receive the
-        memory collaborators.
+        memory collaborators. `project_id` is only consulted when starting a
+        new conversation, same contract as `research()`/`stream_research()`.
         """
 
         conversation = await self._conversations.get_or_create(
             conversation_id=conversation_id,
             owner_id=owner_id,
+            project_id=project_id,
         )
         await self._conversations.set_title_from_first_query(conversation=conversation, query=query)
         research_id = uuid4()
+        scope_type = (
+            MemoryScopeType.PROJECT if conversation.project_id else MemoryScopeType.PERSONAL
+        )
         citations, sources = self._runtime_evidence_metadata(evidence)
         answer = self._format_runtime_draft(draft)
         await self._persist_session(
@@ -497,6 +530,8 @@ class ResearchService:
             research_id=research_id,
             query=query,
             answer=answer,
+            scope_type=scope_type,
+            project_id=conversation.project_id,
         )
         return ResearchOutcome(
             research_id=research_id,
@@ -521,12 +556,19 @@ class ResearchService:
         session_id: UUID,
         query: str,
         transcript: str | None = None,
+        scope_type: MemoryScopeType = MemoryScopeType.PERSONAL,
+        project_id: UUID | None = None,
     ) -> FormattedMemoryContext:
         """
         Memory retrieval, ahead of knowledge retrieval (Request ->
         Memory Retrieval -> Knowledge Retrieval -> ... per the platform's
         runtime integration flow). Best-effort: a memory outage must
         never block a research request.
+
+        `scope_type`/`project_id` default to personal -- the caller
+        resolves `PROJECT` scope only when the conversation belongs to a
+        project, mirroring Chat's identical activation of the M5 memory-
+        scope boundary.
         """
 
         if self._memory is None:
@@ -539,6 +581,8 @@ class ResearchService:
                 semantic_query=query,
                 top_k=5,
                 transcript=transcript,
+                scope_type=scope_type,
+                project_id=project_id,
             )
         except Exception as exc:
             logger.warning(
@@ -560,6 +604,8 @@ class ResearchService:
         research_id: UUID,
         query: str,
         answer: str,
+        scope_type: MemoryScopeType = MemoryScopeType.PERSONAL,
+        project_id: UUID | None = None,
     ) -> None:
         """
         Post-generation half of the Runtime Memory Injection Pipeline:
@@ -569,6 +615,9 @@ class ResearchService:
         `MemoryExtractionService` and stored when above the importance
         threshold. Best-effort throughout: never fails the request that
         already completed successfully.
+
+        `scope_type`/`project_id` default to personal, same contract as
+        `_retrieve_memory_context`.
         """
 
         if self._memory is None:
@@ -579,6 +628,8 @@ class ResearchService:
                 await self._memory.remember(
                     owner_id=owner_id,
                     type=MemoryType.SESSION,
+                    scope_type=scope_type,
+                    project_id=project_id,
                     content=f"Q: {query}\nA: {answer}",
                     session_id=session_id,
                     metadata={
@@ -599,6 +650,8 @@ class ResearchService:
                     user_message=query,
                     assistant_message=answer,
                     turn_id=str(research_id),
+                    scope_type=scope_type,
+                    project_id=project_id,
                 )
         except Exception as exc:
             logger.warning(
@@ -621,6 +674,8 @@ class ResearchService:
             ).process_turn(
                 MemoryTurnEvent(
                     owner_id=owner_id,
+                    scope_type=scope_type,
+                    project_id=project_id,
                     session_id=session_id,
                     conversation_id=session_id,
                     research_id=research_id,
@@ -647,11 +702,16 @@ class ResearchService:
         top_k: int,
         filters: dict[str, Any],
         owner_id: UUID,
+        project_id: UUID | None = None,
     ) -> RetrievalQuery:
         """
-        `owner_id` always comes from the authenticated caller, never from
+        `owner_id`/`project_id` always come from the authenticated caller
+        and the conversation's own stored scope, never from
         request-supplied filters -- mirrors
-        `api/v1/retrieval.py::_scoped_owner_id`.
+        `api/v1/retrieval.py::_scoped_owner_id`. `project_id=None` means
+        personal documents only, not "every project" -- this is what
+        makes a project's Research search that project's own documents
+        via `QdrantRetrievalProvider._build_filter`.
         """
 
         return RetrievalQuery(
@@ -659,6 +719,7 @@ class ResearchService:
             top_k=top_k,
             filters=filters,
             owner_id=str(owner_id),
+            project_id=str(project_id) if project_id else None,
         )
 
     async def _retrieve_and_build_context(
@@ -668,6 +729,7 @@ class ResearchService:
         top_k: int,
         filters: dict[str, Any],
         owner_id: UUID,
+        project_id: UUID | None = None,
     ) -> tuple[RetrievalResult, ContextResult]:
         retrieval_result = await self._retrieval.search_hybrid(
             provider=RetrievalProvider.QDRANT,
@@ -676,6 +738,7 @@ class ResearchService:
                 top_k=top_k,
                 filters=filters,
                 owner_id=owner_id,
+                project_id=project_id,
             ),
         )
 

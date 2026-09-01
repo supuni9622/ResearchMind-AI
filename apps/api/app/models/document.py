@@ -36,6 +36,16 @@ class Document(TimestampMixin, Base):
         index=True,
     )
 
+    # Nullable: most documents are personal. SET NULL (not CASCADE) on
+    # project deletion -- detach back to personal rather than lose the
+    # document, mirrors Conversation.project_id.
+    project_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("projects.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+
     filename: Mapped[str] = mapped_column(
         String(255),
         nullable=False,

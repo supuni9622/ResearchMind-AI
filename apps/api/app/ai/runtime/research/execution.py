@@ -657,6 +657,7 @@ class ResearchRuntimeExecutionService:
                 graph_input = {
                     "research_run_id": str(run.id),
                     "owner_id": str(owner_id),
+                    "project_id": str(run.project_id) if run.project_id else None,
                     "plan": plan.model_dump(mode="json"),
                     "waves": [
                         [task.model_dump(mode="json") for task in wave]
@@ -971,6 +972,7 @@ class ResearchRuntimeExecutionService:
             conversation_id=conversation_id,
             duration_ms=(perf_counter() - started) * 1000,
             memory_used=bool(result.get("injected_memory_ids")),
+            project_id=run.project_id,
         )
 
     @staticmethod

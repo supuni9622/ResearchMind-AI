@@ -118,6 +118,7 @@ class VectorStoreService:
         provider: VectorStoreProvider,
         collection_name: str,
         owner_id: str,
+        project_id: str | None = None,
     ) -> int:
         """
         Return the number of indexed vectors.
@@ -128,6 +129,7 @@ class VectorStoreService:
         return await vector_provider.count(
             collection_name,
             owner_id=owner_id,
+            project_id=project_id,
         )
 
     async def collection_info(

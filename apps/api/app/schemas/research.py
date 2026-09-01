@@ -45,6 +45,16 @@ class ResearchRequest(BaseModel):
         ),
     )
 
+    project_id: UUID | None = Field(
+        default=None,
+        description=(
+            "Only consulted when starting a new conversation (no "
+            "`conversation_id`) -- an existing conversation keeps "
+            "whatever project it already belongs to. Authorized "
+            "server-side before the conversation is created."
+        ),
+    )
+
 
 class ResearchStreamRequest(ResearchRequest):
     """

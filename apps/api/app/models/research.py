@@ -38,6 +38,18 @@ class ResearchConversation(TimestampMixin, Base):
         index=True,
     )
 
+    # Nullable: most research threads are personal. SET NULL (not CASCADE)
+    # on project deletion -- detach back to personal rather than lose the
+    # thread, mirrors Conversation.project_id. Covers both Linear Research
+    # (via ResearchSession.conversation_id) and Deep Research (via
+    # ResearchRun.conversation_id) -- both hang off this one shared model.
+    project_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("projects.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+
     title: Mapped[str | None] = mapped_column(
         String(255),
         nullable=True,

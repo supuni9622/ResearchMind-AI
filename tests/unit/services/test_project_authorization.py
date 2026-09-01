@@ -65,3 +65,28 @@ async def test_scope_shape_is_validated_before_query() -> None:
         )
 
     session.execute.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_authorize_project_access_allows_resolved_member() -> None:
+    result = MagicMock()
+    result.scalar.return_value = True
+    session = AsyncMock()
+    session.execute.return_value = result
+    service = ProjectAuthorizationService(session)
+
+    await service.authorize_project_access(user_id=uuid4(), project_id=uuid4())
+
+    session.execute.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_authorize_project_access_hides_non_member_project() -> None:
+    result = MagicMock()
+    result.scalar.return_value = False
+    session = AsyncMock()
+    session.execute.return_value = result
+    service = ProjectAuthorizationService(session)
+
+    with pytest.raises(ForbiddenException):
+        await service.authorize_project_access(user_id=uuid4(), project_id=uuid4())

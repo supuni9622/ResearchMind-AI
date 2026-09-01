@@ -80,6 +80,11 @@ class IndexingRequest(BaseModel):
         description="Owner of the indexed knowledge.",
     )
 
+    project_id: str | None = Field(
+        default=None,
+        description="Project the indexed knowledge belongs to, if any.",
+    )
+
     operation: IndexOperation = Field(
         default=IndexOperation.CREATE,
         description="Requested indexing operation.",

@@ -18,6 +18,10 @@ class VoiceStreamRequest(BaseModel):
 
     conversation_id: UUID | None = None
 
+    # Only consulted when starting a new conversation, same contract as
+    # `ChatStreamRequest.project_id`.
+    project_id: UUID | None = None
+
     provider: GenerationProvider | None = None
 
     web_search_enabled: bool = False

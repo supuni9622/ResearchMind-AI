@@ -936,6 +936,19 @@ class MemoryService:
         if not await self._retrieval_enabled(owner_id, scope_type, project_id):
             self._metrics.increment(metric=CONTEXT_RETRIEVAL_SKIPPED)
             return MemoryContext()
+
+        # GLOBAL memory is injected into every request (USER/SEMANTIC/
+        # RESEARCH only -- SESSION has no coherent "global" meaning, it's
+        # live per-conversation state). Gated by its own independent
+        # retrieval_enabled flag, same as PERSONAL already gates the
+        # personal-inheritance branch below -- a user can turn off "inject
+        # my global memory everywhere" without touching personal/project
+        # retrieval. Skipped entirely when GLOBAL is itself the requested
+        # scope, to avoid fetching it twice.
+        fetch_global = scope_type != MemoryScopeType.GLOBAL and await self._retrieval_enabled(
+            owner_id, MemoryScopeType.GLOBAL, None
+        )
+
         session_memories = await self._session.get_context(
             owner_id=owner_id,
             session_id=session_id,
@@ -970,7 +983,7 @@ class MemoryService:
                     limit=top_k,
                 ),
             )
-            user_memories = (personal_user + project_user)[:top_k]
+            user_memories = personal_user + project_user
         else:
             user_memories = await self._user.list_preferences(
                 owner_id=owner_id,
@@ -978,6 +991,26 @@ class MemoryService:
                 project_id=project_id,
                 limit=top_k,
             )
+        if fetch_global:
+            # Sequential, not gathered alongside the fetch(es) above: every
+            # `list_preferences` call here shares one `AsyncSession`
+            # (`PostgresMemoryStore`/`self._user` are both bound to it),
+            # and AsyncSession is not safe for concurrent use across
+            # coroutines -- two truly-concurrent Postgres-backed calls on
+            # it raise `InvalidRequestError: This session is provisioning
+            # a new connection`. Appended last, same priority-order
+            # rationale as the merge below: the most specific content
+            # first, GLOBAL last, so `[:top_k]` truncation drops the most
+            # generic content first when a user has more than `top_k`
+            # items across scopes.
+            global_user = await self._user.list_preferences(
+                owner_id=owner_id,
+                scope_type=MemoryScopeType.GLOBAL,
+                project_id=None,
+                limit=top_k,
+            )
+            user_memories = user_memories + global_user
+        user_memories = user_memories[:top_k]
 
         semantic_memories: list[MemoryRecord] = []
         research_memories: list[MemoryRecord] = []
@@ -990,6 +1023,13 @@ class MemoryService:
                 if self._availability is not None
                 else True
             )
+            # The requested scope alone may have nothing, while GLOBAL
+            # does -- don't skip the whole search block (and the embedding
+            # call it needs) just because the requested scope is empty.
+            if not has_durable_memory and fetch_global and self._availability is not None:
+                has_durable_memory = await self._availability.has_durable_memory(
+                    owner_id=owner_id, scope_type=MemoryScopeType.GLOBAL, project_id=None
+                )
             if has_durable_memory:
                 self._metrics.increment(metric=CONTEXT_DURABLE_AVAILABLE)
                 search_started = perf_counter()
@@ -1024,6 +1064,36 @@ class MemoryService:
                             self._metrics.increment(metric=RESEARCH_SEARCH)
                         else:
                             self._log_search_failure("research", owner_id, results[1])
+                        # Sequential, not another concurrent gather leg --
+                        # same AsyncSession-safety rationale as the USER
+                        # branch above (search_with_embedding's Qdrant hit
+                        # is followed by a Postgres hydration step that
+                        # shares this service's one session).
+                        if fetch_global:
+                            try:
+                                global_semantic = await self._semantic.search_with_embedding(
+                                    owner_id=owner_id,
+                                    scope_type=MemoryScopeType.GLOBAL,
+                                    project_id=None,
+                                    embedding=embedding,
+                                    top_k=top_k,
+                                )
+                                semantic_memories = (semantic_memories + global_semantic)[:top_k]
+                                self._metrics.increment(metric=SEMANTIC_SEARCH)
+                            except Exception as exc:
+                                self._log_search_failure("semantic_global", owner_id, exc)
+                            try:
+                                global_research = await self._research.search_with_embedding(
+                                    owner_id=owner_id,
+                                    scope_type=MemoryScopeType.GLOBAL,
+                                    project_id=None,
+                                    embedding=embedding,
+                                    top_k=top_k,
+                                )
+                                research_memories = (research_memories + global_research)[:top_k]
+                                self._metrics.increment(metric=RESEARCH_SEARCH)
+                            except Exception as exc:
+                                self._log_search_failure("research_global", owner_id, exc)
                     else:
                         try:
                             semantic_memories = await self._semantic.search_with_embedding(
@@ -1036,6 +1106,18 @@ class MemoryService:
                             self._metrics.increment(metric=SEMANTIC_SEARCH)
                         except Exception as exc:
                             self._log_search_failure("semantic", owner_id, exc)
+                        if fetch_global:
+                            try:
+                                global_semantic = await self._semantic.search_with_embedding(
+                                    owner_id=owner_id,
+                                    scope_type=MemoryScopeType.GLOBAL,
+                                    project_id=None,
+                                    embedding=embedding,
+                                    top_k=top_k,
+                                )
+                                semantic_memories = (semantic_memories + global_semantic)[:top_k]
+                            except Exception as exc:
+                                self._log_search_failure("semantic_global", owner_id, exc)
                         try:
                             research_memories = await self._research.search_with_embedding(
                                 owner_id=owner_id,
@@ -1047,6 +1129,18 @@ class MemoryService:
                             self._metrics.increment(metric=RESEARCH_SEARCH)
                         except Exception as exc:
                             self._log_search_failure("research", owner_id, exc)
+                        if fetch_global:
+                            try:
+                                global_research = await self._research.search_with_embedding(
+                                    owner_id=owner_id,
+                                    scope_type=MemoryScopeType.GLOBAL,
+                                    project_id=None,
+                                    embedding=embedding,
+                                    top_k=top_k,
+                                )
+                                research_memories = (research_memories + global_research)[:top_k]
+                            except Exception as exc:
+                                self._log_search_failure("research_global", owner_id, exc)
                 except Exception as exc:
                     logger.warning(
                         "memory.retrieval.embedding_failed",

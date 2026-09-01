@@ -67,6 +67,7 @@ logger = structlog.get_logger()
 class MultiWaveResearchState(TypedDict):
     research_run_id: str
     owner_id: str
+    project_id: str | None
     plan: dict[str, object]
     waves: list[list[dict[str, object]]]
     wave_index: int
@@ -176,6 +177,7 @@ def compile_multi_wave_research_graph(
                 {
                     "task": task,
                     "owner_id": state["owner_id"],
+                    "project_id": state.get("project_id"),
                     "research_run_id": state["research_run_id"],
                     "filters": state.get("filters", {}),
                     "top_k": state.get("top_k", 5),
@@ -186,11 +188,13 @@ def compile_multi_wave_research_graph(
 
     async def retrieve_task(state: MultiWaveResearchState) -> dict[str, object]:
         task = ResearchPlanTask.model_validate(state["task"])
+        raw_project_id = state.get("project_id")
         result = await task_retrieval.execute_task(
             task=task,
             owner_id=UUID(state["owner_id"]),
             filters=state.get("filters", {}),
             top_k=state.get("top_k", 5),
+            project_id=UUID(raw_project_id) if raw_project_id else None,
         )
         logger.info(
             "research_runtime.graph.task_retrieved",
@@ -596,11 +600,13 @@ def compile_multi_wave_research_graph(
 
     async def retrieve_gap_task(state: MultiWaveResearchState) -> dict[str, object]:
         task = ResearchPlanTask.model_validate(state["task"])
+        raw_project_id = state.get("project_id")
         result = await task_retrieval.execute_task(
             task=task,
             owner_id=UUID(state["owner_id"]),
             filters=state.get("filters", {}),
             top_k=state.get("top_k", 5),
+            project_id=UUID(raw_project_id) if raw_project_id else None,
         )
         return {"task_results": {task.task_id: result.model_dump(mode="json")}}
 

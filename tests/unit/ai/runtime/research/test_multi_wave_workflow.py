@@ -104,6 +104,88 @@ async def test_socratic_challenger_pauses_with_question_and_remembers_response()
 
 
 @pytest.mark.asyncio
+async def test_multi_wave_graph_threads_project_id_from_state_into_execute_task() -> None:
+    """The Deep Research project-scoping plumbing: `project_id` seeded in
+    `graph_input` must reach `task_retrieval.execute_task()` as a real
+    `UUID`, via `dispatch_wave`'s `Send(...)` payload -- this is what
+    makes a project's Deep Research run search that project's own
+    documents. Uses `retrieve_task` (the `Send`-dispatched node), not
+    `retrieve_gap_task` (shared-state node, same value trivially)."""
+
+    run_id, owner_id, project_id = uuid4(), uuid4(), uuid4()
+    retrieval = AsyncMock()
+    retrieval.execute_task.return_value = ResearchTaskResult(
+        task_id="initial", status=ResearchTaskStatus.COMPLETED
+    )
+    writer = AsyncMock(spec=ResearchEvidenceArtifactWriter)
+    writer.write.return_value = "artifacts/research-runs/evidence.json"
+    synthesis = AsyncMock(spec=ResearchSynthesisService)
+    final_writer = AsyncMock(spec=ResearchFinalReportArtifactWriter)
+    graph = compile_multi_wave_research_graph(
+        checkpointer=InMemorySaver(),
+        task_retrieval=retrieval,
+        evidence_writer=writer,
+        synthesis=synthesis,
+        final_report_writer=final_writer,
+    )
+    config = {"configurable": {"thread_id": str(run_id)}}
+
+    await graph.ainvoke(
+        {
+            "research_run_id": str(run_id),
+            "owner_id": str(owner_id),
+            "project_id": str(project_id),
+            "plan": {"goal": "q", "complexity": "moderate"},
+            "waves": [[ResearchPlanTask(task_id="initial", question="q").model_dump(mode="json")]],
+            "filters": {},
+            "top_k": 5,
+            "task_results": {},
+        },
+        config=config,
+    )
+
+    retrieval.execute_task.assert_awaited_once()
+    assert retrieval.execute_task.await_args.kwargs["project_id"] == project_id
+
+
+@pytest.mark.asyncio
+async def test_multi_wave_graph_leaves_project_id_none_for_a_personal_run() -> None:
+    run_id, owner_id = uuid4(), uuid4()
+    retrieval = AsyncMock()
+    retrieval.execute_task.return_value = ResearchTaskResult(
+        task_id="initial", status=ResearchTaskStatus.COMPLETED
+    )
+    writer = AsyncMock(spec=ResearchEvidenceArtifactWriter)
+    writer.write.return_value = "artifacts/research-runs/evidence.json"
+    synthesis = AsyncMock(spec=ResearchSynthesisService)
+    final_writer = AsyncMock(spec=ResearchFinalReportArtifactWriter)
+    graph = compile_multi_wave_research_graph(
+        checkpointer=InMemorySaver(),
+        task_retrieval=retrieval,
+        evidence_writer=writer,
+        synthesis=synthesis,
+        final_report_writer=final_writer,
+    )
+    config = {"configurable": {"thread_id": str(run_id)}}
+
+    await graph.ainvoke(
+        {
+            "research_run_id": str(run_id),
+            "owner_id": str(owner_id),
+            "plan": {"goal": "q", "complexity": "moderate"},
+            "waves": [[ResearchPlanTask(task_id="initial", question="q").model_dump(mode="json")]],
+            "filters": {},
+            "top_k": 5,
+            "task_results": {},
+        },
+        config=config,
+    )
+
+    retrieval.execute_task.assert_awaited_once()
+    assert retrieval.execute_task.await_args.kwargs["project_id"] is None
+
+
+@pytest.mark.asyncio
 async def test_multi_wave_graph_waits_for_dependencies_before_aggregation() -> None:
     run_id, owner_id = uuid4(), uuid4()
     retrieval = AsyncMock()

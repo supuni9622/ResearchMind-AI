@@ -45,8 +45,8 @@ class MemoryRecord(BaseModel):
     def validate_scope(self) -> MemoryRecord:
         if self.scope_type == MemoryScopeType.PROJECT and self.project_id is None:
             raise ValueError("project_id is required for project-scoped memory")
-        if self.scope_type == MemoryScopeType.PERSONAL and self.project_id is not None:
-            raise ValueError("project_id must be empty for personal memory")
+        if self.scope_type != MemoryScopeType.PROJECT and self.project_id is not None:
+            raise ValueError("project_id must be empty for personal or global memory")
         return self
 
 
@@ -71,8 +71,8 @@ class MemorySearchRequest(BaseModel):
     def validate_scope(self) -> MemorySearchRequest:
         if self.scope_type == MemoryScopeType.PROJECT and self.project_id is None:
             raise ValueError("project_id is required for project-scoped search")
-        if self.scope_type == MemoryScopeType.PERSONAL and self.project_id is not None:
-            raise ValueError("project_id must be empty for personal search")
+        if self.scope_type != MemoryScopeType.PROJECT and self.project_id is not None:
+            raise ValueError("project_id must be empty for personal or global search")
         return self
 
 

@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+from uuid import UUID
+
 import structlog
 from fastapi import (
     APIRouter,
     Depends,
     File,
+    Form,
     Query,
     UploadFile,
     status,
@@ -23,6 +26,7 @@ from app.dependencies import (
     get_upload_service,
     get_vectorstore_service,
 )
+from app.dependencies.project import get_project_authorization_service
 from app.exceptions.base import ValidationException
 from app.models.user import User
 from app.repositories.document import DocumentKind, DocumentRepository
@@ -32,6 +36,7 @@ from app.schemas.document import (
     DocumentResponse,
     DocumentUploadResponse,
 )
+from app.services.project_authorization import ProjectAuthorizationService
 
 # from app.services.document_processing_service import (
 #     DocumentProcessingService,
@@ -55,6 +60,9 @@ async def list_documents(
     offset: int = Query(default=0, ge=0),
     search: str | None = Query(default=None, min_length=1, max_length=200),
     kind: DocumentKind | None = Query(default=None),
+    # Omitted -> personal documents only (`project_id IS NULL`), not
+    # "every project" -- same contract as `GET /chat/conversations`.
+    project_id: UUID | None = Query(default=None),
     current_user: User = Depends(get_current_user),
     repository: DocumentRepository = Depends(get_document_repository),
 ) -> DocumentListResponse:
@@ -72,6 +80,7 @@ async def list_documents(
         offset=offset,
         search=search,
         kind=kind,
+        project_id=project_id,
     )
 
     return DocumentListResponse(
@@ -88,6 +97,7 @@ async def list_documents(
     summary="Read knowledge-base counts for the current user",
 )
 async def document_knowledge_stats(
+    project_id: UUID | None = Query(default=None),
     current_user: User = Depends(get_current_user),
     vectorstore_service: VectorStoreService = Depends(get_vectorstore_service),
 ) -> DocumentKnowledgeStats:
@@ -95,7 +105,8 @@ async def document_knowledge_stats(
 
     Each indexed chunk is represented by one dense embedding/vector, so both
     values are intentionally equal until the index supports multiple vectors
-    per chunk.
+    per chunk. `project_id` follows the same omit=personal-only contract as
+    `GET /documents`.
     """
 
     if not await vectorstore_service.collection_exists(
@@ -108,6 +119,7 @@ async def document_knowledge_stats(
             provider=VectorStoreProvider.QDRANT,
             collection_name=settings.qdrant_collection_name,
             owner_id=str(current_user.id),
+            project_id=str(project_id) if project_id else None,
         )
 
     return DocumentKnowledgeStats(
@@ -124,8 +136,10 @@ async def document_knowledge_stats(
 )
 async def upload_document(
     file: UploadFile = File(...),
+    project_id: UUID | None = Form(default=None),
     current_user: User = Depends(get_current_user),
     upload_service: UploadService = Depends(get_upload_service),
+    project_authorization: ProjectAuthorizationService = Depends(get_project_authorization_service),
     # processing_service: DocumentProcessingService = Depends(
     #     get_document_processing_service,
     # ),
@@ -161,12 +175,19 @@ async def upload_document(
             message="Uploaded file must have a filename.",
         )
 
+    if project_id is not None:
+        await project_authorization.authorize_project_access(
+            user_id=current_user.id,
+            project_id=project_id,
+        )
+
     file.file.seek(0, 2)
     size_bytes = file.file.tell()
     file.file.seek(0)
 
     document = await upload_service.upload(
         owner_id=current_user.id,
+        project_id=project_id,
         filename=file.filename,
         content_type=file.content_type or "application/octet-stream",
         size_bytes=size_bytes,

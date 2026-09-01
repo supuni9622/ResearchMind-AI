@@ -136,6 +136,7 @@ class ProcessingService:
         *,
         owner_id: str,
         request: ParseRequest,
+        project_id: str | None = None,
     ) -> ProcessingResult:
         """
         Process a document through the complete processing pipeline.
@@ -318,6 +319,7 @@ class ProcessingService:
         indexing_artifact = await self._indexing_service.index(
             IndexingRequest(
                 owner_id=owner_id,
+                project_id=project_id,
                 embedding_artifact=embedding_artifact,
                 chunk_artifact=chunk_artifact,
             )

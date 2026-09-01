@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, type Document } from '@/lib/api';
+import { useActiveProject } from '@/hooks/use-active-project';
 import { PageHeader } from '@/components/ui/page-header';
 import { EmptyState } from '@/components/ui/empty-state';
 import { RefreshIcon } from '@/components/ui/icons';
@@ -14,6 +15,7 @@ const PAGE_SIZE = 10;
 const SEARCH_DEBOUNCE_MS = 300;
 
 export default function DocumentsPage() {
+  const { activeProjectId } = useActiveProject();
   const [documents, setDocuments] = useState<Document[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -33,14 +35,19 @@ export default function DocumentsPage() {
     return () => clearTimeout(timer);
   }, [search]);
 
-  // A kind/search change invalidates the current page's offset, so jump
-  // back to page 1 rather than showing a (likely empty) stale page.
+  // A kind/search/workspace change invalidates the current page's offset,
+  // so jump back to page 1 rather than showing a (likely empty) stale page.
   useEffect(() => {
     setPage(1);
-  }, [kindFilter, debouncedSearch]);
+  }, [kindFilter, debouncedSearch, activeProjectId]);
 
   const loadDocuments = useCallback(
-    async (opts: { page: number; kindFilter: DocKind | 'all'; search: string }) => {
+    async (opts: {
+      page: number;
+      kindFilter: DocKind | 'all';
+      search: string;
+      projectId: string | null;
+    }) => {
       const requestId = ++requestIdRef.current;
       setFetching(true);
       try {
@@ -49,6 +56,7 @@ export default function DocumentsPage() {
           offset: (opts.page - 1) * PAGE_SIZE,
           search: opts.search || undefined,
           kind: opts.kindFilter === 'all' ? undefined : opts.kindFilter,
+          projectId: opts.projectId,
         });
         if (requestIdRef.current !== requestId) return;
         setDocuments(res.items);
@@ -68,8 +76,8 @@ export default function DocumentsPage() {
   );
 
   useEffect(() => {
-    loadDocuments({ page, kindFilter, search: debouncedSearch });
-  }, [page, kindFilter, debouncedSearch, loadDocuments]);
+    loadDocuments({ page, kindFilter, search: debouncedSearch, projectId: activeProjectId });
+  }, [page, kindFilter, debouncedSearch, activeProjectId, loadDocuments]);
 
   const handleFiles = useCallback(
     async (files: FileList | null) => {
@@ -77,14 +85,21 @@ export default function DocumentsPage() {
       setUploading(true);
       setError(null);
       try {
-        await Promise.all(Array.from(files).map((f) => api.documents.upload(f)));
+        await Promise.all(
+          Array.from(files).map((f) => api.documents.upload(f, activeProjectId))
+        );
         // Newly uploaded files sort first (newest first) — reset to an
         // unfiltered page 1 so the upload is immediately visible.
         setKindFilter('all');
         setSearch('');
         setDebouncedSearch('');
         if (page === 1) {
-          await loadDocuments({ page: 1, kindFilter: 'all', search: '' });
+          await loadDocuments({
+            page: 1,
+            kindFilter: 'all',
+            search: '',
+            projectId: activeProjectId,
+          });
         } else {
           setPage(1);
         }
@@ -94,7 +109,7 @@ export default function DocumentsPage() {
         setUploading(false);
       }
     },
-    [page, loadDocuments]
+    [page, activeProjectId, loadDocuments]
   );
 
   function handleDrop(e: React.DragEvent) {
@@ -114,7 +129,9 @@ export default function DocumentsPage() {
         actions={
           <button
             type="button"
-            onClick={() => loadDocuments({ page, kindFilter, search: debouncedSearch })}
+            onClick={() =>
+              loadDocuments({ page, kindFilter, search: debouncedSearch, projectId: activeProjectId })
+            }
             disabled={fetching}
             title="Refresh upload/processing status"
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-ink-600 text-stone-400 text-[13px] hover:border-ink-400 hover:text-stone-200 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"

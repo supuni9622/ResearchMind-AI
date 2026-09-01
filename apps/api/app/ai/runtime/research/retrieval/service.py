@@ -56,12 +56,22 @@ class ResearchTaskRetrievalService:
         owner_id: UUID,
         filters: dict[str, object],
         top_k: int,
+        project_id: UUID | None = None,
     ) -> ResearchTaskResult:
-        """Run canonical retrieval/context construction for one task, fail as a partial result."""
+        """Run canonical retrieval/context construction for one task, fail as a partial result.
+
+        `project_id=None` means personal documents only, not "every
+        project" -- this is what makes a project's Deep Research run
+        search that project's own documents.
+        """
 
         async with self._semaphore:
             return await self._execute_task(
-                task=task, owner_id=owner_id, filters=filters, top_k=top_k
+                task=task,
+                owner_id=owner_id,
+                filters=filters,
+                top_k=top_k,
+                project_id=project_id,
             )
 
     async def _execute_task(
@@ -71,6 +81,7 @@ class ResearchTaskRetrievalService:
         owner_id: UUID,
         filters: dict[str, object],
         top_k: int,
+        project_id: UUID | None = None,
     ) -> ResearchTaskResult:
         try:
             retrieval = await self._retrieval.search_hybrid(
@@ -80,6 +91,7 @@ class ResearchTaskRetrievalService:
                     top_k=min(top_k, self.MAX_TASK_TOP_K),
                     filters=filters,
                     owner_id=str(owner_id),
+                    project_id=str(project_id) if project_id else None,
                 ),
             )
             context = await self._context_builder.build(retrieval, query=task.question)

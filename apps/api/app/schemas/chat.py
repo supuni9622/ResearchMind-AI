@@ -18,6 +18,11 @@ class ChatStreamRequest(BaseModel):
 
     conversation_id: UUID | None = None
 
+    # Only consulted when starting a new conversation (`conversation_id` is
+    # None) -- an existing conversation keeps whatever project it already
+    # belongs to. Authorized server-side before the conversation is created.
+    project_id: UUID | None = None
+
     provider: GenerationProvider | None = None
 
     routing_strategy: RoutingStrategy | None = None
@@ -51,6 +56,7 @@ class ChatConversationSummary(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     conversation_id: UUID
+    project_id: UUID | None
     title: str | None
     created_at: datetime
     updated_at: datetime

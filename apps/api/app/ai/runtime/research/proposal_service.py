@@ -58,6 +58,7 @@ class ResearchProposalService:
         provider: GenerationProvider | None,
         routing_strategy: RoutingStrategy | None,
         conversation_id: UUID | None,
+        project_id: UUID | None = None,
         web_search_mode: str = WebSearchMode.DISABLED.value,
         web_search_auto_approve: bool = False,
         include_domains: list[str] | None = None,
@@ -69,6 +70,7 @@ class ResearchProposalService:
                 id=uuid4(),
                 owner_id=owner_id,
                 conversation_id=conversation_id,
+                project_id=project_id,
                 status=ResearchProposalStatus.PROPOSING.value,
                 request={
                     "query": query,
@@ -128,6 +130,7 @@ class ResearchProposalService:
         provider: GenerationProvider | None,
         routing_strategy: RoutingStrategy | None,
         conversation_id: UUID | None,
+        project_id: UUID | None = None,
     ) -> tuple[ResearchPlan, ResearchProposal | None]:
         """Classify whether `query` would benefit from Deep Research, without
         committing to it up front.
@@ -170,6 +173,7 @@ class ResearchProposalService:
                 id=uuid4(),
                 owner_id=owner_id,
                 conversation_id=conversation_id,
+                project_id=project_id,
                 status=ResearchProposalStatus.AWAITING_APPROVAL.value,
                 request={
                     "query": query,
@@ -293,6 +297,7 @@ class ResearchProposalService:
             request_fingerprint=fingerprint,
             idempotency_key=f"research-proposal:{proposal.id}",
             conversation_id=proposal.conversation_id,
+            project_id=proposal.project_id,
         )
         proposal.research_run_id = run.id
         proposal.status = ResearchProposalStatus.APPROVED.value

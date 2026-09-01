@@ -18,6 +18,8 @@ class DocumentUploadResponse(BaseModel):
 
     id: uuid.UUID
 
+    project_id: uuid.UUID | None = None
+
     filename: str
 
     content_type: str
@@ -41,6 +43,8 @@ class DocumentResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID
+
+    project_id: uuid.UUID | None = None
 
     filename: str
 

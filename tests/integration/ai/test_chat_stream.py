@@ -24,7 +24,9 @@ from unittest.mock import AsyncMock
 from uuid import UUID
 
 import pytest
+from app.ai.memory.enums import MemoryScopeType
 from app.ai.memory.models import ExtractedMemory, MemoryContext
+from app.ai.memory.session.state_updater import SessionStateDistillation
 from app.ai.runtime.events.enums import CoreEventType, EventCategory
 from app.ai.runtime.events.models import StreamEvent
 from app.ai.runtime.generation.enums import GenerationProvider
@@ -40,6 +42,7 @@ from app.dependencies.memory import (
     get_memory_service,
     get_session_state_updater_service,
 )
+from app.dependencies.project import get_project_authorization_service
 from app.dependencies.rate_limiting import get_rate_limiter
 from app.dependencies.research import (
     get_paper_query_extraction_service,
@@ -95,21 +98,32 @@ class _FakeConversationService:
         self.title_claimed = False
         self.created_at = datetime.now(UTC)
 
-    async def get_or_create(self, *, conversation_id, owner_id) -> Conversation:
+    async def get_or_create(self, *, conversation_id, owner_id, project_id=None) -> Conversation:
         return Conversation(
             id=_CONVERSATION_ID,
             owner_id=owner_id,
+            project_id=project_id,
             title="Chat about LoRA",
             created_at=self.created_at,
             updated_at=self.created_at,
         )
 
-    async def list_for_owner(self, *, owner_id, limit: int = 50) -> list[Conversation]:
-        return [await self.get_or_create(conversation_id=_CONVERSATION_ID, owner_id=owner_id)]
+    async def list_for_owner(
+        self, *, owner_id, project_id=None, limit: int = 50
+    ) -> list[Conversation]:
+        return [
+            await self.get_or_create(
+                conversation_id=_CONVERSATION_ID, owner_id=owner_id, project_id=project_id
+            )
+        ]
 
-    async def list_page_for_owner(self, *, owner_id, before_conversation_id=None, limit: int = 50):
+    async def list_page_for_owner(
+        self, *, owner_id, before_conversation_id=None, limit: int = 50, project_id=None
+    ):
         return SimpleNamespace(
-            conversations=await self.list_for_owner(owner_id=owner_id, limit=limit),
+            conversations=await self.list_for_owner(
+                owner_id=owner_id, project_id=project_id, limit=limit
+            ),
             next_cursor=None,
         )
 
@@ -198,11 +212,12 @@ class _FakeGenerationService:
 
 
 class _FakeMemoryService:
-    """Stands in for MemoryService -- records remember() calls, returns
-    an empty MemoryContext so injection is a no-op by default."""
+    """Stands in for MemoryService -- records remember()/get_context() calls,
+    returns an empty MemoryContext so injection is a no-op by default."""
 
     def __init__(self) -> None:
         self.remembered: list[dict] = []
+        self.context_calls: list[dict] = []
 
     async def get_context(
         self,
@@ -211,7 +226,11 @@ class _FakeMemoryService:
         session_id: UUID,
         semantic_query: str | None = None,
         top_k: int = 5,
+        **kwargs: object,
     ) -> MemoryContext:
+        self.context_calls.append(
+            {"owner_id": owner_id, "session_id": session_id, **kwargs},
+        )
         return MemoryContext()
 
     async def remember(self, **kwargs) -> None:
@@ -235,6 +254,24 @@ class _FakeMemoryExtractionService:
         **_: object,
     ) -> list[ExtractedMemory]:
         return []
+
+
+class _FakeProjectAuthorization:
+    """Stands in for ProjectAuthorizationService -- always authorizes,
+    so tests can pass a `project_id` without seeding a real Project row."""
+
+    def __init__(self) -> None:
+        self.authorized_project_ids: list[uuid.UUID] = []
+
+    async def authorize_project_access(self, *, user_id: UUID, project_id: UUID) -> None:
+        self.authorized_project_ids.append(project_id)
+
+    async def authorize_for_new_conversation(
+        self, *, conversation_id: UUID | None, project_id: UUID | None, user_id: UUID
+    ) -> None:
+        if conversation_id is not None or project_id is None:
+            return
+        await self.authorize_project_access(user_id=user_id, project_id=project_id)
 
 
 class _FakeRateLimiter:
@@ -388,6 +425,59 @@ def test_stream_chat_persists_the_assembled_turn_on_complete(
     assert generation_service.requests[0].user_prompt == (
         "First user question: What are applications of RAG?"
     )
+
+
+def test_stream_chat_with_project_id_resolves_project_memory_scope(
+    client: TestClient,
+    fakes: tuple[_FakeStreamingService, _FakeConversationService, _FakeGenerationService],
+) -> None:
+    """The M5 memory-scope activation: a new conversation created with
+    `project_id` must resolve `MemoryScopeType.PROJECT` (not the default
+    PERSONAL) on every memory call the turn makes -- both the pre-generation
+    retrieval and the post-generation session-state write."""
+
+    project_id = uuid.uuid4()
+    memory_service = _FakeMemoryService()
+    project_authorization = _FakeProjectAuthorization()
+    # Override the shared fixture's no-op `distill` so the session-state
+    # write branch actually runs `remember()` (a real distillation with no
+    # `previous` state takes the `else: remember(...)` path in
+    # `distill_and_upsert_session_state`), letting this test observe scope
+    # on the write side too, not just retrieval.
+    session_state_updater = SimpleNamespace(
+        distill=AsyncMock(
+            return_value=SessionStateDistillation(has_topic=True, content="Discussing LoRA")
+        )
+    )
+
+    app.dependency_overrides[get_current_user] = _fake_user
+    app.dependency_overrides[get_memory_service] = lambda: memory_service
+    app.dependency_overrides[get_project_authorization_service] = lambda: project_authorization
+    app.dependency_overrides[get_session_state_updater_service] = lambda: session_state_updater
+
+    try:
+        response = client.post(
+            "/api/v1/chat/stream",
+            json={"user_prompt": "hi there", "project_id": str(project_id)},
+        )
+    finally:
+        del app.dependency_overrides[get_current_user]
+        del app.dependency_overrides[get_project_authorization_service]
+        # `get_memory_service`/`get_session_state_updater_service` are left
+        # as-is here (not deleted) -- the `fakes` fixture set them first and
+        # owns tearing them down; deleting them here too would make its own
+        # `del` raise `KeyError` on an already-removed key.
+
+    assert response.status_code == 200
+    assert project_authorization.authorized_project_ids == [project_id]
+
+    assert memory_service.context_calls
+    assert memory_service.context_calls[-1]["scope_type"] == MemoryScopeType.PROJECT
+    assert memory_service.context_calls[-1]["project_id"] == project_id
+
+    assert memory_service.remembered
+    assert memory_service.remembered[-1]["scope_type"] == MemoryScopeType.PROJECT
+    assert memory_service.remembered[-1]["project_id"] == project_id
 
 
 def test_stream_chat_generates_a_title_only_once_per_conversation(

@@ -3,6 +3,7 @@
 import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { AuthProvider, useAuth } from '@/hooks/use-auth';
+import { ActiveProjectProvider } from '@/hooks/use-active-project';
 import { Sidebar } from '@/components/layout/sidebar';
 
 function AppShell({ children }: { children: React.ReactNode }) {
@@ -36,7 +37,9 @@ function AppShell({ children }: { children: React.ReactNode }) {
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   return (
     <AuthProvider>
-      <AppShell>{children}</AppShell>
+      <ActiveProjectProvider>
+        <AppShell>{children}</AppShell>
+      </ActiveProjectProvider>
     </AuthProvider>
   );
 }

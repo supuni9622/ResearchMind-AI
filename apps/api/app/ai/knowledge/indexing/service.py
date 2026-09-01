@@ -269,6 +269,7 @@ class IndexingService(IndexingServiceInterface):
                         filename=embedding.provenance.filename,
                         content=chunk.content.text,
                         owner_id=request.owner_id,
+                        project_id=request.project_id,
                         chunk_index=chunk.index,
                         #
                         # Metadata filtering v1

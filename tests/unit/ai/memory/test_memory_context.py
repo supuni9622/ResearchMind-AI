@@ -1,10 +1,30 @@
 from datetime import UTC, datetime
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 from uuid import uuid4
 
 from app.ai.memory.enums import MemoryScopeType, MemoryType
 from app.ai.memory.models import MemoryRecord
 from app.ai.memory.services.memory_service import MemoryService
+
+
+def _no_global_scope_settings() -> AsyncMock:
+    """A scope_settings repository stub that disables retrieval only for
+    GLOBAL (falls back to the (True, True, True) default for everything
+    else, same as no repository at all) -- keeps tests that predate the
+    GLOBAL tier from having to additionally mock a GLOBAL fetch they don't
+    care about."""
+
+    async def _get(*, owner_id, scope_type, project_id):
+        if scope_type == MemoryScopeType.GLOBAL:
+            return SimpleNamespace(
+                capture_enabled=True, retrieval_enabled=False, inherit_personal_memory=True
+            )
+        return None
+
+    settings = AsyncMock()
+    settings.get = AsyncMock(side_effect=_get)
+    return settings
 
 
 def _record(memory_type: MemoryType) -> MemoryRecord:
@@ -60,6 +80,7 @@ async def test_context_uses_one_embedding_and_preserves_successful_parallel_bran
         semantic_memory=semantic,
         research_memory=research,
         availability_service=availability,
+        scope_settings=_no_global_scope_settings(),
     )
     context = await service.get_context(
         owner_id=uuid4(), session_id=uuid4(), semantic_query="question"
@@ -83,6 +104,7 @@ async def test_context_includes_user_preferences() -> None:
         user_memory=user,
         semantic_memory=semantic,
         research_memory=research,
+        scope_settings=_no_global_scope_settings(),
     )
     context = await service.get_context(owner_id=uuid4(), session_id=uuid4(), top_k=7)
     assert context.user_memories == [preference]
@@ -107,6 +129,7 @@ async def test_project_context_inherits_personal_user_only_and_scopes_other_memo
         user_memory=user,
         semantic_memory=AsyncMock(),
         research_memory=AsyncMock(),
+        scope_settings=_no_global_scope_settings(),
     )
 
     context = await service.get_context(

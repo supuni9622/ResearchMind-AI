@@ -55,6 +55,7 @@ class UploadService:
         content_type: str,
         size_bytes: int,
         file: BinaryIO,
+        project_id: uuid.UUID | None = None,
     ) -> Document:
         """
         Upload a document to S3 and persist its metadata.
@@ -130,6 +131,7 @@ class UploadService:
             document = Document(
                 id=document_id,
                 owner_id=owner_id,
+                project_id=project_id,
                 filename=filename,
                 storage_key=storage_key,
                 content_type=content_type,

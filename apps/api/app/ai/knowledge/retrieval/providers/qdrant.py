@@ -48,7 +48,9 @@ from qdrant_client.models import (
     Condition,
     FieldCondition,
     Filter,
+    IsNullCondition,
     MatchValue,
+    PayloadField,
 )
 
 logger = structlog.get_logger()
@@ -86,6 +88,7 @@ class QdrantRetrievalProvider(
 
         search_filter = self._build_filter(
             owner_id=query.owner_id,
+            project_id=query.project_id,
             filters=query.filters,
         )
 
@@ -147,6 +150,7 @@ class QdrantRetrievalProvider(
 
         search_filter = self._build_filter(
             owner_id=query.owner_id,
+            project_id=query.project_id,
             filters=query.filters,
         )
 
@@ -256,15 +260,20 @@ class QdrantRetrievalProvider(
         self,
         *,
         owner_id: str,
+        project_id: str | None = None,
         filters: dict,
     ) -> Filter:
         """
         Build Qdrant metadata filters.
 
-        `owner_id` is a required, separate parameter (not read out of
-        `filters`) so a caller can never smuggle a different owner_id in
-        through the filters dict -- it always scopes to the caller's own
-        tenant. Additional supported filters:
+        `owner_id`/`project_id` are required, separate parameters (not
+        read out of `filters`) so a caller can never smuggle a different
+        owner or project in through the filters dict -- they always scope
+        to the caller's own tenant/workspace. `project_id=None` means
+        personal documents only (`project_id` absent from the chunk's
+        payload), not "every project" -- same omit=personal-only contract
+        used throughout the Project workspace feature. Additional
+        supported filters:
 
         - document_id
         - filename
@@ -279,6 +288,16 @@ class QdrantRetrievalProvider(
                 ),
             )
         ]
+
+        if project_id is not None:
+            must_conditions.append(
+                FieldCondition(
+                    key="project_id",
+                    match=MatchValue(value=project_id),
+                )
+            )
+        else:
+            must_conditions.append(IsNullCondition(is_null=PayloadField(key="project_id")))
 
         document_id = filters.get(
             "document_id",
@@ -347,6 +366,7 @@ class QdrantRetrievalProvider(
                 using=SPARSE_VECTOR_NAME,
                 query_filter=self._build_filter(
                     owner_id=query.owner_id,
+                    project_id=query.project_id,
                     filters=query.filters,
                 ),
                 limit=query.top_k,

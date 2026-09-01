@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '@/lib/api';
 import { getStoredToken } from '@/lib/auth';
+import { useActiveProject } from '@/hooks/use-active-project';
 import type {
   ChatConversationSummary,
   ChatMessage,
@@ -38,6 +39,7 @@ export function useChat({
 }: {
   onConversationCreated?: (conversationId: string) => void;
 } = {}) {
+  const { activeProjectId } = useActiveProject();
   const [conversations, setConversations] = useState<ChatConversationSummary[]>([]);
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -68,9 +70,16 @@ export function useChat({
   const voicePendingAudioRef = useRef<ArrayBuffer[]>([]);
   const voiceAssistantIdRef = useRef<string | null>(null);
 
+  // Re-runs whenever the active workspace changes, so switching from the
+  // sidebar switcher immediately reflects that workspace's own chat
+  // history rather than leaving the previous one's list on screen.
   useEffect(() => {
+    setActiveConversationId(null);
+    setMessages([]);
+    setMessageCursor(null);
+
     void api.chat
-      .listConversations()
+      .listConversations(undefined, activeProjectId)
       .then(({ conversations: items, next_cursor }) => {
         setConversations(
           items.map((conversation) => ({
@@ -85,10 +94,13 @@ export function useChat({
         setConversations([]);
         setConversationCursor(null);
       });
-  }, []);
+  }, [activeProjectId]);
 
   const refreshConversations = useCallback(async () => {
-    const { conversations: items, next_cursor } = await api.chat.listConversations();
+    const { conversations: items, next_cursor } = await api.chat.listConversations(
+      undefined,
+      activeProjectId
+    );
     setConversations(
       items.map((conversation) => ({
         conversationId: conversation.conversation_id,
@@ -97,14 +109,15 @@ export function useChat({
       }))
     );
     setConversationCursor(next_cursor);
-  }, []);
+  }, [activeProjectId]);
 
   const loadMoreConversations = useCallback(async () => {
     if (!conversationCursor || loadingMoreConversations) return;
     setLoadingMoreConversations(true);
     try {
       const { conversations: items, next_cursor } = await api.chat.listConversations(
-        conversationCursor
+        conversationCursor,
+        activeProjectId
       );
       setConversations((current) => {
         const seen = new Set(current.map((conversation) => conversation.conversationId));
@@ -123,7 +136,7 @@ export function useChat({
     } finally {
       setLoadingMoreConversations(false);
     }
-  }, [conversationCursor, loadingMoreConversations]);
+  }, [conversationCursor, loadingMoreConversations, activeProjectId]);
 
   const send = useCallback(
     async (text: string, options: ChatSendOptions = {}) => {
@@ -157,6 +170,7 @@ export function useChat({
       try {
         for await (const { data: event } of api.chat.stream(query, {
           conversationId: conversationIdAtStart ?? undefined,
+          projectId: conversationIdAtStart ? undefined : activeProjectId,
           provider: options.provider,
           webSearchEnabled: options.webSearchEnabled,
           paperSearchEnabled: options.paperSearchEnabled,
@@ -278,7 +292,7 @@ export function useChat({
         setSending(false);
       }
     },
-    [activeConversationId, sending, refreshConversations, onConversationCreated]
+    [activeConversationId, activeProjectId, sending, refreshConversations, onConversationCreated]
   );
 
   const selectConversation = useCallback(
@@ -453,6 +467,7 @@ export function useChat({
         ws.send(
           JSON.stringify({
             conversation_id: conversationIdAtStart,
+            project_id: conversationIdAtStart ? null : activeProjectId,
             provider: options.provider ?? null,
             web_search_enabled: options.webSearchEnabled ?? false,
             paper_search_enabled: options.paperSearchEnabled ?? false,
@@ -625,7 +640,7 @@ export function useChat({
         ws.close();
       }
     },
-    [activeConversationId, voiceStatus, onConversationCreated, refreshConversations]
+    [activeConversationId, activeProjectId, voiceStatus, onConversationCreated, refreshConversations]
   );
 
   return {

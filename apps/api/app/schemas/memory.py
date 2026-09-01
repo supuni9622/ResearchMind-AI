@@ -24,8 +24,8 @@ class _MemoryScopeFields(BaseModel):
     def validate_scope(self) -> _MemoryScopeFields:
         if self.scope_type == MemoryScopeType.PROJECT and self.project_id is None:
             raise ValueError("project_id is required for project memory")
-        if self.scope_type == MemoryScopeType.PERSONAL and self.project_id is not None:
-            raise ValueError("project_id must be empty for personal memory")
+        if self.scope_type != MemoryScopeType.PROJECT and self.project_id is not None:
+            raise ValueError("project_id must be empty for personal or global memory")
         return self
 
 
@@ -133,11 +133,8 @@ class MemoryMoveRequest(_MemoryScopeFields):
     def validate_source_and_destination(self) -> MemoryMoveRequest:
         if self.source_scope_type == MemoryScopeType.PROJECT and self.source_project_id is None:
             raise ValueError("source_project_id is required for project memory")
-        if (
-            self.source_scope_type == MemoryScopeType.PERSONAL
-            and self.source_project_id is not None
-        ):
-            raise ValueError("source_project_id must be empty for personal memory")
+        if self.source_scope_type != MemoryScopeType.PROJECT and self.source_project_id is not None:
+            raise ValueError("source_project_id must be empty for personal or global memory")
         if (self.source_scope_type, self.source_project_id) == (self.scope_type, self.project_id):
             raise ValueError("destination scope must differ from source scope")
         return self

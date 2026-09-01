@@ -1,7 +1,8 @@
 import uuid
 
 import pytest
-from app.models.research import ResearchSession
+from app.models.project import Project
+from app.models.research import ResearchConversation, ResearchSession
 from app.models.user import User
 from app.repositories.research import ResearchRepository
 
@@ -15,6 +16,19 @@ async def _make_owner(session) -> uuid.UUID:
     session.add(user)
     await session.flush()
     return user.id
+
+
+async def _make_project(session, *, owner_id: uuid.UUID) -> uuid.UUID:
+    project = Project(owner_id=owner_id, name="p")
+    session.add(project)
+    await session.flush()
+    return project.id
+
+
+def _make_conversation(
+    *, owner_id: uuid.UUID, project_id: uuid.UUID | None = None
+) -> ResearchConversation:
+    return ResearchConversation(owner_id=owner_id, project_id=project_id, title="t")
 
 
 def _make_research_session(
@@ -84,3 +98,47 @@ async def test_get_by_id_for_owner_never_returns_another_owners_session(db_sessi
     )
 
     assert result is None
+
+
+@pytest.mark.asyncio
+async def test_list_conversations_omits_project_conversations_by_default(db_session) -> None:
+    """Omitting `project_id` means personal conversations only, not
+    "every project" -- same contract as `ConversationRepository.
+    list_conversations_page`."""
+
+    owner_id = await _make_owner(db_session)
+    project_id = await _make_project(db_session, owner_id=owner_id)
+    repository = ResearchRepository(db_session)
+
+    personal = await repository.create_conversation(_make_conversation(owner_id=owner_id))
+    await repository.create_conversation(
+        _make_conversation(owner_id=owner_id, project_id=project_id)
+    )
+
+    results = await repository.list_conversations_for_owner(owner_id=owner_id)
+
+    assert [c.id for c in results] == [personal.id]
+
+
+@pytest.mark.asyncio
+async def test_list_conversations_scoped_to_a_project_excludes_personal_and_other_projects(
+    db_session,
+) -> None:
+    owner_id = await _make_owner(db_session)
+    project_id = await _make_project(db_session, owner_id=owner_id)
+    other_project_id = await _make_project(db_session, owner_id=owner_id)
+    repository = ResearchRepository(db_session)
+
+    await repository.create_conversation(_make_conversation(owner_id=owner_id))
+    in_project = await repository.create_conversation(
+        _make_conversation(owner_id=owner_id, project_id=project_id)
+    )
+    await repository.create_conversation(
+        _make_conversation(owner_id=owner_id, project_id=other_project_id)
+    )
+
+    results = await repository.list_conversations_for_owner(
+        owner_id=owner_id, project_id=project_id
+    )
+
+    assert [c.id for c in results] == [in_project.id]

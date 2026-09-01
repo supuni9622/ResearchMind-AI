@@ -181,6 +181,7 @@ class DocumentRepository:
         offset: int,
         search: str | None = None,
         kind: DocumentKind | None = None,
+        project_id: uuid.UUID | None = None,
     ) -> tuple[list[Document], int]:
         """
         Retrieve one page of documents owned by a user, newest first.
@@ -188,9 +189,17 @@ class DocumentRepository:
         `search` matches against the filename (case-insensitive substring).
         Returns the page alongside the total count matching the filters,
         so callers can render "page X of Y" without a second round trip.
+
+        `project_id=None` means personal documents only (`project_id IS
+        NULL`), not "every project" -- callers pass their current
+        workspace context explicitly, same contract as
+        `ConversationRepository.list_conversations_page`.
         """
 
-        conditions: list[ColumnElement[bool]] = [Document.owner_id == owner_id]
+        conditions: list[ColumnElement[bool]] = [
+            Document.owner_id == owner_id,
+            Document.project_id == project_id,
+        ]
 
         if search:
             conditions.append(Document.filename.ilike(f"%{search}%"))

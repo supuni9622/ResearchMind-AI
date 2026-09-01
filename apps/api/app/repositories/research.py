@@ -106,15 +106,23 @@ class ResearchRepository:
         *,
         owner_id: uuid.UUID,
         limit: int = 50,
+        project_id: uuid.UUID | None = None,
     ) -> list[ResearchConversation]:
         """
         Most recently updated `limit` conversations for `owner_id`, newest
         first -- the shape a "History" sidebar needs.
+
+        `project_id=None` means personal conversations only (`project_id
+        IS NULL`), not "every project" -- same contract as
+        `ConversationRepository.list_conversations_page`.
         """
 
         statement = (
             select(ResearchConversation)
-            .where(ResearchConversation.owner_id == owner_id)
+            .where(
+                ResearchConversation.owner_id == owner_id,
+                ResearchConversation.project_id == project_id,
+            )
             .order_by(ResearchConversation.updated_at.desc())
             .limit(limit)
         )

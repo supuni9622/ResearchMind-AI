@@ -296,23 +296,38 @@ class QdrantVectorStoreProvider(
         collection_name: str,
         *,
         owner_id: str,
+        project_id: str | None = None,
     ) -> int:
         """
         Return the number of indexed vectors scoped to an owner.
+
+        `project_id=None` means personal documents only (`project_id`
+        absent from the chunk's payload), not "every project".
         """
+
+        must_conditions: list[qdrant.Condition] = [
+            qdrant.FieldCondition(
+                key="owner_id",
+                match=qdrant.MatchValue(value=owner_id),
+            )
+        ]
+        if project_id is not None:
+            must_conditions.append(
+                qdrant.FieldCondition(
+                    key="project_id",
+                    match=qdrant.MatchValue(value=project_id),
+                )
+            )
+        else:
+            must_conditions.append(
+                qdrant.IsNullCondition(is_null=qdrant.PayloadField(key="project_id"))
+            )
 
         try:
             response = await self._client.count(
                 collection_name=collection_name,
                 exact=True,
-                count_filter=qdrant.Filter(
-                    must=[
-                        qdrant.FieldCondition(
-                            key="owner_id",
-                            match=qdrant.MatchValue(value=owner_id),
-                        )
-                    ]
-                ),
+                count_filter=qdrant.Filter(must=must_conditions),
             )
 
             return response.count

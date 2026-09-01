@@ -28,6 +28,7 @@ from app.ai.memory.policy.models import (
     MemoryTurnEvent,
 )
 from app.ai.memory.policy.service import MemoryExtractionPolicy
+from app.ai.memory.scope_key import scope_key as _scope_key
 from app.ai.memory.services.memory_service import MemoryService
 from app.core.settings import settings
 from app.infrastructure.metrics.interfaces import MetricsRecorder
@@ -106,10 +107,12 @@ class MemoryExtractionOrchestrator:
                 window_seconds=settings.memory_extraction_rate_limit_window_seconds,
             )
             return MemoryExtractionOutcome(decision=decision, skipped_count=1)
-        scope_key = "personal" if event.project_id is None else f"project:{event.project_id}"
+        # Keyed off event.scope_type, not just project_id is None -- a
+        # GLOBAL-scope event also has project_id=None and must not
+        # collide with a PERSONAL-scope event's idempotency key.
         key = (
-            f"memory:extraction:{event.owner_id}:{scope_key}:{event.runtime}:"
-            f"{event.turn_id}:{settings.memory_extraction_policy_version}"
+            f"memory:extraction:{event.owner_id}:{_scope_key(event.scope_type, event.project_id)}:"
+            f"{event.runtime}:{event.turn_id}:{settings.memory_extraction_policy_version}"
         )
         claimed = False
         if self._idempotency_client is not None:

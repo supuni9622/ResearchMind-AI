@@ -28,6 +28,19 @@ class ResearchProposal(TimestampMixin, Base):
         nullable=True,
         index=True,
     )
+    # Only meaningful when conversation_id is still None at proposal time
+    # (a brand-new conversation, not yet created -- see
+    # ResearchService.publish_runtime_report, which is where the
+    # conversation row, and hence its own project_id, is actually
+    # created). Carried here so approval/execution can thread it through
+    # without re-deriving it. Once a conversation exists, its own stored
+    # project_id is authoritative, not this field.
+    project_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("projects.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
     status: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
     request: Mapped[dict] = mapped_column(JSONB, nullable=False)
     plan: Mapped[dict | None] = mapped_column(JSONB, nullable=True)

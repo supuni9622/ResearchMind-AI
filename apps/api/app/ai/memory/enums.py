@@ -21,6 +21,10 @@ class MemoryType(StrEnum):
 class MemoryScopeType(StrEnum):
     PERSONAL = "personal"
     PROJECT = "project"
+    # Injected into every context (personal and every project) -- see
+    # MemoryService.get_context()'s unconditional GLOBAL fetch for
+    # USER/SEMANTIC/RESEARCH types. Owner-scoped only, never project-gated.
+    GLOBAL = "global"
 
 
 class MemoryOperation(StrEnum):

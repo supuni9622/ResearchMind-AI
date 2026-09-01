@@ -23,6 +23,7 @@ class ResearchTaskWorkflowState(TypedDict):
 
     research_run_id: str
     owner_id: str
+    project_id: str | None
     plan: dict[str, object]
     wave: list[dict[str, object]]
     filters: dict[str, object]
@@ -42,11 +43,13 @@ def compile_task_research_graph(
 
     async def retrieve_task(state: ResearchTaskWorkflowState) -> dict[str, object]:
         task = ResearchPlanTask.model_validate(state["task"])
+        raw_project_id = state.get("project_id")
         result = await task_retrieval.execute_task(
             task=task,
             owner_id=UUID(state["owner_id"]),
             filters=state.get("filters", {}),
             top_k=state.get("top_k", 5),
+            project_id=UUID(raw_project_id) if raw_project_id else None,
         )
         return {"task_results": {task.task_id: result.model_dump(mode="json")}}
 

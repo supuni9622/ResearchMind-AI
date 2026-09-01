@@ -345,6 +345,7 @@ async def test_approval_creates_and_links_one_durable_run() -> None:
         id=proposal_id,
         owner_id=owner_id,
         conversation_id=None,
+        project_id=None,
         status=ResearchProposalStatus.AWAITING_APPROVAL.value,
         research_run_id=None,
         request={"query": "Compare methods", "top_k": 5, "filters": {}},

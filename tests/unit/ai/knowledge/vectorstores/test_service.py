@@ -167,6 +167,7 @@ async def test_count_passes_owner_scope_to_resolved_provider() -> None:
     provider.count.assert_awaited_once_with(
         "researchmind_knowledge",
         owner_id="owner-1",
+        project_id=None,
     )
 
 

@@ -43,6 +43,7 @@ def _make_service(
     stream_events: list[StreamEvent] | None = None,
     research_artifact_writer: AsyncMock | None = None,
     artifact_policy_service: MagicMock | None = None,
+    memory_service: AsyncMock | None = None,
 ) -> tuple[ResearchService, dict]:
     session = session or AsyncMock()
     session.add = MagicMock()
@@ -85,6 +86,7 @@ def _make_service(
         streaming_service=streaming_service,
         research_artifact_writer=research_artifact_writer,
         artifact_policy_service=artifact_policy_service,
+        memory_service=memory_service,
     )
 
     collaborators = {
@@ -122,6 +124,61 @@ async def test_research_scopes_retrieval_to_owner_id() -> None:
 
     assert query.owner_id == str(owner_id)
     assert query.filters["language"] == "en"
+
+
+async def test_research_with_project_id_resolves_project_scope_everywhere() -> None:
+    """The M5 memory-scope activation, mirrored from Chat's identical
+    change: a new conversation created with `project_id` must resolve
+    `MemoryScopeType.PROJECT` on the memory call, and the same
+    `project_id` on the retrieval query -- both from the freshly-created
+    conversation's own stored project_id, not re-derived some other way."""
+
+    from app.ai.memory.enums import MemoryScopeType
+    from app.ai.memory.models import MemoryContext
+
+    project_id = uuid4()
+    memory_service = AsyncMock()
+    memory_service.get_context = AsyncMock(return_value=MemoryContext())
+
+    service, collaborators = _make_service(memory_service=memory_service)
+
+    await service.research(
+        query="How does RAG work?",
+        top_k=10,
+        filters={},
+        owner_id=uuid4(),
+        project_id=project_id,
+    )
+
+    memory_service.get_context.assert_awaited_once()
+    assert memory_service.get_context.await_args.kwargs["scope_type"] == MemoryScopeType.PROJECT
+    assert memory_service.get_context.await_args.kwargs["project_id"] == project_id
+
+    query = collaborators["retrieval_service"].search_hybrid.await_args.kwargs["query"]
+    assert query.project_id == str(project_id)
+
+
+async def test_research_without_project_id_stays_personal() -> None:
+    from app.ai.memory.enums import MemoryScopeType
+    from app.ai.memory.models import MemoryContext
+
+    memory_service = AsyncMock()
+    memory_service.get_context = AsyncMock(return_value=MemoryContext())
+
+    service, collaborators = _make_service(memory_service=memory_service)
+
+    await service.research(
+        query="How does RAG work?",
+        top_k=10,
+        filters={},
+        owner_id=uuid4(),
+    )
+
+    assert memory_service.get_context.await_args.kwargs["scope_type"] == MemoryScopeType.PERSONAL
+    assert memory_service.get_context.await_args.kwargs["project_id"] is None
+
+    query = collaborators["retrieval_service"].search_hybrid.await_args.kwargs["query"]
+    assert query.project_id is None
 
 
 async def test_research_tags_the_generation_request_for_the_research_runtime() -> None:

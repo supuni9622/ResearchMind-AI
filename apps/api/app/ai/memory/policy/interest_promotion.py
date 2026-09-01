@@ -10,6 +10,7 @@ import structlog
 from redis.asyncio import Redis
 
 from app.ai.memory.enums import MemoryScopeType
+from app.ai.memory.scope_key import scope_key as _scope_key
 from app.core.settings import settings
 
 logger = structlog.get_logger()
@@ -150,7 +151,7 @@ class RepeatedInterestPromotionService:
     ) -> str:
         # Topic text must not be exposed in operational Redis keys.
         digest = blake2b(topic.encode(), digest_size=12).hexdigest()
-        scope = "personal" if scope_type == MemoryScopeType.PERSONAL else f"project:{project_id}"
+        scope = _scope_key(scope_type, project_id)
         return f"memory:interest-sessions:{owner_id}:{scope}:{digest}"
 
     @staticmethod
@@ -161,7 +162,7 @@ class RepeatedInterestPromotionService:
         topic: str,
     ) -> str:
         digest = blake2b(topic.encode(), digest_size=12).hexdigest()
-        scope = "personal" if scope_type == MemoryScopeType.PERSONAL else f"project:{project_id}"
+        scope = _scope_key(scope_type, project_id)
         return f"memory:interest-promoted:{owner_id}:{scope}:{digest}"
 
 

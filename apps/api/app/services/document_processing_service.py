@@ -92,6 +92,7 @@ class DocumentProcessingService:
             result = await self._processing_service.process(
                 owner_id=str(document.owner_id),
                 request=request,
+                project_id=str(document.project_id) if document.project_id else None,
             )
 
             document.processing_status = DocumentProcessingStatus.COMPLETED

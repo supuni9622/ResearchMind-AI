@@ -35,6 +35,15 @@ class Conversation(TimestampMixin, Base):
         index=True,
     )
 
+    # Nullable: most conversations are personal. SET NULL (not CASCADE) on
+    # project deletion -- detach back to personal rather than lose history.
+    project_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("projects.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+
     title: Mapped[str | None] = mapped_column(
         String(255),
         nullable=True,

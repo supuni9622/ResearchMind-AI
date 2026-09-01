@@ -131,7 +131,9 @@ class _RaisingVectorStoreService:
     async def collection_exists(self, *, provider, collection_name: str) -> bool:
         return True
 
-    async def count(self, *, provider, collection_name: str, owner_id: str) -> int:
+    async def count(
+        self, *, provider, collection_name: str, owner_id: str, project_id: str | None = None
+    ) -> int:
         raise self._exc
 
 

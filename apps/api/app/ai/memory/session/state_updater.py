@@ -30,7 +30,7 @@ import structlog
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.ai.knowledge.context.models import PromptContext
-from app.ai.memory.enums import MemoryType
+from app.ai.memory.enums import MemoryScopeType, MemoryType
 from app.ai.memory.services.memory_service import MemoryService
 from app.ai.runtime.generation.enums import GenerationProvider, ResponseFormat
 from app.ai.runtime.generation.models import GenerationRequest
@@ -180,6 +180,8 @@ async def distill_and_upsert_session_state(
     user_message: str,
     assistant_message: str,
     turn_id: str,
+    scope_type: MemoryScopeType = MemoryScopeType.PERSONAL,
+    project_id: UUID | None = None,
 ) -> None:
     """Shared by Chat and Deep Research's `_extract_and_store_memory`: look
     up the session's existing `current_topic` state (if any), distill an
@@ -187,10 +189,18 @@ async def distill_and_upsert_session_state(
     prior record exists (in place, no growth), `remember()` for the first
     one. Never raises; callers already wrap memory work in a best-effort
     `try/except`, so failures here surface the same way a distillation or
-    storage error always has."""
+    storage error always has.
+
+    `scope_type`/`project_id` default to personal -- only Chat conversations
+    belonging to a project pass `PROJECT` scope; Deep Research and personal
+    Chat turns are unaffected."""
 
     previous = await memory_service.get_latest_session_state(
-        owner_id=owner_id, session_id=session_id, kind=_CURRENT_TOPIC_KIND
+        owner_id=owner_id,
+        session_id=session_id,
+        kind=_CURRENT_TOPIC_KIND,
+        scope_type=scope_type,
+        project_id=project_id,
     )
     distillation = await session_state_updater.distill(
         user_message=user_message,
@@ -207,6 +217,8 @@ async def distill_and_upsert_session_state(
             owner_id=owner_id,
             memory_id=previous.id,
             type=MemoryType.SESSION,
+            scope_type=scope_type,
+            project_id=project_id,
             content=distillation.content,
             metadata={"kind": _CURRENT_TOPIC_KIND, "source_turn_id": turn_id},
         )
@@ -214,6 +226,8 @@ async def distill_and_upsert_session_state(
         await memory_service.remember(
             owner_id=owner_id,
             type=MemoryType.SESSION,
+            scope_type=scope_type,
+            project_id=project_id,
             content=distillation.content,
             session_id=session_id,
             metadata={"kind": _CURRENT_TOPIC_KIND, "source_turn_id": turn_id},

@@ -8,6 +8,7 @@ import structlog
 from redis.asyncio import Redis
 
 from app.ai.memory.enums import MemoryScopeType, MemoryType
+from app.ai.memory.scope_key import scope_key as _scope_key
 from app.ai.memory.storage.postgres_store import PostgresMemoryStore
 from app.core.settings import settings
 from app.infrastructure.metrics.interfaces import MetricsRecorder
@@ -94,5 +95,4 @@ class DurableMemoryAvailabilityService:
         scope_type: MemoryScopeType,
         project_id: UUID | None,
     ) -> str:
-        scope = "personal" if scope_type == MemoryScopeType.PERSONAL else f"project:{project_id}"
-        return f"memory:durable-exists:{owner_id}:{scope}"
+        return f"memory:durable-exists:{owner_id}:{_scope_key(scope_type, project_id)}"

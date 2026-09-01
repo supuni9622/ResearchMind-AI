@@ -32,6 +32,7 @@ from app.ai.runtime.research.web_search_inspection import (
 from app.auth.dependencies import get_current_user
 from app.core.settings import settings
 from app.dependencies.generation_usage import get_generation_usage_repository
+from app.dependencies.project import get_project_authorization_service
 from app.dependencies.rate_limiting import enforce_rate_limit, get_rate_limiter
 from app.dependencies.research import (
     get_research_conversation_service,
@@ -87,6 +88,7 @@ from app.schemas.research import (
     ResearchStreamRequest,
     ResearchWebSearchDecisionRequest,
 )
+from app.services.project_authorization import ProjectAuthorizationService
 from app.services.research_conversation import ResearchConversationService
 
 router = APIRouter(
@@ -221,9 +223,15 @@ async def create_research_proposal(
     current_user: User = Depends(get_current_user),
     proposals: ResearchProposalService = Depends(get_research_proposal_service),
     rate_limiter: ValkeyRateLimiter = Depends(get_rate_limiter),
+    project_authorization: ProjectAuthorizationService = Depends(get_project_authorization_service),
 ) -> ResearchProposalResponse:
     await _check_deep_research_proposal_rate_limit(
         rate_limiter=rate_limiter, owner_id=current_user.id
+    )
+    await project_authorization.authorize_for_new_conversation(
+        conversation_id=payload.conversation_id,
+        project_id=payload.project_id,
+        user_id=current_user.id,
     )
     proposal = await proposals.propose(
         query=payload.query,
@@ -233,6 +241,7 @@ async def create_research_proposal(
         provider=payload.provider,
         routing_strategy=payload.routing_strategy,
         conversation_id=payload.conversation_id,
+        project_id=payload.project_id,
         web_search_mode=payload.web_search_mode.value,
         web_search_auto_approve=payload.web_search_auto_approve,
         include_domains=payload.include_domains,
@@ -252,6 +261,7 @@ async def check_research_escalation(
     current_user: User = Depends(get_current_user),
     proposals: ResearchProposalService = Depends(get_research_proposal_service),
     rate_limiter: ValkeyRateLimiter = Depends(get_rate_limiter),
+    project_authorization: ProjectAuthorizationService = Depends(get_project_authorization_service),
 ) -> ResearchEscalationCheckResponse:
     """Backs the Research UI's "this looks like it needs Deep Research"
     suggestion (explicit-consent escalation, never automatic -- see
@@ -263,6 +273,11 @@ async def check_research_escalation(
     await _check_deep_research_proposal_rate_limit(
         rate_limiter=rate_limiter, owner_id=current_user.id
     )
+    await project_authorization.authorize_for_new_conversation(
+        conversation_id=payload.conversation_id,
+        project_id=payload.project_id,
+        user_id=current_user.id,
+    )
     plan, proposal = await proposals.check_escalation(
         query=payload.query,
         top_k=payload.top_k,
@@ -271,6 +286,7 @@ async def check_research_escalation(
         provider=payload.provider,
         routing_strategy=payload.routing_strategy,
         conversation_id=payload.conversation_id,
+        project_id=payload.project_id,
     )
     return ResearchEscalationCheckResponse(
         suggested=proposal is not None,
@@ -320,10 +336,17 @@ async def create_research(
     current_user: User = Depends(get_current_user),
     research_service: ResearchService = Depends(get_research_service),
     rate_limiter: ValkeyRateLimiter = Depends(get_rate_limiter),
+    project_authorization: ProjectAuthorizationService = Depends(get_project_authorization_service),
 ) -> ResearchResponse:
     """Keep the established linear API independent of runtime feature flags."""
 
     await _check_linear_research_rate_limit(rate_limiter=rate_limiter, owner_id=current_user.id)
+
+    await project_authorization.authorize_for_new_conversation(
+        conversation_id=payload.conversation_id,
+        project_id=payload.project_id,
+        user_id=current_user.id,
+    )
 
     outcome = await research_service.research(
         query=payload.query,
@@ -333,6 +356,7 @@ async def create_research(
         provider=payload.provider,
         routing_strategy=payload.routing_strategy,
         conversation_id=payload.conversation_id,
+        project_id=payload.project_id,
     )
 
     return ResearchResponse(
@@ -356,8 +380,15 @@ async def stream_research(
     current_user: User = Depends(get_current_user),
     research_service: ResearchService = Depends(get_research_service),
     rate_limiter: ValkeyRateLimiter = Depends(get_rate_limiter),
+    project_authorization: ProjectAuthorizationService = Depends(get_project_authorization_service),
 ) -> StreamingResponse:
     await _check_linear_research_rate_limit(rate_limiter=rate_limiter, owner_id=current_user.id)
+
+    await project_authorization.authorize_for_new_conversation(
+        conversation_id=payload.conversation_id,
+        project_id=payload.project_id,
+        user_id=current_user.id,
+    )
 
     events = research_service.stream_research(
         query=payload.query,
@@ -367,6 +398,7 @@ async def stream_research(
         provider=payload.provider,
         routing_strategy=payload.routing_strategy,
         conversation_id=payload.conversation_id,
+        project_id=payload.project_id,
     )
 
     return sse_stream_response(events)
@@ -378,10 +410,15 @@ async def stream_research(
     summary="List this user's research conversations, most recently updated first",
 )
 async def list_research_conversations(
+    # Omitted -> personal conversations only (`project_id IS NULL`), not
+    # "every project" -- same contract as `GET /chat/conversations`.
+    project_id: UUID | None = None,
     current_user: User = Depends(get_current_user),
     repository: ResearchRepository = Depends(get_research_repository),
 ) -> ResearchConversationListResponse:
-    conversations = await repository.list_conversations_for_owner(owner_id=current_user.id)
+    conversations = await repository.list_conversations_for_owner(
+        owner_id=current_user.id, project_id=project_id
+    )
 
     return ResearchConversationListResponse(
         conversations=[

@@ -47,6 +47,7 @@ export type DocumentProcessingStatus = 'pending' | 'processing' | 'completed' | 
 
 export interface Document {
   id: string;
+  project_id: string | null;
   filename: string;
   content_type: string;
   size_bytes: number;
@@ -69,6 +70,9 @@ export interface DocumentListParams {
   offset?: number;
   search?: string;
   kind?: DocumentKind;
+  // Omitted -> personal documents only, not "every project" -- same
+  // contract as api.chat.listConversations.
+  projectId?: string | null;
 }
 
 export interface DocumentListResponse {
@@ -93,9 +97,13 @@ export interface GenerationUsageSummary {
 
 export type MemoryType = 'session' | 'user' | 'semantic' | 'research';
 
+// Injected into every context (personal and every project) -- see
+// MemoryScopeType.GLOBAL on the backend.
+export type MemoryScope = 'personal' | 'project' | 'global';
+
 export interface MemoryRecord {
   id: string;
-  scope_type: 'personal' | 'project';
+  scope_type: MemoryScope;
   project_id: string | null;
   type: MemoryType;
   content: string;
@@ -119,7 +127,7 @@ export interface MemoryListParams {
   search?: string;
   source?: string;
   type?: MemoryType[];
-  scope_type?: 'personal' | 'project';
+  scope_type?: MemoryScope;
   project_id?: string;
   created_from?: string;
   created_to?: string;
@@ -131,7 +139,7 @@ export interface MemoryListParams {
 }
 
 export interface MemoryScopeSettings {
-  scope_type: 'personal' | 'project';
+  scope_type: MemoryScope;
   project_id: string | null;
   capture_enabled: boolean;
   retrieval_enabled: boolean;
@@ -145,10 +153,23 @@ export interface MemoryProject {
   role: string;
 }
 
+export interface Project {
+  id: string;
+  name: string;
+  description: string | null;
+  role: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ProjectListResponse {
+  projects: Project[];
+}
+
 export interface MemoryDeletionPreview {
   confirmation_token: string;
   affected_count: number;
-  scope_type: 'personal' | 'project';
+  scope_type: MemoryScope;
   project_id: string | null;
   expires_at: string;
   immediate_erasure: boolean;
@@ -156,7 +177,7 @@ export interface MemoryDeletionPreview {
 
 export interface MemoryGovernanceJob {
   id: string;
-  scope_type: 'personal' | 'project';
+  scope_type: MemoryScope;
   project_id: string | null;
   status: 'pending' | 'running' | 'completed' | 'failed';
   requested_count: number;
@@ -454,6 +475,10 @@ export interface DeepResearchAskOptions {
   filters?: Record<string, unknown>;
   provider?: GenerationProvider;
   conversationId?: string;
+  /** Only meaningful when starting a brand-new conversation -- ignored
+   * once `conversationId` is set, matching the backend's
+   * `authorize_for_new_conversation` contract. */
+  projectId?: string | null;
   webSearchMode?: DeepResearchWebSearchMode;
   /** Skip the web-search approval pause: when AUTO decides a search would
    * help, proceed without asking. Ignored for DISABLED/REQUIRED. */
@@ -714,6 +739,10 @@ export interface ResearchAskOptions {
   filters?: Record<string, unknown>;
   provider?: GenerationProvider;
   conversationId?: string;
+  /** Only meaningful when starting a brand-new conversation -- ignored
+   * once `conversationId` is set, matching the backend's
+   * `authorize_for_new_conversation` contract. */
+  projectId?: string | null;
 }
 
 async function* streamResearch(
@@ -737,6 +766,7 @@ async function* streamResearch(
         filters: options.filters ?? {},
         provider: options.provider ?? null,
         conversation_id: options.conversationId ?? null,
+        project_id: options.projectId ?? null,
       }),
     });
   } catch {
@@ -789,6 +819,10 @@ async function* streamResearchRunEvents(
 
 export interface ChatStreamOptions {
   conversationId?: string;
+  /** Only consulted when starting a new conversation (no `conversationId`)
+   * -- an existing conversation keeps whatever project it already belongs
+   * to. `null`/undefined means personal. */
+  projectId?: string | null;
   provider?: GenerationProvider;
   /** Pre-authorizes web search for this turn -- no approval pause in Chat,
    * enabling this toggle *is* the approval (web_search_tool_platform_prd.md). */
@@ -809,6 +843,7 @@ export interface ChatMessageResponse {
 
 export interface ChatConversationSummaryResponse {
   conversation_id: string;
+  project_id: string | null;
   title: string | null;
   created_at: string;
   updated_at: string;
@@ -845,6 +880,7 @@ async function* streamChat(
       body: JSON.stringify({
         user_prompt: userPrompt,
         conversation_id: options.conversationId ?? null,
+        project_id: options.projectId ?? null,
         provider: options.provider ?? null,
         web_search_enabled: options.webSearchEnabled ?? false,
         paper_search_enabled: options.paperSearchEnabled ?? false,
@@ -885,13 +921,13 @@ export const api = {
   },
   memory: {
     projects: () => request<MemoryProject[]>('/api/v1/memory/projects'),
-    exportScope: (scopeType: 'personal' | 'project', projectId?: string) => {
+    exportScope: (scopeType: MemoryScope, projectId?: string) => {
       const query = new URLSearchParams({ scope_type: scopeType });
       if (projectId) query.set('project_id', projectId);
       return request<Record<string, unknown>>(`/api/v1/memory/export?${query.toString()}`);
     },
     previewDeletion: (
-      scopeType: 'personal' | 'project',
+      scopeType: MemoryScope,
       projectId: string | undefined,
       memoryIds: string[] | null,
       signal?: AbortSignal
@@ -946,7 +982,7 @@ export const api = {
         method: 'DELETE',
       });
     },
-    getSettings: (scopeType: 'personal' | 'project', projectId?: string) => {
+    getSettings: (scopeType: MemoryScope, projectId?: string) => {
       const query = new URLSearchParams({ scope_type: scopeType });
       if (projectId) query.set('project_id', projectId);
       return request<MemoryScopeSettings>(`/api/v1/memory/settings?${query.toString()}`);
@@ -958,8 +994,8 @@ export const api = {
       }),
     move: (
       memoryId: string,
-      source: { scope_type: 'personal' | 'project'; project_id: string | null },
-      destination: { scope_type: 'personal' | 'project'; project_id: string | null }
+      source: { scope_type: MemoryScope; project_id: string | null },
+      destination: { scope_type: MemoryScope; project_id: string | null }
     ) =>
       request<MemoryRecord>(`/api/v1/memory/${memoryId}/move`, {
         method: 'POST',
@@ -972,12 +1008,35 @@ export const api = {
         }),
       }),
   },
+  projects: {
+    list: () => request<ProjectListResponse>('/api/v1/projects'),
+    create: (input: { name: string; description?: string | null }) =>
+      request<Project>('/api/v1/projects', {
+        method: 'POST',
+        body: JSON.stringify({ name: input.name, description: input.description ?? null }),
+      }),
+    update: (projectId: string, input: { name?: string; description?: string | null }) =>
+      request<Project>(`/api/v1/projects/${projectId}`, {
+        method: 'PATCH',
+        body: JSON.stringify(input),
+      }),
+    delete: (projectId: string) =>
+      request<void>(`/api/v1/projects/${projectId}`, { method: 'DELETE' }),
+  },
   chat: {
     stream: streamChat,
-    listConversations: (cursor?: string) =>
-      request<ChatConversationListResponse>(
-        `/api/v1/chat/conversations${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''}`
-      ),
+    // `projectId` omitted/null -> personal conversations only, matching
+    // the backend's `GET /chat/conversations` contract -- this endpoint
+    // never returns "everything across every workspace" implicitly.
+    listConversations: (cursor?: string, projectId?: string | null) => {
+      const params = new URLSearchParams();
+      if (cursor) params.set('cursor', cursor);
+      if (projectId) params.set('project_id', projectId);
+      const query = params.toString();
+      return request<ChatConversationListResponse>(
+        `/api/v1/chat/conversations${query ? `?${query}` : ''}`
+      );
+    },
     getConversation: (conversationId: string, cursor?: string) =>
       request<ChatConversationResponse>(
         `/api/v1/chat/conversations/${conversationId}${
@@ -995,13 +1054,22 @@ export const api = {
           filters: options.filters ?? {},
           provider: options.provider ?? null,
           conversation_id: options.conversationId ?? null,
+          project_id: options.projectId ?? null,
         }),
       }),
     stream: streamResearch,
     get: (researchId: string) =>
       request<ResearchSessionResponse>(`/api/v1/research/${researchId}`),
-    listConversations: () =>
-      request<ResearchConversationListResponse>('/api/v1/research/conversations'),
+    // `projectId` omitted/null -> personal conversations only, matching
+    // the backend's `GET /research/conversations` contract.
+    listConversations: (projectId?: string | null) => {
+      const params = new URLSearchParams();
+      if (projectId) params.set('project_id', projectId);
+      const query = params.toString();
+      return request<ResearchConversationListResponse>(
+        `/api/v1/research/conversations${query ? `?${query}` : ''}`
+      );
+    },
     getConversation: (conversationId: string) =>
       request<ResearchConversationResponse>(`/api/v1/research/conversations/${conversationId}`),
     getConversationCost: (conversationId: string) =>
@@ -1019,6 +1087,7 @@ export const api = {
           filters: options.filters ?? {},
           provider: options.provider ?? null,
           conversation_id: options.conversationId ?? null,
+          project_id: options.projectId ?? null,
         }),
       }),
     createProposal: (query: string, options: DeepResearchAskOptions = {}) =>
@@ -1030,6 +1099,7 @@ export const api = {
           filters: options.filters ?? {},
           provider: options.provider ?? null,
           conversation_id: options.conversationId ?? null,
+          project_id: options.projectId ?? null,
           web_search_mode: options.webSearchMode ?? 'disabled',
           web_search_auto_approve: options.webSearchAutoApprove ?? false,
           include_domains: options.includeDomains ?? [],
@@ -1102,14 +1172,21 @@ export const api = {
       if (params?.offset !== undefined) query.set('offset', String(params.offset));
       if (params?.search) query.set('search', params.search);
       if (params?.kind) query.set('kind', params.kind);
+      if (params?.projectId) query.set('project_id', params.projectId);
       const qs = query.toString();
       return request<DocumentListResponse>(`/api/v1/documents${qs ? `?${qs}` : ''}`);
     },
-    stats: () => request<DocumentKnowledgeStats>('/api/v1/documents/stats'),
-    upload: async (file: File): Promise<Document> => {
+    stats: (projectId?: string | null) => {
+      const query = new URLSearchParams();
+      if (projectId) query.set('project_id', projectId);
+      const qs = query.toString();
+      return request<DocumentKnowledgeStats>(`/api/v1/documents/stats${qs ? `?${qs}` : ''}`);
+    },
+    upload: async (file: File, projectId?: string | null): Promise<Document> => {
       const token = getStoredToken();
       const form = new FormData();
       form.append('file', file);
+      if (projectId) form.append('project_id', projectId);
 
       let res: Response;
       try {

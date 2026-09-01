@@ -12,6 +12,7 @@ import type {
   ResearchStage,
   ResearchTurn,
 } from '@/features/research/types';
+import { useActiveProject } from '@/hooks/use-active-project';
 
 function emptyTurn(localId: string, query: string): ResearchTurn {
   return {
@@ -50,6 +51,7 @@ function patchTurn(
 }
 
 export function useResearch() {
+  const { activeProjectId } = useActiveProject();
   const [turns, setTurns] = useState<ResearchTurn[]>([]);
   const [conversations, setConversations] = useState<ResearchConversationEntry[]>([]);
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
@@ -57,7 +59,7 @@ export function useResearch() {
 
   const refreshConversations = useCallback(async () => {
     try {
-      const { conversations: rows } = await api.research.listConversations();
+      const { conversations: rows } = await api.research.listConversations(activeProjectId);
       setConversations(
         rows.map((c) => ({
           conversationId: c.conversation_id,
@@ -69,9 +71,14 @@ export function useResearch() {
       // History sidebar is best-effort -- a failed refresh just leaves the
       // previous list in place rather than blocking the research turn.
     }
-  }, []);
+  }, [activeProjectId]);
 
+  // Switching the active workspace starts a fresh thread and reloads that
+  // workspace's own history, rather than leaving the previous one's turns
+  // on screen -- same contract as Chat's project-switch effect.
   useEffect(() => {
+    setActiveConversationId(null);
+    setTurns([]);
     void refreshConversations();
   }, [refreshConversations]);
 
@@ -113,6 +120,7 @@ export function useResearch() {
         for await (const { data: event } of api.research.stream(query, {
           provider,
           conversationId: conversationIdAtStart ?? undefined,
+          projectId: conversationIdAtStart ? undefined : activeProjectId,
         })) {
           if (event.session_id && !researchId) {
             researchId = event.session_id;
@@ -199,7 +207,7 @@ export function useResearch() {
         );
       }
     },
-    [refreshConversations]
+    [refreshConversations, activeProjectId]
   );
 
   const ask = useCallback(

@@ -17,6 +17,7 @@ import { EscalationSuggestion } from '@/features/research/components/escalation-
 import { ResearchComposer } from '@/features/research/components/research-composer';
 import { SourcePanel } from '@/features/research/components/source-panel';
 import { EmptyWorkspace } from '@/features/research/components/empty-workspace';
+import { useActiveProject } from '@/hooks/use-active-project';
 
 type FeedItem =
   | { type: 'linear'; turn: ResearchTurn }
@@ -33,6 +34,7 @@ const formatCost = (cost: number) =>
   }).format(cost);
 
 export default function ResearchPage() {
+  const { activeProjectId } = useActiveProject();
   const {
     turns,
     conversations,
@@ -169,6 +171,7 @@ export default function ResearchPage() {
         const localId = await deepResearch.createProposal(query, {
           provider: providerOrUndefined,
           conversationId: activeConversationId ?? undefined,
+          projectId: activeConversationId ? undefined : activeProjectId,
           webSearchMode,
           webSearchAutoApprove,
           paperSuggestionsEnabled,
@@ -189,6 +192,7 @@ export default function ResearchPage() {
       const check = await api.research.checkEscalation(query, {
         provider: providerOrUndefined,
         conversationId: activeConversationId ?? undefined,
+        projectId: activeConversationId ? undefined : activeProjectId,
       });
       if (check.suggested && check.proposal) {
         setPendingEscalation({ query, check });
@@ -209,6 +213,7 @@ export default function ResearchPage() {
     mode,
     provider,
     activeConversationId,
+    activeProjectId,
     deepResearch,
     ask,
     webSearchMode,

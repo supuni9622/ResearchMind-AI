@@ -58,6 +58,11 @@ class VectorPayload(BaseModel):
         description="Owner of the indexed document.",
     )
 
+    project_id: str | None = Field(
+        default=None,
+        description="Project the indexed document belongs to, if any.",
+    )
+
     chunk_index: int = Field(
         ge=0,
         description="Chunk position within the document.",

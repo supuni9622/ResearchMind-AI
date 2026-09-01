@@ -24,6 +24,7 @@ from redis.asyncio import Redis
 
 from app.ai.memory.enums import MemoryScopeType
 from app.ai.memory.models import MemoryRecord
+from app.ai.memory.scope_key import scope_key as _shared_scope_key
 
 logger = structlog.get_logger()
 
@@ -230,7 +231,11 @@ class ValkeySessionStore:
 
     @staticmethod
     def _scope_key(scope_type: MemoryScopeType, project_id: UUID | None) -> str:
-        return "personal" if scope_type == MemoryScopeType.PERSONAL else f"project:{project_id}"
+        # SESSION memory doesn't actually support GLOBAL as a requested
+        # scope today (get_context() never asks for it), but this must
+        # still not corrupt its own key if ever called with one -- see
+        # app.ai.memory.scope_key for why a binary ternary is wrong here.
+        return _shared_scope_key(scope_type, project_id)
 
     @classmethod
     def _record_key(

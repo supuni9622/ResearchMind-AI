@@ -61,10 +61,14 @@ class ConversationService:
         *,
         conversation_id: uuid.UUID | None,
         owner_id: uuid.UUID,
+        project_id: uuid.UUID | None = None,
     ) -> Conversation:
         """
         Loads an existing conversation scoped to `owner_id`, or starts a
-        new one when `conversation_id` is not given.
+        new one when `conversation_id` is not given. `project_id` only
+        applies to the new-conversation branch -- an existing conversation
+        keeps whatever project (if any) it was created with, regardless of
+        what's passed here.
         """
 
         if conversation_id is not None:
@@ -81,7 +85,7 @@ class ConversationService:
             return conversation
 
         conversation = await self.repository.create(
-            Conversation(owner_id=owner_id),
+            Conversation(owner_id=owner_id, project_id=project_id),
         )
 
         await self.session.commit()
@@ -114,12 +118,14 @@ class ConversationService:
         self,
         *,
         owner_id: uuid.UUID,
+        project_id: uuid.UUID | None = None,
         limit: int = 50,
     ) -> list[Conversation]:
         """List conversation summaries for the authenticated owner."""
 
         return await self.repository.list_conversations_for_owner(
             owner_id=owner_id,
+            project_id=project_id,
             limit=limit,
         )
 
@@ -129,11 +135,13 @@ class ConversationService:
         owner_id: uuid.UUID,
         before_conversation_id: uuid.UUID | None,
         limit: int,
+        project_id: uuid.UUID | None = None,
     ) -> ConversationPage:
         conversations, next_cursor = await self.repository.list_conversations_page(
             owner_id=owner_id,
             before_conversation_id=before_conversation_id,
             limit=limit,
+            project_id=project_id,
         )
         return ConversationPage(conversations=conversations, next_cursor=next_cursor)
 

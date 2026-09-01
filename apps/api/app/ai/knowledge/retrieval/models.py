@@ -42,6 +42,17 @@ class RetrievalQuery(BaseModel):
         ),
     )
 
+    project_id: str | None = Field(
+        default=None,
+        description=(
+            "Project scope. When set, restricts results to that project's "
+            "documents; when omitted, restricts to the owner's personal "
+            "(non-project) documents -- same typed-field pattern as "
+            "owner_id, not read out of the generic `filters` dict below, "
+            "to prevent a caller smuggling a different project through it."
+        ),
+    )
+
     top_k: int = Field(
         default=5,
         ge=1,

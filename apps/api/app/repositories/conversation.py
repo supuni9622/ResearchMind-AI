@@ -189,13 +189,22 @@ class ConversationRepository:
         self,
         *,
         owner_id: uuid.UUID,
+        project_id: uuid.UUID | None = None,
         limit: int = 50,
     ) -> list[Conversation]:
-        """Return a user's conversations, newest activity first."""
+        """Return a user's conversations, newest activity first.
+
+        `project_id=None` means personal conversations only (`project_id
+        IS NULL`), not "every project" -- callers pass their current
+        workspace context explicitly.
+        """
 
         statement = (
             select(Conversation)
-            .where(Conversation.owner_id == owner_id)
+            .where(
+                Conversation.owner_id == owner_id,
+                Conversation.project_id == project_id,
+            )
             .order_by(Conversation.updated_at.desc())
             .limit(limit)
         )
@@ -210,10 +219,18 @@ class ConversationRepository:
         owner_id: uuid.UUID,
         before_conversation_id: uuid.UUID | None,
         limit: int,
+        project_id: uuid.UUID | None = None,
     ) -> tuple[list[Conversation], uuid.UUID | None]:
-        """Return owner-scoped conversations with a stable activity cursor."""
+        """Return owner-scoped conversations with a stable activity cursor.
 
-        statement = select(Conversation).where(Conversation.owner_id == owner_id)
+        `project_id=None` means personal conversations only, same contract
+        as `list_conversations_for_owner`.
+        """
+
+        statement = select(Conversation).where(
+            Conversation.owner_id == owner_id,
+            Conversation.project_id == project_id,
+        )
         if before_conversation_id is not None:
             cursor = await self.session.scalar(
                 select(Conversation).where(

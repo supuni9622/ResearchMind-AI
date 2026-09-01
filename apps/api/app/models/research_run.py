@@ -32,6 +32,16 @@ class ResearchRun(TimestampMixin, Base):
         nullable=True,
         index=True,
     )
+    # Same "carried until the conversation exists" contract as
+    # ResearchProposal.project_id -- threaded through to the LangGraph
+    # runtime state so a project's Deep Research run searches that
+    # project's own documents during execution.
+    project_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("projects.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
     research_session_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("research_sessions.id", ondelete="SET NULL"),

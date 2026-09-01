@@ -71,4 +71,10 @@ class MemoryArtifactWriter:
 
     @staticmethod
     def _scope_path(scope_type: str, project_id: object | None) -> str:
-        return "personal" if scope_type == "personal" else f"project/{project_id}"
+        # Explicit 3-way -- GLOBAL (also project_id=None) must not fall
+        # through to "project/None".
+        if scope_type == "personal":
+            return "personal"
+        if scope_type == "global":
+            return "global"
+        return f"project/{project_id}"

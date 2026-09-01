@@ -46,6 +46,7 @@ class ResearchRunService:
         idempotency_key: str | None = None,
         conversation_id: UUID | None = None,
         parent_research_id: UUID | None = None,
+        project_id: UUID | None = None,
     ) -> ResearchRun:
         if idempotency_key is not None:
             existing = await self._repository.get_by_idempotency_key(
@@ -64,6 +65,7 @@ class ResearchRunService:
                 ResearchRun(
                     owner_id=owner_id,
                     conversation_id=conversation_id,
+                    project_id=project_id,
                     parent_research_id=parent_research_id,
                     graph_thread_id=str(uuid4()),
                     status=ResearchRunStatus.CREATED.value,

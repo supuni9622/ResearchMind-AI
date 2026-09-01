@@ -54,6 +54,41 @@ async def test_proposal_persists_a_plan_without_creating_or_running_research() -
 
 
 @pytest.mark.asyncio
+async def test_propose_persists_project_id_on_the_proposal() -> None:
+    """The first hop of the Deep Research project-scoping chain: a
+    proposal created with `project_id` must store it on the resulting
+    `ResearchProposal` row, so `.approve()` has something to thread into
+    the run it creates (see `test_approval_threads_the_proposals_project_id_into_the_run`)."""
+
+    session = AsyncMock()
+    session.add = MagicMock()
+    runtime = AsyncMock()
+    runtime.execute.return_value = SimpleNamespace(
+        parsed_output=ResearchPlan(
+            goal="Compare methods",
+            complexity=ResearchComplexity.MODERATE,
+            execution_strategy=ResearchExecutionStrategy.DECOMPOSED,
+            tasks=[ResearchPlanTask(task_id="compare", question="Compare methods")],
+            approval_required=True,
+        )
+    )
+    project_id = uuid4()
+
+    proposal = await ResearchProposalService(session=session, generation_runtime=runtime).propose(
+        query="Compare methods",
+        top_k=5,
+        filters={},
+        owner_id=uuid4(),
+        provider=None,
+        routing_strategy=None,
+        conversation_id=None,
+        project_id=project_id,
+    )
+
+    assert proposal.project_id == project_id
+
+
+@pytest.mark.asyncio
 async def test_proposal_persists_the_paper_suggestions_toggle() -> None:
     """Regression coverage for the production bug (2026-07-25): the
     `/research/proposals` route parsed `paper_suggestions_enabled` off the
@@ -367,6 +402,51 @@ async def test_approval_creates_and_links_one_durable_run() -> None:
     assert run.current_phase == "awaiting_runtime_dispatch"
     runs.create_or_get.assert_awaited_once()
     session.commit.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_approval_threads_the_proposals_project_id_into_the_run() -> None:
+    """The second hop: `.approve()` must read `project_id` off the
+    proposal it's approving (not accept one as a fresh argument -- a
+    caller can't smuggle a different project in at approval time) and
+    thread it into `create_or_get(...)`, which persists it on the new
+    `ResearchRun` (see `test_execution.py`'s
+    `test_execute_approved_run_threads_project_id_into_graph_input` for
+    the next hop after that)."""
+
+    session = AsyncMock()
+    session.add = MagicMock()
+    session.execute = AsyncMock(return_value=MagicMock(scalar_one=MagicMock(return_value=0)))
+    owner_id = uuid4()
+    proposal_id = uuid4()
+    project_id = uuid4()
+    run = ResearchRun(
+        id=uuid4(),
+        owner_id=owner_id,
+        graph_thread_id="thread",
+        status=ResearchRunStatus.CREATED.value,
+    )
+    proposal = SimpleNamespace(
+        id=proposal_id,
+        owner_id=owner_id,
+        conversation_id=None,
+        project_id=project_id,
+        status=ResearchProposalStatus.AWAITING_APPROVAL.value,
+        research_run_id=None,
+        request={"query": "Compare methods", "top_k": 5, "filters": {}},
+    )
+    runs = AsyncMock()
+    runs.create_or_get.return_value = run
+    service = ResearchProposalService(
+        session=session,
+        generation_runtime=AsyncMock(),
+        run_service=runs,
+    )
+    service.get_for_owner = AsyncMock(return_value=proposal)  # type: ignore[method-assign]
+
+    await service.approve(proposal_id=proposal_id, owner_id=owner_id)
+
+    assert runs.create_or_get.await_args.kwargs["project_id"] == project_id
 
 
 @pytest.mark.asyncio

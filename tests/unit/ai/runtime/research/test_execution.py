@@ -785,6 +785,116 @@ async def test_execute_approved_run_pauses_at_plan_approval(monkeypatch) -> None
 
 
 @pytest.mark.asyncio
+async def test_execute_approved_run_threads_project_id_into_graph_input(monkeypatch) -> None:
+    """The proposal->run->graph_input hop of the Deep Research
+    project-scoping chain: `ResearchProposalService.approve()` already
+    threads `proposal.project_id` into `create_or_get(...)` (see
+    `test_proposal_service.py`), and `dispatch_wave`'s `Send(...)` payload
+    already threads `graph_input["project_id"]` into `execute_task` (see
+    `test_multi_wave_workflow.py`) -- this closes the one hop in between:
+    a run loaded with `project_id` set must produce that same value in
+    the `graph_input` handed to the compiled graph's first `ainvoke`."""
+
+    project_id = uuid4()
+    run = _run()
+    run.project_id = project_id
+    proposal = _approved_proposal(run)
+    research_service = AsyncMock()
+    execution = _v1_execution(session=AsyncMock(), research_service=research_service)
+    execution._proposals.get_by_run_id = AsyncMock(return_value=proposal)  # type: ignore[method-assign]
+    execution._runs.get_for_owner = AsyncMock(return_value=run)  # type: ignore[method-assign]
+
+    captured_state: dict = {}
+
+    class FakeGraph:
+        async def ainvoke(self, state, *, config) -> dict:
+            captured_state.update(state)
+            return {"__interrupt__": [object()]}
+
+    class FakeCheckpointer:
+        async def aget_tuple(self, _config: object) -> None:
+            return None
+
+    @asynccontextmanager
+    async def fake_checkpointer(_: str):
+        yield FakeCheckpointer()
+
+    monkeypatch.setattr(
+        "app.ai.runtime.research.execution.compile_multi_wave_research_graph",
+        lambda **_kwargs: FakeGraph(),
+    )
+    monkeypatch.setattr(
+        "app.ai.runtime.research.execution.postgres_checkpointer", fake_checkpointer
+    )
+
+    await execution.execute_approved_run(run_id=run.id)
+
+    assert captured_state["project_id"] == str(project_id)
+
+
+@pytest.mark.asyncio
+async def test_execute_approved_run_threads_project_id_into_publish_runtime_report(
+    monkeypatch,
+) -> None:
+    """The run->publish_runtime_report hop: a project-scoped run that
+    completes must hand its `project_id` to `publish_runtime_report`,
+    which is the only place a *new* research conversation actually gets
+    created (see `ResearchService.publish_runtime_report`'s docstring)."""
+
+    project_id = uuid4()
+    run = _run()
+    run.project_id = project_id
+    run.status = ResearchRunStatus.AWAITING_APPROVAL.value
+    run.budget_usage = {"report_decision": {"decision": "approved", "reason": None}}
+    proposal = _approved_proposal(run)
+    research_service = AsyncMock()
+    research_service.publish_runtime_report.return_value = _outcome(run.owner_id)
+    execution = _v1_execution(session=AsyncMock(), research_service=research_service)
+    execution._proposals.get_by_run_id = AsyncMock(return_value=proposal)  # type: ignore[method-assign]
+    execution._runs.get_for_owner = AsyncMock(return_value=run)  # type: ignore[method-assign]
+
+    class FakeGraph:
+        async def ainvoke(self, command, *, config) -> dict:
+            return {
+                "draft": ResearchDraft(
+                    title="RAG",
+                    abstract="Abstract.",
+                    methodology="Method.",
+                    findings=[ResearchDraftSection(heading="Finding", content="Grounded.")],
+                    discussion="Discussion.",
+                    conclusion="Conclusion.",
+                ).model_dump(mode="json"),
+                "evidence_bundle": {"completed_task_count": 0, "failed_task_count": 0},
+                "review": {
+                    "decision": "pass",
+                    "citation_integrity_score": 1,
+                    "completeness_score": 1,
+                },
+            }
+
+    class FakeCheckpointer:
+        async def aget_tuple(self, _config: object) -> None:
+            return None
+
+    @asynccontextmanager
+    async def fake_checkpointer(_: str):
+        yield FakeCheckpointer()
+
+    monkeypatch.setattr(
+        "app.ai.runtime.research.execution.compile_multi_wave_research_graph",
+        lambda **_kwargs: FakeGraph(),
+    )
+    monkeypatch.setattr(
+        "app.ai.runtime.research.execution.postgres_checkpointer", fake_checkpointer
+    )
+
+    await execution.execute_approved_run(run_id=run.id)
+
+    research_service.publish_runtime_report.assert_awaited_once()
+    assert research_service.publish_runtime_report.await_args.kwargs["project_id"] == project_id
+
+
+@pytest.mark.asyncio
 async def test_execute_approved_run_resumes_into_synthesis_after_plan_approval(monkeypatch) -> None:
     """An approved plan resumes straight into synthesis/review, which then
     pauses again at the *report*-approval interrupt (a fresh one, not the

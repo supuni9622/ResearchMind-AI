@@ -52,6 +52,7 @@ from app.ai.runtime.research.retrieval.models import ResearchEvidenceReference
 from app.ai.runtime.research.review import ResearchReview, ReviewDecision
 from app.ai.runtime.research.synthesis.models import ResearchDraft, ResearchDraftSection
 from app.auth.dependencies import get_current_user
+from app.dependencies.project import get_project_authorization_service
 from app.dependencies.rate_limiting import get_rate_limiter
 from app.dependencies.research import (
     get_research_conversation_service,
@@ -146,6 +147,25 @@ class _FakeResearchService:
         return [
             Citation(citation_id="c1", filename="paper.pdf", document_id=uuid.uuid4(), score=0.9)
         ]
+
+
+class _FakeProjectAuthorization:
+    """Stands in for ProjectAuthorizationService -- always authorizes, so
+    tests can pass a `project_id` without seeding a real Project row.
+    Mirrors `test_chat_stream.py`'s identical fake."""
+
+    def __init__(self) -> None:
+        self.authorized_project_ids: list[uuid.UUID] = []
+
+    async def authorize_project_access(self, *, user_id: uuid.UUID, project_id: uuid.UUID) -> None:
+        self.authorized_project_ids.append(project_id)
+
+    async def authorize_for_new_conversation(
+        self, *, conversation_id: uuid.UUID | None, project_id: uuid.UUID | None, user_id: uuid.UUID
+    ) -> None:
+        if conversation_id is not None or project_id is None:
+            return
+        await self.authorize_project_access(user_id=user_id, project_id=project_id)
 
 
 class _FakeResearchRepository:
@@ -451,6 +471,95 @@ def test_create_research_returns_a_grounded_answer(
     assert body["sources"][0]["score"] == 0.9
 
     assert research_service.research_calls[-1]["owner_id"] == _OWNER_ID
+
+
+def test_create_research_with_project_id_authorizes_and_threads_project_scope(
+    client: TestClient,
+    fakes: tuple[_FakeResearchService, dict],
+) -> None:
+    """Route-level counterpart to `test_service.py`'s
+    `test_research_with_project_id_resolves_project_scope_everywhere` --
+    that test proves `ResearchService.research()` itself resolves project
+    scope correctly; this proves `POST /research` actually calls
+    `ProjectAuthorizationService.authorize_for_new_conversation()` and
+    forwards `payload.project_id` into the service call, mirroring
+    `test_chat_stream.py`'s `test_stream_chat_with_project_id_resolves_project_memory_scope`."""
+
+    research_service, _ = fakes
+    project_id = uuid.uuid4()
+    project_authorization = _FakeProjectAuthorization()
+
+    app.dependency_overrides[get_current_user] = _fake_user
+    app.dependency_overrides[get_project_authorization_service] = lambda: project_authorization
+
+    try:
+        response = client.post(
+            "/api/v1/research",
+            json={"query": "How does RAG work?", "project_id": str(project_id)},
+        )
+    finally:
+        del app.dependency_overrides[get_current_user]
+        del app.dependency_overrides[get_project_authorization_service]
+
+    assert response.status_code == 200
+    assert project_authorization.authorized_project_ids == [project_id]
+    assert research_service.research_calls[-1]["project_id"] == project_id
+
+
+def test_stream_research_with_project_id_authorizes_and_threads_project_scope(
+    client: TestClient,
+    fakes: tuple[_FakeResearchService, dict],
+) -> None:
+    project_id = uuid.uuid4()
+    project_authorization = _FakeProjectAuthorization()
+
+    app.dependency_overrides[get_current_user] = _fake_user
+    app.dependency_overrides[get_project_authorization_service] = lambda: project_authorization
+
+    try:
+        response = client.post(
+            "/api/v1/research/stream",
+            json={"query": "How does RAG work?", "project_id": str(project_id)},
+        )
+    finally:
+        del app.dependency_overrides[get_current_user]
+        del app.dependency_overrides[get_project_authorization_service]
+
+    assert response.status_code == 200
+    assert project_authorization.authorized_project_ids == [project_id]
+
+
+def test_create_research_with_project_id_and_existing_conversation_does_not_reauthorize(
+    client: TestClient,
+    fakes: tuple[_FakeResearchService, dict],
+) -> None:
+    """`authorize_for_new_conversation`'s whole point: once a conversation
+    already exists, membership was already checked when it was created --
+    a `project_id` sent alongside an existing `conversation_id` must not
+    trigger a second authorization check."""
+
+    project_id = uuid.uuid4()
+    conversation_id = uuid.uuid4()
+    project_authorization = _FakeProjectAuthorization()
+
+    app.dependency_overrides[get_current_user] = _fake_user
+    app.dependency_overrides[get_project_authorization_service] = lambda: project_authorization
+
+    try:
+        response = client.post(
+            "/api/v1/research",
+            json={
+                "query": "How does RAG work?",
+                "conversation_id": str(conversation_id),
+                "project_id": str(project_id),
+            },
+        )
+    finally:
+        del app.dependency_overrides[get_current_user]
+        del app.dependency_overrides[get_project_authorization_service]
+
+    assert response.status_code == 200
+    assert project_authorization.authorized_project_ids == []
 
 
 def test_create_research_stays_on_the_linear_service_when_runtime_flags_are_enabled(

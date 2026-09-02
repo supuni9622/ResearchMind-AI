@@ -79,6 +79,14 @@ export default function ResearchPage() {
   } | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [hasDocuments, setHasDocuments] = useState<boolean | null>(null);
+  // "@document" mentions (Linear Research only): documents picked from the
+  // composer's mention dropdown. Filtered at submit time down to whichever
+  // are still literally present as "@filename" in `input` -- editing or
+  // deleting the inserted text un-mentions a document with no separate
+  // "remove" affordance needed.
+  const [mentionedDocuments, setMentionedDocuments] = useState<{ id: string; filename: string }[]>(
+    []
+  );
   const bottomRef = useRef<HTMLDivElement>(null);
 
   const linearLoading = turns.some((t) => t.stage === 'searching' || t.stage === 'generating');
@@ -205,7 +213,12 @@ export default function ResearchPage() {
       setCheckingEscalation(false);
     }
 
-    const localId = ask(query, providerOrUndefined);
+    const documentIds = mentionedDocuments
+      .filter((doc) => query.includes(`@${doc.filename}`))
+      .map((doc) => doc.id);
+    setMentionedDocuments([]);
+
+    const localId = ask(query, providerOrUndefined, documentIds);
     setFocusedTurnId(localId);
   }, [
     input,
@@ -219,6 +232,7 @@ export default function ResearchPage() {
     webSearchMode,
     webSearchAutoApprove,
     paperSuggestionsEnabled,
+    mentionedDocuments,
   ]);
 
   const handleAcceptEscalation = useCallback(() => {
@@ -258,6 +272,7 @@ export default function ResearchPage() {
           setPendingEscalation(null);
           setSubmitError(null);
           setFocusedTurnId(null);
+          setMentionedDocuments([]);
           const params = new URLSearchParams(window.location.search);
           params.delete('conversation');
           params.delete('session');
@@ -410,6 +425,7 @@ export default function ResearchPage() {
           onWebSearchAutoApproveChange={setWebSearchAutoApprove}
           paperSuggestionsEnabled={paperSuggestionsEnabled}
           onPaperSuggestionsEnabledChange={setPaperSuggestionsEnabled}
+          onMentionSelect={(doc) => setMentionedDocuments((prev) => [...prev, doc])}
         />
       </div>
 

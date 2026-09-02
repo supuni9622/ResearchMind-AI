@@ -111,7 +111,13 @@ export function useResearch() {
   }, [activeConversationId, doneTurnCount]);
 
   const runAsk = useCallback(
-    async (localId: string, query: string, conversationIdAtStart: string | null, provider?: GenerationProvider) => {
+    async (
+      localId: string,
+      query: string,
+      conversationIdAtStart: string | null,
+      provider?: GenerationProvider,
+      documentIds?: string[]
+    ) => {
       const startedAt = performance.now();
       let researchId: string | null = null;
       let generationId: string | null = null;
@@ -121,6 +127,7 @@ export function useResearch() {
           provider,
           conversationId: conversationIdAtStart ?? undefined,
           projectId: conversationIdAtStart ? undefined : activeProjectId,
+          filters: documentIds?.length ? { document_ids: documentIds } : undefined,
         })) {
           if (event.session_id && !researchId) {
             researchId = event.session_id;
@@ -211,10 +218,10 @@ export function useResearch() {
   );
 
   const ask = useCallback(
-    (query: string, provider?: GenerationProvider): string => {
+    (query: string, provider?: GenerationProvider, documentIds?: string[]): string => {
       const localId = crypto.randomUUID();
       setTurns((prev) => [...prev, emptyTurn(localId, query)]);
-      void runAsk(localId, query, activeConversationId, provider);
+      void runAsk(localId, query, activeConversationId, provider, documentIds);
       return localId;
     },
     [runAsk, activeConversationId]

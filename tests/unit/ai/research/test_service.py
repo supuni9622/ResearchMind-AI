@@ -18,14 +18,17 @@ Covers:
 from __future__ import annotations
 
 from collections.abc import AsyncGenerator
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
+import pytest
 from app.ai.research.service import ResearchService
 from app.ai.runtime.events.enums import CoreEventType, EventCategory
 from app.ai.runtime.events.models import StreamEvent
 from app.ai.runtime.events.research.models import ResearchEventType
 from app.ai.runtime.generation.enums import GenerationProvider
+from app.exceptions.base import NotFoundException
 
 from tests.unit.ai.research.factories import (
     make_context_result,
@@ -179,6 +182,50 @@ async def test_research_without_project_id_stays_personal() -> None:
 
     query = collaborators["retrieval_service"].search_hybrid.await_args.kwargs["query"]
     assert query.project_id is None
+
+
+async def test_research_with_document_ids_mention_threads_filters_and_authorizes() -> None:
+    """ "@document" mentioning: a mentioned id that resolves to the
+    caller's own document is threaded verbatim into `RetrievalQuery.
+    filters`, after being authorized via `DocumentRepository.
+    get_by_ids_for_owner`."""
+
+    document_id = uuid4()
+    service, collaborators = _make_service()
+    service._documents = AsyncMock()
+    service._documents.get_by_ids_for_owner = AsyncMock(
+        return_value=[SimpleNamespace(id=document_id)]
+    )
+
+    await service.research(
+        query="Summarize this paper",
+        top_k=10,
+        filters={"document_ids": [str(document_id)]},
+        owner_id=uuid4(),
+    )
+
+    service._documents.get_by_ids_for_owner.assert_awaited_once()
+    query = collaborators["retrieval_service"].search_hybrid.await_args.kwargs["query"]
+    assert query.filters["document_ids"] == [str(document_id)]
+
+
+async def test_research_raises_not_found_when_a_mentioned_document_does_not_resolve() -> None:
+    """A stale, deleted, or another owner's document id must be a clear
+    error, not silent empty retrieval results."""
+
+    service, collaborators = _make_service()
+    service._documents = AsyncMock()
+    service._documents.get_by_ids_for_owner = AsyncMock(return_value=[])
+
+    with pytest.raises(NotFoundException):
+        await service.research(
+            query="Summarize this paper",
+            top_k=10,
+            filters={"document_ids": [str(uuid4())]},
+            owner_id=uuid4(),
+        )
+
+    collaborators["retrieval_service"].search_hybrid.assert_not_awaited()
 
 
 async def test_research_tags_the_generation_request_for_the_research_runtime() -> None:

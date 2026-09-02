@@ -25,7 +25,7 @@ from unittest.mock import AsyncMock
 
 from app.ai.knowledge.retrieval.config import QdrantRetrievalConfig
 from app.ai.knowledge.retrieval.providers.qdrant import QdrantRetrievalProvider
-from qdrant_client.models import FieldCondition, Filter, IsNullCondition, MatchValue
+from qdrant_client.models import FieldCondition, Filter, IsNullCondition, MatchAny, MatchValue
 
 
 def create_provider() -> QdrantRetrievalProvider:
@@ -128,6 +128,36 @@ def test_document_id_filter_is_coerced_to_string() -> None:
     assert {condition.key for condition in conditions} == {"owner_id", "document_id"}
     document_condition = next(c for c in conditions if c.key == "document_id")
     assert _match_value(document_condition) == str(document_id)
+
+
+def test_document_ids_filter_produces_a_match_any_condition() -> None:
+    """ "@document" mentioning more than one document in a single
+    question: `document_ids` (plural) OR's them together via `MatchAny`,
+    unlike the singular `document_id` key's exact `MatchValue` match."""
+
+    provider = create_provider()
+    document_ids = [uuid.uuid4(), uuid.uuid4()]
+
+    result = provider._build_filter(
+        owner_id="abc",
+        filters={"document_ids": document_ids},
+    )
+
+    conditions = _field_conditions(result)
+    assert {condition.key for condition in conditions} == {"owner_id", "document_id"}
+    document_condition = next(c for c in conditions if c.key == "document_id")
+    assert isinstance(document_condition.match, MatchAny)
+    assert document_condition.match.any == [str(item) for item in document_ids]
+
+
+def test_empty_document_ids_list_is_treated_as_absent() -> None:
+    provider = create_provider()
+
+    result = provider._build_filter(owner_id="abc", filters={"document_ids": []})
+
+    conditions = _field_conditions(result)
+    assert len(conditions) == 1
+    assert conditions[0].key == "owner_id"
 
 
 def test_unsupported_filter_key_is_ignored() -> None:

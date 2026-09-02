@@ -49,6 +49,7 @@ from qdrant_client.models import (
     FieldCondition,
     Filter,
     IsNullCondition,
+    MatchAny,
     MatchValue,
     PayloadField,
 )
@@ -276,6 +277,8 @@ class QdrantRetrievalProvider(
         supported filters:
 
         - document_id
+        - document_ids (list -- OR'd together via MatchAny, e.g. "@mention"
+          a few documents to restrict retrieval to just their chunks)
         - filename
         - language
         """
@@ -310,6 +313,18 @@ class QdrantRetrievalProvider(
                     match=MatchValue(
                         value=str(document_id),
                     ),
+                )
+            )
+
+        document_ids = filters.get(
+            "document_ids",
+        )
+
+        if document_ids:
+            must_conditions.append(
+                FieldCondition(
+                    key="document_id",
+                    match=MatchAny(any=[str(item) for item in document_ids]),
                 )
             )
 

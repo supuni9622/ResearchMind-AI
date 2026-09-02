@@ -1,13 +1,29 @@
 'use client';
 
-import { useRef } from 'react';
-import type { GenerationProvider } from '@/lib/api';
+import { useEffect, useRef, useState } from 'react';
+import { api, type Document, type GenerationProvider } from '@/lib/api';
 import {
   type DeepResearchWebSearchMode,
   type ResearchMode,
 } from '@/features/research/types';
-import { BookIcon, NetworkIcon, SparklesIcon, ZapIcon } from '@/components/ui/icons';
+import { BookIcon, FileTextIcon, NetworkIcon, SparklesIcon, ZapIcon } from '@/components/ui/icons';
 import { useProviderOptions } from '@/hooks/use-provider-options';
+import { useActiveProject } from '@/hooks/use-active-project';
+
+/** Finds the "@partial" mention being typed at `cursor`, if any -- the
+ * nearest unclosed "@" walking back from the cursor, with no whitespace
+ * in between (an "@" followed by a space is a finished word, not a
+ * mention-in-progress). Returns the trigger's start index (the "@"
+ * itself) and the partial text typed after it, or null when the cursor
+ * isn't inside a mention. */
+function findMentionTrigger(text: string, cursor: number): { start: number; partial: string } | null {
+  const upToCursor = text.slice(0, cursor);
+  const at = upToCursor.lastIndexOf('@');
+  if (at === -1) return null;
+  const partial = upToCursor.slice(at + 1);
+  if (/\s/.test(partial)) return null;
+  return { start: at, partial };
+}
 
 const MODE_OPTIONS: { value: ResearchMode; label: string; icon: typeof ZapIcon; title: string }[] = [
   {
@@ -57,6 +73,7 @@ export function ResearchComposer({
   onWebSearchAutoApproveChange,
   paperSuggestionsEnabled,
   onPaperSuggestionsEnabledChange,
+  onMentionSelect,
 }: {
   value: string;
   onChange: (v: string) => void;
@@ -72,11 +89,88 @@ export function ResearchComposer({
   onWebSearchAutoApproveChange: (v: boolean) => void;
   paperSuggestionsEnabled: boolean;
   onPaperSuggestionsEnabledChange: (v: boolean) => void;
+  /** Called when the user picks a document from the "@" mention dropdown
+   * -- restricts Linear Research retrieval to just this document. Only
+   * meaningful in 'linear' mode; the dropdown itself only appears there. */
+  onMentionSelect: (doc: { id: string; filename: string }) => void;
 }) {
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const providerOptions = useProviderOptions();
+  const { activeProjectId } = useActiveProject();
+
+  const [mentionQuery, setMentionQuery] = useState<string | null>(null);
+  const [mentionResults, setMentionResults] = useState<Document[]>([]);
+  const [mentionIndex, setMentionIndex] = useState(0);
+  const mentionOpen = mode === 'linear' && mentionQuery !== null && mentionResults.length > 0;
+
+  useEffect(() => {
+    if (mode !== 'linear' || mentionQuery === null) {
+      setMentionResults([]);
+      return;
+    }
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      api.documents
+        .list({ search: mentionQuery || undefined, projectId: activeProjectId, limit: 8 })
+        .then(({ items }) => {
+          if (!cancelled) {
+            setMentionResults(items);
+            setMentionIndex(0);
+          }
+        })
+        .catch(() => {
+          if (!cancelled) setMentionResults([]);
+        });
+    }, 200);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [mode, mentionQuery, activeProjectId]);
+
+  function handleTextChange(e: React.ChangeEvent<HTMLTextAreaElement>) {
+    onChange(e.target.value);
+    const trigger = findMentionTrigger(e.target.value, e.target.selectionStart ?? e.target.value.length);
+    setMentionQuery(trigger?.partial ?? null);
+  }
+
+  function selectMention(doc: Document) {
+    const cursor = inputRef.current?.selectionStart ?? value.length;
+    const trigger = findMentionTrigger(value, cursor);
+    if (!trigger) return;
+    const before = value.slice(0, trigger.start);
+    const after = value.slice(cursor);
+    onChange(`${before}@${doc.filename} ${after}`);
+    onMentionSelect({ id: doc.id, filename: doc.filename });
+    setMentionQuery(null);
+    setMentionResults([]);
+  }
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
+    if (mentionOpen) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setMentionIndex((i) => (i + 1) % mentionResults.length);
+        return;
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setMentionIndex((i) => (i - 1 + mentionResults.length) % mentionResults.length);
+        return;
+      }
+      if (e.key === 'Enter' || e.key === 'Tab') {
+        e.preventDefault();
+        selectMention(mentionResults[mentionIndex]);
+        return;
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        setMentionQuery(null);
+        setMentionResults([]);
+        return;
+      }
+    }
+
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       if (value.trim() && !loading) onSubmit();
@@ -177,15 +271,38 @@ export function ResearchComposer({
         )}
         <div className="flex gap-2.5 items-end">
           <div className="flex-1 relative">
+            {mentionOpen && (
+              <div className="absolute bottom-full left-0 mb-1.5 w-72 max-h-48 overflow-y-auto scrollbar-thin bg-ink-800 border border-ink-500 rounded-xl shadow-lg z-10">
+                {mentionResults.map((doc, i) => (
+                  <button
+                    key={doc.id}
+                    type="button"
+                    onMouseDown={(e) => {
+                      // mousedown (not click) fires before the textarea's
+                      // blur -- keeps focus/selection intact for selectMention.
+                      e.preventDefault();
+                      selectMention(doc);
+                    }}
+                    onMouseEnter={() => setMentionIndex(i)}
+                    className={`w-full flex items-center gap-2 px-3 py-2 text-left text-xs text-stone-300 transition-colors ${
+                      i === mentionIndex ? 'bg-ink-700' : 'hover:bg-ink-700/60'
+                    }`}
+                  >
+                    <FileTextIcon size={12} className="flex-shrink-0 text-stone-600" />
+                    <span className="truncate">{doc.filename}</span>
+                  </button>
+                ))}
+              </div>
+            )}
             <textarea
               ref={inputRef}
               value={value}
-              onChange={(e) => onChange(e.target.value)}
+              onChange={handleTextChange}
               onKeyDown={handleKeyDown}
               placeholder={
                 mode === 'deep'
                   ? 'Describe what you want a comprehensive report on…'
-                  : 'Ask a question about your uploaded documents…'
+                  : 'Ask a question about your uploaded documents… (@ to reference one)'
               }
               rows={1}
               disabled={loading}

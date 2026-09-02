@@ -165,3 +165,33 @@ async def test_list_by_owner_page_scopes_to_the_given_project(db_session) -> Non
 
     assert total == 1
     assert [d.id for d in documents] == [doc_x.id]
+
+
+@pytest.mark.asyncio
+async def test_get_by_ids_for_owner_returns_only_matching_documents(db_session) -> None:
+    """ "@document" mentioning: silently drops ids belonging to another
+    owner or that don't exist -- the caller (ResearchService) is what
+    turns "fewer than requested" into a not-found error."""
+
+    owner_id = await _make_owner(db_session)
+    other_owner_id = await _make_owner(db_session)
+    repository = DocumentRepository(db_session)
+
+    mine = await repository.create(_make_document(owner_id=owner_id, checksum="mine"))
+    theirs = await repository.create(_make_document(owner_id=other_owner_id, checksum="theirs"))
+
+    result = await repository.get_by_ids_for_owner(
+        [mine.id, theirs.id, uuid.uuid4()], owner_id=owner_id
+    )
+
+    assert [d.id for d in result] == [mine.id]
+
+
+@pytest.mark.asyncio
+async def test_get_by_ids_for_owner_with_no_ids_returns_empty(db_session) -> None:
+    owner_id = await _make_owner(db_session)
+    repository = DocumentRepository(db_session)
+
+    result = await repository.get_by_ids_for_owner([], owner_id=owner_id)
+
+    assert result == []

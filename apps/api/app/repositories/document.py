@@ -172,6 +172,33 @@ class DocumentRepository:
 
         return list(result.scalars().all())
 
+    async def get_by_ids_for_owner(
+        self,
+        document_ids: list[uuid.UUID],
+        *,
+        owner_id: uuid.UUID,
+    ) -> list[Document]:
+        """
+        Resolve a batch of document ids, scoped to `owner_id`.
+
+        Silently drops ids that don't exist or belong to another owner --
+        callers that need "all requested ids must resolve" (e.g. "@document"
+        mentions) compare the returned list's length/ids against what was
+        requested and raise their own not-found error.
+        """
+
+        if not document_ids:
+            return []
+
+        statement = select(Document).where(
+            Document.owner_id == owner_id,
+            Document.id.in_(document_ids),
+        )
+
+        result = await self.session.execute(statement)
+
+        return list(result.scalars().all())
+
     # Paginated + filtered document listing (the /documents page)
     async def list_by_owner_page(
         self,

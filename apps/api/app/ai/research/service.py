@@ -58,6 +58,7 @@ from app.ai.runtime.generation.validation.runtime.enums import RuntimeType
 from app.ai.runtime.research.evidence import ResearchEvidenceBundle
 from app.ai.runtime.research.synthesis.models import ResearchDraft
 from app.core.settings import settings
+from app.exceptions.base import NotFoundException
 from app.infrastructure.metrics.interfaces import MetricsRecorder
 from app.infrastructure.metrics.noop import NoOpMetricsRecorder
 from app.infrastructure.metrics.research import (
@@ -67,6 +68,7 @@ from app.infrastructure.metrics.research import (
     RESEARCH_RUNS_TOTAL,
 )
 from app.models.research import ResearchSession
+from app.repositories.document import DocumentRepository
 from app.repositories.research import ResearchRepository
 from app.services.research_conversation import ResearchConversationService
 
@@ -95,6 +97,7 @@ class ResearchService:
         self._session = session
         self._repository = ResearchRepository(session)
         self._conversations = ResearchConversationService(session, self._repository)
+        self._documents = DocumentRepository(session)
         self._retrieval = retrieval_service
         self._context_builder = context_builder
         self._generation_runtime = generation_runtime
@@ -722,6 +725,39 @@ class ResearchService:
             project_id=str(project_id) if project_id else None,
         )
 
+    async def _authorize_document_mentions(
+        self,
+        *,
+        filters: dict[str, Any],
+        owner_id: UUID,
+    ) -> None:
+        """
+        "@document" mentions: `filters["document_ids"]` is a plain-text
+        UI affordance, not a server-derived value, so a stale, deleted, or
+        foreign id must surface as a clear error rather than the silent
+        empty results a bare Qdrant owner_id mismatch would otherwise
+        produce. Not the only thing preventing cross-owner access --
+        `owner_id` is already an unconditional `must` condition on every
+        retrieval query regardless of `filters` (`QdrantRetrievalProvider.
+        _build_filter`) -- this is defense-in-depth plus a real UX
+        improvement.
+        """
+
+        raw_ids = filters.get("document_ids")
+        if not raw_ids:
+            return
+
+        try:
+            requested_ids = [UUID(str(item)) for item in raw_ids]
+        except ValueError as exc:
+            raise NotFoundException(
+                message="One or more mentioned documents were not found."
+            ) from exc
+
+        resolved = await self._documents.get_by_ids_for_owner(requested_ids, owner_id=owner_id)
+        if len(resolved) != len(set(requested_ids)):
+            raise NotFoundException(message="One or more mentioned documents were not found.")
+
     async def _retrieve_and_build_context(
         self,
         *,
@@ -731,6 +767,8 @@ class ResearchService:
         owner_id: UUID,
         project_id: UUID | None = None,
     ) -> tuple[RetrievalResult, ContextResult]:
+        await self._authorize_document_mentions(filters=filters, owner_id=owner_id)
+
         retrieval_result = await self._retrieval.search_hybrid(
             provider=RetrievalProvider.QDRANT,
             query=self._scoped_query(

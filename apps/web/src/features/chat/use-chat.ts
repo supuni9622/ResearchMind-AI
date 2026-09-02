@@ -11,6 +11,7 @@ import type {
   ChatSendOptions,
   ChatWebSource,
 } from '@/features/chat/types';
+import type { ChatMessageResponse } from '@/lib/api';
 
 function patchMessage(
   messages: ChatMessage[],
@@ -20,6 +21,22 @@ function patchMessage(
   return messages.map((m) =>
     m.id === id ? { ...m, ...(typeof patch === 'function' ? patch(m) : patch) } : m
   );
+}
+
+function mapHistoryMessage(message: ChatMessageResponse): ChatMessage {
+  return {
+    id: message.id,
+    role: message.role,
+    content: message.content,
+    stage: 'done',
+    createdAt: message.created_at,
+    attachments: message.attachments.map((attachment) => ({
+      id: attachment.id,
+      filename: attachment.filename,
+      contentType: attachment.content_type,
+      url: attachment.url,
+    })),
+  };
 }
 
 // Must match apps/api/app/core/settings.py's `deepgram_sample_rate`
@@ -151,6 +168,7 @@ export function useChat({
         content: query,
         stage: 'done',
         createdAt: new Date().toISOString(),
+        attachments: options.attachments,
       };
       const assistantId = crypto.randomUUID();
       const assistantMessage: ChatMessage = {
@@ -174,6 +192,7 @@ export function useChat({
           provider: options.provider,
           webSearchEnabled: options.webSearchEnabled,
           paperSearchEnabled: options.paperSearchEnabled,
+          attachmentIds: options.attachments?.map((attachment) => attachment.id),
         })) {
           if (event.session_id && !resolvedConversationId) {
             resolvedConversationId = event.session_id;
@@ -299,15 +318,7 @@ export function useChat({
     async (conversationId: string) => {
       const conversation = await api.chat.getConversation(conversationId);
       setActiveConversationId(conversationId);
-      setMessages(
-        conversation.messages.map((message) => ({
-          id: message.id,
-          role: message.role,
-          content: message.content,
-          stage: 'done',
-          createdAt: message.created_at,
-        }))
-      );
+      setMessages(conversation.messages.map(mapHistoryMessage));
       setMessageCursor(conversation.next_cursor);
     },
     []
@@ -319,13 +330,7 @@ export function useChat({
     try {
       const conversation = await api.chat.getConversation(activeConversationId, messageCursor);
       setMessages((current) => [
-        ...conversation.messages.map((message) => ({
-          id: message.id,
-          role: message.role,
-          content: message.content,
-          stage: 'done' as const,
-          createdAt: message.created_at,
-        })),
+        ...conversation.messages.map(mapHistoryMessage),
         ...current,
       ]);
       setMessageCursor(conversation.next_cursor);

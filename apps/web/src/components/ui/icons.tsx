@@ -327,3 +327,17 @@ export function MicOffIcon({ className, size = 14 }: IconProps) {
     </svg>
   );
 }
+
+export function PaperclipIcon({ className, size = 14 }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 14 14" {...base} className={className}>
+      <path
+        d="M9.5 3.5L4.5 8.5a2 2 0 1 0 2.83 2.83L12 6.67a3.5 3.5 0 1 0-4.95-4.95L2.5 7.17"
+        stroke="currentColor"
+        strokeWidth="1.25"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}

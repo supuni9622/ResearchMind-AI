@@ -80,12 +80,18 @@ class TestUnsupportedExtension:
 
 def _extension_matches(content_type: str, extension: str) -> bool:
     mapping = {
-        "application/pdf": ".pdf",
-        "application/vnd.openxmlformats-officedocument.wordprocessingml.document": ".docx",
-        "text/markdown": ".md",
-        "text/plain": ".txt",
+        "application/pdf": {".pdf"},
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document": {".docx"},
+        "text/markdown": {".md"},
+        "text/plain": {".txt"},
+        # Image-to-RAG ingestion (Wave 4, docs/PRIORITIZED_ROADMAP.md) --
+        # `.jpg`/`.jpeg` both map to the one `image/jpeg` content type.
+        "image/png": {".png"},
+        "image/jpeg": {".jpg", ".jpeg"},
+        "image/webp": {".webp"},
+        "image/gif": {".gif"},
     }
-    return mapping[content_type] == extension
+    return extension in mapping[content_type]
 
 
 class TestUnsupportedContentType:
@@ -94,9 +100,12 @@ class TestUnsupportedContentType:
             _validate(content_type="application/octet-stream")
 
     def test_spoofed_extension_with_mismatched_mime_raises(self) -> None:
-        """A `.pdf` filename with an image MIME type must still be rejected."""
+        """A `.pdf` filename with an unsupported MIME type must still be
+        rejected. `image/svg+xml` specifically (not `image/png`/etc.,
+        supported since Wave 4's image-to-RAG ingestion) -- SVG is a
+        markup/vector format Docling's OCR pipeline doesn't parse."""
         with pytest.raises(UnsupportedContentTypeError):
-            _validate(filename="fake.pdf", content_type="image/png")
+            _validate(filename="fake.pdf", content_type="image/svg+xml")
 
 
 class TestEmptyFile:
@@ -143,6 +152,12 @@ class TestSupportedFilesPass:
             ),
             ("notes.md", "text/markdown"),
             ("notes.txt", "text/plain"),
+            # Image-to-RAG ingestion (Wave 4, docs/PRIORITIZED_ROADMAP.md)
+            ("photo.png", "image/png"),
+            ("photo.jpg", "image/jpeg"),
+            ("photo.jpeg", "image/jpeg"),
+            ("photo.webp", "image/webp"),
+            ("photo.gif", "image/gif"),
         ],
     )
     def test_supported_pair_does_not_raise(

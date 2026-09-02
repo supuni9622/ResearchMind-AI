@@ -30,6 +30,7 @@ from app.ai.runtime.generation.providers.base import (
 )
 from app.ai.runtime.generation.providers.helpers.prompt_builder import (
     build_claude_messages,
+    build_claude_vision_messages,
 )
 from app.ai.runtime.generation.providers.helpers.structured import (
     build_claude_json_instruction,
@@ -53,6 +54,16 @@ def _is_temperature_unsupported(exc: BadRequestError) -> bool:
 
     message = str(exc)
     return "temperature" in message and "deprecated" in message
+
+
+def _build_messages(request: GenerationRequest) -> tuple[str | None, list[dict]]:
+    """Plain content string for the common case; the vision content-block
+    form only when this turn has attachments (Wave 4 chat attachments)."""
+
+    if request.attachments:
+        return build_claude_vision_messages(request)
+
+    return build_claude_messages(request)
 
 
 class ClaudeProvider(
@@ -166,7 +177,7 @@ class ClaudeProvider(
             model=self.config.model_name,
         )
 
-        system_prompt, messages = build_claude_messages(
+        system_prompt, messages = _build_messages(
             request,
         )
 
@@ -269,7 +280,7 @@ class ClaudeProvider(
         request: GenerationRequest,
     ):
 
-        system_prompt, messages = build_claude_messages(
+        system_prompt, messages = _build_messages(
             request,
         )
 

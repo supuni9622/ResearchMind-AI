@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import time
+from collections import defaultdict
 from collections.abc import AsyncGenerator
 from datetime import datetime
 from typing import Any
@@ -11,7 +12,9 @@ import structlog
 from fastapi import (
     APIRouter,
     Depends,
+    File,
     Query,
+    UploadFile,
     WebSocket,
     WebSocketDisconnect,
     status,
@@ -48,6 +51,8 @@ from app.ai.memory.session.state_updater import (
     distill_and_upsert_session_state,
 )
 from app.ai.observability.prometheus.create import get_metrics_recorder
+from app.ai.runtime.chat.attachments.exceptions import ChatAttachmentValidationError
+from app.ai.runtime.chat.attachments.service import ChatAttachmentService
 from app.ai.runtime.chat.paper_query import (
     PaperQueryExtractionService,
     create_paper_query_extraction_service,
@@ -59,7 +64,12 @@ from app.ai.runtime.events.models import StreamEvent
 from app.ai.runtime.generation.caching.enums import CachePolicy, CacheRuntime
 from app.ai.runtime.generation.config_fingerprint import config_fingerprint_kwargs
 from app.ai.runtime.generation.enums import GenerationProvider
-from app.ai.runtime.generation.models import GenerationRequest, StreamEventType
+from app.ai.runtime.generation.models import (
+    GenerationAttachment,
+    GenerationRequest,
+    StreamEventType,
+)
+from app.ai.runtime.generation.routing.enums import RequiredCapability
 from app.ai.runtime.generation.service import GenerationService
 from app.ai.runtime.generation.streaming.service import StreamingService
 from app.ai.runtime.generation.streaming.transports.sse import sse_stream_response
@@ -79,6 +89,8 @@ from app.core.settings import settings
 from app.db.session import SessionFactory
 from app.dependencies.generation import (
     get_artifact_policy_service_dependency,
+    get_chat_attachment_repository,
+    get_chat_attachment_service,
     get_conversation_artifact_writer,
     get_conversation_service,
     get_generation_service,
@@ -97,12 +109,16 @@ from app.dependencies.research import (
     get_web_search_necessity_service,
     get_web_search_service,
 )
-from app.exceptions.base import AppException, RateLimitExceededException
+from app.dependencies.upload import get_document_storage
+from app.exceptions.base import AppException, RateLimitExceededException, ValidationException
 from app.infrastructure.metrics.voice import VOICE_TURN_DURATION
 from app.infrastructure.rate_limiting import ValkeyRateLimiter
+from app.models.chat_attachment import ChatAttachment
 from app.models.conversation import Conversation, Message
 from app.models.user import User
+from app.repositories.chat_attachment import ChatAttachmentRepository
 from app.schemas.chat import (
+    ChatAttachmentResponse,
     ChatConversationListResponse,
     ChatConversationResponse,
     ChatConversationSummary,
@@ -144,7 +160,10 @@ async def _check_chat_rate_limit(*, rate_limiter: ValkeyRateLimiter, owner_id: U
     )
 
 
-def _message_response(message: Message) -> ChatMessageResponse:
+def _message_response(
+    message: Message,
+    attachments: list[ChatAttachmentResponse] | None = None,
+) -> ChatMessageResponse:
     return ChatMessageResponse(
         id=message.id,
         role=message.role.value,
@@ -152,6 +171,7 @@ def _message_response(message: Message) -> ChatMessageResponse:
         provider=message.provider,
         model=message.model,
         created_at=message.created_at,
+        attachments=attachments or [],
     )
 
 
@@ -423,6 +443,44 @@ def _with_paper_search_context(
     )
 
 
+async def _resolve_attachments(
+    *,
+    payload: ChatStreamRequest,
+    owner_id: UUID,
+    attachment_service: ChatAttachmentService,
+    generation_service: GenerationService,
+) -> tuple[list[GenerationAttachment], list[RequiredCapability]]:
+    """Resolves this turn's attachment ids into `GenerationAttachment`s and
+    the routing-capability requirement they imply.
+
+    An explicit `payload.provider` bypasses routing entirely (see
+    `RoutingService`'s own docstring), so `required_capabilities` alone
+    can't stop a non-vision provider pick -- checked directly against the
+    registered provider's own capabilities instead, failing fast before
+    any attachment lookup or generation work happens.
+    """
+
+    if not payload.attachment_ids:
+        return [], []
+
+    if payload.provider is not None:
+        provider_instance = generation_service.registry.get(payload.provider)
+
+        if not provider_instance.config.capabilities.vision:
+            raise ValidationException(
+                message=(
+                    f"Provider '{payload.provider.value}' does not support image attachments."
+                ),
+            )
+
+    attachments = await attachment_service.resolve_for_generation(
+        payload.attachment_ids,
+        owner_id=owner_id,
+    )
+
+    return attachments, [RequiredCapability.VISION]
+
+
 async def _build_request(
     *,
     payload: ChatStreamRequest,
@@ -430,6 +488,8 @@ async def _build_request(
     owner_id: UUID,
     memory_service: MemoryService | None,
     prompt_history: PromptHistory,
+    attachment_service: ChatAttachmentService,
+    generation_service: GenerationService,
     web_context_text: str | None = None,
     paper_context_text: str | None = None,
     web_invoked: bool = False,
@@ -460,6 +520,13 @@ async def _build_request(
     )
     prompt_context = _with_web_search_context(prompt_context, web_context_text)
     prompt_context = _with_paper_search_context(prompt_context, paper_context_text)
+
+    attachments, required_capabilities = await _resolve_attachments(
+        payload=payload,
+        owner_id=owner_id,
+        attachment_service=attachment_service,
+        generation_service=generation_service,
+    )
 
     # E23 (EVALUATION_PLAN.md §10): recorded only when the toggle was on
     # for this turn -- "invoked" is only a meaningful question once the
@@ -500,6 +567,8 @@ async def _build_request(
         runtime=RuntimeType.CHAT,
         artifact_runtime=ArtifactRuntime.CHAT,
         metadata=tool_invocation_metadata,
+        attachments=attachments,
+        required_capabilities=required_capabilities,
         **config_fingerprint_kwargs(surface="chat", prompt_version="chat-v1"),
     )
 
@@ -515,6 +584,8 @@ async def _prepare_chat_generation(
     web_search_necessity: WebSearchNecessityService | None,
     paper_search: PaperSearchService | None,
     paper_query_extraction: PaperQueryExtractionService | None,
+    attachment_service: ChatAttachmentService,
+    generation_service: GenerationService,
 ) -> tuple[list[StreamEvent], GenerationRequest]:
     """Runs the toggle-gated web search and paper search steps (if any)
     before building the `GenerationRequest`, so evidence -- when found --
@@ -564,6 +635,8 @@ async def _prepare_chat_generation(
         owner_id=owner_id,
         memory_service=memory_service,
         prompt_history=prompt_history,
+        attachment_service=attachment_service,
+        generation_service=generation_service,
         web_context_text=web_outcome.context_text,
         paper_context_text=paper_outcome.context_text,
         web_invoked=web_outcome.invoked,
@@ -720,6 +793,7 @@ async def _persist_on_complete(
     memory_extraction_service: MemoryExtractionService | None = None,
     session_state_updater: SessionStateUpdaterService | None = None,
     project_id: UUID | None = None,
+    attachment_ids: list[UUID] | None = None,
 ) -> AsyncGenerator[StreamEvent, None]:
     """
     Forwards every event untouched, accumulating TOKEN content along the
@@ -748,6 +822,7 @@ async def _persist_on_complete(
                 user_prompt=user_prompt,
                 assistant_content=assistant_content,
                 provider=provider.value if provider else None,
+                attachment_ids=attachment_ids,
             )
 
             await _extract_and_store_memory(
@@ -862,6 +937,10 @@ async def get_chat_conversation(
     ),
     current_user: User = Depends(get_current_user),
     conversation_service: ConversationService = Depends(get_conversation_service),
+    chat_attachment_repository: ChatAttachmentRepository = Depends(
+        get_chat_attachment_repository,
+    ),
+    chat_attachment_service: ChatAttachmentService = Depends(get_chat_attachment_service),
 ) -> ChatConversationResponse:
     conversation = await conversation_service.get_or_create(
         conversation_id=conversation_id,
@@ -872,11 +951,90 @@ async def get_chat_conversation(
         before_message_id=cursor,
         limit=limit,
     )
+
+    attachments_by_message: dict[UUID, list[ChatAttachment]] = defaultdict(list)
+    for attachment in await chat_attachment_repository.list_by_message_ids(
+        [message.id for message in page.messages],
+    ):
+        if attachment.message_id is not None:
+            attachments_by_message[attachment.message_id].append(attachment)
+
+    messages: list[ChatMessageResponse] = []
+    for message in page.messages:
+        message_attachments: list[ChatAttachmentResponse] = []
+        for attachment in attachments_by_message.get(message.id, []):
+            message_attachments.append(
+                ChatAttachmentResponse(
+                    id=attachment.id,
+                    filename=attachment.filename,
+                    content_type=attachment.content_type,
+                    url=await chat_attachment_service.generate_view_url(attachment),
+                )
+            )
+        messages.append(_message_response(message, message_attachments))
+
     return ChatConversationResponse(
         conversation_id=conversation.id,
         title=conversation.title,
-        messages=[_message_response(message) for message in page.messages],
+        messages=messages,
         next_cursor=page.next_cursor,
+    )
+
+
+@router.post(
+    "/attachments",
+    response_model=ChatAttachmentResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Upload an image to attach to a Chat turn (Wave 4, <=5/turn)",
+)
+async def upload_chat_attachment(
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
+    chat_attachment_service: ChatAttachmentService = Depends(get_chat_attachment_service),
+    rate_limiter: ValkeyRateLimiter = Depends(get_rate_limiter),
+) -> ChatAttachmentResponse:
+    """
+    Pre-uploaded ahead of `POST /chat/stream`/`WS /chat/ws` and referenced
+    by id in `ChatStreamRequest.attachment_ids` -- `streamChat` builds one
+    JSON body before opening the SSE stream, so the image can't be sent
+    inline with it. Modeled on `documents.py`'s `upload_document`, minus
+    RAG processing: this is a vision-model attachment, not a knowledge-base
+    document (see `ChatAttachmentService`).
+    """
+
+    await enforce_rate_limit(
+        rate_limiter,
+        scope="chat_attachment",
+        owner_id=current_user.id,
+        limit=settings.chat_attachment_rate_limit_requests,
+        window_seconds=settings.chat_attachment_rate_limit_window_seconds,
+    )
+
+    if not file.filename:
+        raise ValidationException(
+            message="Uploaded attachment must have a filename.",
+        )
+
+    file.file.seek(0, 2)
+    size_bytes = file.file.tell()
+    file.file.seek(0)
+
+    try:
+        attachment = await chat_attachment_service.upload(
+            owner_id=current_user.id,
+            filename=file.filename,
+            content_type=file.content_type or "application/octet-stream",
+            size_bytes=size_bytes,
+            file=file.file,
+        )
+    except ChatAttachmentValidationError as exc:
+        raise ValidationException(message=str(exc)) from exc
+
+    return ChatAttachmentResponse(
+        id=attachment.id,
+        filename=attachment.filename,
+        content_type=attachment.content_type,
+        url=await chat_attachment_service.generate_view_url(attachment),
     )
 
 
@@ -907,6 +1065,7 @@ async def stream_chat(
         get_paper_query_extraction_service
     ),
     project_authorization: ProjectAuthorizationService = Depends(get_project_authorization_service),
+    chat_attachment_service: ChatAttachmentService = Depends(get_chat_attachment_service),
 ) -> StreamingResponse:
     """
     A `POST` consumed via `fetch` + `ReadableStream` on the frontend, not
@@ -947,6 +1106,8 @@ async def stream_chat(
         web_search_necessity=web_search_necessity,
         paper_search=paper_search,
         paper_query_extraction=paper_query_extraction,
+        attachment_service=chat_attachment_service,
+        generation_service=generation_service,
     )
 
     events = _chain_events(
@@ -972,6 +1133,7 @@ async def stream_chat(
             memory_extraction_service=memory_extraction_service,
             session_state_updater=session_state_updater,
             project_id=conversation.project_id,
+            attachment_ids=payload.attachment_ids,
         )
     )
 
@@ -1026,6 +1188,11 @@ async def stream_chat_ws(
             return
 
         conversation_service = ConversationService(session)
+        chat_attachment_service = ChatAttachmentService(
+            session=session,
+            storage=get_document_storage(),
+            repository=ChatAttachmentRepository(session),
+        )
         streaming_service = get_streaming_service()
         generation_service = get_generation_service()
         conversation_artifact_writer = get_conversation_artifact_writer()
@@ -1083,6 +1250,8 @@ async def stream_chat_ws(
             web_search_necessity=web_search_necessity,
             paper_search=paper_search,
             paper_query_extraction=paper_query_extraction,
+            attachment_service=chat_attachment_service,
+            generation_service=generation_service,
         )
 
         events = _chain_events(
@@ -1110,6 +1279,7 @@ async def stream_chat_ws(
                     memory_extraction_service=memory_extraction_service,
                     session_state_updater=session_state_updater,
                     project_id=conversation.project_id,
+                    attachment_ids=payload.attachment_ids,
                 ),
             )
         finally:
@@ -1197,6 +1367,11 @@ async def stream_chat_voice(
             return
 
         conversation_service = ConversationService(session)
+        chat_attachment_service = ChatAttachmentService(
+            session=session,
+            storage=get_document_storage(),
+            repository=ChatAttachmentRepository(session),
+        )
         streaming_service = get_streaming_service()
         generation_service = get_generation_service()
         conversation_artifact_writer = get_conversation_artifact_writer()
@@ -1299,6 +1474,8 @@ async def stream_chat_voice(
                         web_search_necessity=web_search_necessity,
                         paper_search=paper_search,
                         paper_query_extraction=paper_query_extraction,
+                        attachment_service=chat_attachment_service,
+                        generation_service=generation_service,
                     )
                     logger.info(
                         "voice.chat.turn_checkpoint",

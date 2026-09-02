@@ -50,6 +50,7 @@ class DocumentFormat(StrEnum):
     DOCX = "docx"
     MARKDOWN = "markdown"
     TEXT = "text"
+    IMAGE = "image"
 
     @classmethod
     def from_content_type(cls, content_type: str) -> DocumentFormat:
@@ -65,6 +66,16 @@ class DocumentFormat(StrEnum):
             "application/vnd.openxmlformats-officedocument.wordprocessingml.document": cls.DOCX,
             "text/markdown": cls.MARKDOWN,
             "text/plain": cls.TEXT,
+            # Image-to-RAG ingestion (Wave 4, docs/PRIORITIZED_ROADMAP.md)
+            # -- same 4 MIME types Wave 4 Phase 1 validated for chat
+            # attachments. Docling's `ImageFormatOption` already defaults
+            # to `do_ocr=True` (confirmed against the installed package),
+            # so no new parser/pipeline config is needed -- only this
+            # mapping and the upload validator gate it.
+            "image/png": cls.IMAGE,
+            "image/jpeg": cls.IMAGE,
+            "image/webp": cls.IMAGE,
+            "image/gif": cls.IMAGE,
         }
 
         try:

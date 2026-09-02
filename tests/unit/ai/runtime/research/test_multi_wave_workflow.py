@@ -5,6 +5,12 @@ from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
 import pytest
+from app.ai.runtime.research.charts.models import (
+    ChartDataPoint,
+    ChartGenerationDecision,
+    ChartSpec,
+)
+from app.ai.runtime.research.charts.necessity import ChartGenerationService
 from app.ai.runtime.research.evidence_artifact import ResearchEvidenceArtifactWriter
 from app.ai.runtime.research.exceptions import (
     ResearchPlanRejectedError,
@@ -730,6 +736,85 @@ async def test_multi_wave_graph_synthesizes_and_reviews_against_the_rewritten_go
     assert synthesis.synthesize.await_args.kwargs["goal"] == "compare LoRA with QLoRA"
     assert reviewer.review.await_args.kwargs["goal"] == "compare LoRA with QLoRA"
     assert result["final_report_pdf_ref"].endswith("final-report.pdf")
+
+
+@pytest.mark.asyncio
+async def test_multi_wave_graph_generates_charts_after_report_approval_before_persisting() -> None:
+    """Wave 4 (docs/PRIORITIZED_ROADMAP.md): `generate_charts` sits between
+    `await_report_approval`'s approved branch and `persist_final_report`,
+    with no new approval checkpoint of its own -- the human already
+    approved this report content."""
+
+    run_id, owner_id = uuid4(), uuid4()
+    retrieval = AsyncMock()
+    retrieval.execute_task.return_value = ResearchTaskResult(
+        task_id="only", status=ResearchTaskStatus.COMPLETED
+    )
+    writer = AsyncMock(spec=ResearchEvidenceArtifactWriter)
+    writer.write.return_value = "artifacts/research-runs/evidence.json"
+    synthesis = AsyncMock(spec=ResearchSynthesisService)
+    synthesis.synthesize.return_value = ResearchDraft(
+        title="Report",
+        abstract="Abstract.",
+        methodology="Methodology.",
+        findings=[ResearchDraftSection(heading="Adoption", content="Adoption rose to 40%.")],
+        discussion="Discussion.",
+        conclusion="Conclusion.",
+    )
+    reviewer = AsyncMock(spec=ResearchReviewService)
+    reviewer.review.return_value = ResearchReview(
+        decision=ReviewDecision.PASS,
+        citation_integrity_score=1.0,
+        completeness_score=1.0,
+    )
+    final_report_writer = AsyncMock(spec=ResearchFinalReportArtifactWriter)
+    final_report_writer.write.return_value = ResearchFinalReportReferences(
+        report_ref="artifacts/research-runs/final-report.json",
+        pdf_ref="artifacts/research-runs/final-report.pdf",
+    )
+    chart_spec = ChartSpec(
+        chart_type="bar",
+        title="Adoption rate",
+        data=[ChartDataPoint(label="2024", value=40.0)],
+        section_heading="Adoption",
+    )
+    chart_generation = AsyncMock(spec=ChartGenerationService)
+    chart_generation.decide.return_value = ChartGenerationDecision(
+        needs_charts=True, charts=[chart_spec], reason="Numeric adoption rate found."
+    )
+    graph = compile_multi_wave_research_graph(
+        checkpointer=InMemorySaver(),
+        task_retrieval=retrieval,
+        evidence_writer=writer,
+        synthesis=synthesis,
+        final_report_writer=final_report_writer,
+        reviewer=reviewer,
+        chart_generation=chart_generation,
+    )
+    only = ResearchPlanTask(task_id="only", question="only")
+    config = {"configurable": {"thread_id": str(run_id)}}
+
+    await graph.ainvoke(
+        {
+            "research_run_id": str(run_id),
+            "owner_id": str(owner_id),
+            "plan": {"goal": "goal", "complexity": "simple"},
+            "waves": [[only.model_dump(mode="json")]],
+            "filters": {},
+            "top_k": 5,
+            "task_results": {},
+        },
+        config=config,
+    )
+    await _approve_plan(graph, config)
+    await graph.ainvoke(Command(resume={"decision": "approved"}), config=config)
+
+    chart_generation.decide.assert_awaited_once()
+    assert chart_generation.decide.await_args.kwargs["draft"].title == "Report"
+    final_report_writer.write.assert_awaited_once()
+    written_charts = final_report_writer.write.await_args.kwargs["charts"]
+    assert len(written_charts) == 1
+    assert written_charts[0].title == "Adoption rate"
 
 
 @pytest.mark.asyncio

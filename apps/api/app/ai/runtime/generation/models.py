@@ -51,6 +51,21 @@ class ToolDefinition(BaseModel):
     parameters: dict[str, Any]
 
 
+class GenerationAttachment(BaseModel):
+    """
+    An image handed to a vision-capable provider alongside the prompt.
+
+    `url` is a short-lived presigned S3 URL (chat.py `_build_request`),
+    fetched directly by the provider -- not embedded as base64. Providers
+    without `ProviderCapabilities.vision` never see this: routing filters
+    them out whenever `GenerationRequest.attachments` is non-empty (see
+    `RequiredCapability.VISION` in `routing/service.py`).
+    """
+
+    url: str
+    content_type: str
+
+
 class StreamEventType(StrEnum):
     START = "start"
     TOKEN = "token"
@@ -150,6 +165,17 @@ class GenerationRequest(BaseModel):
     """
 
     required_capabilities: list[RequiredCapability] = Field(default_factory=list)
+
+    attachments: list[GenerationAttachment] = Field(default_factory=list)
+    """
+    Images for this turn (Wave 4 chat attachments, docs/
+    PRIORITIZED_ROADMAP.md). Empty for every existing caller (Deep
+    Research, Research, Voice) -- providers only branch onto their
+    vision-content-block builders when this is non-empty, so the plain
+    text-prompt path is unchanged everywhere else. Callers that populate
+    this should also add `RequiredCapability.VISION` to
+    `required_capabilities` so routing never selects a non-vision model.
+    """
     """
     Capabilities the routed model must support (e.g. tool calling).
     Only consulted alongside `routing_strategy` — has no effect when

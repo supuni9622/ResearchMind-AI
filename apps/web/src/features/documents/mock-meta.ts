@@ -31,7 +31,7 @@ export function getDocumentMeta(doc: Document): DocumentMeta {
   };
 }
 
-export type DocKind = 'pdf' | 'docx' | 'markdown' | 'other';
+export type DocKind = 'pdf' | 'docx' | 'markdown' | 'image' | 'other';
 
 export function getDocKind(doc: Document): DocKind {
   const ct = doc.content_type.toLowerCase();
@@ -39,6 +39,12 @@ export function getDocKind(doc: Document): DocKind {
   if (ct.includes('pdf') || name.endsWith('.pdf')) return 'pdf';
   if (ct.includes('word') || name.endsWith('.docx') || name.endsWith('.doc')) return 'docx';
   if (ct.includes('markdown') || name.endsWith('.md')) return 'markdown';
+  if (
+    ct.startsWith('image/') ||
+    ['.png', '.jpg', '.jpeg', '.webp', '.gif'].some((ext) => name.endsWith(ext))
+  ) {
+    return 'image';
+  }
   return 'other';
 }
 
@@ -46,5 +52,6 @@ export const DOC_KIND_LABEL: Record<DocKind, string> = {
   pdf: 'PDF',
   docx: 'DOCX',
   markdown: 'Markdown',
+  image: 'Image',
   other: 'Other',
 };

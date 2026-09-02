@@ -63,7 +63,7 @@ export interface DocumentKnowledgeStats {
   embedding_count: number;
 }
 
-export type DocumentKind = 'pdf' | 'docx' | 'markdown' | 'other';
+export type DocumentKind = 'pdf' | 'docx' | 'markdown' | 'image' | 'other';
 
 export interface DocumentListParams {
   limit?: number;
@@ -830,6 +830,17 @@ export interface ChatStreamOptions {
   /** Same toggle-is-the-approval shape, against the Research Intelligence
    * MCP server instead of Tavily (prds/3. mcp_server_setup.md). */
   paperSearchEnabled?: boolean;
+  /** Ids from prior `POST /chat/attachments` uploads (Wave 4, <=5/turn) --
+   * pre-uploaded, since this call builds one JSON body before opening the
+   * SSE stream, so an image can't be sent inline with it. */
+  attachmentIds?: string[];
+}
+
+export interface ChatAttachmentResponse {
+  id: string;
+  filename: string;
+  content_type: string;
+  url: string;
 }
 
 export interface ChatMessageResponse {
@@ -839,6 +850,7 @@ export interface ChatMessageResponse {
   provider: string | null;
   model: string | null;
   created_at: string;
+  attachments: ChatAttachmentResponse[];
 }
 
 export interface ChatConversationSummaryResponse {
@@ -884,6 +896,7 @@ async function* streamChat(
         provider: options.provider ?? null,
         web_search_enabled: options.webSearchEnabled ?? false,
         paper_search_enabled: options.paperSearchEnabled ?? false,
+        attachment_ids: options.attachmentIds ?? [],
       }),
     });
   } catch {
@@ -1043,6 +1056,31 @@ export const api = {
           cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''
         }`
       ),
+    // Wave 4 chat attachments (<=5/turn) -- modeled on `documents.upload`
+    // below (same multipart pattern), pre-uploaded ahead of `stream()`
+    // since that call builds one JSON body before opening the SSE stream.
+    uploadAttachment: async (file: File): Promise<ChatAttachmentResponse> => {
+      const token = getStoredToken();
+      const form = new FormData();
+      form.append('file', file);
+
+      let res: Response;
+      try {
+        res = await fetch(`${BASE}/api/v1/chat/attachments`, {
+          method: 'POST',
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+          body: form,
+        });
+      } catch {
+        throw new Error('Could not reach the server. Is the backend running?');
+      }
+
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(extractErrorMessage(body, `Attachment upload failed (${res.status})`));
+      }
+      return res.json() as Promise<ChatAttachmentResponse>;
+    },
   },
   research: {
     ask: (query: string, options: ResearchAskOptions = {}) =>

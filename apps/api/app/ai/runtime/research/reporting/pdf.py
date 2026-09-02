@@ -6,15 +6,18 @@ from html import escape
 from io import BytesIO
 from typing import TYPE_CHECKING
 
+import structlog
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_CENTER
 from reportlab.lib.pagesizes import LETTER
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import inch
-from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer
+from reportlab.platypus import Image, Paragraph, SimpleDocTemplate, Spacer
 from reportlab.platypus.flowables import Flowable
 
+from app.ai.runtime.research.charts.models import ChartSpec
 from app.ai.runtime.research.evidence import ResearchEvidenceBundle
+from app.ai.runtime.research.reporting.charts import render_chart_png
 from app.ai.runtime.research.review import ResearchReview
 from app.ai.runtime.research.synthesis.models import ResearchDraft
 
@@ -22,12 +25,15 @@ if TYPE_CHECKING:
     from reportlab.pdfgen.canvas import Canvas
     from reportlab.platypus.doctemplate import BaseDocTemplate
 
+logger = structlog.get_logger()
+
 
 def render_research_report_pdf(
     *,
     draft: ResearchDraft,
     review: ResearchReview,
     evidence: ResearchEvidenceBundle,
+    charts: list[ChartSpec] | None = None,
 ) -> bytes:
     """Return a self-contained standard research-report PDF.
 
@@ -90,6 +96,8 @@ def render_research_report_pdf(
             heading_style,
             body_style,
         )
+    if charts:
+        _append_charts(story, charts, heading_style, body_style)
     _append_references(story, draft, evidence, heading_style, body_style)
     story.append(Spacer(1, 8))
     story.append(
@@ -116,6 +124,41 @@ def _append_section(
 ) -> None:
     story.append(Paragraph(_safe_text(heading), heading_style))
     story.append(Paragraph(_safe_text(content), body_style))
+
+
+def _append_charts(
+    story: list[Flowable],
+    charts: list[ChartSpec],
+    heading_style: ParagraphStyle,
+    body_style: ParagraphStyle,
+) -> None:
+    """One bad chart spec must never drop the rest of the report's
+    figures or fail the whole report -- matches this codebase's
+    established fail-open philosophy (memory retrieval, web-search
+    necessity)."""
+
+    rendered: list[tuple[ChartSpec, bytes]] = []
+    for spec in charts:
+        try:
+            rendered.append((spec, render_chart_png(spec)))
+        except Exception as exc:
+            logger.warning(
+                "research_runtime.charts.render_failed",
+                chart_title=spec.title,
+                error_type=type(exc).__name__,
+                error=str(exc),
+            )
+
+    if not rendered:
+        return
+
+    story.append(Paragraph("Figures", heading_style))
+    for spec, png_bytes in rendered:
+        story.append(Paragraph(_safe_text(spec.title), body_style))
+        story.append(Image(BytesIO(png_bytes), width=5.5 * inch, height=3.67 * inch))
+        if spec.section_heading:
+            story.append(Paragraph(_safe_text(f"Illustrates: {spec.section_heading}"), body_style))
+        story.append(Spacer(1, 8))
 
 
 def _append_references(

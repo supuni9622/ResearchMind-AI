@@ -1,9 +1,10 @@
 'use client';
 
-import { useRef } from 'react';
-import type { GenerationProvider } from '@/lib/api';
+import { useRef, useState } from 'react';
+import { api, type GenerationProvider } from '@/lib/api';
 import type { VoiceChatStatus } from '@/features/chat/use-chat';
-import { BookIcon, MicIcon, MicOffIcon, NetworkIcon } from '@/components/ui/icons';
+import type { ChatAttachment } from '@/features/chat/types';
+import { BookIcon, MicIcon, MicOffIcon, NetworkIcon, PaperclipIcon } from '@/components/ui/icons';
 import { useProviderOptions } from '@/hooks/use-provider-options';
 
 const VOICE_STATUS_LABEL: Record<VoiceChatStatus, string> = {
@@ -13,6 +14,17 @@ const VOICE_STATUS_LABEL: Record<VoiceChatStatus, string> = {
   speaking: 'Speaking…',
   error: 'Voice error',
 };
+
+// Wave 4 chat attachments (docs/PRIORITIZED_ROADMAP.md) -- mirrors
+// apps/api/app/ai/runtime/chat/attachments/constants.py.
+const MAX_ATTACHMENTS_PER_TURN = 5;
+const MAX_ATTACHMENT_SIZE_BYTES = 10 * 1024 * 1024;
+const SUPPORTED_ATTACHMENT_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/gif'];
+
+interface UploadingAttachment {
+  localId: string;
+  filename: string;
+}
 
 export function ChatComposer({
   value,
@@ -25,6 +37,8 @@ export function ChatComposer({
   onWebSearchEnabledChange,
   paperSearchEnabled,
   onPaperSearchEnabledChange,
+  attachments,
+  onAttachmentsChange,
   voiceStatus,
   voiceError,
   voiceDraftTranscript,
@@ -41,6 +55,12 @@ export function ChatComposer({
   onWebSearchEnabledChange: (v: boolean) => void;
   paperSearchEnabled: boolean;
   onPaperSearchEnabledChange: (v: boolean) => void;
+  attachments: ChatAttachment[];
+  // Functional-updater form (mirrors `Dispatch<SetStateAction<...>>`) --
+  // parallel uploads each resolve independently and must append against
+  // the *latest* list, not whatever `attachments` this closure captured
+  // when the batch started.
+  onAttachmentsChange: (update: ChatAttachment[] | ((prev: ChatAttachment[]) => ChatAttachment[])) => void;
   voiceStatus: VoiceChatStatus;
   voiceError: string | null;
   voiceDraftTranscript: string;
@@ -48,8 +68,66 @@ export function ChatComposer({
   onStopVoice: () => void;
 }) {
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const providerOptions = useProviderOptions();
   const voiceActive = voiceStatus !== 'idle' && voiceStatus !== 'error';
+  const [uploading, setUploading] = useState<UploadingAttachment[]>([]);
+  const [attachmentError, setAttachmentError] = useState<string | null>(null);
+  const attachmentSlotsUsed = attachments.length + uploading.length;
+
+  async function handleFilesSelected(files: FileList | null) {
+    if (!files || files.length === 0) return;
+    setAttachmentError(null);
+
+    const incoming = Array.from(files);
+    const availableSlots = MAX_ATTACHMENTS_PER_TURN - attachmentSlotsUsed;
+    if (incoming.length > availableSlots) {
+      setAttachmentError(
+        availableSlots <= 0
+          ? `You can attach up to ${MAX_ATTACHMENTS_PER_TURN} images per turn.`
+          : `Only ${availableSlots} more image${availableSlots === 1 ? '' : 's'} can be added to this turn.`
+      );
+    }
+
+    const accepted = incoming.slice(0, Math.max(availableSlots, 0)).filter((file) => {
+      if (!SUPPORTED_ATTACHMENT_TYPES.includes(file.type)) {
+        setAttachmentError(`${file.name} isn't a supported image type.`);
+        return false;
+      }
+      if (file.size > MAX_ATTACHMENT_SIZE_BYTES) {
+        setAttachmentError(`${file.name} is larger than 10MB.`);
+        return false;
+      }
+      return true;
+    });
+
+    await Promise.all(
+      accepted.map(async (file) => {
+        const localId = crypto.randomUUID();
+        setUploading((prev) => [...prev, { localId, filename: file.name }]);
+        try {
+          const uploaded = await api.chat.uploadAttachment(file);
+          onAttachmentsChange((prev) => [
+            ...prev,
+            {
+              id: uploaded.id,
+              filename: uploaded.filename,
+              contentType: uploaded.content_type,
+              url: uploaded.url,
+            },
+          ]);
+        } catch (err) {
+          setAttachmentError(err instanceof Error ? err.message : 'Upload failed.');
+        } finally {
+          setUploading((prev) => prev.filter((item) => item.localId !== localId));
+        }
+      })
+    );
+  }
+
+  function handleRemoveAttachment(id: string) {
+    onAttachmentsChange((prev) => prev.filter((attachment) => attachment.id !== id));
+  }
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -75,6 +153,40 @@ export function ChatComposer({
             </span>
           </div>
         )}
+        {(attachments.length > 0 || uploading.length > 0) && (
+          <div className="mb-1.5 px-1 flex flex-wrap gap-1.5">
+            {attachments.map((attachment) => (
+              <div key={attachment.id} className="relative w-11 h-11 flex-shrink-0 group">
+                {/* eslint-disable-next-line @next/next/no-img-element -- presigned S3 URL, not a Next-optimizable local/remote asset */}
+                <img
+                  src={attachment.url}
+                  alt={attachment.filename}
+                  className="w-11 h-11 rounded-lg object-cover border border-ink-600"
+                />
+                <button
+                  type="button"
+                  title={`Remove ${attachment.filename}`}
+                  onClick={() => handleRemoveAttachment(attachment.id)}
+                  className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-ink-900 border border-ink-600 text-stone-400 hover:text-stone-100 flex items-center justify-center text-[9px] leading-none opacity-0 group-hover:opacity-100 transition-opacity"
+                >
+                  ×
+                </button>
+              </div>
+            ))}
+            {uploading.map((item) => (
+              <div
+                key={item.localId}
+                title={item.filename}
+                className="w-11 h-11 flex-shrink-0 rounded-lg border border-ink-600 bg-ink-800 flex items-center justify-center"
+              >
+                <div className="w-3.5 h-3.5 border border-current/30 border-t-current rounded-full animate-spin text-stone-500" />
+              </div>
+            ))}
+          </div>
+        )}
+        {attachmentError && (
+          <p className="mb-1.5 px-1 font-mono text-[10px] text-red-400">{attachmentError}</p>
+        )}
         <div className="flex gap-2.5 items-end">
           <div className="flex-1 relative">
             <textarea
@@ -89,6 +201,26 @@ export function ChatComposer({
               style={{ fieldSizing: 'content' } as React.CSSProperties}
             />
           </div>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept={SUPPORTED_ATTACHMENT_TYPES.join(',')}
+            multiple
+            hidden
+            onChange={(e) => {
+              void handleFilesSelected(e.target.files);
+              e.target.value = '';
+            }}
+          />
+          <button
+            type="button"
+            title="Attach an image (up to 5 per turn)"
+            disabled={loading || attachmentSlotsUsed >= MAX_ATTACHMENTS_PER_TURN}
+            onClick={() => fileInputRef.current?.click()}
+            className="flex-shrink-0 w-9 h-9 rounded-xl flex items-center justify-center transition-colors duration-150 disabled:cursor-not-allowed disabled:opacity-40 bg-ink-800 border border-ink-600 text-stone-400 hover:text-stone-200"
+          >
+            <PaperclipIcon size={14} />
+          </button>
           <button
             type="button"
             title={voiceActive ? 'Stop voice' : 'Talk to the assistant (T13 — unverified in a real browser yet)'}

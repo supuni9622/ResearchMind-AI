@@ -21,6 +21,7 @@ from app.ai.runtime.generation.providers.base import (
     BaseGenerationProvider,
 )
 from app.ai.runtime.generation.providers.helpers.prompt_builder import (
+    build_gemini_vision_contents,
     build_prompt_text,
 )
 from app.ai.runtime.generation.providers.helpers.structured import (
@@ -37,6 +38,24 @@ from google.genai import types
 from google.genai.errors import APIError
 
 logger = structlog.get_logger()
+
+
+async def _build_contents(request: GenerationRequest) -> Any:
+    """Plain string for the common case; the vision `contents` form only
+    when this turn has attachments (Wave 4 chat attachments) -- fetches
+    each attachment's bytes, so this is the one provider builder here
+    that does I/O and must be awaited.
+
+    Typed `Any`, not the narrower `str | list[dict]` -- `generate_content`'s
+    own `contents=` accepts an SDK-defined union of typed content shapes a
+    plain `dict` doesn't structurally satisfy under mypy; the SDK validates
+    the actual shape at call time.
+    """
+
+    if request.attachments:
+        return await build_gemini_vision_contents(request)
+
+    return build_prompt_text(request)
 
 
 class GeminiProvider(
@@ -167,7 +186,7 @@ class GeminiProvider(
         try:
             stream = await self._client.aio.models.generate_content_stream(
                 model=self.config.model_name,
-                contents=build_prompt_text(
+                contents=await _build_contents(
                     request,
                 ),
                 config=config,
@@ -220,7 +239,7 @@ class GeminiProvider(
 
         return await self._client.aio.models.generate_content(
             model=self.config.model_name,
-            contents=build_prompt_text(
+            contents=await _build_contents(
                 request,
             ),
             config=config,

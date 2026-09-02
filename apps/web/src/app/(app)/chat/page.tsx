@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { GenerationProvider } from '@/lib/api';
+import type { ChatAttachment } from '@/features/chat/types';
 import { useChat } from '@/features/chat/use-chat';
 import { ChatSidebar } from '@/features/chat/components/chat-sidebar';
 import { MessageBubble } from '@/features/chat/components/message-bubble';
@@ -41,6 +42,7 @@ export default function ChatPage() {
   const [provider, setProvider] = useState<GenerationProvider | 'auto'>('auto');
   const [webSearchEnabled, setWebSearchEnabled] = useState(false);
   const [paperSearchEnabled, setPaperSearchEnabled] = useState(false);
+  const [attachments, setAttachments] = useState<ChatAttachment[]>([]);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   const lastMessageContent = messages[messages.length - 1]?.content;
@@ -85,12 +87,14 @@ export default function ChatPage() {
     const query = input.trim();
     if (!query || sending) return;
     setInput('');
+    setAttachments([]);
     void send(query, {
       provider: provider === 'auto' ? undefined : provider,
       webSearchEnabled,
       paperSearchEnabled,
+      attachments: attachments.length > 0 ? attachments : undefined,
     });
-  }, [input, sending, send, provider, webSearchEnabled, paperSearchEnabled]);
+  }, [input, sending, send, provider, webSearchEnabled, paperSearchEnabled, attachments]);
 
   return (
     <div className="flex h-screen">
@@ -158,6 +162,8 @@ export default function ChatPage() {
           onWebSearchEnabledChange={setWebSearchEnabled}
           paperSearchEnabled={paperSearchEnabled}
           onPaperSearchEnabledChange={setPaperSearchEnabled}
+          attachments={attachments}
+          onAttachmentsChange={setAttachments}
           voiceStatus={voiceStatus}
           voiceError={voiceError}
           voiceDraftTranscript={voiceDraftTranscript}

@@ -1,7 +1,66 @@
-import type { ChatMessage } from '@/features/chat/types';
-import { AlertIcon, BookIcon, NetworkIcon, SparklesIcon } from '@/components/ui/icons';
+'use client';
+
+import { useState } from 'react';
+import type { ChatAttachment, ChatMessage } from '@/features/chat/types';
+import { AlertIcon, BookIcon, CloseIcon, NetworkIcon, SparklesIcon } from '@/components/ui/icons';
 import { Markdown } from '@/components/ui/markdown';
 import { FeedbackControl } from '@/components/ui/feedback-control';
+
+function AttachmentThumbnails({
+  attachments,
+  onOpen,
+}: {
+  attachments: ChatAttachment[];
+  onOpen: (attachment: ChatAttachment) => void;
+}) {
+  return (
+    <div className="mb-1.5 flex flex-wrap justify-end gap-1.5">
+      {attachments.map((attachment) => (
+        <button
+          key={attachment.id}
+          type="button"
+          onClick={() => onOpen(attachment)}
+          className="block w-16 h-16 rounded-lg overflow-hidden border border-sage-800/40 hover:border-sage-600 transition-colors"
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element -- presigned S3 URL, not a Next-optimizable local/remote asset */}
+          <img
+            src={attachment.url}
+            alt={attachment.filename}
+            className="w-full h-full object-cover"
+          />
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function ImageLightbox({ attachment, onClose }: { attachment: ChatAttachment; onClose: () => void }) {
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label={attachment.filename}
+      onClick={onClose}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-ink-950/90 p-8"
+    >
+      <button
+        type="button"
+        onClick={onClose}
+        title="Close"
+        className="absolute top-4 right-4 w-8 h-8 rounded-full bg-ink-800 border border-ink-600 text-stone-300 hover:text-stone-100 flex items-center justify-center"
+      >
+        <CloseIcon size={14} />
+      </button>
+      {/* eslint-disable-next-line @next/next/no-img-element -- presigned S3 URL, not a Next-optimizable local/remote asset */}
+      <img
+        src={attachment.url}
+        alt={attachment.filename}
+        onClick={(e) => e.stopPropagation()}
+        className="max-w-full max-h-full rounded-lg object-contain"
+      />
+    </div>
+  );
+}
 
 function WebSearchStatus({ webSearch }: { webSearch: NonNullable<ChatMessage['webSearch']> }) {
   return (
@@ -85,14 +144,24 @@ function PaperSearchStatus({
 }
 
 export function MessageBubble({ message }: { message: ChatMessage }) {
+  const [openAttachment, setOpenAttachment] = useState<ChatAttachment | null>(null);
+
   if (message.role === 'user') {
     return (
-      <div className="flex justify-end">
-        <div className="max-w-lg bg-sage-700/25 border border-sage-800/40 rounded-2xl rounded-tr-sm px-4 py-2.5">
-          <p className="text-stone-100 text-sm leading-relaxed whitespace-pre-wrap">
-            {message.content}
-          </p>
+      <div className="flex flex-col items-end">
+        {message.attachments && message.attachments.length > 0 && (
+          <AttachmentThumbnails attachments={message.attachments} onOpen={setOpenAttachment} />
+        )}
+        <div className="flex justify-end">
+          <div className="max-w-lg bg-sage-700/25 border border-sage-800/40 rounded-2xl rounded-tr-sm px-4 py-2.5">
+            <p className="text-stone-100 text-sm leading-relaxed whitespace-pre-wrap">
+              {message.content}
+            </p>
+          </div>
         </div>
+        {openAttachment && (
+          <ImageLightbox attachment={openAttachment} onClose={() => setOpenAttachment(null)} />
+        )}
       </div>
     );
   }

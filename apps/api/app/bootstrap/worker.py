@@ -67,6 +67,7 @@ from app.ai.research.service import ResearchService
 from app.ai.runtime.chat.paper_query import create_paper_query_extraction_service
 from app.ai.runtime.generation.online_scoring.job import OnlineScoringJob, ScoreGenerationFn
 from app.ai.runtime.generation.online_scoring.sampling import OnlineScoringConfig
+from app.ai.runtime.research.charts.create import create_chart_generation_service
 from app.ai.runtime.research.execution import ResearchRuntimeExecutionService
 from app.ai.runtime.research.run_service import ResearchRunService
 from app.ai.runtime.research.web_search.create import create_web_search_necessity_service
@@ -200,6 +201,7 @@ def create_research_runtime_worker(*, session: AsyncSession) -> ResearchRuntimeW
         paper_search=create_paper_search_service(),
         paper_query_extraction=create_paper_query_extraction_service(),
         metrics=get_metrics_recorder(),
+        chart_generation=create_chart_generation_service(),
     )
     runs = ResearchRunService(session)
     return ResearchRuntimeWorker(

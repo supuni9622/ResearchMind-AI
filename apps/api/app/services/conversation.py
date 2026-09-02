@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.exceptions.base import NotFoundException
 from app.models.conversation import Conversation, Message
 from app.models.enums import MessageRole
+from app.repositories.chat_attachment import ChatAttachmentRepository
 from app.repositories.conversation import ConversationRepository
 from app.services.conversation_compaction import compact_conversation_history
 
@@ -55,6 +56,7 @@ class ConversationService:
     ) -> None:
         self.session = session
         self.repository = ConversationRepository(session)
+        self._attachment_repository = ChatAttachmentRepository(session)
 
     async def get_or_create(
         self,
@@ -245,9 +247,16 @@ class ConversationService:
         assistant_content: str,
         provider: str | None = None,
         model: str | None = None,
+        attachment_ids: list[uuid.UUID] | None = None,
     ) -> PersistedConversationTurn:
         """
         Persists both halves of a completed exchange.
+
+        `attachment_ids` (Wave 4 chat attachments) are images uploaded
+        ahead of this turn via `POST /chat/attachments` -- still
+        unlinked at this point (no `conversation_id`/`message_id`).
+        Linking them here, after the user `Message` row exists, is the
+        one point in the turn lifecycle where both ids are available.
         """
 
         turn_started_at = datetime.now(UTC)
@@ -271,6 +280,13 @@ class ConversationService:
                 created_at=turn_started_at + timedelta(microseconds=1),
             ),
         )
+
+        if attachment_ids:
+            await self._attachment_repository.link_to_message(
+                attachment_ids,
+                conversation_id=conversation_id,
+                message_id=user_message.id,
+            )
 
         # Messages are separate rows, so touching the parent explicitly is
         # necessary for the conversation sidebar's activity ordering.

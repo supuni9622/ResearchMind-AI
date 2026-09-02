@@ -19,6 +19,7 @@ from app.ai.artifacts.create import (
 from app.ai.artifacts.policies.service import (
     ArtifactPolicyService,
 )
+from app.ai.runtime.chat.attachments.service import ChatAttachmentService
 from app.ai.runtime.generation.create import (
     create_generation_service,
 )
@@ -38,6 +39,9 @@ from app.ai.runtime.generation.streaming.service import (
     StreamingService,
 )
 from app.db.session import get_db
+from app.dependencies.upload import get_document_storage
+from app.infrastructure.storage.interfaces import DocumentStorage
+from app.repositories.chat_attachment import ChatAttachmentRepository
 from app.services.conversation import ConversationService
 
 
@@ -103,3 +107,37 @@ def get_conversation_service(
     """
 
     return ConversationService(session)
+
+
+def get_chat_attachment_repository(
+    session: AsyncSession = Depends(get_db),
+) -> ChatAttachmentRepository:
+    """
+    Create a ChatAttachmentRepository.
+    """
+
+    return ChatAttachmentRepository(session)
+
+
+def get_chat_attachment_service(
+    session: AsyncSession = Depends(get_db),
+    repository: ChatAttachmentRepository = Depends(
+        get_chat_attachment_repository,
+    ),
+    storage: DocumentStorage = Depends(
+        get_document_storage,
+    ),
+) -> ChatAttachmentService:
+    """
+    Create the chat attachment service.
+
+    Reuses the same configured document storage as document uploads --
+    same bucket, a distinct `chat-attachments/` key prefix
+    (`StorageKeyGenerator.generate_chat_attachment_key`).
+    """
+
+    return ChatAttachmentService(
+        session=session,
+        storage=storage,
+        repository=repository,
+    )

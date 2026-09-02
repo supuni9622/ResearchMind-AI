@@ -21,6 +21,13 @@ SUPPORTED_CONTENT_TYPES = frozenset(
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         "text/markdown",
         "text/plain",
+        # Image-to-RAG ingestion (Wave 4, docs/PRIORITIZED_ROADMAP.md) --
+        # OCR'd via Docling's default image pipeline, see
+        # `processing/parsers/docling.py` and `processing/enums.py`.
+        "image/png",
+        "image/jpeg",
+        "image/webp",
+        "image/gif",
     }
 )
 
@@ -34,6 +41,11 @@ SUPPORTED_EXTENSIONS = frozenset(
         ".docx",
         ".md",
         ".txt",
+        ".png",
+        ".jpg",
+        ".jpeg",
+        ".webp",
+        ".gif",
     }
 )
 

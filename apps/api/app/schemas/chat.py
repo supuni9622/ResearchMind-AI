@@ -40,6 +40,21 @@ class ChatStreamRequest(BaseModel):
     # `user_prompt` and folds them into the answer + a sources list.
     paper_search_enabled: bool = False
 
+    # Ids from prior `POST /chat/attachments` uploads, pre-uploaded because
+    # `streamChat` builds one JSON body before opening the SSE stream.
+    # `max_length` alone enforces Wave 4's "<=5/turn" (docs/
+    # PRIORITIZED_ROADMAP.md).
+    attachment_ids: list[UUID] = Field(default_factory=list, max_length=5)
+
+
+class ChatAttachmentResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: UUID
+    filename: str
+    content_type: str
+    url: str
+
 
 class ChatMessageResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -50,6 +65,7 @@ class ChatMessageResponse(BaseModel):
     provider: str | None
     model: str | None
     created_at: datetime
+    attachments: list[ChatAttachmentResponse] = Field(default_factory=list)
 
 
 class ChatConversationSummary(BaseModel):

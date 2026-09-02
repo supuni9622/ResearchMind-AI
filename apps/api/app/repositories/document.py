@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.document import Document
 
-DocumentKind = Literal["pdf", "docx", "markdown", "other"]
+DocumentKind = Literal["pdf", "docx", "markdown", "image", "other"]
 
 
 def _kind_condition(kind: DocumentKind) -> ColumnElement[bool]:
@@ -27,6 +27,14 @@ def _kind_condition(kind: DocumentKind) -> ColumnElement[bool]:
         Document.filename.ilike("%.doc"),
     )
     is_markdown = or_(Document.content_type.ilike("%markdown%"), Document.filename.ilike("%.md"))
+    is_image = or_(
+        Document.content_type.ilike("image/%"),
+        Document.filename.ilike("%.png"),
+        Document.filename.ilike("%.jpg"),
+        Document.filename.ilike("%.jpeg"),
+        Document.filename.ilike("%.webp"),
+        Document.filename.ilike("%.gif"),
+    )
 
     if kind == "pdf":
         return is_pdf
@@ -34,7 +42,9 @@ def _kind_condition(kind: DocumentKind) -> ColumnElement[bool]:
         return is_docx
     if kind == "markdown":
         return is_markdown
-    return not_(or_(is_pdf, is_docx, is_markdown))
+    if kind == "image":
+        return is_image
+    return not_(or_(is_pdf, is_docx, is_markdown, is_image))
 
 
 class DocumentRepository:

@@ -13,6 +13,8 @@ from langgraph.types import Send, interrupt
 
 from app.ai.runtime.chat.paper_query import PaperQueryExtractionService
 from app.ai.runtime.events.research.models import ResearchEventType
+from app.ai.runtime.research.charts.models import ChartSpec
+from app.ai.runtime.research.charts.necessity import ChartGenerationService
 from app.ai.runtime.research.evidence import ResearchEvidenceBundle, build_evidence_bundle
 from app.ai.runtime.research.evidence_artifact import (
     ResearchEvidenceArtifact,
@@ -109,6 +111,7 @@ class MultiWaveResearchState(TypedDict):
     socratic_challenger_enabled: bool
     socratic_question: str | None
     socratic_response: str | None
+    charts: list[dict[str, object]]
 
 
 def compile_multi_wave_research_graph(
@@ -132,6 +135,7 @@ def compile_multi_wave_research_graph(
     metrics: MetricsRecorder | None = None,
     socratic_challenge: Callable[[str, ResearchEvidenceBundle], Awaitable[str]] | None = None,
     remember_socratic_response: Callable[[str, str], Awaitable[None]] | None = None,
+    chart_generation: ChartGenerationService | None = None,
 ) -> Any:
     """Compile bounded waves through synthesis, review, and final artifacts.
 
@@ -989,7 +993,7 @@ def compile_multi_wave_research_graph(
 
     def route_after_report_approval(
         state: MultiWaveResearchState,
-    ) -> Literal["persist_final_report", "prepare_human_revision", "__end__"]:
+    ) -> Literal["generate_charts", "prepare_human_revision", "__end__"]:
         if state.get("report_decision") == "rejected":
             reason = state.get("report_rejection_reason")
             budget = ResearchPlanningPolicy().budget_for(
@@ -998,7 +1002,7 @@ def compile_multi_wave_research_graph(
             if reason and state.get("human_revision_count", 0) < budget.max_human_revisions:
                 return "prepare_human_revision"
             return "__end__"
-        return "persist_final_report"
+        return "generate_charts"
 
     def route_after_plan_approval(
         state: MultiWaveResearchState,
@@ -1007,16 +1011,44 @@ def compile_multi_wave_research_graph(
             return "__end__"
         return "synthesize"
 
+    async def generate_charts(state: MultiWaveResearchState) -> dict[str, object]:
+        """Best-effort, never blocks report finalization -- runs after the
+        human has already approved the report content
+        (`await_report_approval`), so no separate approval checkpoint is
+        needed for a chart that only visualizes already-approved data.
+        `ChartGenerationService.decide()` itself fails closed to "no
+        charts" on error; `chart_generation is None` (no cheap provider
+        configured at all) short-circuits the same way."""
+
+        if chart_generation is None:
+            return {"charts": []}
+
+        draft = ResearchDraft.model_validate(state["draft"])
+        decision = await chart_generation.decide(
+            draft=draft,
+            owner_id=UUID(state["owner_id"]),
+            research_run_id=UUID(state["research_run_id"]),
+        )
+        logger.info(
+            "research_runtime.graph.charts_decided",
+            research_run_id=state["research_run_id"],
+            needs_charts=decision.needs_charts,
+            chart_count=len(decision.charts),
+        )
+        return {"charts": [chart.model_dump(mode="json") for chart in decision.charts]}
+
     async def persist_final_report(state: MultiWaveResearchState) -> dict[str, object]:
         await emit(ResearchEventType.REPORT_STARTED)
         draft = ResearchDraft.model_validate(state["draft"])
         evidence = ResearchEvidenceBundle.model_validate(state["evidence_bundle"])
         review_result = ResearchReview.model_validate(state["review"])
+        charts = [ChartSpec.model_validate(chart) for chart in state.get("charts", [])]
         refs = await final_report_writer.write(
             research_run_id=UUID(state["research_run_id"]),
             draft=draft,
             review=review_result,
             evidence=evidence,
+            charts=charts,
         )
         logger.info(
             "research_runtime.graph.final_report_persisted",
@@ -1155,6 +1187,7 @@ def compile_multi_wave_research_graph(
     graph.add_node("aggregate_gap_evidence", aggregate_gap_evidence)
     graph.add_node("finalize_gap_limitations", finalize_gap_limitations)
     graph.add_node("await_report_approval", await_report_approval)
+    graph.add_node("generate_charts", generate_charts)
     graph.add_node("persist_final_report", persist_final_report)
     graph.add_node("fail", fail)
     graph.add_node("evaluate_web_search_need", evaluate_web_search_need)
@@ -1177,6 +1210,7 @@ def compile_multi_wave_research_graph(
     graph.add_conditional_edges("aggregate_gap_evidence", route_after_gap_evidence_aggregation)
     graph.add_edge("finalize_gap_limitations", "await_report_approval")
     graph.add_conditional_edges("await_report_approval", route_after_report_approval)
+    graph.add_edge("generate_charts", "persist_final_report")
     graph.add_conditional_edges("evaluate_web_search_need", route_after_web_search_evaluation)
     graph.add_conditional_edges("await_web_search_approval", route_after_web_search_approval)
     graph.add_edge("search_web_gap", "aggregate_gap_evidence")

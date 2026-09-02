@@ -36,6 +36,16 @@ export interface ChatPaperSearchStatus {
   sources?: ChatPaperSource[];
 }
 
+// Wave 4 chat attachments (docs/PRIORITIZED_ROADMAP.md) -- an image
+// uploaded via POST /chat/attachments ahead of the turn, referenced by id
+// in the ChatStreamRequest that follows.
+export interface ChatAttachment {
+  id: string;
+  filename: string;
+  contentType: string;
+  url: string;
+}
+
 export interface ChatMessage {
   id: string;
   role: ChatMessageRole;
@@ -51,6 +61,7 @@ export interface ChatMessage {
    * doesn't return it on GET /chat/{id} yet), not just mid-stream. */
   generationId?: string;
   memoryUsed?: boolean;
+  attachments?: ChatAttachment[];
 }
 
 export interface ChatConversation {
@@ -71,4 +82,8 @@ export interface ChatSendOptions {
   provider?: GenerationProvider;
   webSearchEnabled?: boolean;
   paperSearchEnabled?: boolean;
+  /** Already-uploaded (via `api.chat.uploadAttachment`) images for this
+   * turn -- full metadata, not just ids, so the just-sent user bubble can
+   * render thumbnails immediately without waiting for a reload. */
+  attachments?: ChatAttachment[];
 }

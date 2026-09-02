@@ -29,6 +29,7 @@ from app.ai.runtime.events.research.models import ResearchEventType
 from app.ai.runtime.generation.enums import GenerationProvider
 from app.ai.runtime.generation.orchestration.interfaces import GenerationRuntimeInterface
 from app.ai.runtime.generation.routing.enums import RoutingStrategy
+from app.ai.runtime.research.charts.necessity import ChartGenerationService
 from app.ai.runtime.research.checkpointing import postgres_checkpointer
 from app.ai.runtime.research.decomposition.scheduler import dependency_waves
 from app.ai.runtime.research.decomposition.validators import validate_plan
@@ -118,6 +119,7 @@ class ResearchRuntimeExecutionService:
         paper_search: PaperSearchService | None = None,
         paper_query_extraction: PaperQueryExtractionService | None = None,
         metrics: MetricsRecorder | None = None,
+        chart_generation: ChartGenerationService | None = None,
     ) -> None:
         self._session = session
         self._research_service = research_service
@@ -133,6 +135,7 @@ class ResearchRuntimeExecutionService:
         self._paper_search = paper_search
         self._paper_query_extraction = paper_query_extraction
         self._metrics = metrics or NoOpMetricsRecorder()
+        self._chart_generation = chart_generation
         self._runs = ResearchRunService(session)
         self._research_sessions = ResearchRepository(session)
         self._proposals = ResearchProposalRepository(session)
@@ -560,6 +563,7 @@ class ResearchRuntimeExecutionService:
                     run=run, question=question, response=response
                 )
             ),
+            chart_generation=self._chart_generation,
         )
 
     async def _remember_socratic_response(

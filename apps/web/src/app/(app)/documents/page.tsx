@@ -186,13 +186,13 @@ export default function DocumentsPage() {
                     type="file"
                     className="sr-only"
                     multiple
-                    accept=".pdf,.doc,.docx,.txt,.md"
+                    accept=".pdf,.doc,.docx,.txt,.md,.png,.jpg,.jpeg,.webp,.gif"
                     onChange={(e) => handleFiles(e.target.files)}
                   />
                 </label>
               </p>
               <p className="font-mono text-stone-600 text-[11px]">
-                PDF · DOCX · TXT · MD · up to 50 MB
+                PDF · DOCX · TXT · MD · PNG · JPG · WEBP · GIF · up to 50 MB
               </p>
             </div>
           </div>

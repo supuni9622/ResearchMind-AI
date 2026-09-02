@@ -29,6 +29,8 @@ from app.ai.runtime.chat.paper_query import (
 )
 from app.ai.runtime.generation.orchestration.orchestrator import GenerationRuntime
 from app.ai.runtime.generation.streaming.service import StreamingService
+from app.ai.runtime.research.charts.create import create_chart_generation_service
+from app.ai.runtime.research.charts.necessity import ChartGenerationService
 from app.ai.runtime.research.draft_inspection import ResearchDraftInspectionService
 from app.ai.runtime.research.execution import ResearchRuntimeExecutionService
 from app.ai.runtime.research.plan_inspection import ResearchPlanInspectionService
@@ -185,6 +187,11 @@ def get_web_search_necessity_service() -> WebSearchNecessityService:
 
 
 @lru_cache
+def get_chart_generation_service() -> ChartGenerationService:
+    return create_chart_generation_service()
+
+
+@lru_cache
 def get_paper_search_service() -> PaperSearchService:
     return create_paper_search_service()
 
@@ -254,6 +261,7 @@ async def get_research_runtime_execution_service(
     paper_query_extraction: PaperQueryExtractionService = Depends(
         get_paper_query_extraction_service
     ),
+    chart_generation: ChartGenerationService = Depends(get_chart_generation_service),
 ) -> AsyncGenerator[ResearchRuntimeExecutionService | None, None]:
     """Construct the bridge only for the explicitly enabled durable path."""
 
@@ -280,4 +288,5 @@ async def get_research_runtime_execution_service(
             paper_search=paper_search,
             paper_query_extraction=paper_query_extraction,
             metrics=get_metrics_recorder(),
+            chart_generation=chart_generation,
         )

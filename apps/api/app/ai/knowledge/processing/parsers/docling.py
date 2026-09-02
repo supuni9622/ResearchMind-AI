@@ -65,6 +65,14 @@ class DoclingParser(BaseDocumentParser):
             DocumentFormat.DOCX,
             DocumentFormat.MARKDOWN,
             DocumentFormat.TEXT,
+            # Image-to-RAG ingestion (Wave 4). No new `format_options`
+            # entry needed: Docling's `InputFormat.IMAGE` already
+            # defaults to `ImageFormatOption(pipeline_options=...
+            # do_ocr=True)` via `StandardPdfPipeline` -- confirmed
+            # against the installed package, not assumed. `convert()`
+            # auto-detects the format from the file itself, same as
+            # every format above.
+            DocumentFormat.IMAGE,
         }
 
     async def parse(

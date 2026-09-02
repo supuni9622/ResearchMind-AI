@@ -98,9 +98,9 @@ instruction, not derived:
 | 3 | Project workspace UI (create/list/switch projects) | High | Med | Without this the schema has no way to be used at all — implied but not optional |
 | 3 | "@document" inline mentioning (frontend affordance) | Med | Med | Explicitly named in `PHASE_2_3_ROADMAP.md` V2 #3, sits on top of the same grouping |
 | 3 | Typed research-object domain model (Knowledge/Evidence/HumanInsight/Hypothesis) | High | Med | Builds inside the `artifacts/research` category — **not unused**: `ResearchArtifactBuilder` already writes there live on every Linear Research request (see Wave 3 note below); must be designed to coexist with that write path, not dropped into a blank slate |
-| 4 | Vision — chat-only image attachments (≤5/turn) | Med-High | Med | Needs a real schema addition, no new dependency |
-| 4 | Vision — image-to-RAG ingestion | Med | Med | Pluggable parser architecture already supports this shape |
-| 4 | Vision — AI-generated charts/graphs/maps | Med-High | Low | Needs a genuinely new charting dependency |
+| 4 | ✅ Vision — chat-only image attachments (≤5/turn) — Done, 2026-09-02 | Med-High | Med | Needs a real schema addition, no new dependency |
+| 4 | ✅ Vision — image-to-RAG ingestion — Done, 2026-09-02 | Med | Med | Pluggable parser architecture already supports this shape |
+| 4 | ✅ Vision — AI-generated charts/graphs (maps deferred) — Done, 2026-09-03 | Med-High | Low | Needs a genuinely new charting dependency |
 | 5 | Graph RAG (configurable, additive, fail-open) | High | Low | Full build from scratch — biggest genuine architecture gap |
 | 5 | Interactive Thinking Canvas (frontend) | Very High (long-term) | Very Low | Most speculative/expensive; a view over data that must exist first |
 | 6 | Voice (real-time STT/TTS, visible transcript) | Med | Very Low | Confirmed largest genuinely-new build, zero existing scaffold |
@@ -329,6 +329,66 @@ attachments (schema addition, no new dependency) → image-to-RAG ingestion
 an upload-validator fix) → charts/graphs/maps (needs a genuinely new
 charting library — the most expensive of the three). Full detail:
 `PHASE_2_3_ROADMAP.md` "Item 2 in detail."
+
+**Chat-only image attachments — done, 2026-09-02.** Up to 5 images/turn,
+backend + frontend, end-to-end: new `chat_attachments` table (deliberately
+separate from `documents` — no RAG indexing, just S3 + a presigned URL
+handed to a vision-capable provider) behind `POST /chat/attachments`;
+`GenerationRequest.attachments` + vision content-block builders for
+OpenAI/Claude/Gemini, gated additively so every non-attachment caller
+(Deep Research/Research/Voice) is unaffected; the existing
+`RequiredCapability.VISION` routing gate (already built, just never
+exercised) keeps Groq/Ollama out of an attachment turn with zero routing
+changes, and an explicit non-vision `provider=` pick is rejected up front.
+Frontend: an attach-image control in `ChatComposer`, thumbnail strip +
+lightbox in `MessageBubble`. Image-to-RAG ingestion and AI-generated
+charts remain open, next in this wave's internal sequencing.
+
+**Image-to-RAG ingestion — done, 2026-09-02.** Standalone images (PNG/
+JPEG/WebP/GIF) now upload through the existing `/documents/upload` flow
+and get OCR'd, chunked, embedded, and indexed the same as a PDF/DOCX/MD/
+TXT. Confirmed by direct inspection of the installed Docling package
+(not assumed from docs): `InputFormat.IMAGE` already exists and its
+default `ImageFormatOption` already resolves to `StandardPdfPipeline`
+with `do_ocr=True` — so no new parser class or Docling config was
+needed, only extending `DoclingParser.supported_formats`,
+`DocumentFormat.from_content_type`'s MIME mapping, and the upload
+validator's allowed types/extensions (`ai/knowledge/upload/constants.py`)
+to the same 4 image types Phase 1's chat attachments already validate.
+Chunking/embedding/indexing needed zero changes (confirmed
+format-agnostic downstream of the parser). Frontend gained a matching
+"Image" document-kind filter/badge. **Disclosed limitation:** this is
+OCR-only text extraction, not semantic image captioning — a photo with
+no text in it indexes as empty, same "invisible to retrieval" shape as
+an unscanned PDF page before Wave 0's `do_ocr=True` fix.
+
+**AI-generated charts/graphs in Deep Research — done, 2026-09-03. Maps
+deliberately excluded**, per this section's own detailed scoping doc
+(`PHASE_2_3_ROADMAP.md` lines 769-777): "worth deferring until there's a
+concrete use case, not building speculatively." Scoped to Deep Research
+only (image *generation as output*, not the other two sub-items' image
+*understanding as input*) — and deliberately **not**
+`multimodal_output`/DALL-E-style generation: a cheap-model structured-
+output call (new `charts/` package, mirroring the existing
+`WebSearchNecessityService` necessity-check → invoke → fold-in shape)
+extracts/decides chart data from the already-**approved** report draft,
+then a new `matplotlib` dependency (this wave's one genuinely new piece
+of infrastructure, confirmed zero charting library existed before)
+deterministically renders it — never a generative model inventing
+pixels that might not match the underlying numbers. Runs as a new
+`generate_charts` LangGraph node between `await_report_approval` and
+`persist_final_report`, with **no new approval checkpoint**: the human
+already approved the content being visualized. Charts embed as
+`Image` flowables in the existing `reportlab` PDF pipeline
+(`reporting/pdf.py`) and are recorded in `final-report.json` for audit.
+Fails closed to "no charts" end-to-end (disabled setting, no evidence,
+provider failure, or a single bad render) — never blocks report
+finalization. **Disclosed limitation:** the necessity-check prompt
+instructs the model to only chart numbers explicitly present in the
+findings text, never invent/estimate — a full post-hoc numeric-fact-
+checker against evidence (the same shape as this codebase's existing
+citation-fabrication validator) is a reasonable follow-up, not built
+here. This closes out Wave 4 entirely (charts/graphs scope).
 
 ## Wave 5 — Graph RAG and the Canvas
 

@@ -309,6 +309,12 @@ class Settings(BaseSettings):
     chat_rate_limit_requests: int = 20
     chat_rate_limit_window_seconds: int = 60
 
+    # Per-owner cap on POST /chat/attachments -- a S3 PUT + a DB row, cheap
+    # per-call, but distinct from `chat_rate_limit_*` since attachments can
+    # be uploaded independent of (and ahead of) an actual chat turn.
+    chat_attachment_rate_limit_requests: int = 30
+    chat_attachment_rate_limit_window_seconds: int = 60
+
     # Linear Research (/research, /research/stream, /research/citations) --
     # each call is a retrieval + (for the first two) generation cost, so a
     # tighter default than chat.
@@ -381,6 +387,22 @@ class Settings(BaseSettings):
     # else; still materially cheaper than the main synthesis/review tier.
     web_search_decision_openai_model: str = "gpt-5-mini"
     web_search_decision_claude_model: str = "claude-haiku-4-5"
+
+    # Dedicated cheap-tier models for the Deep Research chart-generation
+    # necessity-and-extraction decision only -- same isolation reasoning as
+    # `web_search_decision_openai_model` above, not reused from it: each
+    # bounded decision call gets its own model config so one can be tuned
+    # or swapped without affecting the others. See
+    # `app.ai.runtime.research.charts.create`.
+    chart_generation_decision_openai_model: str = "gpt-5-mini"
+    chart_generation_decision_claude_model: str = "claude-haiku-4-5"
+
+    # Master on/off switch for Deep Research chart generation (Wave 4,
+    # docs/PRIORITIZED_ROADMAP.md). Deliberately a single flag, not a
+    # DISABLED/AUTO/REQUIRED mode like `WebSearchMode` -- there is no
+    # per-run user-facing toggle for this (unlike Chat's web-search
+    # composer toggle) and no product requirement for a REQUIRED mode.
+    deep_research_chart_generation_enabled: bool = True
 
     # Dedicated cheap-tier models for the feedback-comment objective/
     # preference classification call only (E11, EVALUATION_PLAN.md §12/

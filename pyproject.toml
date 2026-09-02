@@ -58,6 +58,7 @@ dependencies = [
     "prometheus-client>=0.26.0",
     "ragas>=0.4.3",
     "websockets>=15.0.1",
+    "matplotlib>=3.9.0",
 ]
 
 [dependency-groups]

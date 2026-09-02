@@ -9,6 +9,7 @@ from pydantic import BaseModel, ConfigDict
 
 from app.ai.artifacts.models import JsonDictFile
 from app.ai.artifacts.writers.base import write_json_artifact
+from app.ai.runtime.research.charts.models import ChartSpec
 from app.ai.runtime.research.evidence import ResearchEvidenceBundle
 from app.ai.runtime.research.reporting.pdf import render_research_report_pdf
 from app.ai.runtime.research.review import ResearchReview
@@ -25,6 +26,7 @@ class ResearchFinalReportArtifact(BaseModel):
     research_run_id: UUID
     draft: ResearchDraft
     review: ResearchReview
+    charts: list[ChartSpec] = []
 
 
 class ResearchFinalReportReferences(BaseModel):
@@ -49,6 +51,7 @@ class ResearchFinalReportArtifactWriter:
         draft: ResearchDraft,
         review: ResearchReview,
         evidence: ResearchEvidenceBundle,
+        charts: list[ChartSpec] | None = None,
     ) -> ResearchFinalReportReferences:
         base_key = f"artifacts/research-runs/{research_run_id}/final-report"
         report_key = f"{base_key}.json"
@@ -57,6 +60,7 @@ class ResearchFinalReportArtifactWriter:
             research_run_id=research_run_id,
             draft=draft,
             review=review,
+            charts=charts or [],
         )
         if not await self._storage.exists(key=report_key):
             await write_json_artifact(
@@ -65,7 +69,9 @@ class ResearchFinalReportArtifactWriter:
                 payload=JsonDictFile(data=artifact.model_dump(mode="json")),
             )
         if not await self._storage.exists(key=pdf_key):
-            pdf = render_research_report_pdf(draft=draft, review=review, evidence=evidence)
+            pdf = render_research_report_pdf(
+                draft=draft, review=review, evidence=evidence, charts=charts
+            )
             await self._storage.upload(
                 key=pdf_key,
                 file=BytesIO(pdf),

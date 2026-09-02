@@ -20,6 +20,7 @@ from app.ai.runtime.generation.providers.base import (
     BaseGenerationProvider,
 )
 from app.ai.runtime.generation.providers.helpers.prompt_builder import (
+    build_openai_vision_input,
     build_prompt_text,
 )
 from app.ai.runtime.generation.providers.helpers.structured import (
@@ -42,6 +43,22 @@ def _is_temperature_unsupported(exc: OpenAIError) -> bool:
 
     message = str(exc).lower()
     return "temperature" in message and "not supported" in message
+
+
+def _build_input(request: GenerationRequest) -> Any:
+    """Plain string for the common case; the vision content-block form
+    only when this turn has attachments (Wave 4 chat attachments).
+
+    Typed `Any`, not the narrower `str | list[dict]` -- the Responses
+    API's own `input=` accepts a large SDK-defined union of typed message
+    shapes that a plain `dict` doesn't structurally satisfy under mypy;
+    the SDK validates the actual shape at call time.
+    """
+
+    if request.attachments:
+        return build_openai_vision_input(request)
+
+    return build_prompt_text(request)
 
 
 class OpenAIProvider(
@@ -164,9 +181,7 @@ class OpenAIProvider(
         try:
             stream = await self._client.responses.create(
                 model=self.config.model_name,
-                input=build_prompt_text(
-                    request,
-                ),
+                input=_build_input(request),
                 stream=True,
             )
 
@@ -213,9 +228,7 @@ class OpenAIProvider(
 
         kwargs: dict[str, Any] = {
             "model": self.config.model_name,
-            "input": build_prompt_text(
-                request,
-            ),
+            "input": _build_input(request),
         }
 
         if request.temperature is not None:

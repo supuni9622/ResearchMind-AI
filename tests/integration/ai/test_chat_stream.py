@@ -30,9 +30,15 @@ from app.ai.memory.session.state_updater import SessionStateDistillation
 from app.ai.runtime.events.enums import CoreEventType, EventCategory
 from app.ai.runtime.events.models import StreamEvent
 from app.ai.runtime.generation.enums import GenerationProvider
-from app.ai.runtime.generation.models import GenerationRequest, StreamEventType
+from app.ai.runtime.generation.models import (
+    GenerationAttachment,
+    GenerationRequest,
+    StreamEventType,
+)
 from app.auth.dependencies import get_current_user
 from app.dependencies.generation import (
+    get_chat_attachment_repository,
+    get_chat_attachment_service,
     get_conversation_service,
     get_generation_service,
     get_streaming_service,
@@ -50,6 +56,7 @@ from app.dependencies.research import (
     get_web_search_necessity_service,
     get_web_search_service,
 )
+from app.exceptions.base import NotFoundException
 from app.infrastructure.rate_limiting import RateLimitResult
 from app.main import app
 from app.models.conversation import Conversation, Message
@@ -176,6 +183,7 @@ class _FakeConversationService:
         assistant_content,
         provider=None,
         model=None,
+        attachment_ids=None,
     ) -> None:
         self.appended_turns.append(
             {
@@ -184,6 +192,7 @@ class _FakeConversationService:
                 "assistant_content": assistant_content,
                 "provider": provider,
                 "model": model,
+                "attachment_ids": attachment_ids,
             }
         )
 
@@ -274,6 +283,45 @@ class _FakeProjectAuthorization:
         await self.authorize_project_access(user_id=user_id, project_id=project_id)
 
 
+class _FakeChatAttachmentService:
+    """Stands in for ChatAttachmentService -- no attachment id resolves
+    unless explicitly registered via `known`, so tests don't depend on a
+    real `chat_attachments` row/table existing. Mirrors the real
+    service's `resolve_for_generation` contract: raises `NotFoundException`
+    generically for any id that isn't owned/known, never partially
+    resolves a batch."""
+
+    def __init__(self) -> None:
+        self.known: dict[uuid.UUID, GenerationAttachment] = {}
+
+    async def resolve_for_generation(
+        self,
+        attachment_ids: list[uuid.UUID],
+        *,
+        owner_id: UUID,
+    ) -> list[GenerationAttachment]:
+        if not attachment_ids:
+            return []
+
+        resolved = [self.known[aid] for aid in attachment_ids if aid in self.known]
+
+        if len(resolved) != len(set(attachment_ids)):
+            raise NotFoundException("One or more attachments were not found.")
+
+        return resolved
+
+    async def generate_view_url(self, attachment) -> str:
+        return "https://s3.example.com/fake-signed-url"
+
+
+class _FakeChatAttachmentRepository:
+    """Stands in for ChatAttachmentRepository -- no message has
+    attachments unless a test registers them directly."""
+
+    async def list_by_message_ids(self, message_ids: list[uuid.UUID]) -> list:
+        return []
+
+
 class _FakeRateLimiter:
     """Stands in for ValkeyRateLimiter -- allows by default; tests flip `allowed`."""
 
@@ -320,6 +368,8 @@ def fakes() -> Iterator[
     # this avoids the real, network/API-key-requiring composition function.
     session_state_updater = SimpleNamespace(distill=AsyncMock(return_value=None))
     generation_service = _FakeGenerationService()
+    chat_attachment_service = _FakeChatAttachmentService()
+    chat_attachment_repository = _FakeChatAttachmentRepository()
     rate_limiter = _FakeRateLimiter()
     # `web_search_enabled`/`paper_search_enabled` default to False on every
     # payload below, so `run_chat_web_search`/`run_chat_paper_search` always
@@ -334,6 +384,8 @@ def fakes() -> Iterator[
     app.dependency_overrides[get_streaming_service] = lambda: streaming_service
     app.dependency_overrides[get_generation_service] = lambda: generation_service
     app.dependency_overrides[get_conversation_service] = lambda: conversation_service
+    app.dependency_overrides[get_chat_attachment_service] = lambda: chat_attachment_service
+    app.dependency_overrides[get_chat_attachment_repository] = lambda: chat_attachment_repository
     app.dependency_overrides[get_memory_service] = lambda: memory_service
     app.dependency_overrides[get_memory_extraction_service] = lambda: memory_extraction_service
     app.dependency_overrides[get_session_state_updater_service] = lambda: session_state_updater
@@ -348,6 +400,8 @@ def fakes() -> Iterator[
     del app.dependency_overrides[get_streaming_service]
     del app.dependency_overrides[get_generation_service]
     del app.dependency_overrides[get_conversation_service]
+    del app.dependency_overrides[get_chat_attachment_service]
+    del app.dependency_overrides[get_chat_attachment_repository]
     del app.dependency_overrides[get_memory_service]
     del app.dependency_overrides[get_memory_extraction_service]
     del app.dependency_overrides[get_session_state_updater_service]
@@ -425,6 +479,54 @@ def test_stream_chat_persists_the_assembled_turn_on_complete(
     assert generation_service.requests[0].user_prompt == (
         "First user question: What are applications of RAG?"
     )
+
+
+def test_stream_chat_rejects_more_than_five_attachment_ids(
+    client: TestClient,
+    fakes: tuple[_FakeStreamingService, _FakeConversationService, _FakeGenerationService],
+) -> None:
+    """Wave 4 chat attachments cap at 5/turn (docs/PRIORITIZED_ROADMAP.md)
+    -- enforced by `ChatStreamRequest.attachment_ids`'s `max_length=5`, so
+    a 6th id must be a 422 before any conversation/generation work starts."""
+
+    app.dependency_overrides[get_current_user] = _fake_user
+
+    try:
+        response = client.post(
+            "/api/v1/chat/stream",
+            json={
+                "user_prompt": "hi there",
+                "attachment_ids": [str(uuid.uuid4()) for _ in range(6)],
+            },
+        )
+    finally:
+        del app.dependency_overrides[get_current_user]
+
+    assert response.status_code == 422
+
+
+def test_stream_chat_rejects_an_attachment_id_that_does_not_resolve(
+    client: TestClient,
+    fakes: tuple[_FakeStreamingService, _FakeConversationService, _FakeGenerationService],
+) -> None:
+    """An attachment id that was never uploaded (or belongs to another
+    owner) must fail closed -- `ChatAttachmentService.resolve_for_generation`
+    raises generically rather than silently dropping it."""
+
+    app.dependency_overrides[get_current_user] = _fake_user
+
+    try:
+        response = client.post(
+            "/api/v1/chat/stream",
+            json={
+                "user_prompt": "hi there",
+                "attachment_ids": [str(uuid.uuid4())],
+            },
+        )
+    finally:
+        del app.dependency_overrides[get_current_user]
+
+    assert response.status_code == 404
 
 
 def test_stream_chat_with_project_id_resolves_project_memory_scope(

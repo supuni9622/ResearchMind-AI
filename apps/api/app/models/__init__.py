@@ -5,6 +5,7 @@ Import all ORM models here so SQLAlchemy metadata
 is populated for Alembic autogeneration.
 """
 
+from app.models.chat_attachment import ChatAttachment
 from app.models.conversation import Conversation, Message
 from app.models.document import Document
 from app.models.eval_score import EvalScore
@@ -31,6 +32,7 @@ __all__ = [
     "Document",
     "Conversation",
     "Message",
+    "ChatAttachment",
     "ResearchSession",
     "ResearchRun",
     "ResearchProposal",

@@ -7,6 +7,7 @@ const FILTERS: { id: DocKind | 'all'; label: string }[] = [
   { id: 'pdf', label: 'PDF' },
   { id: 'docx', label: 'DOCX' },
   { id: 'markdown', label: 'Markdown' },
+  { id: 'image', label: 'Image' },
 ];
 
 export function DocumentFilters({

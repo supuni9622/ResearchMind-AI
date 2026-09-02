@@ -1,4 +1,5 @@
-import type { Document } from '@/lib/api';
+import { useEffect, useRef, useState } from 'react';
+import { api, type Document } from '@/lib/api';
 import { Drawer } from '@/components/ui/drawer';
 import { Badge } from '@/components/ui/badge';
 import { SectionLabel } from '@/components/ui/page-header';
@@ -30,13 +31,82 @@ const STATUS_TONE = {
 export function DocumentDetailsDrawer({
   doc,
   onClose,
+  onDeleted,
 }: {
   doc: Document | null;
   onClose: () => void;
+  /** Called once the document is actually deleted server-side (Qdrant
+   * vectors + S3 artifacts + the Postgres row) -- the caller closes the
+   * drawer and removes the row from its own list state. */
+  onDeleted: (documentId: string) => void;
 }) {
   const meta = doc ? getDocumentMeta(doc) : null;
   const kind = doc ? getDocKind(doc) : null;
   const sessions = RECENT_SESSIONS.slice(0, 2);
+
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const dialogCancelRef = useRef<HTMLButtonElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const dialogInvokerRef = useRef<HTMLElement | null>(null);
+
+  // A different document selected while a confirm dialog is open (the
+  // drawer stays mounted across selections) shouldn't carry over stale
+  // dialog/error state from the previous one.
+  useEffect(() => {
+    setConfirmingDelete(false);
+    setDeleteError(null);
+  }, [doc?.id]);
+
+  // Mirrors `memory/page.tsx`'s alertdialog focus-trap: focus the Cancel
+  // button on open, trap Tab within the dialog, Escape cancels, restore
+  // focus to whatever opened it on close.
+  useEffect(() => {
+    if (!confirmingDelete) return;
+    dialogInvokerRef.current = document.activeElement as HTMLElement | null;
+    dialogCancelRef.current?.focus();
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && !deleting) {
+        setConfirmingDelete(false);
+        return;
+      }
+      if (event.key === 'Tab' && dialogRef.current) {
+        const controls = Array.from(
+          dialogRef.current.querySelectorAll<HTMLElement>('button:not(:disabled)')
+        );
+        if (!controls.length) return;
+        const first = controls[0];
+        const last = controls[controls.length - 1];
+        if (event.shiftKey && document.activeElement === first) {
+          event.preventDefault();
+          last.focus();
+        } else if (!event.shiftKey && document.activeElement === last) {
+          event.preventDefault();
+          first.focus();
+        }
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      dialogInvokerRef.current?.focus();
+    };
+  }, [confirmingDelete, deleting]);
+
+  async function handleConfirmDelete() {
+    if (!doc) return;
+    setDeleting(true);
+    setDeleteError(null);
+    try {
+      await api.documents.delete(doc.id);
+      onDeleted(doc.id);
+    } catch (err) {
+      setDeleteError(err instanceof Error ? err.message : 'Could not delete this document.');
+    } finally {
+      setDeleting(false);
+    }
+  }
 
   return (
     <Drawer open={doc != null} onClose={onClose} eyebrow="Document" title={doc?.filename ?? ''}>
@@ -146,6 +216,69 @@ export function DocumentDetailsDrawer({
                   </span>
                 </div>
               ))}
+            </div>
+          </div>
+
+          <div className="pt-2 border-t border-ink-700">
+            <button
+              type="button"
+              onClick={() => setConfirmingDelete(true)}
+              className="w-full px-3 py-2 rounded-lg text-[12.5px] text-stone-600 hover:bg-red-950/30 hover:text-red-400 transition-colors"
+            >
+              Delete document
+            </button>
+          </div>
+        </div>
+      )}
+
+      {doc && confirmingDelete && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4 backdrop-blur-sm"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget && !deleting) setConfirmingDelete(false);
+          }}
+        >
+          <div
+            ref={dialogRef}
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="delete-document-title"
+            className="w-full max-w-md overflow-hidden rounded-2xl border border-ink-500 bg-ink-800 shadow-2xl"
+          >
+            <div className="border-b border-ink-600 px-5 py-5">
+              <h2 id="delete-document-title" className="font-display text-lg text-stone-100">
+                Delete this document?
+              </h2>
+              <p className="mt-1 text-[12px] leading-5 text-stone-500">
+                This permanently removes “{doc.filename}” and its indexed content. Research
+                answers can no longer draw on it. There is no undo.
+              </p>
+            </div>
+            {deleteError && (
+              <div role="alert" className="px-5 pt-4">
+                <p className="rounded-lg border border-red-900/60 bg-red-950/20 px-3 py-3 text-[12px] leading-5 text-red-200">
+                  {deleteError}
+                </p>
+              </div>
+            )}
+            <div className="flex justify-end gap-2 border-t border-ink-600 px-5 py-4">
+              <button
+                ref={dialogCancelRef}
+                type="button"
+                disabled={deleting}
+                onClick={() => setConfirmingDelete(false)}
+                className="rounded-lg border border-ink-500 px-4 py-2 text-[12px] text-stone-300 disabled:opacity-40"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={deleting}
+                onClick={() => void handleConfirmDelete()}
+                className="rounded-lg bg-red-800 px-4 py-2 text-[12px] text-white disabled:opacity-50"
+              >
+                {deleting ? 'Deleting…' : 'Delete permanently'}
+              </button>
             </div>
           </div>
         </div>

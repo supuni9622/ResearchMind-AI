@@ -282,7 +282,15 @@ export default function DocumentsPage() {
         </>
       )}
 
-      <DocumentDetailsDrawer doc={selectedDoc} onClose={() => setSelectedDoc(null)} />
+      <DocumentDetailsDrawer
+        doc={selectedDoc}
+        onClose={() => setSelectedDoc(null)}
+        onDeleted={(documentId) => {
+          setSelectedDoc(null);
+          setDocuments((prev) => prev.filter((d) => d.id !== documentId));
+          setTotal((prev) => Math.max(0, prev - 1));
+        }}
+      />
     </div>
   );
 }

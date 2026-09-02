@@ -83,6 +83,7 @@ class MultiWaveResearchState(TypedDict):
     synthesis_revision_count: int
     revision_instructions: list[str]
     gap_research_count: int
+    human_revision_count: int
     plan_version: int
     plan_versions: list[dict[str, object]]
     review_artifact_refs: list[str]
@@ -486,13 +487,20 @@ def compile_multi_wave_research_graph(
         APPROVAL`/`RESEARCH_RESUMED` events are emitted by the execution
         service around each `ainvoke()` call instead, exactly once each.
 
-        Rejection does not fail the run: `route_after_report_approval` sends
-        it straight to `END`, skipping `persist_final_report` (the PDF-
-        writing node) rather than raising. `draft`/`evidence_bundle`/
-        `review` are already set in state by earlier nodes and survive
-        regardless of which node the graph terminates at, so the execution
-        service can still publish the already-synthesized draft as a plain
-        answer (`ResearchService.publish_runtime_report` only needs
+        Rejection does not fail the run. With non-empty feedback and the
+        human-revision budget (`ResearchPlanningBudget.max_human_revisions`)
+        not yet spent, `route_after_report_approval` routes to
+        `prepare_human_revision` -> `synthesize` -> `review`, looping back
+        to a fresh `await_report_approval` interrupt once review passes
+        again (reject-with-revise) -- same edge this node itself is
+        reached by on the very first pass. Otherwise (no feedback text, or
+        the budget already spent) it sends the run straight to `END`,
+        skipping `persist_final_report` (the PDF-writing node) rather than
+        raising. `draft`/`evidence_bundle`/`review` are already set in
+        state by earlier nodes and survive regardless of which node the
+        graph terminates at, so the execution service can still publish
+        the already-synthesized draft as a plain answer
+        (`ResearchService.publish_runtime_report` only needs
         `draft`/`evidence_bundle` -- never the PDF) -- only the polished PDF
         report is skipped, not the whole run.
 
@@ -533,6 +541,27 @@ def compile_multi_wave_research_graph(
         return {
             "synthesis_revision_count": state.get("synthesis_revision_count", 0) + 1,
             "revision_instructions": review_result.revision_instructions,
+        }
+
+    def prepare_human_revision(state: MultiWaveResearchState) -> dict[str, object]:
+        """Reject-with-revise: a human's report rejection reason becomes
+        `revision_instructions` for another `synthesize` pass over the
+        same already-gathered evidence -- no new retrieval, matching
+        REVISE_SYNTHESIS's own shape exactly, just triggered by a human
+        instead of the automatic citation-integrity check. Clears the
+        stale decision/reason so the fresh `await_report_approval`
+        interrupt this loops back into isn't confused by the old one."""
+
+        reason = state.get("report_rejection_reason") or ""
+        logger.info(
+            "research_runtime.graph.human_revision_triggered",
+            research_run_id=state["research_run_id"],
+        )
+        return {
+            "human_revision_count": state.get("human_revision_count", 0) + 1,
+            "revision_instructions": [reason],
+            "report_decision": None,
+            "report_rejection_reason": None,
         }
 
     def prepare_gap_research(state: MultiWaveResearchState) -> dict[str, object]:
@@ -960,8 +989,14 @@ def compile_multi_wave_research_graph(
 
     def route_after_report_approval(
         state: MultiWaveResearchState,
-    ) -> Literal["persist_final_report", "__end__"]:
+    ) -> Literal["persist_final_report", "prepare_human_revision", "__end__"]:
         if state.get("report_decision") == "rejected":
+            reason = state.get("report_rejection_reason")
+            budget = ResearchPlanningPolicy().budget_for(
+                ResearchComplexity(str(state["plan"]["complexity"]))
+            )
+            if reason and state.get("human_revision_count", 0) < budget.max_human_revisions:
+                return "prepare_human_revision"
             return "__end__"
         return "persist_final_report"
 
@@ -1114,6 +1149,7 @@ def compile_multi_wave_research_graph(
     graph.add_node("synthesize", synthesize)
     graph.add_node("review", review)
     graph.add_node("prepare_synthesis_revision", prepare_synthesis_revision)
+    graph.add_node("prepare_human_revision", prepare_human_revision)
     graph.add_node("prepare_gap_research", prepare_gap_research)
     graph.add_node("retrieve_gap_task", retrieve_gap_task)
     graph.add_node("aggregate_gap_evidence", aggregate_gap_evidence)
@@ -1135,6 +1171,7 @@ def compile_multi_wave_research_graph(
     graph.add_edge("synthesize", "review")
     graph.add_conditional_edges("review", route_after_review)
     graph.add_edge("prepare_synthesis_revision", "synthesize")
+    graph.add_edge("prepare_human_revision", "synthesize")
     graph.add_edge("prepare_gap_research", "retrieve_gap_task")
     graph.add_edge("retrieve_gap_task", "aggregate_gap_evidence")
     graph.add_conditional_edges("aggregate_gap_evidence", route_after_gap_evidence_aggregation)

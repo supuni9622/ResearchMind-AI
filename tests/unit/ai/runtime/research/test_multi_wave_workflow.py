@@ -733,7 +733,10 @@ async def test_multi_wave_graph_synthesizes_and_reviews_against_the_rewritten_go
 
 
 @pytest.mark.asyncio
-async def test_multi_wave_graph_skips_pdf_and_completes_when_the_user_rejects_the_report() -> None:
+async def test_multi_wave_graph_skips_pdf_when_report_rejected_without_feedback() -> None:
+    """No feedback text -> exactly today's pre-reject-with-revise dead
+    end (see the reject-with-revise tests below for the feedback case)."""
+
     run_id, owner_id = uuid4(), uuid4()
     retrieval = AsyncMock()
     retrieval.execute_task.return_value = ResearchTaskResult(
@@ -793,19 +796,161 @@ async def test_multi_wave_graph_skips_pdf_and_completes_when_the_user_rejects_th
     final_report_writer.write.assert_not_awaited()
 
     result = await graph.ainvoke(
-        Command(resume={"decision": "rejected", "reason": "not accurate"}), config=config
+        Command(resume={"decision": "rejected", "reason": None}), config=config
     )
 
-    # Rejection routes straight to END (skipping `persist_final_report`) --
-    # no PDF is written, but the already-synthesized draft/evidence/review
-    # survive in the returned state so the run can still complete and
-    # publish a plain answer (see `execution.py::_finalize_or_pause`).
+    # Rejection with no feedback text routes straight to END (skipping
+    # `persist_final_report`) -- no PDF is written, but the
+    # already-synthesized draft/evidence/review survive in the returned
+    # state so the run can still complete and publish a plain answer
+    # (see `execution.py::_finalize_or_pause`).
+    synthesis.synthesize.assert_awaited_once()
     final_report_writer.write.assert_not_awaited()
     assert result["report_decision"] == "rejected"
-    assert result["report_rejection_reason"] == "not accurate"
+    assert result["report_rejection_reason"] is None
     assert "final_report_ref" not in result
     assert result["draft"]["title"] == "Report"
     assert result["review"]["decision"] == "pass"
+
+
+@pytest.mark.asyncio
+async def test_multi_wave_graph_revises_and_re_pauses_when_report_rejected_with_feedback() -> None:
+    """Reject-with-revise: feedback text on a report rejection re-invokes
+    `synthesize` with it as `revision_instructions`, over the same
+    evidence (no new retrieval), and re-pauses at a fresh
+    `await_report_approval` interrupt instead of ending the run."""
+
+    run_id, owner_id = uuid4(), uuid4()
+    retrieval = AsyncMock()
+    retrieval.execute_task.return_value = ResearchTaskResult(
+        task_id="only", status=ResearchTaskStatus.COMPLETED
+    )
+    writer = AsyncMock(spec=ResearchEvidenceArtifactWriter)
+    writer.write.return_value = "artifacts/research-runs/evidence.json"
+    synthesis = AsyncMock(spec=ResearchSynthesisService)
+    synthesis.synthesize.return_value = ResearchDraft(
+        title="Report",
+        abstract="Abstract.",
+        methodology="Methodology.",
+        findings=[ResearchDraftSection(heading="Finding", content="Grounded finding.")],
+        discussion="Discussion.",
+        conclusion="Conclusion.",
+    )
+    reviewer = AsyncMock(spec=ResearchReviewService)
+    reviewer.review.return_value = ResearchReview(
+        decision=ReviewDecision.PASS,
+        citation_integrity_score=1.0,
+        completeness_score=1.0,
+    )
+    final_report_writer = AsyncMock(spec=ResearchFinalReportArtifactWriter)
+    graph = compile_multi_wave_research_graph(
+        checkpointer=InMemorySaver(),
+        task_retrieval=retrieval,
+        evidence_writer=writer,
+        synthesis=synthesis,
+        final_report_writer=final_report_writer,
+        reviewer=reviewer,
+    )
+    only = ResearchPlanTask(task_id="only", question="only")
+    config = {"configurable": {"thread_id": str(run_id)}}
+
+    await graph.ainvoke(
+        {
+            "research_run_id": str(run_id),
+            "owner_id": str(owner_id),
+            "plan": {"goal": "q", "complexity": "simple"},
+            "waves": [[only.model_dump(mode="json")]],
+            "filters": {},
+            "top_k": 5,
+            "task_results": {},
+        },
+        config=config,
+    )
+    await _approve_plan(graph, config)
+
+    result = await graph.ainvoke(
+        Command(resume={"decision": "rejected", "reason": "the discussion is too shallow"}),
+        config=config,
+    )
+
+    assert "__interrupt__" in result
+    final_report_writer.write.assert_not_awaited()
+    retrieval.execute_task.assert_awaited_once()  # no new retrieval
+    assert synthesis.synthesize.await_count == 2
+    assert synthesis.synthesize.await_args.kwargs["revision_instructions"] == [
+        "the discussion is too shallow"
+    ]
+
+
+@pytest.mark.asyncio
+async def test_multi_wave_graph_ends_report_rejection_once_revision_budget_is_spent() -> None:
+    """`max_human_revisions` (1, all complexity tiers) actually bounds
+    the loop -- a second feedback-bearing rejection of the same run ends
+    it instead of revising again."""
+
+    run_id, owner_id = uuid4(), uuid4()
+    retrieval = AsyncMock()
+    retrieval.execute_task.return_value = ResearchTaskResult(
+        task_id="only", status=ResearchTaskStatus.COMPLETED
+    )
+    writer = AsyncMock(spec=ResearchEvidenceArtifactWriter)
+    writer.write.return_value = "artifacts/research-runs/evidence.json"
+    synthesis = AsyncMock(spec=ResearchSynthesisService)
+    synthesis.synthesize.return_value = ResearchDraft(
+        title="Report",
+        abstract="Abstract.",
+        methodology="Methodology.",
+        findings=[ResearchDraftSection(heading="Finding", content="Grounded finding.")],
+        discussion="Discussion.",
+        conclusion="Conclusion.",
+    )
+    reviewer = AsyncMock(spec=ResearchReviewService)
+    reviewer.review.return_value = ResearchReview(
+        decision=ReviewDecision.PASS,
+        citation_integrity_score=1.0,
+        completeness_score=1.0,
+    )
+    final_report_writer = AsyncMock(spec=ResearchFinalReportArtifactWriter)
+    graph = compile_multi_wave_research_graph(
+        checkpointer=InMemorySaver(),
+        task_retrieval=retrieval,
+        evidence_writer=writer,
+        synthesis=synthesis,
+        final_report_writer=final_report_writer,
+        reviewer=reviewer,
+    )
+    only = ResearchPlanTask(task_id="only", question="only")
+    config = {"configurable": {"thread_id": str(run_id)}}
+
+    await graph.ainvoke(
+        {
+            "research_run_id": str(run_id),
+            "owner_id": str(owner_id),
+            "plan": {"goal": "q", "complexity": "simple"},
+            "waves": [[only.model_dump(mode="json")]],
+            "filters": {},
+            "top_k": 5,
+            "task_results": {},
+        },
+        config=config,
+    )
+    await _approve_plan(graph, config)
+    first_revision = await graph.ainvoke(
+        Command(resume={"decision": "rejected", "reason": "first round of feedback"}),
+        config=config,
+    )
+    assert "__interrupt__" in first_revision
+    assert first_revision["human_revision_count"] == 1
+
+    result = await graph.ainvoke(
+        Command(resume={"decision": "rejected", "reason": "second round of feedback"}),
+        config=config,
+    )
+
+    assert "__interrupt__" not in result
+    assert result["report_decision"] == "rejected"
+    assert synthesis.synthesize.await_count == 2  # not a third pass
+    final_report_writer.write.assert_not_awaited()
 
 
 @pytest.mark.asyncio

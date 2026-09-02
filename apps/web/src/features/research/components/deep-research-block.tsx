@@ -404,7 +404,7 @@ export function DeepResearchBlock({
                 <textarea
                   value={rejectReason}
                   onChange={(e) => setRejectReason(e.target.value)}
-                  placeholder="What's wrong with it? (optional)"
+                  placeholder="What should change? We'll revise the report once, using this feedback."
                   rows={2}
                   className="w-full bg-ink-800 border border-ink-500 rounded-lg px-3 py-2 text-stone-100 text-[13px] placeholder-stone-600 resize-none focus:outline-none focus:border-sage-600 mb-2"
                 />
@@ -414,7 +414,7 @@ export function DeepResearchBlock({
                     onClick={() => onReportDecision(false, rejectReason || undefined)}
                     className="px-3 py-1.5 rounded-lg bg-red-900/40 hover:bg-red-900/60 text-red-300 text-[12px] transition-colors duration-150"
                   >
-                    Confirm reject
+                    {rejectReason.trim() ? 'Revise with this feedback' : 'Confirm reject'}
                   </button>
                   <button
                     type="button"

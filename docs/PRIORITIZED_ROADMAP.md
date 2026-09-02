@@ -216,15 +216,24 @@ compressing this to one line loses real decisions already made:
   path instead of `REVISE_SYNTHESIS`. Whether v1 supports only the
   no-new-evidence case (simpler, ships faster) or both is still open.
 
-**HITL confirmation on irreversible actions** (readiness items 5/6) is
-folded into this wave rather than deferred to Wave 7: memory deletion
-(`forget_memory`) has no confirmation step today, and there's no
-document-delete endpoint at all yet (so it should be designed gated from
-day one, not retrofitted). This doesn't need to wait for Wave 7's guardrails
-work — it reuses the same `interrupt()` mechanism this wave already
-applies twice (Socratic node, reject-with-revise), so there's no reason to
-gate it behind the guardrails-vendor decision, which is a different kind
-of question entirely.
+**HITL confirmation on irreversible actions** (readiness items 5/6) —
+**done, 2026-09-02.** This paragraph originally claimed memory deletion
+(`forget_memory`) had no confirmation step and that both it and a
+(not-yet-built) document-delete endpoint would reuse Deep Research's
+`interrupt()` mechanism. Both halves were wrong by the time this was
+checked against the live code: memory deletion already had a full
+two-step flow (`POST /memory/deletion/preview` → a single-use,
+TTL-bound `confirmation_token` → `DELETE /memory/{id}?confirmation_token=...`,
+gated behind an accessible `role="alertdialog"` confirm dialog in
+`memory/page.tsx`) — a plain REST preview/token pattern, not `interrupt()`,
+which only exists inside a LangGraph run and was never applicable here.
+Document deletion had no endpoint at all; it's now built the same
+session this was caught: `DELETE /documents/{document_id}` (ownership-checked,
+deletes Qdrant vectors → S3 artifacts → the Postgres row, in that order,
+so a mid-failure leaves the document intact for a safe retry) behind a
+simpler client-side confirm dialog in `DocumentDetailsDrawer` — no
+token round-trip, since a single document has no cascading blast radius
+to preview, unlike memory's batch/scope-wide deletes.
 
 **Five items triaged into this wave 2026-08-12**, per
 `docs/IMPLEMENTATION_GAP_CROSSCHECK_2026-08-12.md` Table B — each was

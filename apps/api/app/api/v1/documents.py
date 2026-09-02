@@ -12,6 +12,7 @@ from fastapi import (
     UploadFile,
     status,
 )
+from sqlalchemy.ext.asyncio import AsyncSession
 
 # from app.ai.knowledge.processing.enums import DocumentFormat
 # from app.ai.knowledge.processing.interfaces import ParseRequest
@@ -20,6 +21,7 @@ from app.ai.knowledge.vectorstores.enums import VectorStoreProvider
 from app.ai.knowledge.vectorstores.service import VectorStoreService
 from app.auth.dependencies import get_current_user
 from app.core.settings import settings
+from app.db.session import get_db
 from app.dependencies import (
     # get_document_processing_service,
     get_document_repository,
@@ -27,7 +29,9 @@ from app.dependencies import (
     get_vectorstore_service,
 )
 from app.dependencies.project import get_project_authorization_service
-from app.exceptions.base import ValidationException
+from app.dependencies.upload import get_document_storage
+from app.exceptions.base import NotFoundException, ValidationException
+from app.infrastructure.storage.interfaces import DocumentStorage
 from app.models.user import User
 from app.repositories.document import DocumentKind, DocumentRepository
 from app.schemas.document import (
@@ -220,3 +224,49 @@ async def upload_document(
     #     )
 
     return DocumentUploadResponse.model_validate(document)
+
+
+@router.delete(
+    "/{document_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Permanently delete a document and its indexed content",
+)
+async def delete_document(
+    document_id: UUID,
+    current_user: User = Depends(get_current_user),
+    repository: DocumentRepository = Depends(get_document_repository),
+    vectorstore_service: VectorStoreService = Depends(get_vectorstore_service),
+    storage: DocumentStorage = Depends(get_document_storage),
+    session: AsyncSession = Depends(get_db),
+) -> None:
+    """
+    Deletes the Qdrant vectors and S3 artifacts first, then the Postgres
+    row -- both external deletes are idempotent, so if either raises, the
+    row is left untouched and the caller can safely retry, rather than
+    leaving a "deleted" document whose vectors or files silently leaked.
+    """
+
+    document = await repository.get_by_id(document_id)
+    if document is None or document.owner_id != current_user.id:
+        raise NotFoundException(message=f"Document '{document_id}' was not found.")
+
+    # Mirrors `document_knowledge_stats`'s guard -- a document that was
+    # never successfully indexed (e.g. upload failed before any vectors
+    # were written) has nothing to delete, and the collection may not
+    # exist yet in an otherwise-empty environment.
+    if await vectorstore_service.collection_exists(
+        provider=VectorStoreProvider.QDRANT,
+        collection_name=settings.qdrant_collection_name,
+    ):
+        await vectorstore_service.delete_document(
+            provider=VectorStoreProvider.QDRANT,
+            collection_name=settings.qdrant_collection_name,
+            document_id=str(document.id),
+        )
+
+    prefix = f"documents/{document.owner_id}/{document.id}"
+    for key in await storage.list_keys(prefix=prefix):
+        await storage.delete(key=key)
+
+    await repository.delete(document)
+    await session.commit()

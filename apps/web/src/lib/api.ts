@@ -1207,6 +1207,8 @@ export const api = {
       }
       return res.json() as Promise<Document>;
     },
+    delete: (documentId: string) =>
+      request<void>(`/api/v1/documents/${documentId}`, { method: 'DELETE' }),
   },
 
   feedback: {

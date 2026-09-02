@@ -195,3 +195,17 @@ async def test_get_by_ids_for_owner_with_no_ids_returns_empty(db_session) -> Non
     result = await repository.get_by_ids_for_owner([], owner_id=owner_id)
 
     assert result == []
+
+
+@pytest.mark.asyncio
+async def test_delete_removes_the_document(db_session) -> None:
+    owner_id = await _make_owner(db_session)
+    repository = DocumentRepository(db_session)
+
+    document = await repository.create(_make_document(owner_id=owner_id, checksum="to-delete"))
+
+    await repository.delete(document)
+    await db_session.flush()
+
+    result = await repository.get_by_id(document.id)
+    assert result is None
